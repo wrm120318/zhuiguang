@@ -5,7 +5,8 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { formatSize, fileIcon } from '@/utils/helpers'
-import { ElMessage, type UploadFile } from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
+import { renderMarkdown as md } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,7 +18,11 @@ const activeTab = ref('announcement')
 const subjectResources = ref<any[]>([])
 const subjectArticles = ref<any[]>([])
 const subjectQueries = ref<any[]>([])
+const subjectQuizzes = ref<any[]>([])
+const subjectQuestions = ref<any[]>([])
 const contributors = ref<any[]>([])
+const addQuestionVisible = ref(false)
+const qForm = ref({ qtype: 'single', content: '', options: ['', '', '', ''], answer: '', score: 5, attachments: [] as any[] })
 
 async function load() {
   const slug = route.params.slug as string
@@ -30,8 +35,13 @@ async function load() {
   if (user.isLogin) {
     const all = (await api.queryTasks()) as any
     subjectQueries.value = (all || []).filter((t: any) => t.subject_id === sid)
+    subjectQuizzes.value = (await api.quizzes({ subjectId: sid })) as any
+    subjectQuestions.value = (await api.subjectQuestions(sid)) as any
   }
   contributors.value = (await api.leaderboard({ scope: 'subject', subjectId: sid, period: 'total' })) as any
+}
+async function reloadQuestions() {
+  if (subject.value) subjectQuestions.value = (await api.subjectQuestions(subject.value.id)) as any
 }
 onMounted(load)
 watch(() => route.params.slug, load)
@@ -44,6 +54,7 @@ const tabs = computed(() => {
   if (m.resources) t.push({ key: 'resources', label: '资料共享' })
   if (m.articles) t.push({ key: 'articles', label: '美文共赏' })
   if (m.query) t.push({ key: 'query', label: '数据查询' })
+  if (m.quiz) t.push({ key: 'quiz', label: '题库自测' })
   if (m.leaderboard) t.push({ key: 'leaderboard', label: '学科榜' })
   return t
 })
@@ -64,6 +75,61 @@ const moduleLabels: Record<string, string> = {
 
 async function likeArticle(id: number) { try { await api.likeArticle(id); const a = subjectArticles.value.find(x => x.id === id); if (a) a.likes++ } catch { /* */ } }
 async function likeResource(id: number) { try { await api.likeResource(id); const r = subjectResources.value.find(x => x.id === id); if (r) r.likes++ } catch { /* */ } }
+
+function quizStatusLabel(s: string) { return s === 'published' ? '进行中' : s === 'closed' ? '已关闭' : '草稿' }
+async function goQuizNew() {
+  if (subject.value) {
+    router.push({ path: '/quiz/new', query: { subjectId: String(subject.value.id) } })
+  } else {
+    router.push('/quiz/new')
+  }
+}
+
+// 题目池：教师添加题目
+function openAddQuestion() {
+  qForm.value = { qtype: 'single', content: '', options: ['', '', '', ''], answer: '', score: 5, attachments: [] }
+  addQuestionVisible.value = true
+}
+function onQTypeChange() {
+  if (qForm.value.qtype === 'judge') qForm.value.options = ['对', '错']
+  else if (qForm.value.qtype === 'subjective') qForm.value.options = []
+  else if (qForm.value.options.length < 2) qForm.value.options = ['', '', '', '']
+}
+async function onQAttach(file: File) {
+  try {
+    const r: any = await api.uploadFile(file)
+    qForm.value.attachments.push({ url: r.url, name: r.fileName, size: r.fileSize, type: r.fileType })
+  } catch { /* */ }
+  return false
+}
+function removeQAttach(idx: number) { qForm.value.attachments.splice(idx, 1) }
+async function submitQuestion() {
+  if (!qForm.value.content) { ElMessage.warning('请输入题干'); return }
+  if (!subject.value) return
+  try {
+    await api.addSubjectQuestion(subject.value.id, {
+      qtype: qForm.value.qtype,
+      content: qForm.value.content,
+      options: qForm.value.qtype === 'subjective' ? [] : qForm.value.options.filter(o => o !== ''),
+      answer: qForm.value.answer,
+      score: qForm.value.score,
+      attachments: qForm.value.attachments,
+    })
+    ElMessage.success('题目已添加')
+    addQuestionVisible.value = false
+    await reloadQuestions()
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '添加失败') }
+}
+async function deleteQuestion(id: number) {
+  try {
+    await ElMessageBox.confirm('确定删除该题目？相关训练记录也会删除', '提示', { type: 'warning' })
+    await api.deleteSubjectQuestion(id)
+    ElMessage.success('已删除')
+    await reloadQuestions()
+  } catch { /* */ }
+}
+function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
+
 async function downloadResource(r: any) {
   try {
     const resp: any = await api.downloadResource(r.id)
@@ -251,6 +317,101 @@ async function submitResource() {
       <el-empty v-if="!subjectQueries.length" description="暂无查询任务" />
     </section>
 
+    <section v-if="activeTab === 'quiz'" class="tab-panel">
+      <!-- 单题训练题目池 -->
+      <div class="panel-head">
+        <div class="section-title">🏋️ 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
+        <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
+      </div>
+      <div class="practice-list">
+        <div v-for="(q, i) in subjectQuestions" :key="q.id" class="practice-card glass">
+          <div class="pc-head">
+            <span class="pc-no">第 {{ i + 1 }} 题</span>
+            <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
+            <span class="pc-score">{{ q.score }} 分</span>
+            <span class="pc-author" v-if="q.creator_name">👤 {{ q.creator_name }}</span>
+            <el-button v-if="user.isStaff" text type="danger" size="small" @click="deleteQuestion(q.id)">删除</el-button>
+          </div>
+          <div class="pc-content q-content" v-html="md(q.content)"></div>
+          <div class="pc-actions">
+            <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/practice/${q.id}`)">开始训练</el-button>
+            <span v-if="q.attachments?.length" class="pc-att">📎 {{ q.attachments.length }} 个附件</span>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!subjectQuestions.length" description="本学科暂无训练题目" />
+
+      <!-- 考试列表 -->
+      <div class="panel-head" style="margin-top:32px">
+        <div class="section-title">📝 考试列表（{{ subjectQuizzes.length }} 场）</div>
+        <el-button v-if="user.isStaff" type="primary" round size="small" @click="goQuizNew">+ 组织考试</el-button>
+      </div>
+      <div class="quiz-grid">
+        <div v-for="q in subjectQuizzes" :key="q.id" class="quiz-card glass zg-card">
+          <div class="qz-head">
+            <el-tag size="small" :type="q.status === 'published' ? 'success' : q.status === 'closed' ? 'info' : 'warning'">{{ quizStatusLabel(q.status) }}</el-tag>
+            <span class="qz-time">{{ q.created_at?.slice(0, 16) }}</span>
+          </div>
+          <div class="qz-title">{{ q.title }}</div>
+          <div class="qz-desc">{{ q.description || '暂无描述' }}</div>
+          <div class="qz-meta">
+            <span v-if="q.duration">⏱ {{ q.duration }} 分钟</span>
+            <span v-if="q.valid_until">📅 截止 {{ q.valid_until }}</span>
+          </div>
+          <div class="qz-actions">
+            <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/quiz/${q.id}`)">开始作答</el-button>
+            <el-button v-if="user.isStudent" size="small" round @click="router.push(`/quiz/${q.id}/report`)">查看报告</el-button>
+            <el-button v-if="user.isStaff" size="small" round @click="router.push(`/quiz/${q.id}/submissions`)">批改 / 报告</el-button>
+            <el-button v-if="user.isStaff" size="small" round @click="router.push(`/quiz/${q.id}/edit`)">编辑</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-if="!subjectQuizzes.length" description="本学科暂无考试" />
+    </section>
+
+    <!-- 添加题目弹窗 -->
+    <el-dialog v-model="addQuestionVisible" title="添加训练题目" width="640px">
+      <el-form label-width="70px">
+        <el-form-item label="题型">
+          <el-select v-model="qForm.qtype" @change="onQTypeChange" style="width:200px">
+            <el-option label="单选题" value="single" />
+            <el-option label="多选题" value="multiple" />
+            <el-option label="判断题" value="judge" />
+            <el-option label="主观题" value="subjective" />
+          </el-select>
+          <el-input-number v-model="qForm.score" :min="1" :max="100" style="margin-left:12px" /> 分
+        </el-form-item>
+        <el-form-item label="题干">
+          <el-input v-model="qForm.content" type="textarea" :rows="3" placeholder="支持 Markdown：## 标题、**加粗**、![图片](url)、[链接](url)" />
+        </el-form-item>
+        <el-form-item label="选项" v-if="qForm.qtype !== 'subjective'">
+          <div class="q-opt-edit">
+            <div v-for="(opt, idx) in qForm.options" :key="idx" class="qoe-row">
+              <el-input v-model="qForm.options[idx]" :placeholder="`选项 ${String.fromCharCode(65 + idx)}`" size="small" />
+              <el-button v-if="qForm.qtype !== 'judge'" text type="danger" size="small" @click="qForm.options.splice(idx, 1)">×</el-button>
+            </div>
+            <el-button v-if="qForm.qtype !== 'judge'" text size="small" @click="qForm.options.push('')">+ 添加选项</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="答案">
+          <el-input v-model="qForm.answer" :placeholder="qForm.qtype === 'judge' ? '对 或 错' : qForm.qtype === 'multiple' ? '多个用英文逗号，如 A,B' : qForm.qtype === 'subjective' ? '参考答案 / 评分要点（仅教师可见）' : '如 A'" />
+        </el-form-item>
+        <el-form-item label="附件">
+          <el-upload :before-upload="onQAttach" :show-file-list="false" multiple>
+            <el-button size="small">📎 添加附件（图片/文件）</el-button>
+          </el-upload>
+          <div v-for="(a, idx) in qForm.attachments" :key="idx" class="qa-item-row">
+            <span>📎 {{ a.name }}</span>
+            <el-button text type="danger" size="small" @click="removeQAttach(idx)">×</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addQuestionVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitQuestion">添加</el-button>
+      </template>
+    </el-dialog>
+
     <section v-if="activeTab === 'leaderboard'" class="tab-panel">
       <div class="section-title">{{ subject.name }} · 贡献榜</div>
       <div class="rank-list glass">
@@ -335,6 +496,25 @@ async function submitResource() {
 .qc-title { font-size:17px; font-weight:700; }
 .qc-note { font-size:13px; color:var(--zg-text-dim); margin:8px 0; line-height:1.6; min-height:40px; }
 .qc-foot { display:flex; justify-content:space-between; font-size:12px; color:var(--zg-text-dim); margin-bottom:12px; flex-wrap:wrap; gap:4px; }
+.quiz-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+.quiz-card { padding:18px; }
+.qz-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-size:12px; color:var(--zg-text-dim); }
+.qz-title { font-size:17px; font-weight:700; }
+.qz-desc { font-size:13px; color:var(--zg-text-dim); margin:8px 0 10px; line-height:1.6; min-height:40px; }
+.qz-meta { display:flex; gap:12px; font-size:12px; color:var(--zg-text-dim); margin-bottom:12px; flex-wrap:wrap; }
+.qz-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.practice-list { display:flex; flex-direction:column; gap:14px; }
+.practice-card { padding:16px 18px; }
+.pc-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; font-size:13px; color:var(--zg-text-dim); flex-wrap:wrap; }
+.pc-no { font-weight:700; color:var(--zg-text); }
+.pc-score { color:var(--zg-primary); font-weight:600; }
+.pc-author { margin-left:auto; font-size:12px; }
+.pc-content { margin-bottom:10px; }
+.pc-actions { display:flex; align-items:center; gap:12px; }
+.pc-att { font-size:12px; color:var(--zg-text-dim); }
+.q-opt-edit { width:100%; display:flex; flex-direction:column; gap:6px; }
+.qoe-row { display:flex; gap:6px; align-items:center; }
+.qa-item-row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:6px 0; }
 .rank-list { padding:12px; }
 .rank-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:10px; }
 .rank-item.top { background:rgba(245,158,11,.06); }

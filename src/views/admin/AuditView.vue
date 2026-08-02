@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { renderMarkdown as md } from '@/utils/markdown'
 
 const tab = ref<'article' | 'resource'>('article')
 const articles = ref<any[]>([])
@@ -95,7 +96,7 @@ async function batchApprove() {
               </el-tag>
             </div>
             <div class="au-rec">{{ a.recommendation }}</div>
-            <div class="au-content" v-html="a.content"></div>
+            <div class="au-content" v-html="md(a.content)"></div>
           </div>
           <div class="au-actions">
             <template v-if="a.status === 'pending'">

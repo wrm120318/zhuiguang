@@ -41,6 +41,9 @@ pc_login_final.png
 server/zhuiguang.db
 server/zhuiguang.db-wal
 server/zhuiguang.db-shm
+server/local.db
+server/local.db-wal
+server/local.db-shm
 server/uploads/*
 !server/uploads/.gitkeep
 

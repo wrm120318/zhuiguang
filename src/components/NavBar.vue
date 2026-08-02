@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useThemeStore } from '@/store/theme'
+import { useSettingsStore } from '@/store/settings'
 import { ElMessage } from 'element-plus'
 import { api } from '@/api'
 
@@ -12,6 +13,14 @@ const route = useRoute()
 const user = useUserStore()
 const data = useDataStore()
 const theme = useThemeStore()
+const settings = useSettingsStore()
+
+const messageUnread = ref(0)
+
+async function refreshUnread() {
+  if (!user.isLogin) return
+  try { const r: any = await api.messageUnreadCount(); messageUnread.value = r?.count || 0 } catch { /* */ }
+}
 
 const noticeVisible = ref(false)
 const drawerVisible = ref(false)
@@ -63,15 +72,25 @@ async function loadNotices() {
   myNotices.value = (await api.notices()) as any
   unread.value = myNotices.value.filter((n: any) => !n.read).length
 }
-onMounted(() => { applyFontScale(); loadNotices() })
+onMounted(() => {
+  applyFontScale(); loadNotices(); refreshUnread()
+  // 站内信已读后即时刷新未读数
+  window.addEventListener('messages-read', refreshUnread)
+})
+onUnmounted(() => { window.removeEventListener('messages-read', refreshUnread) })
+
+// 路由变化时刷新未读信件数（站内信已读后红色徽标即时消失）
+watch(() => route.fullPath, () => { refreshUnread() })
 
 const navItems = computed(() => {
-  const items = [
-    { name: 'home', label: '首页', to: '/' },
-    { name: 'subjects', label: '学科', to: '/subjects' },
-    { name: 'leaderboard', label: '经验榜', to: '/leaderboard' },
-  ]
-  if (user.isStaff) items.push({ name: 'admin', label: '管理后台', to: '/admin' })
+  const items: { name: string; label: string; to: string }[] = [{ name: 'home', label: '首页', to: '/' }]
+  if (settings.isEnabled('subjects')) items.push({ name: 'subjects', label: '学科', to: '/subjects' })
+  if (settings.isEnabled('guide')) items.push({ name: 'guide', label: '说明', to: '/guide' })
+  if (settings.isEnabled('blog')) items.push({ name: 'blog', label: '博客', to: '/blog' })
+  if (settings.isEnabled('announcement')) items.push({ name: 'announcements', label: '公告', to: '/announcements' })
+  if (settings.isEnabled('quiz')) items.push({ name: 'quizzes', label: '题库', to: '/quizzes' })
+  if (settings.isEnabled('leaderboard')) items.push({ name: 'leaderboard', label: '经验榜', to: '/leaderboard' })
+  if (user.isStaff) items.push({ name: 'admin', label: '管理', to: '/admin' })
   return items
 })
 
@@ -97,7 +116,11 @@ function typeLabel(t: string) {
       </nav>
 
       <div class="actions" v-if="user.isLogin">
-        <el-button text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
+        <el-button v-if="settings.isEnabled('search')" text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
+
+        <el-badge v-if="settings.isEnabled('message')" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
+          <el-button text circle class="action-btn" @click="go('/messages')">✉️</el-button>
+        </el-badge>
 
         <el-popover trigger="click" width="240" placement="bottom-end" :visible="settingsVisible" @update:visible="settingsVisible = $event">
           <template #reference>
@@ -156,10 +179,15 @@ function typeLabel(t: string) {
       </div>
       <div class="d-list">
         <div class="d-item" @click="go('/')">🏠 首页</div>
-        <div class="d-item" @click="go('/subjects')">📚 全部学科</div>
-        <div class="d-item" @click="go('/leaderboard')">🏆 经验榜</div>
+        <div class="d-item" v-if="settings.isEnabled('subjects')" @click="go('/subjects')">📚 全部学科</div>
+        <div class="d-item" v-if="settings.isEnabled('guide')" @click="go('/guide')">📖 网站说明</div>
+        <div class="d-item" v-if="settings.isEnabled('blog')" @click="go('/blog')">✍️ 网站博客</div>
+        <div class="d-item" v-if="settings.isEnabled('announcement')" @click="go('/announcements')">📢 网站公告</div>
+        <div class="d-item" v-if="settings.isEnabled('quiz')" @click="go('/quizzes')">📝 题库自测</div>
+        <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')">🏆 经验榜</div>
+        <div class="d-item" @click="go('/exp-doc')">⭐ 经验值说明</div>
         <div class="d-item" @click="go('/profile')">👤 个人中心</div>
-        <div class="d-item" @click="go('/favorites')">⭐ 我的收藏</div>
+        <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')">⭐ 我的收藏</div>
         <div class="d-item" v-if="user.isStaff" @click="go('/admin')">⚙️ 管理后台</div>
         <div class="d-item" @click="drawerVisible = false; settingsVisible = true">🔤 字体设置</div>
         <div class="d-item" v-if="user.isLogin" @click="logout">🚪 退出登录</div>
@@ -238,6 +266,7 @@ function typeLabel(t: string) {
 .actions { display: flex; align-items: center; gap: 6px; }
 .action-btn { color: var(--zg-text) !important; font-size: 18px !important; }
 .bell :deep(.el-button) { color: var(--zg-text) !important; font-size: 18px; }
+.msg-bell :deep(.el-button) { color: var(--zg-text) !important; font-size: 18px; }
 .me { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 8px 4px 4px; border-radius: 30px; }
 .me:hover { background: rgba(245,158,11,.06); }
 .avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(245,158,11,.3); }
@@ -313,6 +342,7 @@ function typeLabel(t: string) {
   .avatar { width: 32px; height: 32px; }
   .search-dialog { width: 92% !important; }
   .search-bar { flex-direction: column; }
+  .action-btn { font-size: 16px !important; }
 }
 
 @media (min-width: 1200px) {

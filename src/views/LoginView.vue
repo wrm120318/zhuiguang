@@ -33,8 +33,6 @@ async function submit() {
     ElMessage.error(e?.response?.data?.message || e?.message || '操作失败')
   } finally { loading.value = false }
 }
-
-function fillAdmin() { form.value.username = 'admin'; form.value.password = 'admin123456' }
 </script>
 
 <template>
@@ -68,13 +66,6 @@ function fillAdmin() { form.value.username = 'admin'; form.value.password = 'adm
           {{ mode === 'login' ? '登 录' : '注 册' }}
         </el-button>
       </div>
-
-      <div class="quick" v-if="mode === 'login'">
-        <div class="q-title">超级管理员账号</div>
-        <div class="q-list">
-          <div class="q-item" @click="fillAdmin">admin / admin123456</div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -95,11 +86,6 @@ function fillAdmin() { form.value.username = 'admin'; form.value.password = 'adm
 .lc-tab { flex:1; text-align:center; padding: 10px; border-radius: 10px; cursor:pointer; color:var(--zg-text-dim); font-weight:600; transition:all .2s; }
 .lc-tab.on { background: var(--zg-primary); color: #fff; box-shadow: 0 4px 12px rgba(245,158,11,.3); }
 .lc-form { display:flex; flex-direction:column; gap:14px; }
-.quick { margin-top: 24px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.2); }
-.q-title { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-bottom: 10px; }
-.q-list { display:flex; gap:8px; flex-wrap:wrap; }
-.q-item { padding: 6px 12px; border-radius: 20px; background: rgba(245,158,11,.1); font-size: var(--zg-fs-xs); cursor:pointer; transition:all .2s; color: var(--zg-text); }
-.q-item:hover { background: var(--zg-primary); color: #fff; }
 @media (max-width: 768px) {
   .login-card { padding: 28px 20px; border-radius: 20px; }
   .lc-emoji { font-size: 30px; }

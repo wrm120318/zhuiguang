@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/store/theme'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
+import { useSettingsStore } from '@/store/settings'
 import NavBar from '@/components/NavBar.vue'
 import MobileTabBar from '@/components/MobileTabBar.vue'
 
@@ -11,6 +12,7 @@ const route = useRoute()
 const theme = useThemeStore()
 const user = useUserStore()
 const data = useDataStore()
+const settings = useSettingsStore()
 const ready = ref(false)
 const isPublicPage = computed(() => route.meta.public === true)
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
@@ -25,7 +27,7 @@ onMounted(async () => {
     await theme.load()
     if (user.isLogin) {
       await user.fetchProfile().catch(() => {})
-      await data.loadCommon()
+      await Promise.all([data.loadCommon(), settings.fetchAll().catch(() => {})])
     }
   } finally {
     ready.value = true

@@ -39,9 +39,16 @@ async function toggleStatus(u: any) {
 
 async function resetPwd(u: any) {
   try {
-    await ElMessageBox.confirm(`确定重置「${u.real_name}」的密码为 123456？`, '重置密码', { type: 'warning' })
-    await api.resetUser(u.id)
-    ElMessage.success(`已重置密码为 123456`)
+    const { value } = await ElMessageBox.prompt(`为「${u.real_name}」设置新密码（留空则重置为 123456）`, '重置 / 修改密码', {
+      inputType: 'password',
+      inputPlaceholder: '输入新密码（≥4 位），留空默认 123456',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputValidator: (v: string) => !v || v.length >= 4 || '密码至少 4 位',
+    })
+    const pwd = (value || '').trim()
+    await api.setUserPassword(u.id, pwd || '123456')
+    ElMessage.success(`已设置新密码`)
   } catch { /* */ }
 }
 
@@ -150,7 +157,7 @@ async function saveExp() {
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button text size="small" @click="openExpDialog(row)">调整经验</el-button>
-            <el-button text size="small" @click="resetPwd(row)">重置密码</el-button>
+            <el-button text size="small" @click="resetPwd(row)">修改密码</el-button>
             <el-button text size="small" :type="row.status==='active'?'danger':'success'" @click="toggleStatus(row)">{{ row.status === 'active' ? '禁用' : '启用' }}</el-button>
             <el-button text size="small" type="danger" @click="deleteUser(row)">删除</el-button>
           </template>

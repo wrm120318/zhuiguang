@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { ElMessage } from 'element-plus'
+import { renderMarkdown as md } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,7 +59,7 @@ function submitComment() {
           <span>{{ article.created_at || article.createdAt }}</span><span class="dot">·</span><span>👁 {{ article.views }}</span>
         </div>
         <div class="ad-recommend glass" v-if="article.recommendation">💡 {{ article.recommendation }}</div>
-        <div class="ad-content" v-html="article.content"></div>
+        <div class="ad-content" v-html="md(article.content)"></div>
         <div class="ad-gallery" v-if="article.images?.length">
           <img v-for="(im, i) in article.images" :key="i" :src="im" class="ad-img" />
         </div>

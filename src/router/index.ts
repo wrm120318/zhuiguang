@@ -13,6 +13,30 @@ const routes: RouteRecordRaw[] = [
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue') },
   { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
   { path: '/favorites', name: 'favorites', component: () => import('@/views/FavoritesView.vue') },
+  // 网站说明
+  { path: '/guide', name: 'guide', component: () => import('@/views/GuideView.vue') },
+  // 网站博客
+  { path: '/blog', name: 'blog', component: () => import('@/views/BlogListView.vue') },
+  { path: '/blog/new', name: 'blog-new', component: () => import('@/views/BlogEditView.vue') },
+  { path: '/blog/:id', name: 'blog-detail', component: () => import('@/views/BlogDetailView.vue') },
+  // 网站公告
+  { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsView.vue') },
+  { path: '/announcements/new', name: 'announcement-new', component: () => import('@/views/AnnouncementEditView.vue') },
+  { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailView.vue') },
+  // 站内信
+  { path: '/messages', name: 'messages', component: () => import('@/views/MessagesView.vue') },
+  { path: '/messages/:peerId', name: 'message-thread', component: () => import('@/views/MessagesView.vue') },
+  // 经验值说明
+  { path: '/exp-doc', name: 'exp-doc', component: () => import('@/views/ExpDocView.vue') },
+  // 题库自测
+  { path: '/quizzes', name: 'quizzes', component: () => import('@/views/quiz/QuizListView.vue') },
+  { path: '/quiz/new', name: 'quiz-new', component: () => import('@/views/quiz/QuizEditView.vue') },
+  { path: '/quiz/:id', name: 'quiz-take', component: () => import('@/views/quiz/QuizTakeView.vue') },
+  { path: '/quiz/:id/edit', name: 'quiz-edit', component: () => import('@/views/quiz/QuizEditView.vue') },
+  { path: '/quiz/:id/report', name: 'quiz-report', component: () => import('@/views/quiz/QuizReportView.vue') },
+  { path: '/quiz/:id/submissions', name: 'quiz-submissions', component: () => import('@/views/quiz/QuizSubmissionsView.vue') },
+  // 单题训练
+  { path: '/practice/:id', name: 'practice-take', component: () => import('@/views/quiz/PracticeTakeView.vue') },
   {
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),
@@ -25,6 +49,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'audit', name: 'admin-audit', component: () => import('@/views/admin/AuditView.vue') },
       { path: 'query', name: 'admin-query', component: () => import('@/views/admin/QueryCreateView.vue') },
       { path: 'theme', name: 'admin-theme', component: () => import('@/views/admin/ThemeView.vue') },
+      { path: 'guide', name: 'admin-guide', component: () => import('@/views/admin/GuideEditView.vue') },
+      { path: 'exp-rules', name: 'admin-exp-rules', component: () => import('@/views/admin/ExpRulesView.vue') },
+      { path: 'feature-flags', name: 'admin-feature-flags', component: () => import('@/views/admin/FeatureFlagsView.vue') },
     ]
   },
 ]

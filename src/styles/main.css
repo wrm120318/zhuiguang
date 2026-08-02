@@ -225,3 +225,26 @@ img { -webkit-user-drag: none; }
 @media (min-width: 1600px) {
   .zg-container { max-width: 1500px; }
 }
+
+/* ===== Markdown 内容通用样式 ===== */
+.d-content, .g-content, .ad-content, .au-content, .q-content, .q-answer, .q-ref {
+  line-height: 1.8; word-break: break-word;
+}
+.d-content :deep(h1), .d-content :deep(h2), .g-content :deep(h1), .g-content :deep(h2),
+.ad-content :deep(h1), .ad-content :deep(h2), .q-content :deep(h1), .q-content :deep(h2) { margin: 16px 0 10px; font-weight: 800; }
+.d-content :deep(h1), .g-content :deep(h1), .ad-content :deep(h1), .q-content :deep(h1) { font-size: 24px; }
+.d-content :deep(h2), .g-content :deep(h2), .ad-content :deep(h2), .q-content :deep(h2) { font-size: 20px; }
+.d-content :deep(h3), .g-content :deep(h3), .ad-content :deep(h3), .q-content :deep(h3) { font-size: 17px; font-weight: 700; margin: 14px 0 8px; }
+.d-content :deep(p), .g-content :deep(p), .ad-content :deep(p), .q-content :deep(p) { margin: 10px 0; }
+.d-content :deep(ul), .g-content :deep(ul), .ad-content :deep(ul), .q-content :deep(ul),
+.d-content :deep(ol), .g-content :deep(ol), .ad-content :deep(ol), .q-content :deep(ol) { padding-left: 22px; margin: 10px 0; }
+.d-content :deep(li), .g-content :deep(li), .ad-content :deep(li), .q-content :deep(li) { margin: 4px 0; }
+.d-content :deep(img), .g-content :deep(img), .ad-content :deep(img), .q-content :deep(img) { max-width: 100%; border-radius: 12px; margin: 10px 0; }
+.d-content :deep(code), .g-content :deep(code), .ad-content :deep(code), .q-content :deep(code) { background: rgba(245,158,11,.12); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+.d-content :deep(pre), .g-content :deep(pre), .ad-content :deep(pre), .q-content :deep(pre) { background: rgba(0,0,0,.06); padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0; }
+.d-content :deep(pre) :deep(code), .g-content :deep(pre) :deep(code), .q-content :deep(pre) :deep(code) { background: transparent; padding: 0; }
+.d-content :deep(blockquote), .g-content :deep(blockquote), .ad-content :deep(blockquote), .q-content :deep(blockquote) { border-left: 4px solid var(--zg-primary); padding: 4px 14px; margin: 12px 0; background: rgba(245,158,11,.06); border-radius: 0 8px 8px 0; color: var(--zg-text-dim); }
+.d-content :deep(a), .g-content :deep(a), .ad-content :deep(a), .q-content :deep(a) { color: var(--zg-primary); text-decoration: underline; }
+.d-content :deep(table), .g-content :deep(table), .q-content :deep(table) { border-collapse: collapse; margin: 10px 0; width: 100%; }
+.d-content :deep(th), .d-content :deep(td), .g-content :deep(th), .q-content :deep(td) { border: 1px solid rgba(245,158,11,.2); padding: 8px 10px; }
+
