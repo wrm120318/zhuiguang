@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>追光 · 部署向导</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 50%, #FDE68A 100%);
+    min-height: 100vh;
+    padding: 40px 20px;
+    color: #78350f;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 {
+    font-size: 28px; margin-bottom: 8px;
+    display:flex; align-items:center; gap:10px;
+  }
+  h1::before { content: "🌟"; font-size: 32px; }
+  .sub { color: #92400e; margin-bottom: 32px; font-size: 15px; }
+  .card {
+    background: #fff;
+    border-radius: 18px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 32px rgba(251, 146, 60, 0.18);
+    border: 1px solid #fde68a;
+    transition: transform .2s;
+  }
+  .card:hover { transform: translateY(-2px); }
+  .step {
+    display:flex; align-items:center; gap:14px; margin-bottom:14px;
+  }
+  .num {
+    width:36px; height:36px; border-radius:50%;
+    background: linear-gradient(135deg,#F59E0B,#FB923C);
+    color:#fff; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink: 0;
+  }
+  .step h3 { font-size: 17px; color:#78350f; }
+  .done { background:#86efac; }
+  .tag {
+    display:inline-block; padding:3px 10px; border-radius:999px;
+    background:#FEF3C7; color:#92400e; font-size:12px; margin-left:8px;
+    font-weight:500;
+  }
+  .tag.done { background:#DCFCE7; color:#166534; }
+  .body { padding-left: 50px; }
+  .body p { line-height:1.8; font-size:14px; color:#78350f; margin-bottom:10px;}
+  a.btn {
+    display:inline-block; padding: 10px 20px;
+    background: linear-gradient(135deg,#F59E0B,#FB923C);
+    color:#fff; border-radius: 10px; text-decoration:none;
+    font-weight:600; margin-right:10px; margin-top:4px;
+    transition: all .2s; font-size:14px;
+  }
+  a.btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(251,146,60,.4);}
+  a.btn.ghost {
+    background: transparent; color:#F59E0B; border:2px solid #F59E0B;
+  }
+  code, kbd {
+    background: #FFFBEB; border:1px solid #FDE68A; border-radius:6px;
+    padding: 2px 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px; color:#78350f;
+  }
+  .env {
+    display:grid; grid-template-columns: 1fr 1fr; gap:8px;
+    background:#FFFBEB; border-radius:10px; padding:12px;
+    border:1px dashed #FDE68A; margin-top: 10px;
+  }
+  .env div {
+    padding:6px 10px; background:#fff; border-radius:6px;
+    border:1px solid #FDE68A;
+  }
+  .env strong { color:#B45309; font-family: ui-monospace, monospace; font-size:13px;}
+  .warn {
+    background:#FFF7ED; border-left:4px solid #F97316;
+    padding:14px 18px; border-radius:10px;
+    margin: 20px 0 0; font-size:14px; color:#7C2D12; line-height:1.8;
+  }
+  .warn b { color:#C2410C; }
+  details {
+    margin-top:10px;
+    background: #FFFBEB; border-radius:10px; padding: 10px 16px;
+    border: 1px solid #FDE68A;
+  }
+  details summary { cursor:pointer; color:#92400e; font-weight:600; }
+  details pre {
+    margin-top:10px; padding:12px; background:#fff; border-radius:8px;
+    overflow-x: auto; border:1px solid #FDE68A;
+    font-size:13px; line-height:1.7; color:#78350f;
+  }
+  .footer { text-align:center; margin-top:36px; color:#A16207; font-size:13px; }
+  .check {
+    display: inline-flex; align-items:center; gap: 8px;
+    padding:6px 14px; border-radius:999px; background:#FEF3C7;
+    font-size: 13px; color:#92400e;
+  }
+  .check.ok { background:#DCFCE7; color:#166534; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>追光 · 部署向导</h1>
+  <div class="sub">跟着 7 步做，最多 10 分钟上线。所有自动化代码我都已经写好了。</div>
+
+  <!-- ===== 准备工作 ===== -->
+  <div class="card">
+    <div style="margin-bottom:12px">
+      <span class="check ok">✅ 本地构建已通过</span>
+      <span class="check ok">✅ 生产模式 HTTP 200</span>
+      <span class="check ok">✅ 数据库自动初始化</span>
+      <span class="check ok">✅ Render 配置已就位</span>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 1 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">1</div><h3>推代码到 GitHub <span class="tag">2 分钟</span></h3></div>
+    <div class="body">
+      <p>先在 <a class="btn ghost" href="https://github.com/new" target="_blank">GitHub 新建空仓库</a>（名字随便，不要勾选任何模板，不要加 README）。</p>
+      <details open>
+        <summary>📋 点我展开：在本项目目录复制这 3 行命令</summary>
+<pre>
+git remote add origin https://github.com/<span style="color:#B45309">&lt;你的 GitHub 用户名&gt;</span>/zhuiguang.git
+git branch -M main
+git push -u origin main</pre>
+      </details>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 2 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">2</div><h3>注册 Turso（数据库，免费 9GB）<span class="tag">2 分钟</span></h3></div>
+    <div class="body">
+      <p>用 GitHub 一键登录，创建一个数据库，名字随意。</p>
+      <a class="btn" href="https://turso.tech" target="_blank">🔗 打开 Turso</a>
+      <p style="margin-top:12px">创建完成后，复制下面两个值，<b>一会儿粘贴到 Render</b>：</p>
+      <div class="env">
+        <div><strong>TURSO_DATABASE_URL</strong><br/>libsql://xxx.turso.io</div>
+        <div><strong>TURSO_AUTH_TOKEN</strong><br/>Create Token → 生成的 token</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 3 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">3</div><h3>注册 Supabase（文件存储，免费 1GB）<span class="tag">3 分钟</span></h3></div>
+    <div class="body">
+      <p>New Project → 等 2 分钟初始化 → 创建存储桶。</p>
+      <a class="btn" href="https://supabase.com" target="_blank">🔗 打开 Supabase</a>
+      <p style="margin-top:12px"><b>📌 关键步骤（少一个就上传不了文件）：</b></p>
+      <p>① 左侧菜单 <b>Storage</b> → New Bucket → 名称填 <code>zhuiguang-files</code> → <b>勾选 Public</b> → Create</p>
+      <p>② 左侧底部 <b>Settings → API</b> → 复制 Project URL 和 <b>service_role key</b>（不是 anon key，长的那个）</p>
+      <div class="env">
+        <div><strong>SUPABASE_URL</strong><br/>https://xxx.supabase.co</div>
+        <div><strong>SUPABASE_SERVICE_KEY</strong><br/>service_role 的长 key</div>
+        <div><strong>SUPABASE_BUCKET</strong><br/>zhuiguang-files</div>
+      </div>
+      <div class="warn">⚠️ <b>3 个小坑：</b><br/>
+        · Bucket 必须是 <b>Public</b>，不然前端打不开图片<br/>
+        · 用的是 <b>service_role key</b>，不是 anon key<br/>
+        · 免费套餐有 50MB / 月 API 限额上限，小站够用
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 4 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">4</div><h3>Render 新建 Web Service<span class="tag">1 分钟</span></h3></div>
+    <div class="body">
+      <a class="btn" href="https://dashboard.render.com" target="_blank">🔗 打开 Render 控制台</a>
+      <p style="margin-top:12px">→ <b>New → Web Service</b> → 连接第 1 步的 <code>zhuiguang</code> 仓库</p>
+      <p>→ Render 会自动读取仓库根目录的 <code>render.yaml</code>，不用手动改任何配置</p>
+      <p>→ 点 <b>Create Web Service</b></p>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 5 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">5</div><h3>填环境变量（最重要的一步）<span class="tag">3 分钟</span></h3></div>
+    <div class="body">
+      <p>在 Render 服务页 → 左侧 <b>Environment</b> → Environment Variables → 一条条 Add：</p>
+      <div class="env">
+        <div><strong>TURSO_DATABASE_URL</strong><br/>第 2 步拿到的值</div>
+        <div><strong>TURSO_AUTH_TOKEN</strong><br/>第 2 步拿到的值</div>
+        <div><strong>SUPABASE_URL</strong><br/>第 3 步拿到的值</div>
+        <div><strong>SUPABASE_SERVICE_KEY</strong><br/>第 3 步拿到的值</div>
+        <div><strong>SUPABASE_BUCKET</strong><br/>zhuiguang-files</div>
+        <div><strong>JWT_SECRET</strong><br/>让 Render 自动 Generate（不用手动填）</div>
+      </div>
+      <p style="margin-top:10px">保存后 Render 会自动触发重新构建。</p>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 6 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">6</div><h3>等部署<span class="tag">2-5 分钟</span></h3></div>
+    <div class="body">
+      <p>看 <b>Logs</b> 里出现下面两行 = 成功：</p>
+<pre style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-top:8px">
+[storage] Supabase Storage 模式：文件存于云端 bucket
+[server] 追光后端运行于 http://localhost:xxxx
+</pre>
+      <p>顶部出现绿色 <b>Live</b> 按钮，就是成功了。</p>
+      <div class="warn">💡 报错？<br/>
+        常见错误 1：<b>Turso URL/token 填错</b> → 检查 `libsql://` 开头没？<br/>
+        常见错误 2：<b>Supabase service_role key 用成了 anon</b> → 上传/下载会 403
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 步骤 7 ===== -->
+  <div class="card">
+    <div class="step"><div class="num">7</div><h3>登录，享受 ✨</h3></div>
+    <div class="body">
+      <p>访问分配的域名，形如 <code>https://zhuiguang.onrender.com</code>：</p>
+      <p style="margin-top:10px">
+        <b>超管账号：</b><code>admin</code> / <code>admin123456</code>
+      </p>
+      <p style="margin-top:4px">登录后 → <b>管理 → 用户管理</b> 改密码；→ <b>管理 → 经验设置</b> / <b>功能开关</b> 自定义平台。</p>
+    </div>
+  </div>
+
+  <p class="footer">
+    💡 遇到问题看仓库根目录的 <code>DEPLOY_CHECKLIST.md</code>，或直接找我。
+  </p>
+</div>
+</body>
+</html>
