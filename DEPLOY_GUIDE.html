@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>追光 · 部署向导</title>
+<title>追光 · 部署向导（保姆级）</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
@@ -13,46 +13,45 @@
     min-height: 100vh;
     padding: 40px 20px;
     color: #78350f;
+    line-height: 1.7;
   }
-  .wrap { max-width: 860px; margin: 0 auto; }
+  .wrap { max-width: 920px; margin: 0 auto; }
   h1 {
-    font-size: 28px; margin-bottom: 8px;
+    font-size: 30px; margin-bottom: 8px;
     display:flex; align-items:center; gap:10px;
   }
-  h1::before { content: "🌟"; font-size: 32px; }
+  h1::before { content: "🌟"; font-size: 34px; }
   .sub { color: #92400e; margin-bottom: 32px; font-size: 15px; }
   .card {
     background: #fff;
     border-radius: 18px;
-    padding: 24px 28px;
-    margin-bottom: 20px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
     box-shadow: 0 8px 32px rgba(251, 146, 60, 0.18);
     border: 1px solid #fde68a;
-    transition: transform .2s;
   }
-  .card:hover { transform: translateY(-2px); }
   .step {
-    display:flex; align-items:center; gap:14px; margin-bottom:14px;
+    display:flex; align-items:center; gap:14px; margin-bottom:18px;
   }
   .num {
-    width:36px; height:36px; border-radius:50%;
+    width:40px; height:40px; border-radius:50%;
     background: linear-gradient(135deg,#F59E0B,#FB923C);
-    color:#fff; font-weight:700;
+    color:#fff; font-weight:700; font-size:18px;
     display:flex; align-items:center; justify-content:center;
     flex-shrink: 0;
   }
-  .step h3 { font-size: 17px; color:#78350f; }
-  .done { background:#86efac; }
+  .step h3 { font-size: 18px; color:#78350f; }
   .tag {
     display:inline-block; padding:3px 10px; border-radius:999px;
     background:#FEF3C7; color:#92400e; font-size:12px; margin-left:8px;
     font-weight:500;
   }
-  .tag.done { background:#DCFCE7; color:#166534; }
-  .body { padding-left: 50px; }
-  .body p { line-height:1.8; font-size:14px; color:#78350f; margin-bottom:10px;}
+  .body { padding-left: 54px; }
+  .body p { line-height:1.9; font-size:14.5px; color:#78350f; margin-bottom:12px;}
+  .body ol, .body ul { padding-left: 22px; margin-bottom: 12px; }
+  .body li { line-height: 2; font-size: 14.5px; color:#78350f; }
   a.btn {
-    display:inline-block; padding: 10px 20px;
+    display:inline-block; padding: 11px 22px;
     background: linear-gradient(135deg,#F59E0B,#FB923C);
     color:#fff; border-radius: 10px; text-decoration:none;
     font-weight:600; margin-right:10px; margin-top:4px;
@@ -66,33 +65,41 @@
     background: #FFFBEB; border:1px solid #FDE68A; border-radius:6px;
     padding: 2px 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 13px; color:#78350f;
+    word-break: break-all;
   }
   .env {
-    display:grid; grid-template-columns: 1fr 1fr; gap:8px;
-    background:#FFFBEB; border-radius:10px; padding:12px;
-    border:1px dashed #FDE68A; margin-top: 10px;
+    display:grid; grid-template-columns: 1fr 1fr; gap:10px;
+    background:#FFFBEB; border-radius:10px; padding:14px;
+    border:1px dashed #FDE68A; margin-top: 12px;
   }
   .env div {
-    padding:6px 10px; background:#fff; border-radius:6px;
+    padding:8px 12px; background:#fff; border-radius:8px;
     border:1px solid #FDE68A;
   }
-  .env strong { color:#B45309; font-family: ui-monospace, monospace; font-size:13px;}
+  .env strong { color:#B45309; font-family: ui-monospace, monospace; font-size:13px; display:block; margin-bottom:4px;}
   .warn {
     background:#FFF7ED; border-left:4px solid #F97316;
     padding:14px 18px; border-radius:10px;
-    margin: 20px 0 0; font-size:14px; color:#7C2D12; line-height:1.8;
+    margin: 16px 0 0; font-size:14px; color:#7C2D12; line-height:1.9;
   }
   .warn b { color:#C2410C; }
+  .tip {
+    background:#ECFDF5; border-left:4px solid #10B981;
+    padding:14px 18px; border-radius:10px;
+    margin: 16px 0 0; font-size:14px; color:#064E3B; line-height:1.9;
+  }
+  .tip b { color:#047857; }
   details {
-    margin-top:10px;
-    background: #FFFBEB; border-radius:10px; padding: 10px 16px;
+    margin-top:12px;
+    background: #FFFBEB; border-radius:10px; padding: 12px 18px;
     border: 1px solid #FDE68A;
   }
-  details summary { cursor:pointer; color:#92400e; font-weight:600; }
+  details summary { cursor:pointer; color:#92400e; font-weight:600; font-size:14px;}
   details pre {
-    margin-top:10px; padding:12px; background:#fff; border-radius:8px;
+    margin-top:12px; padding:14px; background:#fff; border-radius:8px;
     overflow-x: auto; border:1px solid #FDE68A;
-    font-size:13px; line-height:1.7; color:#78350f;
+    font-size:13px; line-height:1.8; color:#78350f;
+    white-space: pre-wrap; word-break: break-all;
   }
   .footer { text-align:center; margin-top:36px; color:#A16207; font-size:13px; }
   .check {
@@ -101,133 +108,415 @@
     font-size: 13px; color:#92400e;
   }
   .check.ok { background:#DCFCE7; color:#166534; }
+  .pic {
+    background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 10px;
+    padding: 16px 20px; margin: 12px 0;
+    font-size: 13.5px; color: #4b5563; line-height: 1.9;
+  }
+  .pic b { color: #1f2937; }
+  .arrow { color:#F59E0B; font-weight:700; }
+  hr { border: none; border-top: 1px dashed #FDE68A; margin: 16px 0; }
+  .toc {
+    background: #fff; border-radius: 14px; padding: 20px 28px;
+    margin-bottom: 24px; border: 1px solid #fde68a;
+    box-shadow: 0 4px 16px rgba(251, 146, 60, 0.12);
+  }
+  .toc h3 { font-size: 16px; margin-bottom: 10px; color:#78350f; }
+  .toc a {
+    display: inline-block; padding: 4px 12px; margin: 3px;
+    background: #FFFBEB; border-radius: 8px; text-decoration: none;
+    color: #92400e; font-size: 13px; border: 1px solid #FDE68A;
+  }
+  .toc a:hover { background: #FEF3C7; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>追光 · 部署向导</h1>
-  <div class="sub">跟着 7 步做，最多 10 分钟上线。所有自动化代码我都已经写好了。</div>
+  <div class="sub">保姆级教程：每个按钮点哪里、每个值从哪复制，全写清楚了。跟着做就行。</div>
 
-  <!-- ===== 准备工作 ===== -->
+  <!-- ===== 已就绪状态 ===== -->
   <div class="card">
-    <div style="margin-bottom:12px">
-      <span class="check ok">✅ 本地构建已通过</span>
-      <span class="check ok">✅ 生产模式 HTTP 200</span>
-      <span class="check ok">✅ 数据库自动初始化</span>
-      <span class="check ok">✅ Render 配置已就位</span>
+    <div style="margin-bottom:6px"><b style="font-size:15px">✅ 这些我都已经帮你弄好了，你不用管：</b></div>
+    <div style="margin-top:10px">
+      <span class="check ok">✅ 代码写完</span>
+      <span class="check ok">✅ 构建测试通过</span>
+      <span class="check ok">✅ 生产模式验证 200</span>
+      <span class="check ok">✅ render.yaml 配置</span>
+      <span class="check ok">✅ 数据库自动建表</span>
+      <span class="check ok">✅ GitHub Actions 自动部署</span>
+      <span class="check ok">✅ VPS 一键脚本</span>
     </div>
   </div>
 
+  <!-- ===== 目录 ===== -->
+  <div class="toc">
+    <h3>📑 目录（点跳转）</h3>
+    <a href="#s1">1. 推代码到 GitHub</a>
+    <a href="#s2">2. 注册 Turso 数据库</a>
+    <a href="#s3">3. 注册 Supabase 文件存储</a>
+    <a href="#s4">4. Render 创建服务</a>
+    <a href="#s5">5. 填环境变量</a>
+    <a href="#s6">6. 等部署完成</a>
+    <a href="#s7">7. 登录使用</a>
+    <a href="#faq">常见问题</a>
+  </div>
+
   <!-- ===== 步骤 1 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">1</div><h3>推代码到 GitHub <span class="tag">2 分钟</span></h3></div>
+  <div class="card" id="s1">
+    <div class="step"><div class="num">1</div><h3>把代码推送到 GitHub <span class="tag">约 2 分钟</span></h3></div>
     <div class="body">
-      <p>先在 <a class="btn ghost" href="https://github.com/new" target="_blank">GitHub 新建空仓库</a>（名字随便，不要勾选任何模板，不要加 README）。</p>
+      <p><b>为什么要做这步？</b> Render 部署需要从 GitHub 拉取你的代码，所以代码得先传到 GitHub。</p>
+
+      <p><b>① 在 GitHub 网站上创建一个空仓库：</b></p>
+      <ol>
+        <li>打开 <a class="btn ghost" href="https://github.com/new" target="_blank">🔗 github.com/new</a></li>
+        <li><b>Repository name</b> 框里填：<code>zhuiguang</code>（名字随便，这个只是建议）</li>
+        <li><b>Description</b>（描述）：可填可不填</li>
+        <li>选 <b>Public</b>（公开）或 <b>Private</b>（私有）都行，Private 更安全</li>
+        <li><b>⚠️ 关键：不要勾选任何 "Add a README" / "Add .gitignore" / "Choose a license"</b><br/>（因为项目里已经有这些文件了，勾了会冲突）</li>
+        <li>点页面最下面绿色按钮 <b>Create repository</b></li>
+      </ol>
+
+      <div class="pic">
+        <b>创建完会跳到一个页面，上面写着 "…or push an existing repository from the command line"</b><br/>
+        下面有一段类似这样的代码（<b>不要急着复制 GitHub 给你的，用我下面这段更稳</b>）。
+      </div>
+
+      <p><b>② 在你电脑上，打开项目文件夹，右键 → 打开终端（或 PowerShell / CMD）：</b></p>
+      <p>确保你在项目根目录（能看到 <code>package.json</code> 的那个目录），然后复制下面 3 行命令粘贴执行：</p>
+
       <details open>
-        <summary>📋 点我展开：在本项目目录复制这 3 行命令</summary>
+        <summary>📋 点我展开命令（把 &lt;你的用户名&gt; 换成你的 GitHub 用户名）</summary>
 <pre>
-git remote add origin https://github.com/<span style="color:#B45309">&lt;你的 GitHub 用户名&gt;</span>/zhuiguang.git
+git remote add origin https://github.com/<span style="color:#B45309">&lt;你的GitHub用户名&gt;</span>/zhuiguang.git
 git branch -M main
 git push -u origin main</pre>
       </details>
+
+      <div class="tip">
+        <b>💡 举个例子：</b>如果你的 GitHub 用户名是 <code>zhangsan</code>，那第一行就是：<br/>
+        <code>git remote add origin https://github.com/zhangsan/zhuiguang.git</code>
+      </div>
+
+      <p><b>③ 第一次推送时会弹出 GitHub 登录框</b>，按提示登录或粘贴 Personal Access Token 即可。</p>
+
+      <div class="tip">
+        <b>✅ 怎么算成功？</b>刷新你 GitHub 仓库网页，能看到项目所有文件（<code>package.json</code>、<code>server/</code>、<code>src/</code> 等）就对了。
+      </div>
     </div>
   </div>
 
   <!-- ===== 步骤 2 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">2</div><h3>注册 Turso（数据库，免费 9GB）<span class="tag">2 分钟</span></h3></div>
+  <div class="card" id="s2">
+    <div class="step"><div class="num">2</div><h3>注册 Turso（云端数据库，免费 9GB）<span class="tag">约 2 分钟</span></h3></div>
     <div class="body">
-      <p>用 GitHub 一键登录，创建一个数据库，名字随意。</p>
-      <a class="btn" href="https://turso.tech" target="_blank">🔗 打开 Turso</a>
-      <p style="margin-top:12px">创建完成后，复制下面两个值，<b>一会儿粘贴到 Render</b>：</p>
+      <p><b>为什么要做这步？</b> 网站的所有数据（用户、文章、题库等）都要存数据库。Render 免费实例没有持久磁盘，所以数据库得放在 Turso 这种专门的云数据库服务上，免费 9GB 够用很久。</p>
+
+      <p><b>① 打开 Turso 官网注册：</b></p>
+      <a class="btn" href="https://turso.tech" target="_blank">🔗 打开 turso.tech</a>
+      <p style="margin-top:12px">→ 点右上角 <b>Sign up</b> 或 <b>Login</b> → 用 <b>Sign in with GitHub</b>（推荐，一键登录，免得再记一个密码）</p>
+
+      <hr>
+      <p><b>② 创建一个数据库：</b></p>
+      <ol>
+        <li>登录后进入控制台，点 <b>Create Database</b>（或 New Database）</li>
+        <li><b>Database Name</b>：填 <code>zhuiguang</code>（随便填，建议这个）</li>
+        <li><b>Group / Location</b>：选离你最近的（中国用户选 <b>Singapore</b> 或 <b>Tokyo</b>）</li>
+        <li>点 <b>Create</b></li>
+      </ol>
+
+      <hr>
+      <p><b>③ 复制数据库 URL（第一个要粘贴到 Render 的值）：</b></p>
+      <ol>
+        <li>创建完会跳到数据库详情页，能看到一串 <code>libsql://zhuiguang-xxx.turso.io</code></li>
+        <li>点旁边的 <b>复制按钮</b>（或手动选中复制）</li>
+      </ol>
       <div class="env">
-        <div><strong>TURSO_DATABASE_URL</strong><br/>libsql://xxx.turso.io</div>
-        <div><strong>TURSO_AUTH_TOKEN</strong><br/>Create Token → 生成的 token</div>
+        <div><strong>第 1 个值：TURSO_DATABASE_URL</strong><br/>形如 libsql://zhuiguang-xxxx.turso.io<br/><b>先记着，待会儿步骤 5 要粘贴</b></div>
+      </div>
+
+      <hr>
+      <p><b>④ 创建访问 Token（第二个要粘贴到 Render 的值）：</b></p>
+      <ol>
+        <li>在数据库详情页，找 <b>"Create Token"</b> 或 <b>"Access Tokens"</b> 按钮</li>
+        <li>选 <b>Full Access</b>（完整访问）→ 点 <b>Create</b></li>
+        <li>会显示一长串字符（以 <code>eyJ...</code> 开头），<b>立刻复制</b>（⚠️ 只显示一次，关掉就看不到了）</li>
+      </ol>
+      <div class="env">
+        <div><strong>第 2 个值：TURSO_AUTH_TOKEN</strong><br/>形如 eyJhbGciOi...<br/><b>先记着，待会儿步骤 5 要粘贴</b></div>
+      </div>
+
+      <div class="warn">
+        <b>⚠️ 注意：</b>
+        <ul style="margin-top:6px">
+          <li>Token 只显示一次，没复制对的话重新创建一个就行（旧的会失效）</li>
+          <li>URL 必须是 <code>libsql://</code> 开头，不是 <code>https://</code></li>
+        </ul>
       </div>
     </div>
   </div>
 
   <!-- ===== 步骤 3 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">3</div><h3>注册 Supabase（文件存储，免费 1GB）<span class="tag">3 分钟</span></h3></div>
+  <div class="card" id="s3">
+    <div class="step"><div class="num">3</div><h3>注册 Supabase（文件存储，免费 1GB）<span class="tag">约 3 分钟</span></h3></div>
     <div class="body">
-      <p>New Project → 等 2 分钟初始化 → 创建存储桶。</p>
-      <a class="btn" href="https://supabase.com" target="_blank">🔗 打开 Supabase</a>
-      <p style="margin-top:12px"><b>📌 关键步骤（少一个就上传不了文件）：</b></p>
-      <p>① 左侧菜单 <b>Storage</b> → New Bucket → 名称填 <code>zhuiguang-files</code> → <b>勾选 Public</b> → Create</p>
-      <p>② 左侧底部 <b>Settings → API</b> → 复制 Project URL 和 <b>service_role key</b>（不是 anon key，长的那个）</p>
-      <div class="env">
-        <div><strong>SUPABASE_URL</strong><br/>https://xxx.supabase.co</div>
-        <div><strong>SUPABASE_SERVICE_KEY</strong><br/>service_role 的长 key</div>
-        <div><strong>SUPABASE_BUCKET</strong><br/>zhuiguang-files</div>
+      <p><b>为什么要做这步？</b> 用户上传的头像、附件、图片都要存文件。Render 没有持久磁盘，所以文件得放在 Supabase 的对象存储里，免费 1GB 够小站用。</p>
+
+      <p><b>① 打开 Supabase 官网注册：</b></p>
+      <a class="btn" href="https://supabase.com" target="_blank">🔗 打开 supabase.com</a>
+      <p style="margin-top:12px">→ 点右上角 <b>Start your project</b> → 用 <b>Continue with GitHub</b> 一键登录</p>
+
+      <hr>
+      <p><b>② 创建一个项目：</b></p>
+      <ol>
+        <li>点 <b>New Project</b></li>
+        <li><b>Organization</b>：默认就行（首次会让你建一个组织，名字随便填）</li>
+        <li><b>Project Name</b>：填 <code>zhuiguang</code></li>
+        <li><b>Database Password</b>：点 <b>Generate a password</b> 自动生成（<b>记下来</b>，虽然我们不用它，但万一以后直连数据库会用到）</li>
+        <li><b>Region</b>：选 <b>Singapore</b>（东南亚，中国访问最快）</li>
+        <li><b>Pricing Plan</b>：选 <b>Free</b></li>
+        <li>点 <b>Create new project</b></li>
+      </ol>
+      <div class="pic"><b>⏳ 现在等 1-2 分钟</b>，Supabase 在初始化项目。页面会显示 "Setting up project..."，等顶部状态变成绿色 "Ready" 再继续。</div>
+
+      <hr>
+      <p><b>③ 创建存储桶 Bucket（关键！这步做错文件就传不上去）：</b></p>
+      <ol>
+        <li>左侧菜单找 <b>Storage</b>（带数据库桶图标的那个）→ 点进去</li>
+        <li>点右上角 <b>New bucket</b> 按钮</li>
+        <li><b>Bucket name</b>：填 <code>zhuiguang-files</code>（必须一模一样，包括横线）</li>
+        <li><b>Public bucket</b>：<b>勾选它！</b>（不勾选的话前端打不开图片）</li>
+        <li>其它选项不用动，点 <b>Create bucket</b></li>
+      </ol>
+
+      <div class="warn">
+        <b>⚠️ 检查：</b>创建完应该在 Storage 列表里看到一个名为 <code>zhuiguang-files</code> 的桶，旁边有 <b>"Public"</b> 标签。<br/>
+        如果没有 Public 标签 → 点进 bucket → Settings → 勾上 Public → Save。
       </div>
-      <div class="warn">⚠️ <b>3 个小坑：</b><br/>
-        · Bucket 必须是 <b>Public</b>，不然前端打不开图片<br/>
-        · 用的是 <b>service_role key</b>，不是 anon key<br/>
-        · 免费套餐有 50MB / 月 API 限额上限，小站够用
+
+      <hr>
+      <p><b>④ 复制 Project URL（第三个要粘贴到 Render 的值）：</b></p>
+      <ol>
+        <li>左侧菜单最底下点 <b>Settings</b>（齿轮图标）</li>
+        <li>点 <b>API</b></li>
+        <li>找到 <b>Project URL</b>，复制它（形如 <code>https://xxxxx.supabase.co</code>）</li>
+      </ol>
+      <div class="env">
+        <div><strong>第 3 个值：SUPABASE_URL</strong><br/>形如 https://xxxxx.supabase.co<br/><b>先记着，待会儿步骤 5 要粘贴</b></div>
+      </div>
+
+      <hr>
+      <p><b>⑤ 复制 service_role Key（第四个要粘贴到 Render 的值）：</b></p>
+      <ol>
+        <li>还在刚才的 Settings → API 页面</li>
+        <li>往下滚到 <b>"Project API keys"</b> 区域</li>
+        <li>会看到两个 key：<b>anon public</b>（短）和 <b>service_role</b>（长）</li>
+        <li>找到 <b>service_role</b> 那一行 → 点 <b>Reveal</b>（显示）→ 复制那一长串</li>
+      </ol>
+      <div class="env">
+        <div><strong>第 4 个值：SUPABASE_SERVICE_KEY</strong><br/>形如 eyJhbGciOiJIUzI1NiIs...<br/><b>先记着，待会儿步骤 5 要粘贴</b></div>
+      </div>
+
+      <div class="warn">
+        <b>⚠️ 3 个最容易踩的坑：</b>
+        <ul style="margin-top:6px">
+          <li><b>Bucket 必须是 Public</b>：否则用户上传的图片打不开</li>
+          <li><b>用 service_role key，不是 anon key</b>：anon key 权限不够，上传会报 403 错误</li>
+          <li><b>service_role key 千万别泄露到前端代码里</b>：它有完全权限，只在后端用</li>
+        </ul>
       </div>
     </div>
   </div>
 
   <!-- ===== 步骤 4 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">4</div><h3>Render 新建 Web Service<span class="tag">1 分钟</span></h3></div>
+  <div class="card" id="s4">
+    <div class="step"><div class="num">4</div><h3>在 Render 创建 Web Service <span class="tag">约 1 分钟</span></h3></div>
     <div class="body">
+      <p><b>为什么要做这步？</b> Render 是托管平台，它会自动构建你的项目并运行，提供一个公网可访问的网址。</p>
+
+      <p><b>① 打开 Render 注册登录：</b></p>
       <a class="btn" href="https://dashboard.render.com" target="_blank">🔗 打开 Render 控制台</a>
-      <p style="margin-top:12px">→ <b>New → Web Service</b> → 连接第 1 步的 <code>zhuiguang</code> 仓库</p>
-      <p>→ Render 会自动读取仓库根目录的 <code>render.yaml</code>，不用手动改任何配置</p>
-      <p>→ 点 <b>Create Web Service</b></p>
+      <p style="margin-top:12px">→ 右上角 <b>Get Started</b> / <b>Sign Up</b> → 用 <b>GitHub</b> 登录（推荐，会自动关联你的仓库）</p>
+
+      <hr>
+      <p><b>② 新建一个 Web 服务：</b></p>
+      <ol>
+        <li>登录后进入 Dashboard，右上角点 <b>New</b> → 选 <b>Web Service</b></li>
+        <li>会弹出 GitHub 授权，授权 Render 访问你刚推送的 <code>zhuiguang</code> 仓库</li>
+        <li>找到并选中 <b>zhuiguang</b> 仓库 → 点 <b>Connect</b></li>
+      </ol>
+
+      <hr>
+      <p><b>③ 确认配置（Render 会自动读取 <code>render.yaml</code>，基本不用改）：</b></p>
+      <div class="pic">
+        <b>Name</b>：<code>zhuiguang</code>（这个会成为域名前缀，可改）<br/>
+        <b>Runtime</b>：Node<br/>
+        <b>Region</b>：Singapore（或 Oregon，看哪离你近）<br/>
+        <b>Branch</b>：<code>main</code><br/>
+        <b>Root Directory</b>：留空<br/>
+        <b>Build Command</b>：<code>npm install --include=dev && npm run build</code><br/>
+        <b>Start Command</b>：<code>npm run start</code><br/>
+        <b>Instance Type</b>：<b>Free</b>
+      </div>
+      <p>确认无误后，点页面底部 <b>Apply</b> 或 <b>Create Web Service</b> 按钮。</p>
+
+      <div class="tip"><b>💡 此时 Render 会开始构建</b>，但下一步要填环境变量，<b>别等它构建完，马上继续下一步</b>。</div>
     </div>
   </div>
 
   <!-- ===== 步骤 5 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">5</div><h3>填环境变量（最重要的一步）<span class="tag">3 分钟</span></h3></div>
+  <div class="card" id="s5">
+    <div class="step"><div class="num">5</div><h3>填环境变量（最重要的一步）<span class="tag">约 3 分钟</span></h3></div>
     <div class="body">
-      <p>在 Render 服务页 → 左侧 <b>Environment</b> → Environment Variables → 一条条 Add：</p>
+      <p><b>为什么要做这步？</b> 程序启动时需要知道数据库地址、文件存储地址这些敏感信息，这些不能写死在代码里，得通过"环境变量"传给程序。<b>不填程序会启动失败</b>。</p>
+
+      <p><b>① 找到环境变量设置入口：</b></p>
+      <ol>
+        <li>在你的 Render 服务页面，点左侧菜单 <b>Environment</b>（或先点服务名 → 再点左边 <b>Environment</b> 标签）</li>
+        <li>会看到 "Environment Variables" 区域，有一个 <b>Add Environment Variable</b> 按钮</li>
+      </ol>
+
+      <hr>
+      <p><b>② 一条一条添加下面 5 个变量</b>（点 Add Environment Variable → 填 Key 和 Value → Save → 再加下一条）：</p>
+
       <div class="env">
-        <div><strong>TURSO_DATABASE_URL</strong><br/>第 2 步拿到的值</div>
-        <div><strong>TURSO_AUTH_TOKEN</strong><br/>第 2 步拿到的值</div>
-        <div><strong>SUPABASE_URL</strong><br/>第 3 步拿到的值</div>
-        <div><strong>SUPABASE_SERVICE_KEY</strong><br/>第 3 步拿到的值</div>
-        <div><strong>SUPABASE_BUCKET</strong><br/>zhuiguang-files</div>
-        <div><strong>JWT_SECRET</strong><br/>让 Render 自动 Generate（不用手动填）</div>
+        <div><strong>Key: TURSO_DATABASE_URL</strong><br/>Value: <code>第 2 步拿到的 libsql://...</code></div>
+        <div><strong>Key: TURSO_AUTH_TOKEN</strong><br/>Value: <code>第 2 步拿到的 eyJ...</code></div>
+        <div><strong>Key: SUPABASE_URL</strong><br/>Value: <code>第 3 步拿到的 https://xxx.supabase.co</code></div>
+        <div><strong>Key: SUPABASE_SERVICE_KEY</strong><br/>Value: <code>第 3 步拿到的 service_role key</code></div>
+        <div><strong>Key: SUPABASE_BUCKET</strong><br/>Value: <code>zhuiguang-files</code>（手打这个）</div>
       </div>
-      <p style="margin-top:10px">保存后 Render 会自动触发重新构建。</p>
+
+      <hr>
+      <p><b>③ 关于 JWT_SECRET（不用手动填）：</b></p>
+      <p>render.yaml 里已经写了 <code>generateValue: true</code>，Render 会自动给你生成一个随机密钥。如果你在环境变量列表里已经看到 <code>JWT_SECRET</code>，就不用管它；如果没有，手动 Add 一条，Value 随便填一串 32 位以上的字符。</p>
+
+      <div class="tip"><b>💡 填完之后</b>：点 <b>Save Changes</b>，Render 会自动触发重新构建（因为环境变量变了）。</div>
     </div>
   </div>
 
   <!-- ===== 步骤 6 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">6</div><h3>等部署<span class="tag">2-5 分钟</span></h3></div>
+  <div class="card" id="s6">
+    <div class="step"><div class="num">6</div><h3>等部署完成 <span class="tag">2-5 分钟</span></h3></div>
     <div class="body">
-      <p>看 <b>Logs</b> 里出现下面两行 = 成功：</p>
-<pre style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-top:8px">
+      <p><b>① 看构建日志：</b></p>
+      <ol>
+        <li>在你的 Render 服务页面，顶部有几个 tab：<b>Dashboard</b> / <b>Logs</b> / <b>Settings</b> 等</li>
+        <li>点 <b>Logs</b>（日志）</li>
+        <li>会看到滚动的日志，先显示安装依赖、构建前端，最后启动服务</li>
+      </ol>
+
+      <hr>
+      <p><b>② 看到下面这两行 = 成功了：</b></p>
+<pre style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px;margin-top:8px;font-size:13px;line-height:1.9">
 [storage] Supabase Storage 模式：文件存于云端 bucket
 [server] 追光后端运行于 http://localhost:xxxx
 </pre>
-      <p>顶部出现绿色 <b>Live</b> 按钮，就是成功了。</p>
-      <div class="warn">💡 报错？<br/>
-        常见错误 1：<b>Turso URL/token 填错</b> → 检查 `libsql://` 开头没？<br/>
-        常见错误 2：<b>Supabase service_role key 用成了 anon</b> → 上传/下载会 403
+
+      <hr>
+      <p><b>③ 服务页面顶部状态：</b></p>
+      <ul>
+        <li>构建中：<b>Building</b>（黄色，转圈）</li>
+        <li>部署中：<b>Deploying</b>（黄色）</li>
+        <li><b>Live</b>（绿色圆点）= 部署成功，可以访问了 🎉</li>
+        <li><b>Failed</b>（红色）= 出错了，看下面排查</li>
+      </ul>
+
+      <div class="warn">
+        <b>❌ 构建失败怎么排查？</b>
+        <ul style="margin-top:6px">
+          <li><b>"TURSO_DATABASE_URL" is not set</b> → 第 5 步环境变量没填，回去补</li>
+          <li><b>ETIMEDOUT / connection refused</b> → Turso URL 或 Token 填错，回 Turso 控制台重新复制</li>
+          <li><b>Supabase 403 / unauthorized</b> → service_role key 填成了 anon key，回 Supabase 重新复制 service_role 那个</li>
+          <li><b>Build failed</b> → 把错误日志截图发我，我帮你看</li>
+        </ul>
+      </div>
+
+      <div class="tip">
+        <b>💡 关于 Render 免费版：</b>
+        <ul style="margin-top:6px">
+          <li>15 分钟没人访问会自动休眠，下次打开要等 10-30 秒冷启动</li>
+          <li>每月 750 小时免费时长，单个服务够用</li>
+          <li>介意休眠？升级到 Starter 套餐（$7/月）就不会休眠</li>
+        </ul>
       </div>
     </div>
   </div>
 
   <!-- ===== 步骤 7 ===== -->
-  <div class="card">
-    <div class="step"><div class="num">7</div><h3>登录，享受 ✨</h3></div>
+  <div class="card" id="s7">
+    <div class="step"><div class="num">7</div><h3>登录，开始使用 ✨</h3></div>
     <div class="body">
-      <p>访问分配的域名，形如 <code>https://zhuiguang.onrender.com</code>：</p>
-      <p style="margin-top:10px">
-        <b>超管账号：</b><code>admin</code> / <code>admin123456</code>
-      </p>
-      <p style="margin-top:4px">登录后 → <b>管理 → 用户管理</b> 改密码；→ <b>管理 → 经验设置</b> / <b>功能开关</b> 自定义平台。</p>
+      <p><b>① 找到你的网站地址：</b></p>
+      <ol>
+        <li>Render 服务页面顶部，有一行 <b>"Your service is live at"</b> 后面跟一个网址</li>
+        <li>形如：<code>https://zhuiguang.onrender.com</code></li>
+        <li>点它，在浏览器里打开</li>
+      </ol>
+
+      <hr>
+      <p><b>② 第一次打开会慢一点（10-30 秒冷启动），耐心等。</b></p>
+
+      <hr>
+      <p><b>③ 登录超管账号：</b></p>
+      <div class="env">
+        <div><strong>用户名</strong><br/>admin</div>
+        <div><strong>密码</strong><br/>admin123456</div>
+      </div>
+      <p style="margin-top:12px">（数据库首次启动时会自动创建这个账号，<b>登录后请立刻去 管理后台 → 用户管理 修改密码</b>）</p>
+
+      <hr>
+      <p><b>④ 登录后建议做的事：</b></p>
+      <ul>
+        <li><b>改密码</b>：管理 → 用户管理 → 找到 admin → 修改</li>
+        <li><b>加老师和学生账号</b>：管理 → 用户管理 → 新增用户</li>
+        <li><b>配学科和班级</b>：管理 → 学科管理 / 班级管理</li>
+        <li><b>看经验规则</b>：管理 → 经验设置（用户发文章、答题会加多少经验）</li>
+        <li><b>开关功能</b>：管理 → 功能开关（不想用的功能可以关掉）</li>
+        <li><b>改网站主题色</b>：管理 → 主题管理</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===== FAQ ===== -->
+  <div class="card" id="faq">
+    <div class="step"><div class="num">?</div><h3>常见问题</h3></div>
+    <div class="body">
+      <details>
+        <summary>Q: 为什么打开网站很慢 / 第一次要等很久？</summary>
+        <p style="margin-top:10px">Render 免费版 15 分钟没人访问会休眠，下次访问要 10-30 秒"冷启动"唤醒。这是正常的，<b>不是 bug</b>。介意的话升级 Starter 套餐（$7/月）。</p>
+      </details>
+      <details>
+        <summary>Q: 数据会丢吗？重启后还在吗？</summary>
+        <p style="margin-top:10px"><b>不会丢。</b> 数据存在 Turso 云数据库，文件存在 Supabase，都不在 Render 上。Render 实例重启、重新部署，数据和文件都还在。</p>
+      </details>
+      <details>
+        <summary>Q: 想要自定义域名怎么办？</summary>
+        <p style="margin-top:10px">Render 服务页面 → Settings → Custom Domains → Add Custom Domain → 按提示在你域名 DNS 加一条 CNAME 记录指向 Render 给的地址。Render 自动配 HTTPS。</p>
+      </details>
+      <details>
+        <summary>Q: 我想改代码后怎么更新？</summary>
+        <p style="margin-top:10px">本地改代码 → <code>git add . && git commit -m "xxx" && git push</code> → Render 检测到 push 会自动重新构建部署，全程不用你操作 Render。</p>
+      </details>
+      <details>
+        <summary>Q: Turso / Supabase 免费额度够用吗？</summary>
+        <p style="margin-top:10px">小站（几百用户）完全够用：Turso 免费 9GB 数据库，Supabase 免费 1GB 文件 + 50MB/月 API 流量。用超了再升级，一个月几美元。</p>
+      </details>
+      <details>
+        <summary>Q: 部署失败，日志看不懂怎么办？</summary>
+        <p style="margin-top:10px">把 Render 的 Logs 页面错误信息截图发我，或把错误那几行文字复制给我，我帮你定位。</p>
+      </details>
+      <details>
+        <summary>Q: 可以部署到自己的服务器吗？</summary>
+        <p style="margin-top:10px">可以！项目根目录有 <code>deploy.sh</code> 一键脚本，在 Ubuntu/Debian 服务器上跑 <code>sudo bash deploy.sh</code> 就行（自动装 Nginx + HTTPS + systemd 守护）。但 Turso + Supabase 还是要配，因为它们存数据和文件。</p>
+      </details>
     </div>
   </div>
 
   <p class="footer">
-    💡 遇到问题看仓库根目录的 <code>DEPLOY_CHECKLIST.md</code>，或直接找我。
+    💡 部署中卡住了？把截图或报错日志发给我，我立刻帮你看。<br/>
+    📄 文字版清单：<code>DEPLOY_CHECKLIST.md</code> ｜ 🛠 配置文件：<code>render.yaml</code>
   </p>
 </div>
 </body>
