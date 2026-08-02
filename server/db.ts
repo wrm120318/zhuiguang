@@ -1,19 +1,42 @@
-// ===== 追光 · 数据库初始化与种子数据 =====
-import Database from 'better-sqlite3'
+// ===== 追光 · 数据库初始化与种子数据（Turso/libSQL 版） =====
+import { createClient } from '@libsql/client'
 import bcrypt from 'bcryptjs'
-import path from 'path'
-import fs from 'fs'
-import { fileURLToPath } from 'url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'zhuiguang.db')
-try { fs.mkdirSync(path.dirname(dbPath), { recursive: true }) } catch {}
-const db = new Database(dbPath)
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
+// Turso 远程数据库；本地开发可设为 file:./server/local.db 走嵌入式模式
+const dbUrl = process.env.TURSO_DATABASE_URL || 'file:./server/local.db'
+const dbToken = process.env.TURSO_AUTH_TOKEN
 
-export function initDB() {
-  db.exec(`
+export const db = createClient({
+  url: dbUrl,
+  authToken: dbToken,
+})
+
+// ============ 便捷封装：把 libSQL 的 execute 包成 better-sqlite3 类似的形态（异步） ============
+// 用法对应关系：
+//   db.prepare(sql).all(...args)  →  await all(sql, ...args)
+//   db.prepare(sql).get(...args)  →  await get(sql, ...args)
+//   db.prepare(sql).run(...args)  →  await run(sql, ...args)
+//   db.exec(sql)                  →  await exec(sql)
+export async function all<T = any>(sql: string, ...args: any[]): Promise<T[]> {
+  const r = await db.execute({ sql, args })
+  return r.rows as T[]
+}
+export async function get<T = any>(sql: string, ...args: any[]): Promise<T | undefined> {
+  const r = await db.execute({ sql, args })
+  return r.rows[0] as T | undefined
+}
+export async function run(sql: string, ...args: any[]): Promise<{ lastInsertRowid: number | bigint }> {
+  const r = await db.execute({ sql, args })
+  return { lastInsertRowid: r.lastInsertRowid as number | bigint }
+}
+export async function exec(sql: string): Promise<void> {
+  await db.executeMultiple(sql)
+}
+
+// ============ 建表 + 种子 ============
+export async function initDB() {
+  // libSQL 用 executeMultiple 跑多条 DDL
+  await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -98,19 +121,24 @@ export function initDB() {
       user_id INTEGER NOT NULL, target_type TEXT, target_id INTEGER, UNIQUE(user_id, target_type, target_id)
     );
   `)
-  seed()
+
+  // 迁移：为旧数据库补齐 users.subject_id 列（CREATE TABLE IF NOT EXISTS 不会修改已存在的表）
+  try { await db.execute('ALTER TABLE users ADD COLUMN subject_id INTEGER DEFAULT NULL') } catch {}
+
+  await seed()
 }
 
-function seed() {
-  const c = db.prepare('SELECT COUNT(*) as n FROM users').get() as any
-  if (c.n > 0) return
+async function seed() {
+  const c = await get<{ n: number }>('SELECT COUNT(*) as n FROM users')
+  if (c && c.n > 0) return
 
   const hash = (p: string) => bcrypt.hashSync(p, 8)
 
   // 仅创建超级管理员账号（密码：admin123456）
-  const insUser = db.prepare(`INSERT INTO users (username,password_hash,real_name,role,email,phone,avatar,exp,level) VALUES (?,?,?,?,?,?,?,?,?)`)
-  insUser.run('admin', hash('admin123456'), '超级管理员', 'SUPER_ADMIN', 'admin@zguang.edu', '13800000000', 'https://api.dicebear.com/7.x/shapes/svg?seed=admin', 0, 1)
-  const adminId = Number(db.prepare('SELECT id FROM users WHERE username=?').get('admin').id)
+  await run(
+    `INSERT INTO users (username,password_hash,real_name,role,email,phone,avatar,exp,level) VALUES (?,?,?,?,?,?,?,?,?)`,
+    'admin', hash('admin123456'), '超级管理员', 'SUPER_ADMIN', 'admin@zguang.edu', '13800000000', 'https://api.dicebear.com/7.x/shapes/svg?seed=admin', 0, 1
+  )
 
   // 预设学科（基础框架）
   const subjects = [
@@ -123,21 +151,18 @@ function seed() {
     ['历史', 'history', '🏛️', '#92400e', '以史为鉴', 7, '{"announcement":true,"resources":true,"articles":false,"query":false,"quiz":false,"leaderboard":true}', ''],
     ['信息技术', 'it', '💻', '#ca8a04', '代码改变世界', 8, '{"announcement":true,"resources":true,"articles":false,"query":true,"quiz":true,"leaderboard":true}', ''],
   ]
-  const insSub = db.prepare(`INSERT INTO subjects (name,slug,icon,color,description,display_order,modules,announcement) VALUES (?,?,?,?,?,?,?,?)`)
-  subjects.forEach(s => insSub.run(...s))
+  for (const s of subjects) {
+    await run(`INSERT INTO subjects (name,slug,icon,color,description,display_order,modules,announcement) VALUES (?,?,?,?,?,?,?,?)`, ...s)
+  }
 
   // 预设班级
-  const insCls = db.prepare(`INSERT INTO classes (name,grade,description) VALUES (?,?,?)`)
-  insCls.run('高二（1）班', '高二', '理科实验班')
-  insCls.run('高二（2）班', '高二', '文科重点班')
+  await run(`INSERT INTO classes (name,grade,description) VALUES (?,?,?)`, '高二（1）班', '高二', '理科实验班')
+  await run(`INSERT INTO classes (name,grade,description) VALUES (?,?,?)`, '高二（2）班', '高二', '文科重点班')
 
-  // 默认主题：浅黄橘黄小清新（参考图风格）
-  const insT = db.prepare(`INSERT INTO themes (name,config,is_active) VALUES (?,?,?)`)
-  insT.run('暖阳浅黄（默认）', JSON.stringify({ primary: '#F59E0B', primary2: '#FB923C', accent: '#FBBF24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18 }), 1)
-  insT.run('晨曦琥珀', JSON.stringify({ primary: '#F97316', primary2: '#EA580C', accent: '#FDBA74', bgFrom: '#FFF7ED', bgVia: '#FED7AA', bgTo: '#FDBA74', blur: 14, radius: 20 }), 0)
-  insT.run('清新柠檬', JSON.stringify({ primary: '#EAB308', primary2: '#CA8A04', accent: '#FEF08A', bgFrom: '#FEFCE8', bgVia: '#FEF9C3', bgTo: '#FEF08A', blur: 15, radius: 22 }), 0)
+  // 默认主题
+  await run(`INSERT INTO themes (name,config,is_active) VALUES (?,?,?)`, '暖阳浅黄（默认）', JSON.stringify({ primary: '#F59E0B', primary2: '#FB923C', accent: '#FBBF24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18 }), 1)
+  await run(`INSERT INTO themes (name,config,is_active) VALUES (?,?,?)`, '晨曦琥珀', JSON.stringify({ primary: '#F97316', primary2: '#EA580C', accent: '#FDBA74', bgFrom: '#FFF7ED', bgVia: '#FED7AA', bgTo: '#FDBA74', blur: 14, radius: 20 }), 0)
+  await run(`INSERT INTO themes (name,config,is_active) VALUES (?,?,?)`, '清新柠檬', JSON.stringify({ primary: '#EAB308', primary2: '#CA8A04', accent: '#FEF08A', bgFrom: '#FEFCE8', bgVia: '#FEF9C3', bgTo: '#FEF08A', blur: 15, radius: 22 }), 0)
 
   console.log('[db] seed done (admin + subjects + classes + themes, no sample content)')
 }
-
-export default db
