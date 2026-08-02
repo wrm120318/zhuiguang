@@ -41,4 +41,4 @@ services:
       - key: SUPABASE_SERVICE_KEY
         sync: false
       - key: SUPABASE_BUCKET
-        value: zhuiguang-files
+        value: zhuiguang
