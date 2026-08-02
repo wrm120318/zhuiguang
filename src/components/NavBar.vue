@@ -1,0 +1,326 @@
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { useUserStore } from '@/store/user'
+import { useDataStore } from '@/store/data'
+import { useThemeStore } from '@/store/theme'
+import { ElMessage } from 'element-plus'
+import { api } from '@/api'
+
+const router = useRouter()
+const route = useRoute()
+const user = useUserStore()
+const data = useDataStore()
+const theme = useThemeStore()
+
+const noticeVisible = ref(false)
+const drawerVisible = ref(false)
+const settingsVisible = ref(false)
+const myNotices = ref<any[]>([])
+const unread = ref(0)
+
+// 字体大小调节
+const fontScale = ref(Number(localStorage.getItem('zg_fs_scale') || 1))
+const fontLabels = ['小', '标准', '大', '特大']
+const fontSteps = [0.85, 1, 1.15, 1.3]
+
+function applyFontScale() {
+  document.documentElement.style.setProperty('--zg-fs-scale', String(fontScale.value))
+  localStorage.setItem('zg_fs_scale', String(fontScale.value))
+}
+function setFontScale(idx: number) {
+  fontScale.value = fontSteps[idx]
+  applyFontScale()
+}
+function fontScaleIndex() {
+  const i = fontSteps.indexOf(fontScale.value)
+  return i >= 0 ? i : 1
+}
+
+// 搜索
+const searchVisible = ref(false)
+const searchQuery = ref('')
+const searchResults = ref<{ articles: any[]; resources: any[] }>({ articles: [], resources: [] })
+const searching = ref(false)
+
+async function doSearch() {
+  if (!searchQuery.value.trim()) { searchResults.value = { articles: [], resources: [] }; return }
+  searching.value = true
+  try {
+    searchResults.value = (await api.search(searchQuery.value)) as any
+  } finally { searching.value = false }
+}
+
+function goSearch() {
+  if (!searchQuery.value.trim()) return
+  searchVisible.value = false
+  router.push(`/search?q=${encodeURIComponent(searchQuery.value)}`)
+  searchQuery.value = ''
+}
+
+async function loadNotices() {
+  if (!user.isLogin) return
+  myNotices.value = (await api.notices()) as any
+  unread.value = myNotices.value.filter((n: any) => !n.read).length
+}
+onMounted(() => { applyFontScale(); loadNotices() })
+
+const navItems = computed(() => {
+  const items = [
+    { name: 'home', label: '首页', to: '/' },
+    { name: 'subjects', label: '学科', to: '/subjects' },
+    { name: 'leaderboard', label: '经验榜', to: '/leaderboard' },
+  ]
+  if (user.isStaff) items.push({ name: 'admin', label: '管理后台', to: '/admin' })
+  return items
+})
+
+function go(to: string) { router.push(to); drawerVisible.value = false }
+function roleLabel(r?: string) { return r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生' }
+async function readAll() { await api.readAllNotices(); await loadNotices(); ElMessage.success('已全部已读') }
+function logout() { user.logout(); router.push('/login') }
+function typeLabel(t: string) {
+  return ({ audit: '审核', query: '查询', system: '系统', teacher: '教师' } as Record<string, string>)[t] || '通知'
+}
+</script>
+
+<template>
+  <header class="nav glass">
+    <div class="nav-inner zg-container">
+      <div class="brand" @click="go('/')">
+        <span class="logo">🌟</span>
+        <span class="brand-name zg-grad-text">追光</span>
+      </div>
+
+      <nav class="links">
+        <router-link v-for="it in navItems" :key="it.name" :to="it.to" class="nav-link" active-class="active">{{ it.label }}</router-link>
+      </nav>
+
+      <div class="actions" v-if="user.isLogin">
+        <el-button text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
+
+        <el-popover trigger="click" width="240" placement="bottom-end" :visible="settingsVisible" @update:visible="settingsVisible = $event">
+          <template #reference>
+            <el-button text circle class="action-btn" @click="settingsVisible = !settingsVisible">⚙️</el-button>
+          </template>
+          <div class="settings-panel">
+            <div class="sp-title">字体大小</div>
+            <div class="sp-fonts">
+              <div v-for="(label, i) in fontLabels" :key="i" class="sp-font-btn" :class="{ on: fontScaleIndex() === i }" @click="setFontScale(i)">
+                <span :style="{ fontSize: (11 + i * 2) + 'px' }">A</span>
+                <span class="sp-font-label">{{ label }}</span>
+              </div>
+            </div>
+          </div>
+        </el-popover>
+
+        <el-badge :value="unread" :hidden="unread === 0" class="bell">
+          <el-button text circle class="action-btn" @click="noticeVisible = true">🔔</el-button>
+        </el-badge>
+
+        <el-dropdown trigger="click">
+          <div class="me">
+            <img :src="user.current?.avatar" class="avatar" />
+            <div class="me-meta">
+              <div class="me-name">{{ user.current?.realName }}</div>
+              <div class="me-role">{{ roleLabel(user.current?.role) }} · Lv.{{ user.current?.level }}</div>
+            </div>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="go('/profile')">👤 个人中心</el-dropdown-item>
+              <el-dropdown-item @click="go('/leaderboard')">🏆 经验榜</el-dropdown-item>
+              <el-dropdown-item @click="go('/favorites')">⭐ 我的收藏</el-dropdown-item>
+              <el-dropdown-item divided @click="logout">🚪 退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
+      <el-button v-else type="primary" round size="small" @click="go('/login')">登录</el-button>
+
+      <el-button class="menu-btn" text circle @click="drawerVisible = true">☰</el-button>
+    </div>
+  </header>
+
+  <!-- 移动端抽屉 -->
+  <el-drawer v-model="drawerVisible" direction="ltr" size="72%" :show-close="false">
+    <div class="drawer">
+      <div class="d-brand"><span class="logo">🌟</span><span class="zg-grad-text">追光</span></div>
+      <div class="d-search" @click="drawerVisible = false; searchVisible = true">
+        <span>🔍</span> 搜索美文 / 资料…
+      </div>
+      <div class="d-user" v-if="user.isLogin">
+        <img :src="user.current?.avatar" />
+        <div><div class="du-name">{{ user.current?.realName }}</div><div class="du-role">{{ roleLabel(user.current?.role) }} · Lv.{{ user.current?.level }}</div></div>
+      </div>
+      <div class="d-list">
+        <div class="d-item" @click="go('/')">🏠 首页</div>
+        <div class="d-item" @click="go('/subjects')">📚 全部学科</div>
+        <div class="d-item" @click="go('/leaderboard')">🏆 经验榜</div>
+        <div class="d-item" @click="go('/profile')">👤 个人中心</div>
+        <div class="d-item" @click="go('/favorites')">⭐ 我的收藏</div>
+        <div class="d-item" v-if="user.isStaff" @click="go('/admin')">⚙️ 管理后台</div>
+        <div class="d-item" @click="drawerVisible = false; settingsVisible = true">🔤 字体设置</div>
+        <div class="d-item" v-if="user.isLogin" @click="logout">🚪 退出登录</div>
+        <div class="d-item" v-else @click="go('/login')">🔑 登录</div>
+      </div>
+      <div class="d-subj-title">学科子站</div>
+      <div class="d-subj-grid">
+        <div v-for="s in data.subjects" :key="s.id" class="d-subj" @click="go(`/subject/${s.slug}`)">{{ s.icon }} {{ s.name }}</div>
+      </div>
+    </div>
+  </el-drawer>
+
+  <!-- 搜索弹窗 -->
+  <el-dialog v-model="searchVisible" title="🔍 搜索" width="600px" class="search-dialog">
+    <div class="search-bar">
+      <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch" :prefix-icon="'🔍'" />
+      <el-button type="primary" size="large" @click="goSearch">搜索</el-button>
+    </div>
+    <div class="search-quick" v-if="!searchQuery">
+      <div class="sq-label">热门搜索</div>
+      <div class="sq-tags">
+        <span class="sq-tag" @click="searchQuery = '语文'; doSearch()">语文</span>
+        <span class="sq-tag" @click="searchQuery = '数学'; doSearch()">数学</span>
+        <span class="sq-tag" @click="searchQuery = '英语'; doSearch()">英语</span>
+        <span class="sq-tag" @click="searchQuery = '课件'; doSearch()">课件</span>
+      </div>
+    </div>
+    <div class="search-results" v-if="searchQuery" v-loading="searching">
+      <div v-if="searchResults.articles?.length" class="sr-group">
+        <div class="sr-title">✍️ 美文 ({{ searchResults.articles.length }})</div>
+        <div v-for="a in searchResults.articles" :key="a.id" class="sr-item" @click="searchVisible = false; router.push(`/article/${a.id}`)">
+          <div class="sr-item-title">{{ a.title }}</div>
+          <div class="sr-item-meta">{{ a.author }} · {{ a.category }}</div>
+        </div>
+      </div>
+      <div v-if="searchResults.resources?.length" class="sr-group">
+        <div class="sr-title">📦 资料 ({{ searchResults.resources.length }})</div>
+        <div v-for="r in searchResults.resources" :key="r.id" class="sr-item" @click="searchVisible = false; router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
+          <div class="sr-item-title">{{ r.title }}</div>
+          <div class="sr-item-meta">{{ r.category }} · ⬇ {{ r.downloads }}</div>
+        </div>
+      </div>
+      <el-empty v-if="searchQuery && !searchResults.articles?.length && !searchResults.resources?.length && !searching" description="未找到结果" />
+    </div>
+  </el-dialog>
+
+  <el-drawer v-model="noticeVisible" title="通知中心" direction="rtl" size="380px">
+    <div class="notice-head">
+      <span>{{ unread }} 条未读</span>
+      <el-button text size="small" @click="readAll">全部已读</el-button>
+    </div>
+    <div class="notice-list">
+      <div v-for="n in myNotices" :key="n.id" class="notice-item" :class="{ unread: !n.read }" @click="api.readNotice(n.id); n.read = 1">
+        <div class="n-type" :class="n.type">{{ typeLabel(n.type) }}</div>
+        <div class="n-body">
+          <div class="n-title">{{ n.title }}</div>
+          <div class="n-content">{{ n.content }}</div>
+          <div class="n-time">{{ n.created_at }}</div>
+        </div>
+      </div>
+      <el-empty v-if="!myNotices.length" description="暂无通知" />
+    </div>
+  </el-drawer>
+</template>
+
+<style scoped>
+.nav { position: sticky; top: 0; z-index: 100; border-radius: 0; border-left: none; border-right: none; border-top: none; }
+.nav-inner { display: flex; align-items: center; height: 64px; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.logo { font-size: 24px; filter: drop-shadow(0 0 8px var(--zg-primary)); }
+.brand-name { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+.links { display: flex; gap: 4px; flex: 1; margin-left: 12px; }
+.nav-link { padding: 8px 14px; border-radius: 10px; color: var(--zg-text-dim); font-weight: 500; transition: all .25s; font-size: var(--zg-fs-sm); }
+.nav-link:hover { color: var(--zg-text); background: rgba(245,158,11,.06); }
+.nav-link.active { color: var(--zg-text); background: var(--zg-primary); }
+.actions { display: flex; align-items: center; gap: 6px; }
+.action-btn { color: var(--zg-text) !important; font-size: 18px !important; }
+.bell :deep(.el-button) { color: var(--zg-text) !important; font-size: 18px; }
+.me { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 4px 8px 4px 4px; border-radius: 30px; }
+.me:hover { background: rgba(245,158,11,.06); }
+.avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(245,158,11,.3); }
+.me-meta { line-height: 1.2; }
+.me-name { font-size: var(--zg-fs-sm); font-weight: 600; }
+.me-role { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); }
+.menu-btn { display: none !important; font-size: 22px; color: var(--zg-text) !important; }
+
+/* 字体设置面板 */
+.settings-panel { padding: 4px 0; }
+.sp-title { font-size: var(--zg-fs-sm); color: var(--zg-text-dim); margin-bottom: 10px; font-weight: 600; }
+.sp-fonts { display: flex; gap: 8px; }
+.sp-font-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 10px; background: rgba(245,158,11,.06); cursor: pointer; transition: all .2s; border: 2px solid transparent; }
+.sp-font-btn.on { border-color: var(--zg-primary); background: rgba(245,158,11,.15); }
+.sp-font-label { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); }
+.sp-font-btn.on .sp-font-label { color: var(--zg-text); font-weight: 600; }
+
+/* 搜索弹窗 */
+.search-bar { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-quick { padding: 8px 0; }
+.sq-label { font-size: var(--zg-fs-sm); color: var(--zg-text-dim); margin-bottom: 10px; }
+.sq-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.sq-tag { padding: 6px 14px; border-radius: 20px; background: rgba(245,158,11,.1); cursor: pointer; font-size: var(--zg-fs-sm); transition: all .2s; }
+.sq-tag:hover { background: var(--zg-primary); color: #fff; }
+.search-results { max-height: 400px; overflow-y: auto; }
+.sr-group { margin-bottom: 16px; }
+.sr-title { font-size: var(--zg-fs-sm); font-weight: 700; color: var(--zg-text); margin-bottom: 8px; }
+.sr-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: background .2s; }
+.sr-item:hover { background: rgba(245,158,11,.08); }
+.sr-item-title { font-weight: 600; font-size: var(--zg-fs-sm); }
+.sr-item-meta { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 2px; }
+
+/* 抽屉 */
+.drawer { padding: 16px; }
+.d-brand { display:flex; align-items:center; gap:8px; font-size:22px; font-weight:800; margin-bottom:20px; }
+.d-search { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: rgba(245,158,11,.08); cursor: pointer; color: var(--zg-text-dim); font-size: var(--zg-fs-sm); margin-bottom: 16px; transition: all .2s; }
+.d-search:hover { background: rgba(245,158,11,.15); color: var(--zg-text); }
+.d-user { display:flex; align-items:center; gap:12px; padding:14px; border-radius:14px; background:rgba(245,158,11,.06); margin-bottom:16px; }
+.d-user img { width:48px; height:48px; border-radius:50%; }
+.du-name { font-weight:700; font-size: var(--zg-fs-md); }
+.du-role { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); }
+.d-list { display:flex; flex-direction:column; gap:4px; }
+.d-item { padding:14px 16px; border-radius:12px; cursor:pointer; color:var(--zg-text); font-size: var(--zg-fs-base); transition:background .2s; }
+.d-item:hover { background:rgba(245,158,11,.06); }
+.d-subj-title { margin:20px 0 10px; font-size:var(--zg-fs-sm); color:var(--zg-text-dim); font-weight:600; }
+.d-subj-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.d-subj { padding:12px; border-radius:10px; background:rgba(245,158,11,.06); text-align:center; cursor:pointer; font-size: var(--zg-fs-sm); }
+.d-subj:hover { background:rgba(245,158,11,.15); }
+
+/* 通知 */
+.notice-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color: var(--zg-text-dim); font-size:var(--zg-fs-sm);}
+.notice-list { display:flex; flex-direction:column; gap:10px; }
+.notice-item { display:flex; gap:12px; padding:12px; border-radius:12px; background:rgba(245,158,11,.06); cursor:pointer; transition: all .2s; }
+.notice-item:hover { background:rgba(245,158,11,.1); }
+.notice-item.unread { background: rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.3); }
+.n-type { font-size:var(--zg-fs-xs); padding:2px 8px; border-radius:6px; height:fit-content; background:rgba(245,158,11,.15); color:var(--zg-text-dim); white-space:nowrap; }
+.n-type.audit { background: rgba(245,158,11,.2); color:var(--zg-accent); }
+.n-type.query { background: rgba(251,146,60,.18); color:var(--zg-primary); }
+.n-type.teacher { background: rgba(239,68,68,.15); color:#dc2626; }
+.n-body { flex:1; }
+.n-title { font-weight:600; font-size: var(--zg-fs-sm); }
+.n-content { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); margin:4px 0; }
+.n-time { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); }
+
+@media (max-width: 768px) {
+  .nav-inner { height: 56px; gap: 8px; padding: 0 12px; }
+  .links { display:none; }
+  .actions { gap: 4px; }
+  .bell { display:none !important; }
+  .menu-btn { display:inline-flex !important; }
+  .me-meta { display:none; }
+  .me { padding: 2px; }
+  .avatar { width: 32px; height: 32px; }
+  .search-dialog { width: 92% !important; }
+  .search-bar { flex-direction: column; }
+}
+
+@media (min-width: 1200px) {
+  .brand-name { font-size: 26px; letter-spacing: 2px; }
+  .logo { font-size: 30px; }
+  .nav-link { padding: 10px 18px; font-size: 15px; }
+  .avatar { width: 38px; height: 38px; }
+  .me-name { font-size: 14px; }
+  .me-role { font-size: 12px; }
+}
+</style>

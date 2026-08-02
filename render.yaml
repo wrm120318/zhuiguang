@@ -1,0 +1,36 @@
+# ===== Render.com 一键部署配置 =====
+# 使用方法：
+#   方案 A（推荐）：登录 https://dashboard.render.com → New → Web Service → Connect GitHub 仓库，Render 会自动识别本文件
+#   方案 B：用「Deploy to Render」按钮（可在 README.md 里加：[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)）
+# 注意事项：
+#   * SQLite + 文件上传依赖 persistent disk（持久盘），否则每次重新部署数据会丢失
+#   * 免费实例（Free）无持久盘；若要数据不丢，请选 Starter 实例或以上，并挂载磁盘（见下方 disks 字段）
+#   * 若仅用于预览/测试（不在意数据丢失），可把下方 disks 整段删除或注释掉
+
+services:
+  - type: web
+    name: zhuiguang
+    runtime: node
+    region: singapore  # 可选：oregon / frankfurt / singapore / ohio / virginia / tokyo / sydney / mumbai
+    plan: starter  # 免费实例：free（无持久盘）；推荐：starter
+    numInstances: 1
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: JWT_SECRET
+        generateValue: true  # 让 Render 自动生成随机密钥；也可手动填写
+      - key: JWT_EXPIRES
+        value: 7d
+      - key: DB_PATH
+        value: /var/data/zhuiguang.db
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+    # 持久盘（只有 starter 及以上实例支持；free 实例请删除本段）
+    disks:
+      - name: zhuiguang-data
+        mountPath: /var/data
+        sizeGB: 1
+    autoDeploy: yes  # 默认开启：推送到 GitHub 主分支后自动重新部署

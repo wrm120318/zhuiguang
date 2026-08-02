@@ -1,0 +1,26 @@
+# ===== 推送后通知 Render 重新部署 =====
+# 注：Render 原生支持「push 到主分支→自动部署」，所以本工作流是**可选**的，适合以下场景：
+#   1. Render 里关了 autoDeploy，想靠 Actions 精确控制何时部署
+#   2. 想在构建检查通过后再触发部署（加 needs: build-check）
+#   3. 非 main 分支的手动部署
+# 使用前置：
+#   在 GitHub 仓库 Secrets 里添加：
+#     RENDER_DEPLOY_HOOK  : Render 控制面板 → 你的服务 → Deploy Hook 那串 URL（形如 https://api.render.com/deploy/srv-xxx?key=xxx）
+name: Trigger Render Redeploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Render deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+            echo "⚠ 未配置 RENDER_DEPLOY_HOOK secret，跳过"
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+          echo "✓ Render 已收到部署请求，请前往 https://dashboard.render.com 查看进度"
