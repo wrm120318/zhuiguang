@@ -7,7 +7,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev
 COPY . .
-RUN npm run build
+# 跳过 vue-tsc 类型检查，直接 vite build（省内存、省时间，适配 Koyeb 512MB 限制）
+RUN npx vite build
 
 # ---- 阶段2：运行 ----
 FROM node:20-slim AS runner
