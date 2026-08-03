@@ -17,7 +17,6 @@ const ready = ref(false)
 const isPublicPage = computed(() => route.meta.public === true)
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
 
-// 在 body 上标记 admin 路由，便于全局 CSS 在手机端隐藏冗余的全局顶栏/底栏
 watchEffect(() => {
   document.body.classList.toggle('is-admin-route', isAdminRoute.value)
 })
@@ -36,35 +35,42 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="zg-bg"></div>
-  <div class="zg-orb a"></div>
-  <div class="zg-orb b"></div>
-  <div class="zg-orb c"></div>
-  <template v-if="!isPublicPage">
-    <NavBar v-if="ready" />
-    <main class="app-main" :class="{ 'has-tabbar': ready && user.isLogin && !isAdminRoute }">
-      <router-view v-if="ready" v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </router-view>
-      <div v-else class="boot">✨ 追光加载中…</div>
-    </main>
-    <MobileTabBar v-if="ready && user.isLogin && !isAdminRoute" />
-  </template>
-  <template v-else>
-    <main class="app-main public-page">
-      <router-view v-if="ready" v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </router-view>
-      <div v-else class="boot">✨ 追光加载中…</div>
-    </main>
-  </template>
+  <div class="zg-root">
+    <div class="zg-bg"></div>
+    <div class="zg-orb a"></div>
+    <div class="zg-orb b"></div>
+    <div class="zg-orb c"></div>
+
+    <!-- 非公开页面 -->
+    <template v-if="!isPublicPage">
+      <NavBar v-if="ready" />
+      <main class="app-main" :class="{ 'has-tabbar': ready && user.isLogin && !isAdminRoute }">
+        <div v-if="!ready" class="boot">✨ 追光加载中…</div>
+        <router-view v-else v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" :key="route.fullPath" />
+          </transition>
+        </router-view>
+      </main>
+      <MobileTabBar v-if="ready && user.isLogin && !isAdminRoute" />
+    </template>
+
+    <!-- 公开页面 -->
+    <template v-else>
+      <main class="app-main public-page">
+        <div v-if="!ready" class="boot">✨ 追光加载中…</div>
+        <router-view v-else v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" :key="route.fullPath" />
+          </transition>
+        </router-view>
+      </main>
+    </template>
+  </div>
 </template>
 
 <style scoped>
+.zg-root { position: relative; }
 .app-main { min-height: calc(100vh - 64px); }
 .app-main.public-page { min-height: 100vh; }
 .has-tabbar { padding-bottom: 64px; }

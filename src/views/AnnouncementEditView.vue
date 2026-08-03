@@ -32,22 +32,30 @@ const TAGS = {
 }
 function insertTag(tag: string) { form.value.content += tag }
 
-async function onUploadImage(file: File) {
+async function onUploadImage(req: any) {
+  const file = req.file as File
+  if (!file) return
   try {
     const r: any = await api.uploadImage(file)
     form.value.content += `\n![图片](${r.url})\n`
     ElMessage.success('图片已插入')
-  } catch { /* */ }
-  return false
+  } catch (e: any) {
+    console.error('[图片上传失败]', e)
+    ElMessage.error(e?.message || '图片上传失败')
+  }
 }
 
-async function onUploadFile(file: File) {
+async function onUploadFile(req: any) {
+  const file = req.file as File
+  if (!file) return
   try {
     const r: any = await api.uploadFile(file)
     attachments.value.push({ url: r.url, name: r.fileName, size: r.fileSize, type: r.fileType })
     ElMessage.success('附件已添加')
-  } catch { /* */ }
-  return false
+  } catch (e: any) {
+    console.error('[附件上传失败]', e)
+    ElMessage.error(e?.message || '附件上传失败')
+  }
 }
 
 function removeAttach(idx: number) { attachments.value.splice(idx, 1) }
@@ -98,10 +106,10 @@ async function submit() {
         <button @click="insertTag(TAGS.list)">列表</button>
         <button @click="insertTag(TAGS.quote)">引用</button>
         <button @click="insertTag(TAGS.link)">链接</button>
-        <el-upload :before-upload="onUploadImage" :show-file-list="false" accept="image/*" class="tb-upload">
+        <el-upload :http-request="onUploadImage" :show-file-list="false" accept="image/*" class="tb-upload">
           <button>🖼 插入图片</button>
         </el-upload>
-        <el-upload :before-upload="onUploadFile" :show-file-list="false" multiple class="tb-upload">
+        <el-upload :http-request="onUploadFile" :show-file-list="false" multiple class="tb-upload">
           <button>📎 添加附件</button>
         </el-upload>
       </div>

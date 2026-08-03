@@ -1,5 +1,56 @@
 import http from './http'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+
+// ===== 直传 Supabase 工具函数（绕过 pinggy 隧道大文件限制） =====
+// 流程：前端调 /api/upload/presign 拿签名URL → 直接 PUT 到 Supabase → 返回公共URL
+async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
+  const presignEndpoint = kind === 'image' ? '/api/upload/presign-image' : '/api/upload/presign'
+  let presignResp: any
+  try {
+    presignResp = await http.post(presignEndpoint, { fileName: file.name, contentType: file.type })
+  } catch (e: any) {
+    // presign 接口本身不可用（如后端未启动），回退到旧接口
+    console.warn('[directUpload] presign 请求失败，回退到旧接口:', e?.message)
+    const fd = new FormData(); fd.append('file', file)
+    const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
+    return http.post(oldEndpoint, fd)
+  }
+
+  // Supabase 不可用，回退到旧的 /api/upload/* 接口
+  if (presignResp?.fallback) {
+    const fd = new FormData(); fd.append('file', file)
+    const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
+    return http.post(oldEndpoint, fd)
+  }
+
+  if (!presignResp?.signedUrl) {
+    throw new Error('获取上传签名失败，请重试')
+  }
+
+  // 直传到 Supabase（PUT 签名URL，不需要 Authorization header）
+  const upResp = await fetch(presignResp.signedUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  })
+  if (!upResp.ok) {
+    const detail = await upResp.text().catch(() => '')
+    throw new Error(`上传到存储服务失败 (${upResp.status}): ${detail.slice(0, 200)}`)
+  }
+
+  // 返回与原后端 /api/upload/file 兼容的数据结构
+  if (kind === 'image') {
+    return { url: presignResp.publicUrl }
+  }
+  return {
+    url: presignResp.publicUrl,
+    filePath: presignResp.key,
+    fileName: file.name,
+    fileType: presignResp.fileType || 'file',
+    fileSize: file.size,
+  }
+}
 
 export const api = {
   // 认证
@@ -15,7 +66,13 @@ export const api = {
   adjustUserExp: (id: number, data: { exp?: number; level?: number }) => http.patch(`/api/users/${id}/exp`, data),
   grantExp: (data: { userId: number; change: number; actionType: string; description: string }) => http.post('/api/exp/logs', data),
   updateProfile: (data: any) => http.patch('/api/profile', data),
-  uploadAvatar: (file: File) => { const fd = new FormData(); fd.append('file', file); return http.post('/api/upload/avatar', fd) },
+  uploadAvatar: async (file: File) => {
+    // 头像通常较小，直接走 presign-image 直传 Supabase，上传成功后更新用户信息
+    const result = await directUpload(file, 'image')
+    const url = (result as any).url
+    if (url) await http.patch('/api/profile', { avatar: url })
+    return result
+  },
   // 班级 & 学科
   classes: () => http.get('/api/classes'),
   createClass: (data: any) => http.post('/api/classes', data),
@@ -46,8 +103,8 @@ export const api = {
     return http2.post(`/api/resources/${id}/download`)
   },
   likeResource: (id: number) => http.post(`/api/resources/${id}/like`),
-  uploadFile: (file: File) => { const fd = new FormData(); fd.append('file', file); return http.post('/api/upload/file', fd) },
-  uploadImage: (file: File) => { const fd = new FormData(); fd.append('file', file); return http.post('/api/upload/image', fd) },
+  uploadFile: (file: File) => directUpload(file, 'file'),
+  uploadImage: (file: File) => directUpload(file, 'image'),
   // 查询
   queryTasks: () => http.get('/api/query/tasks'),
   queryTask: (id: number) => http.get(`/api/query/tasks/${id}`),

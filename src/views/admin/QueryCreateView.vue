@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage, type UploadFile } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const data = useDataStore()
@@ -24,6 +24,7 @@ const form = ref({
 const headers = ref<string[]>([])
 const rows = ref<Record<string, string | number>[]>([])
 const fileName = ref('')
+const excelUploading = ref(false)
 const publishing = ref(false)
 const existing = ref<any[]>([])
 
@@ -48,23 +49,28 @@ function downloadTemplate() {
   ElMessage.success('模板已下载，第一列为「姓名」用于匹配学生')
 }
 
-function onUpload(file: UploadFile) {
-  const f = file.raw as File
-  fileName.value = f.name
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const ab = e.target!.result
+// 使用 http-request 上传模式：前端本地解析 Excel，不走服务器
+async function handleExcelUpload(uploadRequest: any) {
+  excelUploading.value = true
+  try {
+    const f = uploadRequest.file as File
+    if (!f) throw new Error('未获取到文件')
+    fileName.value = f.name
+    const ab = await f.arrayBuffer()
     const wb = XLSX.read(ab, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const json = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws, { defval: '' })
-    if (!json.length) { ElMessage.error('未解析到数据'); return }
+    if (!json.length) throw new Error('未解析到数据')
     headers.value = Object.keys(json[0])
     rows.value = json
     form.value.matchField = headers.value[0]
     ElMessage.success(`解析成功：${headers.value.length} 列，${rows.value.length} 行`)
+  } catch (e: any) {
+    console.error('[Excel解析失败]', e)
+    ElMessage.error(e?.message || 'Excel 解析失败，请检查文件格式')
+  } finally {
+    excelUploading.value = false
   }
-  reader.readAsArrayBuffer(f)
-  return false
 }
 
 const canPublish = computed(() => form.value.title && headers.value.length && form.value.matchField)
@@ -135,8 +141,12 @@ async function publish() {
           <el-form-item label="数据文件">
             <div class="file-row">
               <el-button @click="downloadTemplate">📥 下载模板</el-button>
-              <el-upload :before-upload="onUpload" :show-file-list="false" accept=".xlsx,.xls">
-                <el-button type="primary">📤 上传 Excel</el-button>
+              <el-upload
+                :http-request="handleExcelUpload"
+                :show-file-list="false"
+                accept=".xlsx,.xls"
+              >
+                <el-button type="primary" :loading="excelUploading">📤 上传 Excel</el-button>
               </el-upload>
               <span v-if="fileName" class="file-name">✅ {{ fileName }}</span>
             </div>

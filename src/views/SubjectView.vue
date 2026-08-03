@@ -30,7 +30,15 @@ async function load() {
   if (!subject.value) return
   activeTab.value = 'announcement'
   const sid = subject.value.id
+  // 加载已审核通过的资料
   subjectResources.value = (await api.resources({ subjectId: sid, status: 'approved' })) as any
+  // 如果已登录，也加载自己上传的待审核资料，合并显示
+  if (user.isLogin && user.current?.id) {
+    const mine = (await api.resources({ subjectId: sid, mine: '1', userId: user.current.id })) as any
+    const existingIds = new Set(subjectResources.value.map((r: any) => r.id))
+    const myPending = (mine || []).filter((r: any) => r.status !== 'approved' && !existingIds.has(r.id))
+    if (myPending.length) subjectResources.value = [...subjectResources.value, ...myPending]
+  }
   subjectArticles.value = (await api.articles({ subjectId: sid, status: 'approved' })) as any
   if (user.isLogin) {
     const all = (await api.queryTasks()) as any
@@ -95,12 +103,15 @@ function onQTypeChange() {
   else if (qForm.value.qtype === 'subjective') qForm.value.options = []
   else if (qForm.value.options.length < 2) qForm.value.options = ['', '', '', '']
 }
-async function onQAttach(file: File) {
+async function handleQAttach(req: any) {
   try {
-    const r: any = await api.uploadFile(file)
+    const r: any = await api.uploadFile(req.file as File)
     qForm.value.attachments.push({ url: r.url, name: r.fileName, size: r.fileSize, type: r.fileType })
-  } catch { /* */ }
-  return false
+    ElMessage.success('附件已上传')
+  } catch (e: any) {
+    console.error('[附件上传失败]', e)
+    ElMessage.error(e?.message || '附件上传失败')
+  }
 }
 function removeQAttach(idx: number) { qForm.value.attachments.splice(idx, 1) }
 async function submitQuestion() {
@@ -179,6 +190,7 @@ const resForm = ref({ title: '', description: '', category: '课件', tagsInput:
 const resFile = ref<any>(null)
 const resFileMeta = ref<any>({ fileName: '', fileType: '', fileSize: 0, filePath: '' })
 const resSubmitting = ref(false)
+const resUploading = ref(false)
 
 function openResUpload() {
   resForm.value = { title: '', description: '', category: '课件', tagsInput: '' }
@@ -187,16 +199,20 @@ function openResUpload() {
   resUploadVisible.value = true
 }
 
-async function onResFile(file: UploadFile) {
-  const raw = file.raw as File
-  if (!raw) return false
+async function handleResUpload(uploadRequest: any) {
+  resUploading.value = true
   try {
-    const r: any = await api.uploadFile(raw)
+    const file = uploadRequest.file as File
+    const r: any = await api.uploadFile(file)
     resFileMeta.value = { fileName: r.fileName, fileType: r.fileType, fileSize: r.fileSize, filePath: r.filePath }
     if (!resForm.value.title) resForm.value.title = r.fileName.replace(/\.[^.]+$/, '')
     ElMessage.success('文件已上传，请补充信息后提交')
-  } catch { /* */ }
-  return false
+  } catch (e: any) {
+    console.error('[上传失败]', e)
+    ElMessage.error(e?.message || '文件上传失败，请重试')
+  } finally {
+    resUploading.value = false
+  }
 }
 
 async function submitResource() {
@@ -217,7 +233,14 @@ async function submitResource() {
     })
     ElMessage.success(r.status === 'approved' ? '资料已发布' : '资料已提交，待审核后公开')
     resUploadVisible.value = false
+    // 重新加载资料列表（含自己的待审核资料）
     subjectResources.value = (await api.resources({ subjectId: subject.value.id, status: 'approved' })) as any
+    if (user.isLogin && user.current?.id) {
+      const mine = (await api.resources({ subjectId: subject.value.id, mine: '1', userId: user.current.id })) as any
+      const existingIds = new Set(subjectResources.value.map((r2: any) => r2.id))
+      const myPending = (mine || []).filter((r2: any) => r2.status !== 'approved' && !existingIds.has(r2.id))
+      if (myPending.length) subjectResources.value = [...subjectResources.value, ...myPending]
+    }
   } catch { /* */ } finally { resSubmitting.value = false }
 }
 </script>
@@ -277,7 +300,7 @@ async function submitResource() {
       </div>
       <div class="res-grid">
         <div v-for="r in subjectResources" :key="r.id" class="res-card glass zg-card">
-          <div class="rc-top"><div class="rc-icon">{{ fileIcon(r.file_type) }}</div><el-tag size="small" effect="dark">{{ r.category }}</el-tag></div>
+          <div class="rc-top"><div class="rc-icon">{{ fileIcon(r.file_type) }}</div><div class="rc-tags-top"><el-tag v-if="r.status === 'pending'" size="small" type="warning">待审核</el-tag><el-tag size="small" effect="dark">{{ r.category }}</el-tag></div></div>
           <div class="rc-title">{{ r.title }}</div>
           <div class="rc-desc">{{ r.description }}</div>
           <div class="rc-tags"><span v-for="t in r.tags" :key="t" class="rc-tag">#{{ t }}</span></div>
@@ -397,7 +420,7 @@ async function submitResource() {
           <el-input v-model="qForm.answer" :placeholder="qForm.qtype === 'judge' ? '对 或 错' : qForm.qtype === 'multiple' ? '多个用英文逗号，如 A,B' : qForm.qtype === 'subjective' ? '参考答案 / 评分要点（仅教师可见）' : '如 A'" />
         </el-form-item>
         <el-form-item label="附件">
-          <el-upload :before-upload="onQAttach" :show-file-list="false" multiple>
+          <el-upload :http-request="handleQAttach" :show-file-list="false" multiple>
             <el-button size="small">📎 添加附件（图片/文件）</el-button>
           </el-upload>
           <div v-for="(a, idx) in qForm.attachments" :key="idx" class="qa-item-row">
@@ -429,10 +452,15 @@ async function submitResource() {
     <el-dialog v-model="resUploadVisible" title="上传资料" width="520px">
       <el-form label-width="80px">
         <el-form-item label="文件">
-          <el-upload :before-upload="onResFile" :show-file-list="false">
-            <el-button type="primary">📤 选择文件</el-button>
+          <el-upload
+            :auto-upload="true"
+            :show-file-list="false"
+            :http-request="handleResUpload"
+          >
+            <el-button type="primary" :loading="resUploading">📤 选择文件</el-button>
           </el-upload>
           <span v-if="resFileMeta.fileName" class="file-name">✅ {{ resFileMeta.fileName }} ({{ formatSize(resFileMeta.fileSize) }})</span>
+          <span v-if="resUploading" class="file-name">⏳ 正在上传...</span>
         </el-form-item>
         <el-form-item label="标题"><el-input v-model="resForm.title" placeholder="资料标题" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="resForm.description" type="textarea" :rows="2" /></el-form-item>
@@ -474,6 +502,7 @@ async function submitResource() {
 .res-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
 .res-card { padding:18px; }
 .rc-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.rc-tags-top { display:flex; gap:6px; align-items:center; }
 .rc-icon { font-size:30px; }
 .rc-title { font-weight:700; font-size:16px; }
 .rc-desc { font-size:13px; color:var(--zg-text-dim); margin:6px 0 10px; line-height:1.6; min-height:40px; }

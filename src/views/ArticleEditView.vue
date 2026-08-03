@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage, type UploadFile } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const data = useDataStore()
@@ -42,9 +42,9 @@ function getContent() {
   return editorRef.value?.innerHTML || ''
 }
 
-async function onUpload(file: UploadFile) {
-  const raw = file.raw as File
-  if (!raw) return false
+async function onUploadImg(uploadRequest: any) {
+  const raw = uploadRequest.file as File
+  if (!raw) return
   try {
     const r: any = await api.uploadImage(raw)
     const url = r.url
@@ -55,8 +55,10 @@ async function onUpload(file: UploadFile) {
       editorRef.value.innerHTML += img
     }
     ElMessage.success('图片已上传')
-  } catch { /* http 拦截器已提示 */ }
-  return false
+  } catch (e: any) {
+    console.error('[图片上传失败]', e)
+    ElMessage.error(e?.message || '图片上传失败')
+  }
 }
 
 async function submit() {
@@ -120,7 +122,7 @@ async function submit() {
         <button @click="exec('formatBlock','<p>')">正文</button>
         <button @click="exec('formatBlock','<blockquote>')">引用</button>
         <button @click="exec('insertUnorderedList')">• 列表</button>
-        <el-upload :show-file-list="false" :before-upload="onUpload" accept="image/*">
+        <el-upload :show-file-list="false" :http-request="onUploadImg" accept="image/*">
           <button>🖼️ 插入图片</button>
         </el-upload>
       </div>

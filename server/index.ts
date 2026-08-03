@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -6,7 +7,7 @@ import fs from 'fs'
 import { initDB, all, get, run } from './db'
 import { signToken, auth, requireRole, requireStaff } from './auth'
 import { addExp, addNotice, userClassIds, teachingSubjects, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled } from './helpers'
-import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR } from './storage'
+import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR, createPresignedUploadUrl } from './storage'
 import bcrypt from 'bcryptjs'
 import multer from 'multer'
 
@@ -24,8 +25,35 @@ app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
 // 静态：前端构建产物（生产）
-const distDir = path.join(ROOT, 'dist')
-if (fs.existsSync(distDir)) app.use(express.static(distDir))
+  const distDir = path.join(ROOT, 'dist')
+  if (fs.existsSync(distDir)) {
+    // 给 index.html 注入版本号，强制浏览器加载最新的 JS/CSS
+    // 策略：只在当前 html 中已有的 /assets/xxx.js / .css 引用上追加 ?v= 时间戳，
+    // 不再依赖 index.html.bak —— 每次启动都直接基于当前构建产物加工，避免旧备份造成的错乱
+    const htmlPath = path.join(distDir, 'index.html')
+    let BUILD_VER = '0'
+    try {
+      BUILD_VER = String(Date.now())
+      const rawHtml = fs.readFileSync(htmlPath, 'utf-8')
+      // 先清除已有的 ?v=xxx，保证每次都是干净的起点
+      const cleanHtml = rawHtml.replace(/\?v=\d+/g, '')
+      // 只替换干净的 /assets/...js 和 /assets/...css
+      const html = cleanHtml
+        .replace(/(src="\/assets\/[^"]+\.js)"/g, `$1?v=${BUILD_VER}"`)
+        .replace(/(href="\/assets\/[^"]+\.css)"/g, `$1?v=${BUILD_VER}"`)
+      fs.writeFileSync(htmlPath, html)
+      console.log(`[build] 版本号: ${BUILD_VER}`)
+    } catch (e) { console.log('[build] 版本号注入失败:', (e as Error).message) }
+
+    // 明确处理 /assets/ 路径，避免被 SPA fallback 拦截
+    app.use('/assets', express.static(path.join(distDir, 'assets'), {
+      maxAge: '1y',
+      immutable: true,
+      index: false
+    }))
+    // 其余静态文件（如根路径的 index.html、favicon 等）
+    app.use(express.static(distDir, { index: false }))
+  }
 
 // 静态：本地文件上传目录（仅本地兜底模式用；Supabase 模式时前端走外链，此挂载无害也无用）
 if (USE_LOCAL) {
@@ -168,6 +196,38 @@ app.post('/api/upload/avatar', auth, upload.single('file'), async (req, res) => 
   const url = await uploadFile(key, req.file.buffer, req.file.mimetype)
   await run('UPDATE users SET avatar=? WHERE id=?', url, (req as any).user.id)
   res.json({ url })
+})
+
+// ============ 前端直传 Supabase 的预签名 URL（绕过 pinggy 隧道大文件限制） ============
+app.post('/api/upload/presign', auth, async (req, res) => {
+  const { fileName, contentType } = req.body
+  if (!fileName) return res.status(400).json({ message: '缺少 fileName' })
+  const ext = path.extname(fileName) || ''
+  const rand = Math.random().toString(36).slice(2, 10)
+  const key = `file_${Date.now()}_${rand}${ext}`
+  const typeMap: Record<string, string> = { '.pdf': 'pdf', '.ppt': 'ppt', '.pptx': 'ppt', '.doc': 'word', '.docx': 'word', '.zip': 'zip', '.mp4': 'video', '.mov': 'video', '.xls': 'excel', '.xlsx': 'excel' }
+  const result = await createPresignedUploadUrl(key)
+  if (!result) {
+    // Supabase 不可用（如本地模式），返回回退标记，前端走旧的 /api/upload/file 接口
+    return res.json({ fallback: true, key })
+  }
+  res.json({
+    signedUrl: result.signedUrl,
+    publicUrl: result.publicUrl,
+    key,
+    fileType: typeMap[ext] || 'file',
+  })
+})
+
+// 图片专用 presign（头像/编辑器图片）
+app.post('/api/upload/presign-image', auth, async (req, res) => {
+  const { fileName } = req.body
+  if (!fileName) return res.status(400).json({ message: '缺少 fileName' })
+  const ext = path.extname(fileName) || '.png'
+  const key = `img_${(req as any).user.id}_${Date.now()}${ext}`
+  const result = await createPresignedUploadUrl(key)
+  if (!result) return res.json({ fallback: true, key })
+  res.json({ signedUrl: result.signedUrl, publicUrl: result.publicUrl, key })
 })
 
 // ============ 班级 ============
@@ -323,8 +383,10 @@ app.get('/api/resources', async (req, res) => {
 
 app.post('/api/resources', auth, async (req, res) => {
   const id = (req as any).user.id
+  const u = await get<any>('SELECT role FROM users WHERE id=?', id)
   const b = req.body
-  const status = 'pending'
+  // 教师/管理员上传的资料自动审核通过；学生上传需待审核
+  const status = (u?.role === 'SUPER_ADMIN' || u?.role === 'TEACHER') ? 'approved' : 'pending'
   const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status)
   const rid = Number(r.lastInsertRowid)
@@ -1277,10 +1339,12 @@ app.get('/api/messages/:peerId', auth, async (req, res) => {
   res.json(list.map(m => ({ ...m, attachments: j(m.attachments) })))
 })
 
-// SPA fallback - only for non-API, non-upload requests
+// SPA fallback - only for non-API, non-upload, non-assets requests
 app.get('/{*splat}', (req, res, next) => {
   const p = req.path
   if (p.startsWith('/api/')) return next()
+  if (p.startsWith('/assets/')) return next()
+  if (p.startsWith('/uploads/')) return next()
   if (fs.existsSync(path.join(distDir, 'index.html'))) res.sendFile(path.join(distDir, 'index.html'))
   else res.status(404).json({ message: '页面不存在' })
 })

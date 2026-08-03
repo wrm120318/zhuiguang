@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
-import { ElMessage, type UploadFile } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
@@ -68,15 +68,17 @@ function onTypeChange(q: any) {
   else { q.options = []; q.answer = '' }
 }
 
-async function onUploadAttach(file: UploadFile, q: any) {
-  const raw = file.raw as File
-  if (!raw) return false
+async function onUploadAttach(uploadRequest: any, q: any) {
+  const raw = uploadRequest.file as File
+  if (!raw) return
   try {
     const r: any = await api.uploadFile(raw)
     q.attachments.push({ name: r.fileName, url: r.filePath, type: r.fileType, size: r.fileSize })
     ElMessage.success('附件已上传')
-  } catch { /* */ }
-  return false
+  } catch (e: any) {
+    console.error('[附件上传失败]', e)
+    ElMessage.error(e?.message || '附件上传失败')
+  }
 }
 
 function removeAttach(q: any, i: number) { q.attachments.splice(i, 1) }
@@ -199,7 +201,7 @@ async function submit() {
           </template>
 
           <div class="qe-attach">
-            <el-upload :before-upload="(f: any) => onUploadAttach(f, q)" :show-file-list="false" multiple>
+            <el-upload :http-request="(req: any) => onUploadAttach(req, q)" :show-file-list="false" multiple>
               <el-button size="small">📎 添加附件（图片/文件）</el-button>
             </el-upload>
             <div v-for="(a, idx) in q.attachments" :key="idx" class="qa-item">
