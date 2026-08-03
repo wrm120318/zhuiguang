@@ -92,7 +92,10 @@ app.post('/api/auth/login', async (req, res) => {
   if (!u) return res.status(400).json({ message: '用户不存在' })
   if (u.status !== 'active') return res.status(400).json({ message: '账号已被禁用' })
   if (!bcrypt.compareSync(password, u.password_hash)) return res.status(400).json({ message: '密码错误' })
-  await addExp(u.id, undefined, 'login', '每日首次登录')
+  // 每日首次登录才加积分（同一天重复登录不重复发放）
+  const today = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD
+  const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? LIMIT 1', u.id, 'login', today)
+  if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
   res.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
 })
 
@@ -1302,7 +1305,9 @@ app.get('/api/messages/sessions', auth, async (req, res) => {
     const allUsers = await all<any>('SELECT id, real_name, role, avatar FROM users WHERE id<>? AND status=? ORDER BY real_name', uid, 'active')
     res.json({ sessions: result, allUsers })
   } else {
-    res.json({ sessions: result })
+    // 普通用户也返回全部活跃用户列表，供发起新会话时选择
+    const allUsers = await all<any>('SELECT id, real_name, role, avatar FROM users WHERE id<>? AND status=? ORDER BY real_name', uid, 'active')
+    res.json({ sessions: result, allUsers })
   }
 })
 

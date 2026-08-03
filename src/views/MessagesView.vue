@@ -27,12 +27,8 @@ async function loadSessions() {
   const r: any = await api.messageSessions()
   sessions.value = r.sessions || []
   if (r.allUsers) allUsers.value = r.allUsers
-  // 可发对象：超管看全部用户；其他人看曾联系过的
-  if (user.isSuperAdmin) {
-    contacts.value = r.allUsers || []
-  } else {
-    contacts.value = sessions.value.map(s => s.peer).filter(Boolean)
-  }
+  // 可发对象：全部活跃用户（超管与普通用户均可主动发起新会话）
+  contacts.value = r.allUsers || sessions.value.map(s => s.peer).filter(Boolean)
 }
 
 async function openPeer(peerId: number) {
