@@ -1300,15 +1300,9 @@ app.get('/api/messages/sessions', auth, async (req, res) => {
     const unread = (await get<{ n: number }>('SELECT COUNT(*) as n FROM messages WHERE to_id=? AND from_id=? AND is_read=0', uid, peerId))?.n || 0
     result.push({ ...m, attachments: j(m.attachments), peer, unread })
   }
-  // 超管：返回所有用户作为可监督对象
-  if (role === 'SUPER_ADMIN') {
-    const allUsers = await all<any>('SELECT id, real_name, role, avatar FROM users WHERE id<>? AND status=? ORDER BY real_name', uid, 'active')
-    res.json({ sessions: result, allUsers })
-  } else {
-    // 普通用户也返回全部活跃用户列表，供发起新会话时选择
-    const allUsers = await all<any>('SELECT id, real_name, role, avatar FROM users WHERE id<>? AND status=? ORDER BY real_name', uid, 'active')
-    res.json({ sessions: result, allUsers })
-  }
+  // 所有用户均返回全部活跃用户列表，供发起新会话时选择
+  const allUsers = await all<any>('SELECT id, real_name, role, avatar FROM users WHERE id<>? AND status=? ORDER BY real_name', uid, 'active')
+  res.json({ sessions: result, allUsers })
 })
 
 // 超管查任意两用户之间的消息
