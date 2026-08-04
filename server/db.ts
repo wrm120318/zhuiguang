@@ -215,6 +215,11 @@ export async function initDB() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+    -- Bug5: 功能开关 KV 表（独立于 settings 的 JSON，便于按 key 查询）
+    CREATE TABLE IF NOT EXISTS feature_flags (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `)
 
   // 迁移：为旧数据库补齐 users.subject_id 列（CREATE TABLE IF NOT EXISTS 不会修改已存在的表）
@@ -228,6 +233,14 @@ export async function initDB() {
   try { await db.execute('ALTER TABLE articles ADD COLUMN actual_user_id INTEGER DEFAULT NULL') } catch {}
   // 迁移：用户最后活跃时间（需求5监控在线人数）
   try { await db.execute('ALTER TABLE users ADD COLUMN last_active TEXT DEFAULT NULL') } catch {}
+  // Bug2: 美文评论表
+  try { await db.execute(`CREATE TABLE IF NOT EXISTS article_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+    user_name TEXT, avatar TEXT, content TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )`) } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_art_c_a ON article_comments(article_id)') } catch {}
+  // Bug5: feature_flags 表默认 registration_enabled=1（保证旧数据库也有）
+  try { await db.execute("INSERT OR IGNORE INTO feature_flags (key,value) VALUES ('registration_enabled','1')") } catch {}
 
   await seed()
 }
@@ -279,6 +292,8 @@ async function seed() {
   }
   await run('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)', 'exp_rules', JSON.stringify(expRules))
   await run('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)', 'feature_flags', JSON.stringify(featureFlags))
+  // Bug5: feature_flags KV 表种子数据
+  await run("INSERT OR IGNORE INTO feature_flags (key,value) VALUES ('registration_enabled','1')")
 
   // ===== 网站说明首页内容（ptype=guide，单条） =====
   await run(

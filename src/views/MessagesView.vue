@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
+const router = useRouter()
 const user = useUserStore()
 
 const sessions = ref<any[]>([])
@@ -17,6 +18,12 @@ const inputText = ref('')
 const sending = ref(false)
 const loading = ref(false)
 const chatBox = ref<HTMLElement | null>(null)
+
+function attachInfo(m: any) {
+  const act = (m.attachments || []).find((a: any) => a.type === 'action' && a.articleId)
+  return { hasApprove: !!act, articleId: act?.articleId }
+}
+function goApprove(articleId: number) { router.push('/profile') }
 
 // 超管监督模式：选择任意两人查看对话
 const adminMode = ref(false)
@@ -152,7 +159,9 @@ watch(() => route.params.peerId, async (pid) => {
           </div>
           <div ref="chatBox" class="chat-body" v-loading="loading">
             <div v-for="m in messages" :key="m.id" class="msg-row" :class="{ mine: m.from_id === user.current?.id }">
-              <div class="msg-bubble">{{ m.content }}</div>
+              <div class="msg-bubble"><div class="msg-content" v-html="m.content"></div>
+                <el-button v-if="attachInfo(m).hasApprove" type="primary" size="small" @click="goApprove(attachInfo(m).articleId)">前去确认美文</el-button>
+              </div>
               <div class="msg-time">{{ timeShort(m.created_at) }}</div>
             </div>
             <el-empty v-if="!loading && !messages.length" description="还没有消息，发条招呼吧～" :image-size="80" />
@@ -182,7 +191,8 @@ watch(() => route.params.peerId, async (pid) => {
             <template v-if="adminMode">
               <div v-for="m in messages" :key="m.id" class="msg-row" :class="{ mine: isAdminMine(m) }">
                 <div class="msg-bubble">
-                  <span class="msg-from">{{ m.from_id === adminA ? 'A' : 'B' }}：</span>{{ m.content }}
+                  <span class="msg-from">{{ m.from_id === adminA ? 'A' : 'B' }}：</span><div class="msg-content" v-html="m.content" style="display:inline"></div>
+                  <el-button v-if="attachInfo(m).hasApprove" type="primary" size="small" @click="goApprove(attachInfo(m).articleId)">前去确认美文</el-button>
                 </div>
                 <div class="msg-time">{{ timeShort(m.created_at) }}</div>
               </div>
@@ -225,6 +235,9 @@ watch(() => route.params.peerId, async (pid) => {
 .msg-row.mine { align-items: flex-end; margin-left: auto; }
 .msg-bubble { padding: 10px 14px; border-radius: 14px 14px 14px 4px; background: rgba(245,158,11,.1); font-size: 14px; line-height: 1.5; word-break: break-word; }
 .msg-row.mine .msg-bubble { background: var(--zg-primary); color: #fff; border-radius: 14px 14px 4px 14px; }
+.msg-content :deep(p) { margin: 4px 0; }
+.msg-content :deep(b) { color: var(--zg-primary); }
+.msg-row.mine .msg-content :deep(b) { color: #fff8e1; }
 .msg-time { font-size: 11px; color: var(--zg-text-dim); margin-top: 4px; }
 .msg-from { font-weight: 700; margin-right: 4px; }
 .chat-input { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid rgba(245,158,11,.1); align-items: flex-end; }

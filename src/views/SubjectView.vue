@@ -321,7 +321,11 @@ async function submitResource() {
       <div class="article-grid">
         <div v-for="a in subjectArticles" :key="a.id" class="art-card glass zg-card" @click="router.push(`/article/${a.id}`)">
           <div class="ac-cover" :style="{ backgroundImage: `url(${a.cover})` }"><span class="ac-cat">{{ a.category }}</span></div>
-          <div class="ac-body"><div class="ac-title">{{ a.title }}</div><div class="ac-author">{{ a.author }}</div><div class="ac-meta"><span>❤ {{ a.likes }}</span><span>👁 {{ a.views }}</span></div></div>
+          <div class="ac-body"><div class="ac-title">{{ a.title }}
+            <el-tag v-if="a.status === 'pending'" size="small" type="warning" style="margin-left:6px">待审核</el-tag>
+            <el-tag v-else-if="a.status === 'pending_student'" size="small" type="info" style="margin-left:6px">待学生确认</el-tag>
+            <el-tag v-else-if="a.status === 'rejected'" size="small" type="danger" style="margin-left:6px">未通过</el-tag>
+          </div><div class="ac-author">{{ a.author }}</div><div class="ac-meta"><span>❤ {{ a.likes }}</span><span>👁 {{ a.views }}</span></div></div>
         </div>
       </div>
       <el-empty v-if="!subjectArticles.length" description="暂无美文" />

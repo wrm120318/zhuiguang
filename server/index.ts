@@ -108,7 +108,9 @@ app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body
   const u = await get<any>('SELECT * FROM users WHERE username = ?', username)
   if (!u) return res.status(400).json({ message: '用户不存在' })
-  if (u.status !== 'active') return res.status(400).json({ message: '账号已被禁用' })
+  // Bug4: 禁用账号登录前检查，返回401带disabled标记
+  if (u.status === 'disabled') return res.status(401).json({ message: '账号已被禁用，请联系管理员', disabled: true })
+  if (u.status !== 'active') return res.status(400).json({ message: '账号状态异常' })
   if (!bcrypt.compareSync(password, u.password_hash)) return res.status(400).json({ message: '密码错误' })
   // 每日首次登录才加积分（同一天重复登录不重复发放）
   const today = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD
@@ -117,7 +119,43 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
 })
 
+// Bug4: 轻量接口，检查用户是否登录+是否禁用，供前端轮询/路由切换用
+app.get('/api/me/status', async (req, res) => {
+  const authHeader = req.headers.authorization
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.json({ login: false, disabled: false, userId: null })
+  }
+  try {
+    const token = authHeader.slice(7)
+    const jwt = await import('jsonwebtoken')
+    const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+    if (!decoded || !decoded.id) {
+      return res.json({ login: false, disabled: false, userId: null })
+    }
+    const u = await get<{ status: string }>('SELECT status FROM users WHERE id=?', decoded.id)
+    if (!u) return res.json({ login: false, disabled: false, userId: null })
+    return res.json({ login: true, disabled: u.status === 'disabled', userId: Number(decoded.id) })
+  } catch {
+    return res.json({ login: false, disabled: false, userId: null })
+  }
+})
+
 app.post('/api/auth/register', async (req, res) => {
+  // Bug5: 检查注册功能开关
+  let callerIsAdmin = false
+  const authHeader = req.headers.authorization
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.slice(7)
+      const jwt = await import('jsonwebtoken')
+      const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+      if (decoded && decoded.role === 'SUPER_ADMIN') callerIsAdmin = true
+    } catch {}
+  }
+  const regFlag = await get<{ value: string }>("SELECT value FROM feature_flags WHERE key='registration_enabled'")
+  if (!callerIsAdmin && regFlag && regFlag.value === '0') {
+    return res.status(403).json({ message: '管理员已关闭注册功能' })
+  }
   const { username, password, realName, email, classId } = req.body
   if (!username || !password || !realName) return res.status(400).json({ message: '请填写完整信息' })
   if (await get('SELECT id FROM users WHERE username = ?', username)) return res.status(400).json({ message: '用户名已存在' })
@@ -367,23 +405,150 @@ app.get('/api/me/classes', auth, async (req, res) => {
 })
 
 // ============ 美文 ============
+// Bug3/Bug7: 可选auth解析辅助（返回 {id,role,subject_id} | null）
+async function parseOptionalAuth(req: any): Promise<{ id: number; role: string; subject_id: number | null } | null> {
+  const h = req.headers.authorization
+  if (!h || !h.startsWith('Bearer ')) return null
+  try {
+    const token = h.slice(7)
+    const jwt = await import('jsonwebtoken')
+    const dec: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+    if (!dec || !dec.id) return null
+    const u = await get<any>('SELECT id, role, subject_id, status FROM users WHERE id=?', dec.id)
+    if (!u || u.status === 'disabled') return null
+    return { id: u.id, role: u.role, subject_id: u.subject_id ? Number(u.subject_id) : null }
+  } catch { return null }
+}
+
 app.get('/api/articles', async (req, res) => {
-  const { subjectId, status, mine, userId } = req.query
-  let sql = 'SELECT * FROM articles WHERE 1=1'
+  const { subjectId, status, mine, userId, allStatus } = req.query
+  const me = await parseOptionalAuth(req)
+  const myId = me?.id ?? 0
+  const myRole = me?.role ?? 'GUEST'
+  const mySubjectId = me?.subject_id ?? null
+
+  // Bug3/Bug7: 构建状态+可见性过滤
+  const statusClauses: string[] = []
+  const statusArgs: any[] = []
+
+  // 如果前端显式传了 status 参数，优先使用（前提是当前用户有权限看该状态的范围）
+  const explicitStatus = typeof status === 'string' && status
+  const wantAllStatus = allStatus === '1' && (myRole === 'SUPER_ADMIN' || myRole === 'TEACHER')
+
+  if (myRole === 'SUPER_ADMIN') {
+    // 超管：返回所有状态所有文章
+    if (explicitStatus) { statusClauses.push('a.status=?'); statusArgs.push(explicitStatus) }
+    // else 不加限制
+  } else if (myRole === 'TEACHER') {
+    // 教师：approved + 自己创建的所有状态 + 自己任教学科下所有非approved待审 + actual_user_id相关
+    const sids = await teachingSubjects(myId)
+    if (mySubjectId && !sids.includes(mySubjectId)) sids.push(mySubjectId)
+    const parts: string[] = []
+    // 已公开
+    parts.push("a.status='approved'")
+    // 自己创建的（所有状态）
+    parts.push('a.user_id=?')
+    statusArgs.push(myId)
+    // 任教学科下待审文章（所有非approved状态，含pending、pending_student等）
+    if (sids.length) {
+      const ph = sids.map(() => '?').join(',')
+      parts.push(`(a.status<>'approved' AND a.subject_id IN (${ph}))`)
+      statusArgs.push(...sids)
+    }
+    // actual_user_id 关联的（学生待确认的）
+    parts.push('a.actual_user_id=?')
+    statusArgs.push(myId)
+    statusClauses.push(`(${parts.join(' OR ')})`)
+    if (explicitStatus && !wantAllStatus) {
+      statusClauses.push('a.status=?'); statusArgs.push(explicitStatus)
+    }
+  } else if (myRole === 'STUDENT') {
+    // 学生：approved + 自己创建的(user_id) + actual_user_id=自己的
+    const parts: string[] = []
+    parts.push("a.status='approved'")
+    parts.push('a.user_id=?')
+    statusArgs.push(myId)
+    parts.push('a.actual_user_id=?')
+    statusArgs.push(myId)
+    statusClauses.push(`(${parts.join(' OR ')})`)
+    if (explicitStatus && !wantAllStatus) {
+      statusClauses.push('a.status=?'); statusArgs.push(explicitStatus)
+    }
+  } else {
+    // 未登录（GUEST）：仅 approved
+    if (explicitStatus && explicitStatus === 'approved') {
+      statusClauses.push('a.status=?'); statusArgs.push(explicitStatus)
+    } else {
+      statusClauses.push("a.status='approved'")
+    }
+  }
+
+  // 构建主SQL：JOIN users 取 creator_name / actual_user_name
+  let sql = `SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name
+    FROM articles a
+    JOIN users u ON u.id = a.user_id
+    LEFT JOIN users au ON au.id = a.actual_user_id
+    WHERE 1=1`
   const args: any[] = []
-  if (subjectId) { sql += ' AND subject_id=?'; args.push(subjectId) }
-  if (status) { sql += ' AND status=?'; args.push(status) }
-  if (mine === '1') { sql += ' AND user_id=?'; args.push(userId) }
-  sql += ' ORDER BY id DESC'
+
+  if (statusClauses.length) {
+    sql += ' AND (' + statusClauses.join(') AND (') + ')'
+    args.push(...statusArgs)
+  }
+
+  if (subjectId) { sql += ' AND a.subject_id=?'; args.push(subjectId) }
+
+  // Bug3/Bug7: mine=1 按正确身份返回
+  if (mine === '1') {
+    if (!me) { res.json([]); return }
+    if (myRole === 'STUDENT') {
+      sql += ' AND (a.user_id=? OR a.actual_user_id=?)'
+      args.push(myId, myId)
+    } else {
+      sql += ' AND a.user_id=?'
+      args.push(myId)
+    }
+  } else if (userId && myRole === 'SUPER_ADMIN') {
+    // 超管可按 userId 筛选查看某人的
+    sql += ' AND a.user_id=?'
+    args.push(userId)
+  }
+
+  sql += ' ORDER BY a.id DESC'
   const list = await all<any>(sql, ...args)
   res.json(list.map(a => ({ ...a, images: j(a.images), tags: j(a.tags) })))
 })
 
 app.get('/api/articles/:id', async (req, res) => {
-  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  const me = await parseOptionalAuth(req)
+  const myId = me?.id ?? 0
+  const myRole = me?.role ?? 'GUEST'
+  const mySubjectId = me?.subject_id ?? null
+
+  // Bug3/Bug7: JOIN users 取 creator_name, actual_user_name
+  const a = await get<any>(`SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name
+    FROM articles a
+    JOIN users u ON u.id = a.user_id
+    LEFT JOIN users au ON au.id = a.actual_user_id
+    WHERE a.id=?`, req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
+
+  // Bug3/Bug7: 详情权限
+  if (a.status !== 'approved') {
+    // 非approved：仅本人/actual_user_id/超管/任教该学科教师 可见
+    const isOwner = Number(a.user_id) === myId
+    const isActual = a.actual_user_id && Number(a.actual_user_id) === myId
+    let canSee = isOwner || isActual || myRole === 'SUPER_ADMIN'
+    if (!canSee && myRole === 'TEACHER') {
+      const sids = await teachingSubjects(myId)
+      if (mySubjectId && !sids.includes(mySubjectId)) sids.push(mySubjectId)
+      if (a.subject_id && sids.includes(Number(a.subject_id))) canSee = true
+    }
+    if (!canSee) return res.status(403).json({ message: '无权查看该美文' })
+  }
+
   await run('UPDATE articles SET views = views + 1 WHERE id=?', req.params.id)
-  res.json({ ...a, images: j(a.images), tags: j(a.tags), views: a.views + 1 })
+  res.json({ ...a, images: j(a.images), tags: j(a.tags), views: (a.views ?? 0) + 1 })
 })
 
 app.post('/api/articles', auth, async (req, res) => {
@@ -416,9 +581,11 @@ app.post('/api/articles', auth, async (req, res) => {
   // 代发的通知学生
   if (status === 'pending_student' && actualUserId) {
     const teacherName = u?.real_name || '老师'
-    await addNotice(actualUserId, '有人代你发布美文', `${teacherName}老师代你发布了《${b.title}》，请到个人中心确认是否同意发布。`, 'audit')
-    // 同时发站内信
-    await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', id, actualUserId, `${teacherName}老师代你发布了美文《${b.title}》，请登录网站在「个人中心 → 待我确认的美文」中确认是否同意发布。`, '[]')
+    await addNotice(actualUserId, '有人代你发布美文', `${teacherName}老师代你发布了《${b.title}》，请到个人中心 → 待我确认的美文中确认是否同意发布。`, 'audit')
+    // Bug6: 同时发站内信，内容写富文本HTML，attachments 带 action 信息供前端直达
+    const msgHtml = `<p>${teacherName}老师代你发布了美文《${b.title}》</p><p>请前往「个人中心 → 待我确认的美文」中 <b>确认是否同意发布</b>。</p>`
+    const atts = JSON.stringify([{ type: 'action', articleId: aid, title: '点此确认' }])
+    await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', id, actualUserId, msgHtml, atts)
   }
   // 直接 approved 的直接加分
   if (status === 'approved') {
@@ -444,6 +611,10 @@ app.post('/api/articles/:id/student-approve', auth, async (req, res) => {
   if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
   await run('UPDATE articles SET status=? WHERE id=?', 'pending', req.params.id)
   await addNotice(a.user_id, '代发美文学生已确认', `学生确认同意发布《${a.title}》，现已进入待超管审核状态。`, 'audit')
+  // Bug6: 学生同意后，也发送站内信通知学生（确认已提交，等待审核）
+  const stuMsg = `<p>你已确认同意发布美文《${a.title}》</p><p>该文现已进入<b>超管审核</b>阶段，通过后将会公开展示。请耐心等待。</p>`
+  const stuAtts = JSON.stringify([{ type: 'action', articleId: Number(req.params.id), title: '查看美文' }])
+  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', a.user_id, uid, stuMsg, stuAtts)
   res.json({ ok: true })
 })
 
@@ -462,14 +633,18 @@ app.post('/api/articles/:id/student-reject', auth, async (req, res) => {
 app.patch('/api/articles/:id/status', auth, async (req, res) => {
   const a = await get<any>('SELECT title, user_id, status, subject_id, actual_user_id FROM articles WHERE id=?', req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  const reviewerId = (req as any).user.id
+  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', reviewerId)
   // 需求4：只有 SUPER_ADMIN 可以审核美文（教师发布的不需要审核，直接approved，不经过这里）
   if (u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '只有超级管理员可以审核美文' })
+  // Bug1: 确认此处不更新 user_id（当前是对的，只改 status）
   await run('UPDATE articles SET status=? WHERE id=?', req.body.status, req.params.id)
   if (req.body.status === 'approved' && a.status !== 'approved') {
-    // 需求3+4：经验值加给实际作者（actual_user_id存在就给学生，否则给创建者）
+    // Bug1/Bug8: 经验值加给实际作者（actual_user_id存在就给学生，否则给创建者），明确传 20
     const expUid = Number(a.actual_user_id) || Number(a.user_id)
-    await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`)
+    await addExp(expUid, 20, 'article', `美文《${a.title}》审核通过`)
+    // Bug8 核心：给审核人（超管）加 2 经验奖励
+    await addExp(reviewerId, 2, 'review', `审核通过美文《${a.title}》`)
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
     // 如果是代发的，也通知实际作者学生
     if (a.actual_user_id) {
@@ -503,6 +678,63 @@ app.post('/api/articles/:id/like', auth, async (req, res) => {
   const a = await get<any>('SELECT user_id, title FROM articles WHERE id=?', req.params.id)
   if (a) await addExp(a.user_id, 1, 'like', `美文《${a.title}》获得点赞`)
   res.json({ liked: true })
+})
+
+// Bug2: 美文评论 - 列表（检查文章详情权限）
+app.get('/api/articles/:id/comments', async (req, res) => {
+  const me = await parseOptionalAuth(req)
+  const myId = me?.id ?? 0
+  const myRole = me?.role ?? 'GUEST'
+  const mySubjectId = me?.subject_id ?? null
+  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '文章不存在' })
+  // 检查文章可见性（和 /articles/:id 相同）
+  if (a.status !== 'approved') {
+    const isOwner = Number(a.user_id) === myId
+    const isActual = a.actual_user_id && Number(a.actual_user_id) === myId
+    let canSee = isOwner || isActual || myRole === 'SUPER_ADMIN'
+    if (!canSee && myRole === 'TEACHER') {
+      const sids = await teachingSubjects(myId)
+      if (mySubjectId && !sids.includes(mySubjectId)) sids.push(mySubjectId)
+      if (a.subject_id && sids.includes(Number(a.subject_id))) canSee = true
+    }
+    if (!canSee) return res.status(403).json({ message: '无权查看该美文的评论' })
+  }
+  const list = await all<any>('SELECT * FROM article_comments WHERE article_id=? ORDER BY id DESC', req.params.id)
+  res.json(list)
+})
+
+// Bug2: 美文评论 - 发布（auth）
+app.post('/api/articles/:id/comments', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  // 先判断文章可见性（状态过滤）
+  const me = await parseOptionalAuth(req)
+  const myId = me?.id ?? 0
+  const myRole = me?.role ?? 'GUEST'
+  const mySubjectId = me?.subject_id ?? null
+  const art = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!art) return res.status(404).json({ message: '文章不存在' })
+  if (art.status !== 'approved') {
+    const isOwner = Number(art.user_id) === myId
+    const isActual = art.actual_user_id && Number(art.actual_user_id) === myId
+    let canSee = isOwner || isActual || myRole === 'SUPER_ADMIN'
+    if (!canSee && myRole === 'TEACHER') {
+      const sids = await teachingSubjects(myId)
+      if (mySubjectId && !sids.includes(mySubjectId)) sids.push(mySubjectId)
+      if (art.subject_id && sids.includes(Number(art.subject_id))) canSee = true
+    }
+    if (!canSee) return res.status(403).json({ message: '无权评论该美文' })
+  }
+  const u = await get<any>('SELECT real_name, avatar FROM users WHERE id=?', uid)
+  const r = await run('INSERT INTO article_comments (article_id,user_id,user_name,avatar,content) VALUES (?,?,?,?,?)',
+    req.params.id, uid, u?.real_name, u?.avatar, req.body.content)
+  // Bug2: 给文章作者加 1 经验（评论奖励）
+  const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', req.params.id)
+  if (a) {
+    const expUid = Number(a.actual_user_id) || Number(a.user_id)
+    if (expUid !== uid) await addExp(expUid, 1, 'comment', `《${a.title}》获得评论`)
+  }
+  res.json({ id: r.lastInsertRowid, user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content: req.body.content, created_at: new Date().toISOString().slice(0,19).replace('T',' ') })
 })
 
 // ============ 资料 ============
@@ -852,6 +1084,12 @@ app.put('/api/settings/exp_rules', auth, requireRole('SUPER_ADMIN'), async (req,
   res.json({ ok: true })
 })
 
+// Bug5: 公开的功能开关接口（给登录页用）
+app.get('/api/feature-flags/public', async (_req, res) => {
+  const regFlag = await get<{ value: string }>("SELECT value FROM feature_flags WHERE key='registration_enabled'")
+  res.json({ registration_enabled: !regFlag || regFlag.value !== '0' })
+})
+
 app.get('/api/settings/feature_flags', auth, async (_req, res) => {
   res.json(await getFeatureFlags())
 })
@@ -860,6 +1098,11 @@ app.put('/api/settings/feature_flags', auth, requireRole('SUPER_ADMIN'), async (
   const flags = req.body || {}
   await run("UPDATE settings SET value=? WHERE key='feature_flags'", JSON.stringify(flags))
   await run("INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)", 'feature_flags', JSON.stringify(flags))
+  // Bug5: 同步 registration_enabled 到 feature_flags KV 表
+  if (flags.registration_enabled !== undefined) {
+    const v = flags.registration_enabled ? '1' : '0'
+    await run("INSERT OR REPLACE INTO feature_flags (key,value) VALUES ('registration_enabled',?)", v)
+  }
   refreshFeatureFlags()
   res.json({ ok: true })
 })

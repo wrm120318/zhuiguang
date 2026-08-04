@@ -16,12 +16,11 @@ const article = ref<any>(null)
 const liked = ref(false)
 const collected = ref(false)
 const comment = ref('')
-const comments = ref<any[]>([
-  { name: '苏沐', avatar: 'https://picsum.photos/seed/zgs2/100/100', text: '读完很受触动，"成为自己的光" 这句太喜欢了。', time: '2026-07-21' },
-])
+const comments = ref<any[]>([])
 
 onMounted(async () => {
   article.value = await api.article(Number(route.params.id))
+  try { comments.value = (await api.articleComments(Number(route.params.id))) as any } catch {}
 })
 const subject = () => data.subjectById(article.value?.subject_id || article.value?.subjectId)
 
@@ -33,11 +32,14 @@ async function toggleFav() {
     ElMessage.success(r.favorited ? '已收藏' : '已取消收藏')
   } catch { ElMessage.error('操作失败') }
 }
-function submitComment() {
+async function submitComment() {
   if (!comment.value.trim()) return
-  comments.value.unshift({ name: user.current?.realName, avatar: user.current?.avatar, text: comment.value, time: new Date().toISOString().slice(0, 10) })
-  comment.value = ''
-  ElMessage.success('评论已发布（实名）')
+  try {
+    const r: any = await api.addArticleComment(article.value.id, comment.value)
+    comments.value.unshift(r.data || r)
+    comment.value = ''
+    ElMessage.success('评论已发布（实名）')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || e?.message || '评论发布失败') }
 }
 </script>
 
@@ -52,10 +54,16 @@ function submitComment() {
           <span class="ad-cat type">{{ article.category }}</span>
           <span v-for="t in article.tags" :key="t" class="ad-tag">#{{ t }}</span>
         </div>
-        <h1 class="ad-title">{{ article.title }}</h1>
+        <h1 class="ad-title" style="display:inline-block">{{ article.title }}
+          <el-tag v-if="article?.status==='pending'" type="warning" effect="dark" style="margin-left:12px">⏳ 待超管审核（仅关联用户可见）</el-tag>
+          <el-tag v-else-if="article?.status==='pending_student'" type="info" effect="dark" style="margin-left:12px">👤 等待作者学生确认</el-tag>
+          <el-tag v-else-if="article?.status==='rejected'" type="danger" effect="dark" style="margin-left:12px">❌ 审核未通过</el-tag>
+          <el-tag v-else-if="article?.status==='rejected_student'" type="danger" style="margin-left:12px">学生已拒绝发布</el-tag>
+        </h1>
         <div class="ad-meta">
           <img :src="article.cover" class="ad-avatar" v-if="false" />
-          <span>{{ article.author }}</span><span class="dot">·</span>
+          <span>发布人：{{ article?.creator_name || article?.author }}</span><span class="dot">·</span>
+          <template v-if="article?.actual_user_name"><span>实际作者：{{ article?.actual_user_name }} · 代发</span><span class="dot">·</span></template>
           <span>{{ article.created_at || article.createdAt }}</span><span class="dot">·</span><span>👁 {{ article.views }}</span>
         </div>
         <div class="ad-recommend glass" v-if="article.recommendation">💡 {{ article.recommendation }}</div>

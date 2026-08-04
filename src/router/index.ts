@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { api } from '@/api'
+import { ElMessageBox } from 'element-plus'
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
@@ -64,11 +66,22 @@ const router = createRouter({
   scrollBehavior() { return { top: 0 } }
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const u = useUserStore()
   if (!to.meta.public && !u.isLogin) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.path.startsWith('/admin') && !u.isStaff) return { name: 'home' }
   if (to.name === 'login' && u.isLogin) return { name: 'home' }
+  // Bug4: 已登录态路由切换时检查账号禁用状态
+  if (u.isLogin) {
+    try {
+      const r: any = await api.meStatus()
+      if (r.disabled) {
+        u.logout()
+        await ElMessageBox.alert('您的账号已被管理员禁用，请联系管理员。', '账号已禁用', { type: 'error', showClose: false, confirmButtonText: '知道了' })
+        return { name: 'login' }
+      }
+    } catch { /* ignore network errors */ }
+  }
 })
 
 export default router

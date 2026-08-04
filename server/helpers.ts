@@ -14,10 +14,10 @@ export async function getExpRules(): Promise<Record<string, number>> {
 
 export function refreshExpRules() { expRulesCache = null }
 
-// 给指定行为加分。change 为 0 或 undefined 时，按规则表查 actionType 对应的经验值
+// 给指定行为加分。change 为 undefined 时，按规则表查 actionType 对应的经验值；传数字直接用
 export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string) {
   let delta = change
-  if (!delta) {
+  if (delta === undefined) {
     const rules = await getExpRules()
     delta = rules[actionType] ?? 0
   }

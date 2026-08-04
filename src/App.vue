@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watchEffect } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onBeforeUnmount, ref, watchEffect } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useThemeStore } from '@/store/theme'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
+import { api } from '@/api'
+import { ElMessageBox } from 'element-plus'
 import NavBar from '@/components/NavBar.vue'
 import MobileTabBar from '@/components/MobileTabBar.vue'
 
 const route = useRoute()
+const router = useRouter()
 const theme = useThemeStore()
 const user = useUserStore()
 const data = useDataStore()
@@ -21,6 +24,19 @@ watchEffect(() => {
   document.body.classList.toggle('is-admin-route', isAdminRoute.value)
 })
 
+let statusTimer: any = null
+async function checkDisabledAndHandle() {
+  try {
+    const r: any = await api.meStatus()
+    if (r.disabled) {
+      if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+      user.logout()
+      await ElMessageBox.alert('您的账号已被管理员禁用，请联系管理员。', '账号已禁用', { type: 'error', showClose: false, confirmButtonText: '知道了' })
+      router.push('/login')
+    }
+  } catch { /* ignore */ }
+}
+
 onMounted(async () => {
   try {
     await theme.load()
@@ -31,7 +47,13 @@ onMounted(async () => {
   } finally {
     ready.value = true
   }
+  // Bug4: 每30秒轮询账号禁用状态
+  statusTimer = setInterval(async () => {
+    if (user.isLogin) await checkDisabledAndHandle()
+  }, 30000)
 })
+
+onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTimer = null } })
 </script>
 
 <template>

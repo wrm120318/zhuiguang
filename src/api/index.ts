@@ -92,6 +92,13 @@ export const api = {
   auditArticle: (id: number, status: string) => http.patch(`/api/articles/${id}/status`, { status }),
   deleteArticle: (id: number) => http.delete(`/api/articles/${id}`),
   likeArticle: (id: number) => http.post(`/api/articles/${id}/like`),
+  // Bug2 美文评论
+  articleComments: (id: number) => http.get(`/api/articles/${id}/comments`),
+  addArticleComment: (id: number, content: string) => http.post(`/api/articles/${id}/comments`, { content }),
+  // Bug4 禁用状态检查
+  meStatus: () => http.get('/api/me/status'),
+  // Bug5 公开feature flag
+  publicFeatureFlags: () => http.get('/api/feature-flags/public'),
   // 资料
   resources: (params: any) => http.get('/api/resources', { params }),
   createResource: (data: any) => http.post('/api/resources', data),

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -11,6 +12,14 @@ const user = useUserStore()
 const mode = ref<'login' | 'register'>('login')
 const form = ref({ username: '', password: '', realName: '', email: '', phone: '' })
 const loading = ref(false)
+const regEnabled = ref(true)
+
+onMounted(async () => {
+  try {
+    const r: any = await api.publicFeatureFlags()
+    regEnabled.value = !!(r.data?.registration_enabled ?? r.registration_enabled ?? true)
+  } catch { /* 默认保持开启 */ }
+})
 
 async function submit() {
   if (!form.value.username || !form.value.password) { ElMessage.warning('请输入用户名和密码'); return }
@@ -58,11 +67,12 @@ async function submit() {
         <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="👤" @keyup.enter="submit" />
         <el-input v-model="form.password" type="password" placeholder="密码" size="large" prefix-icon="🔒" show-password @keyup.enter="submit" />
         <template v-if="mode === 'register'">
-          <el-input v-model="form.realName" placeholder="真实姓名" size="large" prefix-icon="✏️" />
-          <el-input v-model="form.email" placeholder="邮箱（选填）" size="large" prefix-icon="📧" />
-          <el-input v-model="form.phone" placeholder="手机号（选填）" size="large" prefix-icon="📱" />
+          <el-input v-model="form.realName" placeholder="真实姓名" size="large" prefix-icon="✏️" :disabled="!regEnabled" />
+          <el-input v-model="form.email" placeholder="邮箱（选填）" size="large" prefix-icon="📧" :disabled="!regEnabled" />
+          <el-input v-model="form.phone" placeholder="手机号（选填）" size="large" prefix-icon="📱" :disabled="!regEnabled" />
+          <div v-if="!regEnabled" class="reg-disabled-tip">管理员已关闭自助注册，请联系老师</div>
         </template>
-        <el-button type="primary" size="large" round :loading="loading" @click="submit" style="width:100%; height:48px; font-size:16px; font-weight:600;">
+        <el-button type="primary" size="large" round :loading="loading" @click="submit" style="width:100%; height:48px; font-size:16px; font-weight:600;" :disabled="mode === 'register' && !regEnabled">
           {{ mode === 'login' ? '登 录' : '注 册' }}
         </el-button>
       </div>
@@ -86,6 +96,7 @@ async function submit() {
 .lc-tab { flex:1; text-align:center; padding: 10px; border-radius: 10px; cursor:pointer; color:var(--zg-text-dim); font-weight:600; transition:all .2s; }
 .lc-tab.on { background: var(--zg-primary); color: #fff; box-shadow: 0 4px 12px rgba(245,158,11,.3); }
 .lc-form { display:flex; flex-direction:column; gap:14px; }
+.reg-disabled-tip { font-size:13px; color:#ef4444; text-align:center; padding:6px 10px; background:rgba(239,68,68,.08); border-radius:8px; }
 @media (max-width: 768px) {
   .login-card { padding: 28px 20px; border-radius: 20px; }
   .lc-emoji { font-size: 30px; }

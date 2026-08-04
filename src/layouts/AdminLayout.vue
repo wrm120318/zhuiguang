@@ -12,20 +12,24 @@ const mobileOpen = ref(false)
 
 const menus = computed(() => {
   const list: { name: string; label: string; icon: string; badge?: number; role?: string }[] = [
-    { name: 'admin-dashboard', label: '数据看板', icon: '📊' },
-    { name: 'admin-users', label: '用户管理', icon: '👥' },
-    { name: 'admin-subjects', label: '学科管理', icon: '📚' },
-    { name: 'admin-classes', label: '班级管理', icon: '🏫' },
-    { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length },
-    { name: 'admin-query', label: '数据查询', icon: '📈' },
-    { name: 'admin-guide', label: '网站说明', icon: '📖' },
-    { name: 'admin-exp-rules', label: '经验设置', icon: '⭐' },
-    { name: 'admin-feature-flags', label: '功能开关', icon: '🧩' },
-    { name: 'admin-theme', label: '界面风格', icon: '🎨' },
-    // 需求5：网站运行监控（仅超级管理员可见）
+    { name: 'admin-dashboard', label: '数据看板', icon: '📊', role: 'SUPER_ADMIN' },
+    { name: 'admin-users', label: '用户管理', icon: '👥', role: 'SUPER_ADMIN' },
+    { name: 'admin-subjects', label: '学科管理', icon: '📚', role: 'SUPER_ADMIN' },
+    { name: 'admin-classes', label: '班级管理', icon: '🏫', role: 'SUPER_ADMIN' },
+    { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF' },
+    { name: 'admin-query', label: '数据查询', icon: '📈', role: 'STAFF' },
+    { name: 'admin-guide', label: '网站说明', icon: '📖', role: 'SUPER_ADMIN' },
+    { name: 'admin-exp-rules', label: '经验设置', icon: '⭐', role: 'SUPER_ADMIN' },
+    { name: 'admin-feature-flags', label: '功能开关', icon: '🧩', role: 'SUPER_ADMIN' },
+    { name: 'admin-theme', label: '界面风格', icon: '🎨', role: 'SUPER_ADMIN' },
     { name: 'admin-monitor', label: '运行监控', icon: '🖥️', role: 'SUPER_ADMIN' },
   ]
-  return list.filter(m => !m.role || (m.role === 'SUPER_ADMIN' && user.isSuperAdmin))
+  return list.filter(m => {
+    if (!m.role) return true
+    if (m.role === 'SUPER_ADMIN') return user.isSuperAdmin
+    if (m.role === 'STAFF') return user.isTeacher || user.isSuperAdmin
+    return false
+  })
 })
 
 function go(name: string) {
