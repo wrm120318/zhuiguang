@@ -84,10 +84,16 @@ start_tunnel() {
   return 0
 }
 
+# 本地服务异常容忍次数（避免后端刚启动时短暂不可达误杀隧道）
+LOCAL_FAIL_LIMIT=3
+local_fail_count=0
+
 # 主循环
 SERVER_IDX=0
 while true; do
   if ! start_tunnel $SERVER_IDX; then
+    # 重置本地服务失败计数
+    local_fail_count=0
     # 故障转移到下一个服务器
     SERVER_IDX=$(( (SERVER_IDX + 1) % ${#PINGGY_SERVERS[@]} ))
     echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 切换到服务器 $SERVER_IDX，${RETRY_DELAY}秒后重试..." >> "$LOG"
@@ -118,10 +124,18 @@ while true; do
       echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道进程退出，重启..." >> "$LOG"
       break
     fi
-    # 检查本地服务是否存活
+    # 检查本地服务是否存活（连续失败3次才重启隧道，避免误杀）
     if ! curl -s -o /dev/null --max-time 3 "http://localhost:$LOCAL_PORT/api/pages/guide" 2>/dev/null; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 本地服务异常，重启隧道..." >> "$LOG"
-      break
+      local_fail_count=$(( local_fail_count + 1 ))
+      if [ $local_fail_count -ge $LOCAL_FAIL_LIMIT ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 本地服务连续异常${LOCAL_FAIL_LIMIT}次，重启隧道..." >> "$LOG"
+        local_fail_count=0
+        break
+      else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 本地服务异常($local_fail_count/$LOCAL_FAIL_LIMIT)，继续观察..." >> "$LOG"
+      fi
+    else
+      local_fail_count=0
     fi
     # 55 分钟主动重连
     local_now=$(date +%s)
