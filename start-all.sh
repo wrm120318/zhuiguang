@@ -10,6 +10,17 @@ TUNNEL_LOG="/tmp/tunnel-keeper.log"
 PID_DIR="/tmp/zhuiguang-pids"
 mkdir -p "$PID_DIR"
 
+# 加载 .env 环境变量
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+# 自动检查并安装依赖（环境重置后 node_modules 可能被清空）
+if [ ! -d node_modules/dotenv ] || [ ! -d node_modules/express ]; then
+  echo "$(date '+%H:%M:%S') [init] node_modules 缺失，自动安装依赖..."
+  npm install --production 2>&1 | tail -3
+fi
+
 # 停止旧进程
 stop_old() {
   for name in app tunnel keepalive; do
