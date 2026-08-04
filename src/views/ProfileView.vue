@@ -3,13 +3,14 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { levelFromExp, expToNextLevel } from '@/utils/helpers'
 
 const router = useRouter()
 const user = useUserStore()
 const expLogs = ref<any[]>([])
 const myArticles = ref<any[]>([])
+const pendingStudentArticles = ref<any[]>([])  // 需求3：待我（学生）确认的代发美文
 const editing = ref(false)
 const form = ref({ realName: '', email: '', phone: '', avatar: '' })
 
@@ -21,6 +22,12 @@ async function load() {
     const all = (await api.articles({ author: user.current?.username, limit: 10 })) as any
     myArticles.value = all
   } catch { /* */ }
+  // 需求3：学生账号加载「待我确认的代发美文」
+  if (user.isStudent) {
+    try {
+      pendingStudentArticles.value = (await api.pendingStudentArticles()) as any
+    } catch { /* */ }
+  }
 }
 onMounted(async () => {
   await user.fetchProfile()
@@ -34,6 +41,29 @@ async function saveProfile() {
     ElMessage.success('保存成功')
     editing.value = false
   } catch (e: any) { ElMessage.error('保存失败') }
+}
+
+// 需求3：学生同意/拒绝代发美文
+async function approveArticle(a: any) {
+  try {
+    await ElMessageBox.confirm(`确定同意发布美文「${a.title}」？发布后经验值将计入您的账号`, '确认发布', { type: 'success' })
+    await api.approveStudentArticle(a.id)
+    ElMessage.success('已同意发布，已进入超管审核队列')
+    pendingStudentArticles.value = pendingStudentArticles.value.filter(x => x.id !== a.id)
+    await user.fetchProfile()  // 刷新用户信息（等级/经验值变化）
+    await load()
+  } catch {}
+}
+async function rejectArticle(a: any) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入拒绝原因（1-200字）', '拒绝发布', {
+      confirmButtonText: '确认拒绝', cancelButtonText: '取消', type: 'warning',
+      inputValidator: v => (!!v && v.length <= 200) || '请输入1-200字的拒绝原因'
+    })
+    await api.rejectStudentArticle(a.id)  // 后端只记录状态，原因简单展示已拒绝
+    ElMessage.success('已拒绝发布')
+    pendingStudentArticles.value = pendingStudentArticles.value.filter(x => x.id !== a.id)
+  } catch {}
 }
 
 const expProgress = ref(0)
@@ -106,6 +136,32 @@ onMounted(() => { expProgress.value = calcProgress() })
       </div>
     </div>
 
+    <!-- 需求3：待我（学生）确认的代发美文 -->
+    <div class="section" v-if="user.isStudent">
+      <div class="section-title">
+        待我确认的代发美文
+        <el-tag v-if="pendingStudentArticles.length" size="small" type="warning" style="margin-left:8px">{{ pendingStudentArticles.length }} 篇待确认</el-tag>
+      </div>
+      <div v-if="pendingStudentArticles.length" class="pending-list">
+        <div v-for="a in pendingStudentArticles" :key="a.id" class="pending-item glass-strong zg-card">
+          <div class="pi-head">
+            <div class="pi-badge">🧑‍🏫 代发教师：<b>{{ a.creator_name }}</b></div>
+            <span class="pi-time">{{ a.created_at?.slice(0, 16) }}</span>
+          </div>
+          <div class="pi-title" @click="router.push(`/article/${a.id}`)">{{ a.title }}</div>
+          <div class="pi-foot">
+            <span class="pi-hint">📌 同意后该美文进入超管审核，通过后经验值将计入您的账号</span>
+            <div class="pi-actions">
+              <el-button type="primary" @click="approveArticle(a)">✅ 同意发布</el-button>
+              <el-button type="danger" plain @click="rejectArticle(a)">❌ 拒绝</el-button>
+              <el-button text @click="router.push(`/article/${a.id}`)">查看全文</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="暂无待确认的代发美文" :image-size="80" />
+    </div>
+
     <!-- 我的美文 -->
     <div class="section" v-if="myArticles.length">
       <div class="section-title">我的美文</div>
@@ -113,7 +169,7 @@ onMounted(() => { expProgress.value = calcProgress() })
         <div v-for="a in myArticles" :key="a.id" class="my-art-item glass zg-card" @click="router.push(`/article/${a.id}`)">
           <div class="ma-title">{{ a.title }}</div>
           <div class="ma-meta">
-            <span :class="['ma-status', a.status]">{{ a.status === 'approved' ? '已通过' : a.status === 'pending' ? '待审核' : '已驳回' }}</span>
+            <span :class="['ma-status', a.status]">{{ a.status === 'approved' ? '已通过' : a.status === 'pending' ? '待超管审核' : a.status === 'pending_student' ? '待作者确认' : a.status === 'rejected_student' ? '作者已拒绝' : '已驳回' }}</span>
             <span>❤ {{ a.likes || 0 }}</span>
             <span>{{ a.created_at?.slice(0, 10) }}</span>
           </div>
@@ -171,10 +227,24 @@ onMounted(() => { expProgress.value = calcProgress() })
 .my-art-item { padding: 14px 18px; cursor: pointer; }
 .ma-title { font-weight: 700; font-size: var(--zg-fs-sm); }
 .ma-meta { display: flex; gap: 12px; margin-top: 6px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); align-items: center; }
-.ma-status { padding: 2px 8px; border-radius: 6px; font-weight: 600; }
-.ma-status.approved { background: rgba(52,211,153,.15); color: #059669; }
-.ma-status.pending { background: rgba(245,158,11,.15); color: #b45309; }
-.ma-status.rejected { background: rgba(239,68,68,.15); color: #dc2626; }
+.ma-status { padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.ma-status.approved { background: #dcfce7; color: #166534; }
+.ma-status.pending { background: #fef3c7; color: #92400e; }
+.ma-status.pending_student { background: linear-gradient(135deg,#ffedd5,#fef3c7); color:#9a3412; }
+.ma-status.rejected_student { background:#fee2e2; color:#991b1b; }
+.ma-status.rejected { background: #fee2e2; color: #991b1b; }
+
+.pending-list { display: flex; flex-direction: column; gap: 14px; }
+.pending-item { padding: 20px; border-left: 4px solid var(--zg-primary); }
+.pi-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.pi-badge { color: var(--zg-text-dim); }
+.pi-badge b { color: var(--zg-primary); }
+.pi-time { color: var(--zg-text-dim); font-size: 12px; }
+.pi-title { font-size: 17px; font-weight: 700; margin-bottom: 14px; cursor: pointer; transition: color .2s; }
+.pi-title:hover { color: var(--zg-primary); }
+.pi-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.pi-hint { font-size: 12px; color: var(--zg-text-dim); flex: 1; min-width: 260px; }
+.pi-actions { display: flex; gap: 8px; }
 
 @media (max-width: 768px) {
   .profile-hero { padding: 20px; border-radius: 18px; margin-top: 12px; }

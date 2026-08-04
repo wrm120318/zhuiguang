@@ -9,7 +9,11 @@ import { ElMessage } from 'element-plus'
 const router = useRouter()
 const user = useUserStore()
 const data = useDataStore()
-const form = ref({ title: '', content: '', scope: 'site' as 'site' | 'class', classId: null as number | null })
+const form = ref({
+  title: '', content: '', scope: 'site' as 'site' | 'class', classId: null as number | null,
+  // 需求2：置顶选项
+  pinned: false, pinnedScope: 'site' as 'site' | 'class'
+})
 const attachments = ref<any[]>([])
 const submitting = ref(false)
 
@@ -18,8 +22,8 @@ const canSite = computed(() => user.isSuperAdmin)
 const canClass = computed(() => user.isSuperAdmin || user.isTeacher)
 
 function onScopeChange() {
-  if (form.value.scope === 'site') form.value.classId = null
-  else if (!form.value.classId && data.classes.length) form.value.classId = data.classes[0].id
+  if (form.value.scope === 'site') { form.value.classId = null; form.value.pinnedScope = 'site' }
+  else if (!form.value.classId && data.classes.length) { form.value.classId = data.classes[0].id }
 }
 
 const TAGS = {
@@ -69,6 +73,8 @@ async function submit() {
     await api.createPage({
       ptype: 'announcement', scope: form.value.scope, classId: form.value.classId,
       title: form.value.title, content: form.value.content, attachments: attachments.value,
+      // 需求2：置顶参数
+      pinned: form.value.pinned, pinnedScope: form.value.pinned ? form.value.pinnedScope : 'none',
     })
     ElMessage.success('公告已发布')
     router.push('/announcements')
@@ -94,6 +100,16 @@ async function submit() {
         <span class="sr-label">选择班级：</span>
         <el-select v-model="form.classId" placeholder="选择班级" style="width:240px">
           <el-option v-for="c in data.classes" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+      </div>
+
+      <!-- 需求2：置顶选项（仅超管可用） -->
+      <div v-if="user.isSuperAdmin" class="pin-row">
+        <span class="sr-label">置顶设置：</span>
+        <el-checkbox v-model="form.pinned">📌 置顶此公告</el-checkbox>
+        <el-select v-if="form.pinned" v-model="form.pinnedScope" size="small" style="width:180px; margin-left:12px">
+          <el-option value="site" label="🌐 全站置顶（所有人顶部）" />
+          <el-option value="class" label="🏫 班级置顶（仅对应班级）" />
         </el-select>
       </div>
 

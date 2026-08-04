@@ -8,8 +8,29 @@ const tab = ref<'article' | 'resource'>('article')
 const articles = ref<any[]>([])
 const resources = ref<any[]>([])
 
-const pendingArticles = computed(() => articles.value.filter(a => a.status === 'pending'))
+const pendingArticles = computed(() => articles.value.filter(a => a.status === 'pending' || a.status === 'pending_student'))
 const pendingResources = computed(() => resources.value.filter(r => r.status === 'pending'))
+
+function statusText(s: string) {
+  switch (s) {
+    case 'approved': return '已通过'
+    case 'pending': return '待超管审核'
+    case 'pending_student': return '待学生确认'
+    case 'rejected': return '已驳回'
+    case 'rejected_student': return '学生已拒绝'
+    default: return s
+  }
+}
+function statusType(s: string) {
+  switch (s) {
+    case 'approved': return 'success'
+    case 'pending': return 'warning'
+    case 'pending_student': return 'info'
+    case 'rejected_student': return 'info'
+    case 'rejected': return 'danger'
+    default: return 'info'
+  }
+}
 
 async function load() {
   const [arts, ress] = await Promise.all([
@@ -86,13 +107,17 @@ async function batchApprove() {
 
     <div class="audit-list">
       <template v-if="tab==='article'">
-        <div v-for="a in articles" :key="a.id" class="audit-card glass">
+        <div v-for="a in articles" :key="a.id" class="audit-card glass" :class="{ 'au-proxy-card': a.actual_user_id }">
           <img :src="a.cover" class="au-cover" />
           <div class="au-body">
             <div class="au-title">{{ a.title }}</div>
             <div class="au-meta">{{ a.author }} · {{ a.category }} · {{ a.created_at }}
-              <el-tag size="small" :type="a.status==='approved'?'success':a.status==='pending'?'warning':'danger'" style="margin-left:8px">
-                {{ a.status === 'approved' ? '已通过' : a.status === 'pending' ? '待审核' : '已驳回' }}
+              <span v-if="a.actual_user_id" class="au-proxy">
+                🧑‍🎓 实际作者：<b>{{ a.actual_user_name || '学生#'+a.actual_user_id }}</b>
+                · 代发教师：{{ a.creator_name }}
+              </span>
+              <el-tag size="small" :type="statusType(a.status)" style="margin-left:8px">
+                {{ statusText(a.status) }}
               </el-tag>
             </div>
             <div class="au-rec">{{ a.recommendation }}</div>
@@ -100,8 +125,11 @@ async function batchApprove() {
           </div>
           <div class="au-actions">
             <template v-if="a.status === 'pending'">
-              <el-button type="primary" size="small" @click="approveArticle(a.id)">通过</el-button>
+              <el-button type="primary" size="small" @click="approveArticle(a.id)">通过 +20EXP</el-button>
               <el-button size="small" @click="rejectArticle(a.id)">驳回</el-button>
+            </template>
+            <template v-else-if="a.status === 'pending_student'">
+              <el-tag type="info" size="small" effect="dark">等待学生确认</el-tag>
             </template>
             <el-button size="small" type="danger" plain @click="deleteArticleItem(a.id)">删除</el-button>
           </div>
@@ -114,7 +142,7 @@ async function batchApprove() {
           <div class="au-icon">{{ r.file_type === 'pdf' ? '📄' : r.file_type === 'ppt' ? '📊' : r.file_type === 'word' ? '📝' : r.file_type === 'excel' ? '📗' : r.file_type === 'video' ? '🎬' : '📦' }}</div>
           <div class="au-body">
             <div class="au-title">{{ r.title }}</div>
-            <div class="au-meta">{{ r.category }} · {{ r.file_name }}
+            <div class="au-meta">{{ r.category }} · {{ r.file_name }} · 上传人：{{ r.creator_name }}
               <el-tag size="small" :type="r.status==='approved'?'success':r.status==='pending'?'warning':'danger'" style="margin-left:8px">
                 {{ r.status === 'approved' ? '已通过' : r.status === 'pending' ? '待审核' : '已驳回' }}
               </el-tag>
@@ -123,7 +151,7 @@ async function batchApprove() {
           </div>
           <div class="au-actions">
             <template v-if="r.status === 'pending'">
-              <el-button type="primary" size="small" @click="approveResource(r.id)">通过</el-button>
+              <el-button type="primary" size="small" @click="approveResource(r.id)">通过 +15EXP</el-button>
               <el-button size="small" @click="rejectResource(r.id)">驳回</el-button>
             </template>
             <el-button size="small" type="danger" plain @click="deleteResourceItem(r.id)">删除</el-button>
@@ -152,6 +180,9 @@ async function batchApprove() {
 .au-content { font-size:13px; color:var(--zg-text-dim); margin-top:8px; max-height:80px; overflow:hidden; }
 .au-content :deep(p) { margin-bottom:6px; }
 .au-actions { display:flex; flex-direction:column; gap:8px; justify-content:center; }
+.au-proxy { display:block; font-size:12px; color:#9a3412; margin:4px 0; padding:4px 8px; background:rgba(251,146,60,.1); border-radius:6px; }
+.au-proxy b { color:#c2410c; }
+.au-proxy-card { border-left:3px solid var(--zg-primary); background:rgba(245,158,11,.04); }
 @media (max-width:768px){ .audit-card{flex-direction:column;} .au-cover{width:100%;height:160px;} }
 
 @media (max-width: 768px) {

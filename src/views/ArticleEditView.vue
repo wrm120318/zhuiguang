@@ -23,6 +23,23 @@ const images = ref<string[]>([])
 const cover = ref('')
 const submitting = ref(false)
 
+// 需求3：教师代发美文 — 选择实际作者学生（可搜索）
+const allStudents = ref<any[]>([])
+const authorSearch = ref('')
+const authorPickerVisible = ref(false)
+// 选中的代发作者学生：null=自己发, 否则是学生用户对象
+const proxyAuthor = ref<any>(null)
+
+const filteredStudents = computed(() => {
+  const kw = authorSearch.value.trim().toLowerCase()
+  const list = allStudents.value.filter(s => s.role === 'STUDENT' && s.status === 'active')
+  if (!kw) return list.slice(0, 50)
+  return list.filter(s =>
+    (s.real_name || '').toLowerCase().includes(kw) ||
+    (s.username || '').toLowerCase().includes(kw)
+  ).slice(0, 50)
+})
+
 const subjectOptions = computed(() => data.subjects.filter(s => s.modules?.articles))
 const subjectId = ref(1)
 
@@ -30,6 +47,13 @@ onMounted(async () => {
   if (!data.subjects.length) await data.fetchSubjects()
   if (subjectOptions.value.length && !subjectOptions.value.find(s => s.id === subjectId.value)) {
     subjectId.value = subjectOptions.value[0].id
+  }
+  // 需求3：教师/超管可以代发，拉取全部用户列表用于选择作者学生
+  if (user.isTeacher || user.isSuperAdmin) {
+    try {
+      const r: any = await api.users()
+      allStudents.value = r.data || r
+    } catch {}
   }
 })
 
@@ -61,12 +85,24 @@ async function onUploadImg(uploadRequest: any) {
   }
 }
 
+function selectProxyStudent(s: any) {
+  proxyAuthor.value = s
+  form.value.author = s.real_name
+  authorPickerVisible.value = false
+  ElMessage.success(`已选择代发作者：${s.real_name}`)
+}
+function clearProxyAuthor() {
+  proxyAuthor.value = null
+  form.value.author = user.current?.realName || ''
+  authorSearch.value = ''
+}
+
 async function submit() {
   const content = getContent()
   if (!form.value.title || !content) { ElMessage.warning('请填写标题与正文'); return }
   submitting.value = true
   try {
-    const r: any = await api.createArticle({
+    const payload: any = {
       title: form.value.title,
       content,
       author: form.value.author,
@@ -78,8 +114,20 @@ async function submit() {
       tags: form.value.tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean),
       category: form.value.category,
       classId: user.classIds[0] || 1,
-    })
-    ElMessage.success(r.status === 'approved' ? '发布成功，已公开展示' : '提交成功，待学科教师审核后将公开')
+    }
+    // 需求3：教师代发 — 指定 actualUserId
+    if ((user.isTeacher || user.isSuperAdmin) && proxyAuthor.value) {
+      payload.actualUserId = proxyAuthor.value.id
+    }
+    const r: any = await api.createArticle(payload)
+    // 需求4：状态提示文案区分
+    if (r.status === 'approved') {
+      ElMessage.success('发布成功，已公开展示')
+    } else if (r.status === 'pending_student') {
+      ElMessage.success(`已提交，等待学生「${proxyAuthor.value.real_name}」确认后进入超管审核`)
+    } else {
+      ElMessage.success('提交成功，待超级管理员审核通过后将公开')
+    }
     router.push(`/subject/${data.subjectById(subjectId.value)?.slug}`)
   } catch { /* http 拦截器已提示 */ } finally { submitting.value = false }
 }
@@ -100,7 +148,33 @@ async function submit() {
       </div>
 
       <div class="ep-row">
-        <el-input v-model="form.author" placeholder="作者" style="width:200px" />
+        <!-- 需求3：教师/超管账号可选代发的实际作者学生 -->
+        <div class="author-field" v-if="user.isTeacher || user.isSuperAdmin">
+          <div class="af-current" @click="authorPickerVisible = !authorPickerVisible">
+            <span v-if="proxyAuthor" class="af-proxy">
+              🧑‍🎓 代发作者：<b>{{ proxyAuthor.real_name }}</b>
+              <el-tag size="small" type="warning" style="margin-left:6px">学生确认后公开</el-tag>
+            </span>
+            <span v-else class="af-self">✍️ 自己发布（作者：{{ form.author }}）</span>
+            <span class="af-toggle">{{ authorPickerVisible ? '▲' : '▼' }}</span>
+          </div>
+          <div v-if="authorPickerVisible" class="af-picker glass-strong">
+            <div class="afp-title">选择实际作者（学生）— 发布后需要学生确认</div>
+            <el-input v-model="authorSearch" placeholder="🔍 搜索学生姓名或账号..." size="small" clearable />
+            <div class="afp-list">
+              <div v-for="s in filteredStudents" :key="s.id" class="afp-item" @click="selectProxyStudent(s)">
+                <span class="afp-name">{{ s.real_name }}</span>
+                <span class="afp-uname">@{{ s.username }}</span>
+              </div>
+              <el-empty v-if="!filteredStudents.length" :image-size="60" description="没有匹配的学生" />
+            </div>
+            <div class="afp-actions">
+              <el-button v-if="proxyAuthor" size="small" type="danger" plain @click="clearProxyAuthor">取消代发（改为自己发）</el-button>
+              <el-button size="small" @click="authorPickerVisible=false">收起</el-button>
+            </div>
+          </div>
+        </div>
+        <el-input v-else v-model="form.author" placeholder="作者" style="width:200px" />
         <el-input v-model="form.source" placeholder="出处（原创/转载）" style="width:160px" />
         <el-select v-model="form.category" placeholder="分类" style="width:160px">
           <el-option label="散文" value="散文" />
@@ -151,4 +225,19 @@ async function submit() {
 .editor:empty::before { content:'在此输入正文…'; color:var(--zg-text-dim); }
 .ep-foot { display:flex; justify-content:flex-end; gap:12px; margin-top:20px; }
 @media (max-width:720px){ .ep-row{flex-direction:column;} .editor-page{padding:20px;} }
+
+.author-field { flex:1; min-width:280px; }
+.af-current { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:rgba(245,158,11,.08); border:1px dashed rgba(245,158,11,.3); border-radius:10px; cursor:pointer; font-size:14px; }
+.af-current:hover { background:rgba(245,158,11,.14); }
+.af-proxy b { color:var(--zg-primary); font-weight:700; }
+.af-self { color:var(--zg-text-dim); }
+.af-toggle { color:var(--zg-primary); font-size:12px; }
+.af-picker { margin-top:10px; padding:16px; border-radius:14px; }
+.afp-title { font-size:13px; font-weight:600; margin-bottom:10px; color:var(--zg-primary); }
+.afp-list { max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; margin:10px 0; }
+.afp-item { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:13px; }
+.afp-item:hover { background:rgba(245,158,11,.12); }
+.afp-name { font-weight:600; }
+.afp-uname { color:var(--zg-text-dim); font-size:12px; }
+.afp-actions { display:flex; justify-content:space-between; align-items:center; }
 </style>

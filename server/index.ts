@@ -24,6 +24,24 @@ app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
+// 需求5：记录每个登录用户的最后活跃时间（用于监控在线人数）
+app.use(async (req, res, next) => {
+  const authHeader = req.headers.authorization
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.slice(7)
+      const jwt = await import('jsonwebtoken')
+      const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-dev')
+      if (decoded && decoded.id) {
+        const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
+        // 异步更新，不阻塞请求
+        run('UPDATE users SET last_active=? WHERE id=?', now, decoded.id).catch(() => {})
+      }
+    } catch {}
+  }
+  next()
+})
+
 // 静态：前端构建产物（生产）
   const distDir = path.join(ROOT, 'dist')
   if (fs.existsSync(distDir)) {
@@ -370,27 +388,98 @@ app.get('/api/articles/:id', async (req, res) => {
 
 app.post('/api/articles', auth, async (req, res) => {
   const id = (req as any).user.id
-  const u = await get<any>('SELECT real_name, class_id FROM users u LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE user_id=?) cm ON u.id=cm.user_id WHERE u.id=?', id, id)
+  const role = (req as any).user.role
+  const u = await get<any>('SELECT real_name, class_id, role FROM users u LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE user_id=?) cm ON u.id=cm.user_id WHERE u.id=?', id, id)
   const b = req.body
   const cid = b.classId || u?.class_id || 1
-  const status = 'pending'
-  const r = await run(`INSERT INTO articles (title,content,author,source,recommendation,subject_id,user_id,class_id,cover,images,tags,category,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    b.title, b.content, b.author || u?.real_name, b.source || '原创', b.recommendation || '', b.subjectId, id, cid, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.tags || []), b.category || '', status)
+  // 需求3+4：美文状态逻辑
+  //  - SUPER_ADMIN 直接 approved
+  //  - TEACHER 自己发的（没有actualUserId）直接 approved
+  //  - TEACHER 代发（有actualUserId学生）→ status='pending_student' 等待学生确认
+  //  - STUDENT 自己发 → status='pending' 等待超管审核
+  let status = 'pending'
+  let actualUserId: number | null = null
+  if (role === 'SUPER_ADMIN') {
+    status = 'approved'
+  } else if (role === 'TEACHER') {
+    if (b.actualUserId && Number(b.actualUserId) !== id) {
+      // 代发模式
+      actualUserId = Number(b.actualUserId)
+      status = 'pending_student'
+    } else {
+      status = 'approved'
+    }
+  }
+  const r = await run(`INSERT INTO articles (title,content,author,source,recommendation,subject_id,user_id,class_id,cover,images,tags,category,status,actual_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    b.title, b.content, b.author || u?.real_name, b.source || '原创', b.recommendation || '', b.subjectId, id, cid, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.tags || []), b.category || '', status, actualUserId)
   const aid = Number(r.lastInsertRowid)
+  // 代发的通知学生
+  if (status === 'pending_student' && actualUserId) {
+    const teacherName = u?.real_name || '老师'
+    await addNotice(actualUserId, '有人代你发布美文', `${teacherName}老师代你发布了《${b.title}》，请到个人中心确认是否同意发布。`, 'audit')
+    // 同时发站内信
+    await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', id, actualUserId, `${teacherName}老师代你发布了美文《${b.title}》，请登录网站在「个人中心 → 待我确认的美文」中确认是否同意发布。`, '[]')
+  }
+  // 直接 approved 的直接加分
+  if (status === 'approved') {
+    const expUid = actualUserId || id
+    await addExp(expUid, undefined, 'article', `美文《${b.title}》发布`)
+  }
   res.json({ id: aid, status })
 })
 
+// 需求3：学生查看待我确认的美文列表
+app.get('/api/articles/pending-student', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const list = await all<any>('SELECT * FROM articles WHERE actual_user_id=? AND status=? ORDER BY id DESC', uid, 'pending_student')
+  res.json(list.map(a => ({ ...a, images: j(a.images), tags: j(a.tags) })))
+})
+
+// 需求3：学生同意发布代发的美文 → 状态变为 pending 等待超管审核
+app.post('/api/articles/:id/student-approve', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '不存在' })
+  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
+  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
+  await run('UPDATE articles SET status=? WHERE id=?', 'pending', req.params.id)
+  await addNotice(a.user_id, '代发美文学生已确认', `学生确认同意发布《${a.title}》，现已进入待超管审核状态。`, 'audit')
+  res.json({ ok: true })
+})
+
+// 需求3：学生拒绝发布代发的美文 → 删除记录
+app.post('/api/articles/:id/student-reject', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '不存在' })
+  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
+  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
+  await run('DELETE FROM articles WHERE id=?', req.params.id)
+  await addNotice(a.user_id, '代发美文被学生拒绝', `学生拒绝了代发美文《${a.title}》，该文已删除。`, 'audit')
+  res.json({ ok: true })
+})
+
 app.patch('/api/articles/:id/status', auth, async (req, res) => {
-  const a = await get<any>('SELECT title, user_id, status, subject_id FROM articles WHERE id=?', req.params.id)
+  const a = await get<any>('SELECT title, user_id, status, subject_id, actual_user_id FROM articles WHERE id=?', req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!canManageSubject(u, a.subject_id)) return res.status(403).json({ message: '无权限审核该学科的美文' })
+  // 需求4：只有 SUPER_ADMIN 可以审核美文（教师发布的不需要审核，直接approved，不经过这里）
+  if (u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '只有超级管理员可以审核美文' })
   await run('UPDATE articles SET status=? WHERE id=?', req.body.status, req.params.id)
   if (req.body.status === 'approved' && a.status !== 'approved') {
-    await addExp(a.user_id, undefined, 'article', `美文《${a.title}》审核通过`)
+    // 需求3+4：经验值加给实际作者（actual_user_id存在就给学生，否则给创建者）
+    const expUid = Number(a.actual_user_id) || Number(a.user_id)
+    await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`)
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
+    // 如果是代发的，也通知实际作者学生
+    if (a.actual_user_id) {
+      await addNotice(Number(a.actual_user_id), '你的美文审核通过', `《${a.title}》已通过超管审核，已公开展示，经验值已加给你。`, 'audit')
+    }
   } else if (req.body.status === 'rejected') {
     await addNotice(a.user_id, '美文未通过审核', `《${a.title}》未通过审核，请修改后重新提交。`, 'audit')
+    if (a.actual_user_id) {
+      await addNotice(Number(a.actual_user_id), '你的美文未通过审核', `代发的《${a.title}》未通过审核。`, 'audit')
+    }
   }
   res.json({ ok: true })
 })
@@ -568,9 +657,14 @@ app.post('/api/query/tasks/:id/query', auth, async (req, res) => {
 
 app.post('/api/query/tasks', auth, requireStaff, async (req, res) => {
   const id = (req as any).user.id
-  const me = await get<any>('SELECT real_name FROM users WHERE id=?', id)
+  const role = (req as any).user.role
+  const me = await get<any>('SELECT real_name, subject_id, role FROM users WHERE id=?', id)
   const name = me?.real_name || ''
   const b = req.body
+  // 需求1：教师只能发自己任教学科的数据查询；超管可以发所有学科
+  if (role === 'TEACHER' && me?.subject_id && Number(b.subjectId) !== Number(me.subject_id)) {
+    return res.status(403).json({ message: '你只能发布自己任教学科的数据查询' })
+  }
   const r = await run(`INSERT INTO query_tasks (subject_id,class_id,creator_id,creator_name,title,note,valid_until,show_comment,allow_export,headers,match_field) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     b.subjectId, b.classId, id, name, b.title, b.note || '', b.validUntil, b.showComment ? 1 : 0, b.allowExport ? 1 : 0, JSON.stringify(b.headers), b.matchField)
   const tid = Number(r.lastInsertRowid)
@@ -583,6 +677,37 @@ app.post('/api/query/tasks', auth, requireStaff, async (req, res) => {
   }
   res.json({ id: tid })
 })
+
+// 需求1：超管下载数据查询任务的原始Excel（重新生成xlsx）
+app.get('/api/query/tasks/:id/export', auth, requireStaff, async (req, res) => {
+  const uid = (req as any).user.id
+  const role = (req as any).user.role
+  const t = await get<any>('SELECT * FROM query_tasks WHERE id=?', req.params.id)
+  if (!t) return res.status(404).json({ message: '不存在' })
+  // 超管可以下载所有人的；教师只能下载自己的
+  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) {
+    return res.status(403).json({ message: '无权限下载该查询任务' })
+  }
+  const rows = await all<any>('SELECT data_row FROM query_rows WHERE task_id=? ORDER BY id', req.params.id)
+  const headers = j(t.headers) || []
+  const aoa: any[][] = [headers]
+  for (const r of rows) {
+    const row = j(r.data_row) || {}
+    aoa.push(headers.map(h => row[h] ?? ''))
+  }
+  // 动态 import xlsx（Node端）
+  const XLSX = await import('xlsx')
+  const xlsx = (XLSX.default || XLSX)
+  const ws = xlsx.utils.aoa_to_sheet(aoa)
+  const wb = xlsx.utils.book_new()
+  xlsx.utils.book_append_sheet(wb, ws, '查询数据')
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  setDownloadHeaders(res, `${t.title}_查询数据.xlsx`)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.send(Buffer.from(buf))
+})
+
+// 需求1：GET /api/query/tasks — 超管看到所有任务；教师看到自己的（原逻辑已正确，此处不改保持原逻辑）
 
 app.delete('/api/query/tasks/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
   await run('DELETE FROM query_rows WHERE task_id=?', req.params.id)
@@ -1229,7 +1354,7 @@ app.post('/api/pages/:id/comments', auth, async (req, res) => {
   res.json({ id: Number(r.lastInsertRowid), page_id: Number(req.params.id), user_id: uid, user_name: u?.real_name || '匿名', avatar: u?.avatar || '', content, created_at: datetimeNow() })
 })
 
-// 公告可见性筛选：全站公告 + 当前用户所在班级的班级公告
+// 公告可见性筛选：全站公告 + 当前用户所在班级的班级公告；置顶优先排序
 app.get('/api/announcements', auth, async (req, res) => {
   const uid = (req as any).user.id
   const role = (req as any).user.role
@@ -1244,7 +1369,8 @@ app.get('/api/announcements', auth, async (req, res) => {
   } else {
     sql += " AND scope='site'"
   }
-  sql += ' ORDER BY id DESC'
+  // 需求2：置顶优先（pinned DESC），然后id倒序
+  sql += ' ORDER BY pinned DESC, id DESC'
   const list = await all<any>(sql, ...args)
   res.json(list.map(p => ({ ...p, images: j(p.images), attachments: j(p.attachments) })))
 })
@@ -1275,15 +1401,29 @@ app.post('/api/pages', auth, async (req, res) => {
       if (me?.role !== 'SUPER_ADMIN' && me?.role !== 'TEACHER') return res.status(403).json({ message: '只有教师/超管可发布班级公告' })
     }
   }
+  // 需求2：置顶参数处理（pinned=1/0, pinned_scope=site/class/none）
+  const pinned = b.pinned ? 1 : 0
+  const pinnedScope = pinned ? (b.pinnedScope || b.scope || 'site') : 'none'
   const r = await run(
-    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    b.ptype, b.scope || 'site', b.classId || null, b.title, b.content, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.attachments || []), uid, me?.real_name || '', 'published'
+    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    b.ptype, b.scope || 'site', b.classId || null, b.title, b.content, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.attachments || []), uid, me?.real_name || '', 'published', pinned, pinnedScope
   )
   // 博客加经验
   if (b.ptype === 'blog') {
     await addExp(uid, undefined, 'blog', `发布博客《${b.title}》`)
   }
   res.json({ id: Number(r.lastInsertRowid) })
+})
+
+// 需求2：修改公告置顶状态
+app.patch('/api/pages/:id/pin', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { pinned, pinnedScope } = req.body
+  const p = await get<any>('SELECT id FROM pages WHERE id=?', req.params.id)
+  if (!p) return res.status(404).json({ message: '不存在' })
+  const pinVal = pinned ? 1 : 0
+  const scopeVal = pinned ? (pinnedScope || 'site') : 'none'
+  await run('UPDATE pages SET pinned=?, pinned_scope=? WHERE id=?', pinVal, scopeVal, req.params.id)
+  res.json({ ok: true })
 })
 
 app.delete('/api/pages/:id', auth, async (req, res) => {
@@ -1381,6 +1521,128 @@ app.get('/api/messages/:peerId', auth, async (req, res) => {
   // 标记我收到的消息为已读
   await run('UPDATE messages SET is_read=1 WHERE to_id=? AND from_id=?', uid, peerId)
   res.json(list.map(m => ({ ...m, attachments: j(m.attachments) })))
+})
+
+// ============ 需求5：超管网站运行监控 ============
+app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (_req, res) => {
+  const os = await import('os')
+  // 1. 实时在线人数（最近5分钟有活跃的用户）
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
+  const online5min = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE last_active>=? AND status=?', fiveMinAgo, 'active'))!.n
+  const online1hour = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE last_active>=? AND status=?', oneHourAgo, 'active'))!.n
+  const totalUsers = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users'))!.n
+  const activeUsers = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE status=?', 'active'))!.n
+
+  // 2. 数据库使用情况
+  const tables = [
+    'users', 'classes', 'class_members', 'subjects', 'articles', 'resources',
+    'query_tasks', 'query_rows', 'exp_logs', 'notices', 'pages', 'page_comments',
+    'messages', 'quizzes', 'quiz_questions', 'quiz_submissions',
+    'subject_questions', 'practice_submissions', 'likes_map',
+  ]
+  const tableStats: Record<string, number> = {}
+  for (const t of tables) {
+    try {
+      const r = await get<{ n: number }>(`SELECT COUNT(*) as n FROM ${t}`)
+      tableStats[t] = r?.n ?? 0
+    } catch { tableStats[t] = 0 }
+  }
+  // 数据库文件大小
+  let dbSize = 0
+  try {
+    const fsp = await import('fs/promises')
+    const st = await fsp.stat(path.join(__dirname, 'local.db'))
+    dbSize = st.size
+  } catch {}
+  function fmtBytes(b: number) {
+    if (b < 1024) return b + ' B'
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
+    if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB'
+    return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+  }
+
+  // 3. 服务器运行情况
+  const totalMem = os.totalmem()
+  const freeMem = os.freemem()
+  const usedMem = totalMem - freeMem
+  const loadAvg = os.loadavg() // [1min, 5min, 15min]
+  const uptimeSec = os.uptime()
+  const nodeUptime = process.uptime()
+  const nodeMem = process.memoryUsage()
+  const cpuCores = os.cpus().length
+  const cpuModel = os.cpus()[0]?.model || 'Unknown'
+
+  // 4. 今日数据概览
+  const today = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD
+  const todayLogins = (await get<{ n: number }>("SELECT COUNT(DISTINCT user_id) as n FROM exp_logs WHERE action_type='login' AND substr(created_at,1,10)=?", today))!.n
+  const todayArticles = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE substr(created_at,1,10)=?", today))!.n
+  const todayResources = (await get<{ n: number }>("SELECT COUNT(*) as n FROM resources WHERE substr(created_at,1,10)=?", today))!.n
+  const todayExps = (await get<{ n: number }>("SELECT COALESCE(SUM(exp_change),0) as n FROM exp_logs WHERE substr(created_at,1,10)=?", today))!.n
+  const pendingAuditArticles = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE status IN ('pending','pending_student')"))!.n
+  const pendingAuditResources = (await get<{ n: number }>("SELECT COUNT(*) as n FROM resources WHERE status='pending'"))!.n
+
+  // 最近7天活跃趋势（每日活跃用户数）
+  const dailyActive: { date: string; users: number; articles: number }[] = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400 * 1000).toLocaleDateString('sv-SE')
+    const us = (await get<{ n: number }>("SELECT COUNT(DISTINCT user_id) as n FROM exp_logs WHERE substr(created_at,1,10)=?", d))!.n
+    const as = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE substr(created_at,1,10)=?", d))!.n
+    dailyActive.push({ date: d.slice(5), users: us, articles: as })
+  }
+
+  // Node端各统计数据
+  function fmtUptime(s: number) {
+    const d = Math.floor(s / 86400)
+    const h = Math.floor((s % 86400) / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return `${d}天${h}时${m}分`
+  }
+
+  res.json({
+    online: {
+      online5min, online1hour, totalUsers, activeUsers,
+      todayLogins, todayArticles, todayResources, todayExps,
+    },
+    database: {
+      fileSize: dbSize,
+      fileSizeFmt: fmtBytes(dbSize),
+      tables: tableStats,
+    },
+    server: {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      arch: os.arch(),
+      cpuModel,
+      cpuCores,
+      loadAvg1: loadAvg[0],
+      loadAvg5: loadAvg[1],
+      loadAvg15: loadAvg[2],
+      totalMem: totalMem,
+      totalMemFmt: fmtBytes(totalMem),
+      usedMem: usedMem,
+      usedMemFmt: fmtBytes(usedMem),
+      freeMem: freeMem,
+      freeMemFmt: fmtBytes(freeMem),
+      memUsagePct: Math.round(usedMem / totalMem * 100),
+      serverUptime: uptimeSec,
+      serverUptimeFmt: fmtUptime(uptimeSec),
+      nodeUptime: nodeUptime,
+      nodeUptimeFmt: fmtUptime(nodeUptime),
+      nodeRss: nodeMem.rss,
+      nodeRssFmt: fmtBytes(nodeMem.rss),
+      nodeHeapUsed: nodeMem.heapUsed,
+      nodeHeapUsedFmt: fmtBytes(nodeMem.heapUsed),
+      nodeHeapTotal: nodeMem.heapTotal,
+      nodeHeapTotalFmt: fmtBytes(nodeMem.heapTotal),
+      nodeHeapPct: Math.round(nodeMem.heapUsed / nodeMem.heapTotal * 100),
+    },
+    pending: {
+      articles: pendingAuditArticles,
+      resources: pendingAuditResources,
+    },
+    dailyActive,
+  })
 })
 
 // SPA fallback - only for non-API, non-upload, non-assets requests

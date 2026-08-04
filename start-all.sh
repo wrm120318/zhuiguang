@@ -65,7 +65,7 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') ===== 追光平台启动 ====="
 
 # 启动后端服务（延迟2秒，确保端口释放）
 sleep 2
-guard "app" "/root/.nvm/versions/node/v24.15.0/bin/npx tsx server/index.ts" "$APP_LOG" &
+guard "app" "/workspace/node_modules/.bin/tsx server/index.ts" "$APP_LOG" &
 APP_GUARD_PID=$!
 
 # 等待后端就绪

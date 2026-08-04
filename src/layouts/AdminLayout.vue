@@ -11,7 +11,7 @@ const data = useDataStore()
 const mobileOpen = ref(false)
 
 const menus = computed(() => {
-  const list: { name: string; label: string; icon: string; badge?: number }[] = [
+  const list: { name: string; label: string; icon: string; badge?: number; role?: string }[] = [
     { name: 'admin-dashboard', label: '数据看板', icon: '📊' },
     { name: 'admin-users', label: '用户管理', icon: '👥' },
     { name: 'admin-subjects', label: '学科管理', icon: '📚' },
@@ -22,8 +22,10 @@ const menus = computed(() => {
     { name: 'admin-exp-rules', label: '经验设置', icon: '⭐' },
     { name: 'admin-feature-flags', label: '功能开关', icon: '🧩' },
     { name: 'admin-theme', label: '界面风格', icon: '🎨' },
+    // 需求5：网站运行监控（仅超级管理员可见）
+    { name: 'admin-monitor', label: '运行监控', icon: '🖥️', role: 'SUPER_ADMIN' },
   ]
-  return list
+  return list.filter(m => !m.role || (m.role === 'SUPER_ADMIN' && user.isSuperAdmin))
 })
 
 function go(name: string) {

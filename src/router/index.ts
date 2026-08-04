@@ -52,6 +52,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'guide', name: 'admin-guide', component: () => import('@/views/admin/GuideEditView.vue') },
       { path: 'exp-rules', name: 'admin-exp-rules', component: () => import('@/views/admin/ExpRulesView.vue') },
       { path: 'feature-flags', name: 'admin-feature-flags', component: () => import('@/views/admin/FeatureFlagsView.vue') },
+      // 需求5：网站运行监控（仅超管）
+      { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/MonitorView.vue') },
     ]
   },
 ]

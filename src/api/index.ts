@@ -112,6 +112,21 @@ export const api = {
   doQuery: (id: number) => http.post(`/api/query/tasks/${id}/query`),
   createQueryTask: (data: any) => http.post('/api/query/tasks', data),
   deleteQueryTask: (id: number) => http.delete(`/api/query/tasks/${id}`),
+  // 需求1：导出查询任务Excel（超管下载所有人的，教师下载自己的）
+  exportQueryTask: (id: number) => {
+    const http2 = axios.create({ baseURL: '', timeout: 60000, responseType: 'blob' })
+    const token = localStorage.getItem('zg_token')
+    if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
+    return http2.get(`/api/query/tasks/${id}/export`)
+  },
+  // 需求3：学生待确认美文 + 同意/拒绝
+  pendingStudentArticles: () => http.get('/api/articles/pending-student'),
+  approveStudentArticle: (id: number) => http.post(`/api/articles/${id}/student-approve`),
+  rejectStudentArticle: (id: number) => http.post(`/api/articles/${id}/student-reject`),
+  // 需求2：公告置顶切换
+  pinPage: (id: number, pinned: boolean, pinnedScope?: string) => http.patch(`/api/pages/${id}/pin`, { pinned, pinnedScope }),
+  // 需求5：网站运行监控（仅超管）
+  monitor: () => http.get('/api/admin/monitor'),
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),
   leaderboard: (params: any) => http.get('/api/leaderboard', { params }),

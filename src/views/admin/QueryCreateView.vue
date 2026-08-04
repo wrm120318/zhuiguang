@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const data = useDataStore()
@@ -28,10 +28,27 @@ const excelUploading = ref(false)
 const publishing = ref(false)
 const existing = ref<any[]>([])
 
+// 需求1：教师只能发布自己任教学科的查询任务；超管可看所有学科
+const subjectOptions = computed(() => {
+  const all = data.subjects
+  if (user.isTeacher && user.teachingSubjects?.length) {
+    // 教师：只显示自己的任教学科
+    return all.filter(s => user.teachingSubjects.includes(Number(s.id)))
+  }
+  return all
+})
+
 async function load() {
   if (!data.subjects.length) await data.fetchSubjects()
   if (!data.classes.length) await data.fetchClasses()
-  existing.value = (await api.queryTasks()) as any
+  // 需求1：如果是教师，默认学科设为自己任教学科
+  if (user.isTeacher && user.teachingSubjects?.length) {
+    form.value.subjectId = Number(user.teachingSubjects[0])
+  } else if (subjectOptions.value.length && !subjectOptions.value.find(s => s.id === form.value.subjectId)) {
+    form.value.subjectId = subjectOptions.value[0].id
+  }
+  const r: any = await api.queryTasks()
+  existing.value = r.data || r
 }
 onMounted(load)
 
@@ -95,6 +112,32 @@ async function publish() {
     router.push(`/query/${r.id}`)
   } catch { /* */ } finally { publishing.value = false }
 }
+
+// 需求1：超管/教师下载查询任务的Excel
+async function downloadTaskExcel(t: any) {
+  try {
+    const resp: any = await api.exportQueryTask(t.id)
+    const blob = new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${t.title}_查询数据.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('Excel 已下载')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '下载失败')
+  }
+}
+
+async function deleteTask(t: any) {
+  try {
+    await ElMessageBox.confirm(`确定删除查询任务「${t.title}」？此操作不可恢复。`, '删除', { type: 'error' })
+    await api.deleteQueryTask(t.id)
+    existing.value = existing.value.filter(x => x.id !== t.id)
+    ElMessage.success('已删除')
+  } catch {}
+}
 </script>
 
 <template>
@@ -115,9 +158,10 @@ async function publish() {
         <el-form label-width="100px">
           <el-form-item label="任务标题"><el-input v-model="form.title" placeholder="如：圆锥曲线单元测验" /></el-form-item>
           <el-form-item label="学科">
-            <el-select v-model="form.subjectId" style="width:100%">
-              <el-option v-for="s in data.subjects" :key="s.id" :label="`${s.icon} ${s.name}`" :value="s.id" />
+            <el-select v-model="form.subjectId" style="width:100%" :disabled="user.isTeacher">
+              <el-option v-for="s in subjectOptions" :key="s.id" :label="`${s.icon} ${s.name}`" :value="s.id" />
             </el-select>
+            <div v-if="user.isTeacher" class="hint">（教师账号只能发布自己任教学科的数据查询）</div>
           </el-form-item>
           <el-form-item label="班级">
             <el-select v-model="form.classId" style="width:100%">
@@ -171,11 +215,17 @@ async function publish() {
     </div>
 
     <div class="existing">
-      <div class="section-title">我发布的查询任务</div>
+      <div class="section-title">我发布的查询任务 <span v-if="user.isSuperAdmin" class="st-sub">（超管可查看/下载所有任务）</span></div>
       <div class="ex-list glass">
-        <div v-for="t in existing" :key="t.id" class="ex-item" @click="router.push(`/query/${t.id}`)">
-          <div class="ex-main"><div class="ex-title">{{ t.title }}</div><div class="ex-meta">{{ data.subjectById(t.subject_id)?.name }} · {{ data.classById(t.class_id)?.name }} · {{ t.created_at }}</div></div>
-          <span class="ex-go">→</span>
+        <div v-for="t in existing" :key="t.id" class="ex-item">
+          <div class="ex-main" @click="router.push(`/query/${t.id}`)">
+            <div class="ex-title">{{ t.title }}</div>
+            <div class="ex-meta">{{ data.subjectById(t.subject_id)?.name }} · {{ data.classById(t.class_id)?.name }} · 创建人：{{ t.creator_name }} · {{ t.created_at }}</div>
+          </div>
+          <div class="ex-actions">
+            <el-button size="small" type="primary" plain @click.stop="downloadTaskExcel(t)">📥 下载Excel</el-button>
+            <el-button v-if="user.isSuperAdmin || t.creator_id===user.current?.id" size="small" type="danger" plain @click.stop="deleteTask(t)">删除</el-button>
+          </div>
         </div>
         <el-empty v-if="!existing.length" description="暂无任务" />
       </div>
@@ -284,4 +334,8 @@ th.match { color:var(--zg-accent); background:rgba(245,158,11,.1); }
     width: 100%;
   }
 }
+.st-sub { font-size:12px; color:var(--zg-text-dim); font-weight:400; margin-left:8px; }
+.ex-actions { display:flex; gap:8px; flex-shrink:0; }
+.ex-main { flex:1; min-width:0; cursor:pointer; }
+.ex-main:hover .ex-title { color:var(--zg-primary); }
 </style>

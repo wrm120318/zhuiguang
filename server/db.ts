@@ -221,6 +221,13 @@ export async function initDB() {
   try { await db.execute('ALTER TABLE users ADD COLUMN subject_id INTEGER DEFAULT NULL') } catch {}
   // 迁移：为 pages 补齐 likes 列
   try { await db.execute('ALTER TABLE pages ADD COLUMN likes INTEGER DEFAULT 0') } catch {}
+  // 迁移：公告置顶功能（需求2）
+  try { await db.execute('ALTER TABLE pages ADD COLUMN pinned INTEGER DEFAULT 0') } catch {}
+  try { await db.execute('ALTER TABLE pages ADD COLUMN pinned_scope TEXT DEFAULT \'none\'') } catch {}
+  // 迁移：美文代发功能（需求3）actual_user_id=实际作者学生ID；status增加pending_student状态
+  try { await db.execute('ALTER TABLE articles ADD COLUMN actual_user_id INTEGER DEFAULT NULL') } catch {}
+  // 迁移：用户最后活跃时间（需求5监控在线人数）
+  try { await db.execute('ALTER TABLE users ADD COLUMN last_active TEXT DEFAULT NULL') } catch {}
 
   await seed()
 }
