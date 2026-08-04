@@ -10,7 +10,7 @@ TUNNEL_LOG="/tmp/tunnel-keeper.log"
 PID_DIR="/tmp/zhuiguang-pids"
 mkdir -p "$PID_DIR"
 
-# 加载 .env 环境变量
+# 加载 .env 环境变量（隧道守护需要 GITHUB_TOKEN）
 if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi

@@ -1,6 +1,6 @@
 #!/bin/bash
-# tunnel-keeper.sh v3 - 升级版隧道守护
-# 特性：多服务器故障转移、指数退避、健康检查、自动更新GitHub URL
+# tunnel-keeper.sh v4 - 方案A全套优化
+# 特性：多服务器故障转移、指数退避、DNS校验、GitHub写入重试、空串兜底
 # 用法：bash tunnel-keeper.sh
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
@@ -23,29 +23,79 @@ PINGGY_SERVERS=(
 RETRY_DELAY=5
 MAX_RETRY_DELAY=120
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] v3 启动" >> "$LOG"
+echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] v4 启动（方案A优化版）" >> "$LOG"
 
+# ===== GitHub写入（带3次重试） =====
 update_github_url() {
   local url="$1"
   local encoded=$(echo -n "$url" | base64)
+  local max_retries=3
+  local retry_delay=5
 
-  # 获取当前文件 SHA
-  local sha=$(curl -s -x "http://$PROXY" \
+  for attempt in $(seq 1 $max_retries); do
+    # 获取当前文件 SHA
+    local sha=$(curl -s -x "http://$PROXY" \
+      -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Accept: application/vnd.github.v3+json" \
+      "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
+      python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
+
+    local payload=$(python3 -c "import json; print(json.dumps({'message':'更新隧道URL','content':'$encoded','sha':'$sha'}))")
+    local result=$(curl -s -x "http://$PROXY" -X PUT \
+      -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Accept: application/vnd.github.v3+json" \
+      "https://api.github.com/repos/$REPO/contents/$FILE_PATH" \
+      -d "$payload" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'content' in d else d.get('message','error'))" 2>/dev/null)
+
+    if [ "$result" = "ok" ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新成功 (第${attempt}次, URL: $url)" >> "$LOG"
+      return 0
+    fi
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新失败第${attempt}/${max_retries}次: $result" >> "$LOG"
+    [ $attempt -lt $max_retries ] && sleep $retry_delay
+  done
+
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新彻底失败，写入空串兜底" >> "$LOG"
+  # 兜底：写入空字符串，Worker收到空串返回友好提示而非1016
+  local empty_encoded=$(echo -n "" | base64)
+  local sha2=$(curl -s -x "http://$PROXY" \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
-
-  local payload=$(python3 -c "import json; print(json.dumps({'message':'更新隧道URL','content':'$encoded','sha':'$sha'}))")
-  local result=$(curl -s -x "http://$PROXY" -X PUT \
+  local payload2=$(python3 -c "import json; print(json.dumps({'message':'隧道断开兜底','content':'$empty_encoded','sha':'$sha2'}))")
+  curl -s -x "http://$PROXY" -X PUT \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     "https://api.github.com/repos/$REPO/contents/$FILE_PATH" \
-    -d "$payload" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'content' in d else d.get('message','error'))" 2>/dev/null)
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新: $result (URL: $url)" >> "$LOG"
+    -d "$payload2" 2>/dev/null >/dev/null
+  return 1
 }
 
+# ===== 隧道URL可达性校验 =====
+validate_tunnel_url() {
+  local url="$1"
+  # 通过代理HEAD请求校验隧道URL是否真正可达
+  local code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -x "http://$PROXY" "$url/api/pages/guide" 2>/dev/null)
+  if [ "$code" = "200" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL校验通过 (HTTP $code)" >> "$LOG"
+    return 0
+  else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL校验失败 (HTTP $code)，等待5秒重试..." >> "$LOG"
+    sleep 5
+    # 再校验一次
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -x "http://$PROXY" "$url/api/pages/guide" 2>/dev/null)
+    if [ "$code" = "200" ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL二次校验通过 (HTTP $code)" >> "$LOG"
+      return 0
+    else
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL二次校验仍失败 (HTTP $code)" >> "$LOG"
+      return 1
+    fi
+  fi
+}
+
+# ===== 启动隧道 =====
 start_tunnel() {
   local server_idx=${1:-0}
   local server="${PINGGY_SERVERS[$server_idx]}"
@@ -70,17 +120,24 @@ start_tunnel() {
   done
 
   if [ -z "$url" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 服务器 $server 失败" >> "$LOG"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 服务器 $server 失败（未获取到URL）" >> "$LOG"
     kill "$pid" 2>/dev/null
     rm -f "$output_file"
     return 1
   fi
 
   echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道已建立: $url (PID: $pid, 服务器: $server)" >> "$LOG"
+
+  # ★ 软校验：尝试可达性验证，失败不杀隧道（可能是代理问题而非隧道问题）
+  validate_tunnel_url "$url" || echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 校验未通过但保留隧道（Worker有1016自动重试兜底）" >> "$LOG"
+
+  # ★ 写GitHub（带3次重试+空串兜底）
   update_github_url "$url"
+
   echo "$pid" > "/tmp/tunnel-pid"
   echo "$url" > "/tmp/tunnel-url-current"
   echo "$server" > "/tmp/tunnel-server"
+  rm -f "$output_file"
   return 0
 }
 
