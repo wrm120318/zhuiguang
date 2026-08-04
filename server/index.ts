@@ -174,7 +174,7 @@ app.get('/api/auth/me', auth, async (req, res) => {
 })
 
 // ============ 用户管理 ============
-app.get('/api/users', auth, requireStaff, async (_req, res) => {
+app.get('/api/users', auth, requireRole('SUPER_ADMIN'), async (_req, res) => {
   const list = await all<any>('SELECT * FROM users ORDER BY id')
   res.json(list.map(pub))
 })
@@ -519,6 +519,46 @@ app.get('/api/articles', async (req, res) => {
   res.json(list.map(a => ({ ...a, images: j(a.images), tags: j(a.tags) })))
 })
 
+// Bug6 路由顺序：/pending-student 必须在 /:id 之前定义，否则 "pending-student" 会被当成 id 参数导致 404
+// 需求3：学生查看待我确认的美文列表
+app.get('/api/articles/pending-student', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const list = await all<any>(`SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name
+    FROM articles a
+    JOIN users u ON u.id = a.user_id
+    LEFT JOIN users au ON au.id = a.actual_user_id
+    WHERE a.actual_user_id=? AND a.status=? ORDER BY a.id DESC`, uid, 'pending_student')
+  res.json(list.map(a => ({ ...a, images: j(a.images), tags: j(a.tags) })))
+})
+
+// 需求3：学生同意发布代发的美文 → 状态变为 pending 等待超管审核
+app.post('/api/articles/:id/student-approve', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '不存在' })
+  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
+  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
+  await run('UPDATE articles SET status=? WHERE id=?', 'pending', req.params.id)
+  await addNotice(a.user_id, '代发美文学生已确认', `学生确认同意发布《${a.title}》，现已进入待超管审核状态。`, 'audit')
+  // Bug6: 学生同意后，也发送站内信通知学生（确认已提交，等待审核）
+  const stuMsg = `<p>你已确认同意发布美文《${a.title}》</p><p>该文现已进入<b>超管审核</b>阶段，通过后将会公开展示。请耐心等待。</p>`
+  const stuAtts = JSON.stringify([{ type: 'action', articleId: Number(req.params.id), title: '查看美文' }])
+  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', a.user_id, uid, stuMsg, stuAtts)
+  res.json({ ok: true })
+})
+
+// 需求3：学生拒绝发布代发的美文 → 删除记录
+app.post('/api/articles/:id/student-reject', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '不存在' })
+  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
+  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
+  await run('DELETE FROM articles WHERE id=?', req.params.id)
+  await addNotice(a.user_id, '代发美文被学生拒绝', `学生拒绝了代发美文《${a.title}》，该文已删除。`, 'audit')
+  res.json({ ok: true })
+})
+
 app.get('/api/articles/:id', async (req, res) => {
   const me = await parseOptionalAuth(req)
   const myId = me?.id ?? 0
@@ -595,40 +635,8 @@ app.post('/api/articles', auth, async (req, res) => {
   res.json({ id: aid, status })
 })
 
-// 需求3：学生查看待我确认的美文列表
-app.get('/api/articles/pending-student', auth, async (req, res) => {
-  const uid = (req as any).user.id
-  const list = await all<any>('SELECT * FROM articles WHERE actual_user_id=? AND status=? ORDER BY id DESC', uid, 'pending_student')
-  res.json(list.map(a => ({ ...a, images: j(a.images), tags: j(a.tags) })))
-})
-
-// 需求3：学生同意发布代发的美文 → 状态变为 pending 等待超管审核
-app.post('/api/articles/:id/student-approve', auth, async (req, res) => {
-  const uid = (req as any).user.id
-  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
-  if (!a) return res.status(404).json({ message: '不存在' })
-  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
-  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
-  await run('UPDATE articles SET status=? WHERE id=?', 'pending', req.params.id)
-  await addNotice(a.user_id, '代发美文学生已确认', `学生确认同意发布《${a.title}》，现已进入待超管审核状态。`, 'audit')
-  // Bug6: 学生同意后，也发送站内信通知学生（确认已提交，等待审核）
-  const stuMsg = `<p>你已确认同意发布美文《${a.title}》</p><p>该文现已进入<b>超管审核</b>阶段，通过后将会公开展示。请耐心等待。</p>`
-  const stuAtts = JSON.stringify([{ type: 'action', articleId: Number(req.params.id), title: '查看美文' }])
-  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', a.user_id, uid, stuMsg, stuAtts)
-  res.json({ ok: true })
-})
-
-// 需求3：学生拒绝发布代发的美文 → 删除记录
-app.post('/api/articles/:id/student-reject', auth, async (req, res) => {
-  const uid = (req as any).user.id
-  const a = await get<any>('SELECT * FROM articles WHERE id=?', req.params.id)
-  if (!a) return res.status(404).json({ message: '不存在' })
-  if (Number(a.actual_user_id) !== Number(uid)) return res.status(403).json({ message: '不是代你发的美文' })
-  if (a.status !== 'pending_student') return res.status(400).json({ message: '状态不正确' })
-  await run('DELETE FROM articles WHERE id=?', req.params.id)
-  await addNotice(a.user_id, '代发美文被学生拒绝', `学生拒绝了代发美文《${a.title}》，该文已删除。`, 'audit')
-  res.json({ ok: true })
-})
+// 需求3：学生查看待我确认的美文列表（已在前面 /:id 之前定义过了，此处留占位避免误操作；旧代码已前移）
+// —— pending-student / student-approve / student-reject 三条路由在 L522-L560 已定义 ——
 
 app.patch('/api/articles/:id/status', auth, async (req, res) => {
   const a = await get<any>('SELECT title, user_id, status, subject_id, actual_user_id FROM articles WHERE id=?', req.params.id)
@@ -734,7 +742,7 @@ app.post('/api/articles/:id/comments', auth, async (req, res) => {
     const expUid = Number(a.actual_user_id) || Number(a.user_id)
     if (expUid !== uid) await addExp(expUid, 1, 'comment', `《${a.title}》获得评论`)
   }
-  res.json({ id: r.lastInsertRowid, user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content: req.body.content, created_at: new Date().toISOString().slice(0,19).replace('T',' ') })
+  res.json({ id: Number(r.lastInsertRowid), user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content: req.body.content, created_at: new Date().toISOString().slice(0,19).replace('T',' ') })
 })
 
 // ============ 资料 ============
@@ -1090,7 +1098,7 @@ app.get('/api/feature-flags/public', async (_req, res) => {
   res.json({ registration_enabled: !regFlag || regFlag.value !== '0' })
 })
 
-app.get('/api/settings/feature_flags', auth, async (_req, res) => {
+app.get('/api/settings/feature_flags', auth, requireRole('SUPER_ADMIN'), async (_req, res) => {
   res.json(await getFeatureFlags())
 })
 
