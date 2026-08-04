@@ -60,6 +60,7 @@ export const api = {
   // 用户
   users: () => http.get('/api/users'),
   createUser: (data: any) => http.post('/api/users', data),
+  importUsers: (users: any[]) => http.post('/api/users/import', { users }),
   toggleUser: (id: number, status: string) => http.patch(`/api/users/${id}/status`, { status }),
   resetUser: (id: number) => http.post(`/api/users/${id}/reset`),
   deleteUser: (id: number) => http.delete(`/api/users/${id}`),

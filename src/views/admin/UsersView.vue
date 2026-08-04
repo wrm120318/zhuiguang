@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api'
 import { useDataStore } from '@/store/data'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 const data = useDataStore()
 
@@ -123,6 +124,153 @@ async function saveExp() {
     await load()
   } catch { /* */ }
 }
+
+// ===== 批量导入用户 =====
+const importVisible = ref(false)
+const importPreview = ref<any[]>([])
+const importLoading = ref(false)
+const importResult = ref<{ success: number; skipped: number; errors: string[] } | null>(null)
+
+function downloadTemplate() {
+  // 构建含示例数据的模板
+  const classNameMap: Record<number, string> = {}
+  data.classes.forEach((c: any) => { classNameMap[c.id] = c.name })
+  const subjectNameMap: Record<number, string> = {}
+  data.subjects.forEach((s: any) => { subjectNameMap[s.id] = `${s.icon} ${s.name}` })
+
+  const aoa: any[][] = [
+    ['姓名', '用户名', '角色', '密码', '邮箱', '班级', '学科'],
+    ['张三', 'zhangsan', '学生', '123456', 'zhangsan@school.edu', data.classes[0]?.name || '高二（1）班', ''],
+    ['李老师', 'lilaoshi', '教师', '123456', 'lilaoshi@school.edu', '', data.subjects[0] ? `${data.subjects[0].icon} ${data.subjects[0].name}` : '语文'],
+    ['王同学', 'wangtongxue', '学生', '', '', data.classes[0]?.name || '高二（1）班', ''],
+  ]
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 8 }, { wch: 12 }, { wch: 24 }, { wch: 16 }, { wch: 16 }]
+
+  // 添加第二个sheet：角色和班级对照说明
+  const guideAoa: any[][] = [
+    ['字段说明'],
+    ['姓名', '必填，用户真实姓名'],
+    ['用户名', '必填，登录用，唯一不可重复'],
+    ['角色', '填「学生」「教师」或「超级管理员」，默认学生'],
+    ['密码', '留空默认 123456'],
+    ['邮箱', '留空自动生成 用户名@zguang.edu'],
+    ['班级', '填班级名称（需与系统班级一致），学生建议填写'],
+    ['学科', '教师必填，填学科名称（如：语文、数学），学生留空'],
+    [''],
+    ['当前系统班级列表'],
+    ...data.classes.map((c: any) => [c.name]),
+    [''],
+    ['当前系统学科列表'],
+    ...data.subjects.map((s: any) => [`${s.icon} ${s.name}`]),
+  ]
+  const ws2 = XLSX.utils.aoa_to_sheet(guideAoa)
+  ws2['!cols'] = [{ wch: 20 }, { wch: 40 }]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '用户导入模板')
+  XLSX.utils.book_append_sheet(wb, ws2, '填写说明')
+  XLSX.writeFile(wb, '追光_用户导入模板.xlsx')
+  ElMessage.success('模板已下载，请按格式填写后上传')
+}
+
+async function handleImportUpload(uploadRequest: any) {
+  importLoading.value = true
+  importResult.value = null
+  try {
+    const f = uploadRequest.file as File
+    if (!f) throw new Error('未获取到文件')
+    const ab = await f.arrayBuffer()
+    const wb = XLSX.read(ab, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: '' })
+    if (!json.length) throw new Error('未解析到数据，请检查Excel格式')
+
+    // 构建班级/学科名称→ID映射
+    const classMap: Record<string, number> = {}
+    data.classes.forEach((c: any) => { classMap[c.name] = c.id })
+    const subjectMap: Record<string, number> = {}
+    data.subjects.forEach((s: any) => {
+      subjectMap[s.name] = s.id
+      subjectMap[`${s.icon} ${s.name}`] = s.id
+      subjectMap[s.icon + s.name] = s.id
+    })
+
+    // 解析每行数据
+    const parsed = json.map((row: any) => {
+      const realName = String(row['姓名'] || '').trim()
+      const username = String(row['用户名'] || '').trim()
+      let role = String(row['角色'] || '学生').trim()
+      if (role === '学生' || role === 'STUDENT') role = 'STUDENT'
+      else if (role === '教师' || role === 'TEACHER') role = 'TEACHER'
+      else if (role === '超级管理员' || role === 'SUPER_ADMIN') role = 'SUPER_ADMIN'
+      else role = 'STUDENT'
+
+      const password = String(row['密码'] || '').trim()
+      const email = String(row['邮箱'] || '').trim()
+      const className = String(row['班级'] || '').trim()
+      const subjectName = String(row['学科'] || '').trim()
+
+      return {
+        realName,
+        username,
+        role,
+        password: password || undefined,
+        email: email || undefined,
+        classId: className ? (classMap[className] || undefined) : undefined,
+        subjectId: subjectName ? (subjectMap[subjectName] || undefined) : null,
+      }
+    }).filter((u: any) => u.realName && u.username)
+
+    if (!parsed.length) throw new Error('未解析到有效数据，请检查姓名和用户名列')
+
+    importPreview.value = parsed
+    ElMessage.success(`解析成功：共 ${parsed.length} 条用户数据`)
+  } catch (e: any) {
+    console.error('[Excel解析失败]', e)
+    ElMessage.error(e?.message || 'Excel 解析失败，请检查文件格式')
+    importPreview.value = []
+  } finally {
+    importLoading.value = false
+  }
+}
+
+function classNameById(id?: number) {
+  if (!id) return '-'
+  const c = data.classes.find((x: any) => x.id === id)
+  return c ? c.name : '-'
+}
+
+function subjectNameById(id: number | null) {
+  if (!id) return '-'
+  const s = data.subjects.find((x: any) => x.id === id)
+  return s ? `${s.icon} ${s.name}` : '-'
+}
+
+async function confirmImport() {
+  if (!importPreview.value.length) return
+  importLoading.value = true
+  try {
+    const r: any = await api.importUsers(importPreview.value)
+    importResult.value = r
+    if (r.success > 0) {
+      ElMessage.success(`导入完成：成功 ${r.success} 人${r.skipped ? `，跳过 ${r.skipped} 人` : ''}`)
+      await load()
+    } else {
+      ElMessage.warning('没有成功导入任何用户，请检查错误信息')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '导入失败')
+  } finally {
+    importLoading.value = false
+  }
+}
+
+function openImport() {
+  importPreview.value = []
+  importResult.value = null
+  importVisible.value = true
+}
 </script>
 
 <template>
@@ -131,6 +279,7 @@ async function saveExp() {
       <h1 class="dh-title">用户管理</h1>
       <div class="head-actions">
         <el-input v-model="search" placeholder="搜索姓名/用户名/邮箱" style="width:240px" clearable />
+        <el-button @click="openImport">批量导入</el-button>
         <el-button type="primary" @click="openAdd">+ 新建用户</el-button>
       </div>
     </div>
@@ -213,6 +362,70 @@ async function saveExp() {
         <el-button type="primary" @click="saveExp">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量导入用户 -->
+    <el-dialog v-model="importVisible" title="批量导入用户" width="720px" :close-on-click-modal="false">
+      <div v-if="!importResult">
+        <div class="import-steps">
+          <div class="import-step"><span class="s-no">1</span><div><div class="s-title">下载模板</div><div class="s-desc">含表头与示例数据</div></div></div>
+          <div class="import-step"><span class="s-no">2</span><div><div class="s-title">填写数据</div><div class="s-desc">按格式填入用户信息</div></div></div>
+          <div class="import-step"><span class="s-no">3</span><div><div class="s-title">上传预览</div><div class="s-desc">确认无误后导入</div></div></div>
+        </div>
+
+        <div class="import-actions">
+          <el-button type="primary" @click="downloadTemplate">下载模板</el-button>
+          <el-upload
+            :http-request="handleImportUpload"
+            :show-file-list="false"
+            accept=".xlsx,.xls"
+            :disabled="importLoading"
+          >
+            <el-button :loading="importLoading">{{ importLoading ? '解析中...' : '上传Excel' }}</el-button>
+          </el-upload>
+        </div>
+
+        <div v-if="importPreview.length" class="preview-section">
+          <div class="preview-title">预览（共 {{ importPreview.length }} 条）</div>
+          <el-table :data="importPreview.slice(0, 20)" style="width:100%" max-height="300" size="small">
+            <el-table-column label="姓名" prop="realName" width="100" />
+            <el-table-column label="用户名" prop="username" width="120" />
+            <el-table-column label="角色" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.role==='SUPER_ADMIN'?'danger':row.role==='TEACHER'?'warning':'info'">
+                  {{ row.role === 'SUPER_ADMIN' ? '超管' : row.role === 'TEACHER' ? '教师' : '学生' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="班级" width="120">
+              <template #default="{ row }">{{ classNameById(row.classId) }}</template>
+            </el-table-column>
+            <el-table-column label="学科" width="120">
+              <template #default="{ row }">{{ subjectNameById(row.subjectId) }}</template>
+            </el-table-column>
+            <el-table-column label="密码" width="80">
+              <template #default="{ row }">{{ row.password || '默认' }}</template>
+            </el-table-column>
+          </el-table>
+          <div v-if="importPreview.length > 20" class="preview-more">仅显示前20条，共 {{ importPreview.length }} 条</div>
+        </div>
+      </div>
+
+      <!-- 导入结果 -->
+      <div v-else class="import-result">
+        <el-result :icon="importResult.success > 0 ? 'success' : 'warning'" :title="`导入完成`" :sub-title="`成功 ${importResult.success} 人，跳过 ${importResult.skipped} 人`">
+        </el-result>
+        <div v-if="importResult.errors.length" class="error-list">
+          <div class="error-title">详细信息：</div>
+          <div v-for="(err, i) in importResult.errors" :key="i" class="error-item">{{ err }}</div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="importVisible=false">{{ importResult ? '关闭' : '取消' }}</el-button>
+        <el-button v-if="!importResult && importPreview.length" type="primary" :loading="importLoading" @click="confirmImport">确认导入</el-button>
+        <el-button v-if="importResult" type="primary" @click="importVisible=false">完成</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -225,6 +438,20 @@ async function saveExp() {
 .u-avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; }
 .u-name { font-weight:600; }
 .u-id { font-size:12px; color:var(--zg-text-dim); }
+
+.import-steps { display:flex; gap:16px; margin-bottom:20px; }
+.import-step { display:flex; align-items:center; gap:10px; flex:1; }
+.s-no { width:28px; height:28px; border-radius:50%; background:var(--zg-primary,#409eff); color:#fff; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; flex-shrink:0; }
+.s-title { font-weight:600; font-size:14px; }
+.s-desc { font-size:12px; color:var(--zg-text-dim,#999); }
+.import-actions { display:flex; gap:12px; margin-bottom:20px; }
+.preview-section { margin-top:12px; }
+.preview-title { font-weight:600; margin-bottom:8px; font-size:14px; }
+.preview-more { text-align:center; font-size:12px; color:var(--zg-text-dim,#999); margin-top:8px; }
+.import-result { text-align:center; }
+.error-list { margin-top:16px; max-height:200px; overflow-y:auto; text-align:left; }
+.error-title { font-weight:600; font-size:13px; margin-bottom:6px; }
+.error-item { font-size:12px; color:#e6a23c; padding:2px 0; }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }

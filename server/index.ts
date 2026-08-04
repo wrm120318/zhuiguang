@@ -133,6 +133,51 @@ app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
   res.json({ id: uid })
 })
 
+// 批量导入用户
+app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const { users } = req.body as { users: Array<{ realName: string; username: string; role: string; email?: string; password?: string; classId?: number; subjectId?: number | null }> }
+  if (!Array.isArray(users) || !users.length) return res.status(400).json({ message: '未检测到用户数据' })
+
+  const results: { success: number; skipped: number; errors: string[] } = { success: 0, skipped: 0, errors: [] }
+
+  for (let i = 0; i < users.length; i++) {
+    const u = users[i]
+    const lineNo = i + 2 // Excel第2行开始是数据
+    try {
+      if (!u.username || !u.realName) {
+        results.errors.push(`第${lineNo}行：姓名和用户名不能为空`)
+        continue
+      }
+      // 检查用户名是否已存在
+      const existing = await get('SELECT id FROM users WHERE username=?', u.username)
+      if (existing) {
+        results.skipped++
+        results.errors.push(`第${lineNo}行：用户名「${u.username}」已存在，跳过`)
+        continue
+      }
+
+      const role = u.role || 'STUDENT'
+      const hash = bcrypt.hashSync(u.password || '123456', 8)
+      const email = u.email || `${u.username}@zguang.edu`
+      const avatar = `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}${i}`
+      const r = await run(
+        'INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id) VALUES (?,?,?,?,?,?,?)',
+        u.username, hash, u.realName, role, email, avatar, u.subjectId ?? null
+      )
+      const uid = Number(r.lastInsertRowid)
+      // 加入班级
+      if (u.classId) {
+        await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', u.classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
+      }
+      results.success++
+    } catch (e: any) {
+      results.errors.push(`第${lineNo}行：${e.message || '未知错误'}`)
+    }
+  }
+
+  res.json(results)
+})
+
 app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
   const { realName, email, role, subjectId } = req.body
   const u = await get('SELECT id FROM users WHERE id=?', req.params.id)
