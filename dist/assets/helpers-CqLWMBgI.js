@@ -1,0 +1,1 @@
+function o(r){return!r||isNaN(r)?"—":r<1024?r+" B":r<1024*1024?(r/1024).toFixed(1)+" KB":r<1024*1024*1024?(r/1024/1024).toFixed(1)+" MB":(r/1024/1024/1024).toFixed(2)+" GB"}function e(r){return{pdf:"📄",ppt:"📽️",word:"📝",video:"🎬",zip:"🗜️",image:"🖼️"}[r]||"📎"}function n(r){return Math.floor(r/60)+1}function f(r){return n(r)*60}export{o as a,f as e,e as f,n as l};

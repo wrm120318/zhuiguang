@@ -47,8 +47,8 @@ server/local.db-shm
 server/uploads/*
 !server/uploads/.gitkeep
 
-# ===== Build artifacts (平台会重新构建，勿提交) =====
-dist
+# ===== Build artifacts (本地预构建后提交，Glitch 跳过构建) =====
+# dist
 
 # ===== Environment secrets (never commit) =====
 .env

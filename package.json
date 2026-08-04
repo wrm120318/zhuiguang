@@ -11,7 +11,8 @@
     "dev": "concurrently -k -n SERVER,WEB -c yellow,cyan \"npm run server\" \"vite --host 0.0.0.0 --port 5173\"",
     "build": "vue-tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
-    "preview": "npm run build && tsx server/index.ts"
+    "preview": "npm run build && tsx server/index.ts",
+    "glitch-start": "tsx server/index.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
