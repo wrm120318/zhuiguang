@@ -19,6 +19,7 @@ const ALL_FLAGS: { key: FlagKey; label: string; icon: string; desc: string }[] =
   { key: 'message', label: '站内信', icon: '✉️', desc: '成员间互发消息' },
   { key: 'favorites', label: '我的收藏', icon: '⭐', desc: '收藏美文与资料' },
   { key: 'search', label: '搜索', icon: '🔍', desc: '搜索美文与资料' },
+  { key: 'registration_enabled', label: '自助注册', icon: '🚪', desc: '开启后游客可在登录页注册新账号；关闭后仅管理员可手动导入账号（默认开启）' },
 ]
 
 onMounted(async () => {

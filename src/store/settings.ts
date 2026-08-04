@@ -6,6 +6,7 @@ import { api } from '@/api'
 export type FlagKey =
   | 'quiz' | 'blog' | 'guide' | 'announcement' | 'message'
   | 'leaderboard' | 'favorites' | 'search' | 'subjects'
+  | 'registration_enabled'
 
 const LABELS: Record<FlagKey, string> = {
   quiz: '题库自测',
@@ -17,6 +18,7 @@ const LABELS: Record<FlagKey, string> = {
   favorites: '我的收藏',
   search: '搜索',
   subjects: '学科子站',
+  registration_enabled: '自助注册',
 }
 
 export const useSettingsStore = defineStore('settings', () => {

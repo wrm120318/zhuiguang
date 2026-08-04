@@ -49,6 +49,11 @@ export async function getFeatureFlags(): Promise<Record<string, boolean>> {
   try {
     const r = await get<{ value: string }>("SELECT value FROM settings WHERE key='feature_flags'")
     flagsCache = r ? JSON.parse(r.value) : {}
+    // Bug5: 合并 KV 表中的 registration_enabled 注册开关（后端 KV 是权威源）
+    try {
+      const rr = await get<{ value: string }>("SELECT value FROM feature_flags WHERE key='registration_enabled'")
+      flagsCache.registration_enabled = !rr || rr.value !== '0'
+    } catch {}
   } catch { flagsCache = {} }
   return flagsCache!
 }
