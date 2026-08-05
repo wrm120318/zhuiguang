@@ -1,4 +1,3 @@
-# daemon-watchdog v1.1 3条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
+# daemon-watchdog v1.1 2条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
 https://imots-124-174-33-195.run.pinggy-free.link
 https://qyqkz-124-174-33-195.free.pinggy.net
-https://flqry-115-191-63-211.free.pinggy.net
