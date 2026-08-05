@@ -1,2 +1,7 @@
-# fix.sh自动修复生成 候选池 1条
+# daemon-watchdog v1.1 6条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
 https://ahjuz-124-174-33-195.free.pinggy.net
+https://cmdbu-101-126-17-35.run.pinggy-free.link
+https://cwpqq-115-191-63-211.run.pinggy-free.link
+https://dcpqi-115-191-63-211.free.pinggy.net
+https://hfnpv-101-126-17-35.free.pinggy.net
+https://kauol-124-174-33-195.run.pinggy-free.link
