@@ -1,2 +1,2 @@
-# v6.4 3层候选池 - keeper v5.2合并历史
-https://dkefl-115-191-57-248.free.pinggy.net
+# fix.sh自动修复生成 候选池 1条
+https://gyhum-124-174-33-195.run.pinggy-free.link
