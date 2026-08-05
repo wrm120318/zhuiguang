@@ -1,4 +1,4 @@
-// 追光网站 - Cloudflare Worker 反向代理 v6.2（注入GITHUB_TOKEN解限流+flush强制刷新）（【1101异常修复版 + 3层URL候选池】）
+// 追光网站 - Cloudflare Worker 反向代理 v6.3（环境变量GITHUB_TOKEN时序修复+安全解Secret Scanning）（【1101异常修复版 + 3层URL候选池】）
 // 更新日期：2026-08-05
 // 修复v6 bug：
 //   BUG1: 1101 JavaScript异常 —— v6 里 Promise.allSettled 索引0访问+健康分排序没有URL时的空数组越界，或headers Host设置时URL解析失败，都会抛出未捕获异常=Error 1101
@@ -21,7 +21,7 @@
 const GITHUB_RAW = "https://raw.githubusercontent.com/wrm120318/zhuiguang/main/tunnel-url.txt";
 const GITHUB_API_CONTENTS = "https://api.github.com/repos/wrm120318/zhuiguang/contents/tunnel-url.txt";
 const GITHUB_API_COMMITS = "https://api.github.com/repos/wrm120318/zhuiguang/commits?path=tunnel-url.txt&per_page=5";
-const GITHUB_TOKEN = (globalThis.__GH_TOKEN__ || globalThis.__env?.GITHUB_TOKEN || "");  // 生产环境请在Cloudflare控制台Settings→Variables配置GITHUB_TOKEN（推荐！），不要写死在这里 可选，不填也免费用 Contents API+Commits API
+let GITHUB_TOKEN = "";  // 在下面fetch入口第一行赋值：从Cloudflare环境变量env.GITHUB_TOKEN读取  // 生产环境请在Cloudflare控制台Settings→Variables配置GITHUB_TOKEN（推荐！），不要写死在这里 可选，不填也免费用 Contents API+Commits API
 const URL_CACHE_TTL_MS = 5000;
 const FETCH_TIMEOUT_MS = 4500;
 const HEALTH_DECAY = 0.9;
@@ -195,7 +195,7 @@ function safeFetch(urlStr, req, body){
   try{
     init.headers = new Headers(req.headers);
     init.headers.set("Host", host);
-    init.headers.set("User-Agent", "Cloudflare-Worker/6.2 (+zhuiguang v6.1 pool)");
+    init.headers.set("User-Agent", "Cloudflare-Worker/6.3 (+zhuiguang v6.1 pool)");
     init.headers.set("X-Forwarded-Proto", "https");
     if(init.headers.has("cf-connecting-ip")) init.headers.delete("cf-connecting-ip");
     if(init.headers.has("cf-ray")) init.headers.delete("cf-ray");
@@ -334,7 +334,7 @@ ${urlList || "  (无候选，后台正在建隧道)"}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, private",
-      "X-Zg-Worker-Version": "v6.2-3layer-pool",
+      "X-Zg-Worker-Version": "v6.3-3layer-pool",
       "X-Zg-Candidate-Count": String(urls?.length || 0),
       "X-Zg-Last-Good": lastGoodUrl || "",
       "Retry-After": "10",
@@ -346,7 +346,10 @@ ${urlList || "  (无候选，后台正在建隧道)"}
 export default {
   async fetch(req, env, ctx) {
     try {
-      // ✅ v6.2 正确方式：从Cloudflare环境变量读Token（控制台Settings→Variables添加GITHUB_TOKEN即可）
+      // ✅ v6.3 修复初始化时序：环境变量要在fetch里才能拿到，所以在入口第一行赋值
+      GITHUB_TOKEN = env?.GITHUB_TOKEN || "";
+      try { globalThis.__GH_TOKEN__ = GITHUB_TOKEN; } catch(_) {}
+      // v6.3 下面的代码都读上面这个GITHUB_TOKEN变量（控制台Settings→Variables添加GITHUB_TOKEN即可）
       // 这样代码里永远不会出现真实Token，GitHub不会触发Secret Scanning拦截，更安全
       try {
         if(env?.GITHUB_TOKEN){
@@ -367,7 +370,7 @@ export default {
         const hObj = {};
         for(const [k,v] of health.entries()){ try{ hObj[k] = Math.round(v*1000)/1000; }catch(_){} }
         const body = JSON.stringify({
-          version: "v6.2",
+          version: "v6.3",
           urls,
           candidateCount: urls.length,
           health: hObj,
