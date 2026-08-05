@@ -1,2 +1,3 @@
-# v6.1 填充历史候选 - 1/5 (旧)
-https://mlyon-124-174-33-195.free.pinggy.net
+# v6.1 填充历史候选 - 2/5
+https://tunex-124-174-33-195.free.pinggy.net
+# 兼容旧单行格式，直接访问这个也能用
