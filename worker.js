@@ -1,169 +1,288 @@
-// 追光网站 - Cloudflare Worker 反向代理 v6（【双隧道并行自动切换版】—— 彻底解决"频繁断线无法使用"）
+// 追光网站 - Cloudflare Worker 反向代理 v6.1（【1101异常修复版 + 3层URL候选池】）
 // 更新日期：2026-08-05
-// 重大升级：
-//   1. tunnel-url.txt从单行URL改为多行（一行一个URL，Cloudflare主隧道在前，Pinggy备在后）
-//   2. 解析多个URL，每个请求同时探测所有URL，选第一个HTTP200响应的隧道（500ms级切换）
-//   3. 隧道健康评分：记录最近成功率，优先请求得分高的隧道（避免频繁切换浪费时间）
-//   4. 保留v5的双路取URL（Raw CDN + Contents API）+ KV缓存兜底
+// 修复v6 bug：
+//   BUG1: 1101 JavaScript异常 —— v6 里 Promise.allSettled 索引0访问+健康分排序没有URL时的空数组越界，或headers Host设置时URL解析失败，都会抛出未捕获异常=Error 1101
+//   BUG2: candidateCount=1 但是隧道直连HTTP200 —— 问题不是隧道挂了，是v6代码里 fetch 返回了 redirect=manual 后 3xx 响应体为空，我们仍认为它"r.ok || r.status<500"=成功，然后浏览器收到无body的302/空HTML=异常。
+//
+// 升级特性（解决pinggy免费版同IP并发1条限制→候选池方案）：
+//   因为pinggy免费版同IP只能建1条并发SSH隧道，所以物理上真的只能有1条当前隧道。改而用"3层URL候选池"实现兜底：
+//     第1层（最新）：GitHub tunnel-url.txt 当前值
+//     第2层（历史）：从 GitHub 读 tunnel-url.txt 的 commit 历史，取最近 3 次成功更新的 URL（即使当前隧道重建了，旧URL也可能还能再撑几十秒~几分钟，命中就兜底）
+//     第3层（KV缓存）：KV_CACHE 存 last_good_urls（上次成功过的多行，最多5条）
+//   → 3层合并后去重，得到 1~5 条候选URL，v6的并行错峰探测+健康评分依然生效！
+//   这样，即使 pinggy 只有 1 条物理隧道，Worker 也有 3~5 条候选可以 500ms 级快速切（= 模拟多隧道效果）
+//
 // 部署步骤：
-//   1. 登录dash.cloudflare.com → Workers & Pages → 创建/选择 xkzg-de5-net Worker
-//   2. 点击右上角「Edit code」→ 清空后全选粘贴本文件256+行 → Ctrl+S 或「Deploy」
-//   3. 如需KV兜底：在Worker→Settings→Variables→KV Namespace Bindings 绑定名"KV_CACHE"到任意KV命名空间（可选，不绑定也能用）
+//   1. 登录dash.cloudflare.com → Workers & Pages → 选 xkzg-de5-net Worker
+//   2. 右上角「Edit code」→ 清空后全选粘贴本文件 → Ctrl+S / 「Deploy」
+//   3. 可选增强：Worker→Settings→Variables→KV Namespace Bindings，把 KV_CACHE 绑定到任意KV命名空间（不绑定也能用，只是少了第3层兜底）
 // =============================================================
 
 const GITHUB_RAW = "https://raw.githubusercontent.com/wrm120318/zhuiguang/main/tunnel-url.txt";
-const GITHUB_API = "https://api.github.com/repos/wrm120318/zhuiguang/contents/tunnel-url.txt";
-const GITHUB_TOKEN = "";  // 可选，不填也能免费用Contents API；建议留空（Contents API免费5000次/小时）
-const URL_CACHE_TTL_MS = 5000;  // 5秒重拉一次tunnel-url.txt
-const FETCH_TIMEOUT_MS = 4500;  // 单隧道请求4.5秒超时（配合多URL并行更快切换）
-const HEALTH_DECAY = 0.9;       // 健康评分衰减系数
+const GITHUB_API_CONTENTS = "https://api.github.com/repos/wrm120318/zhuiguang/contents/tunnel-url.txt";
+const GITHUB_API_COMMITS = "https://api.github.com/repos/wrm120318/zhuiguang/commits?path=tunnel-url.txt&per_page=5";
+const GITHUB_TOKEN = "";  // 可选，不填也免费用 Contents API+Commits API
+const URL_CACHE_TTL_MS = 5000;
+const FETCH_TIMEOUT_MS = 4500;
+const HEALTH_DECAY = 0.9;
+const MAX_HISTORY_URLS = 3;
+const MAX_KV_URLS = 5;
 
-let cachedUrls = [];          // 多行解析后的URL数组（优先顺序）
-let cachedUrlsAt = 0;         // 缓存时间戳
-let health = new Map();       // url -> 0..1得分，越接近1越健康
-let lastGoodUrl = "";         // 上一次成功的URL，作为猜测起点
+let cachedUrls = [];
+let cachedUrlsAt = 0;
+let health = new Map();
+let lastGoodUrl = "";
 
-// ========= 1. 拉取tunnel-url.txt并解析多行 =========
-async function fetchTunnelUrls(force) {
-  const now = Date.now();
-  if (!force && cachedUrls.length > 0 && now - cachedUrlsAt < URL_CACHE_TTL_MS) return cachedUrls.slice();
-  let urls = [];
-  // 双路并行取URL
-  const tasks = [];
-  tasks.push((async () => {
-    try {
-      const r = await fetch(GITHUB_RAW + "?t=" + now, { cf: { cacheTtl: 10, cacheEverything: true } });
-      if (!r.ok) return null;
-      return await r.text();
-    } catch (e) { return null; }
-  })());
-  if (GITHUB_TOKEN) {
-    tasks.push((async () => {
-      try {
-        const r = await fetch(GITHUB_API, { headers: { "Authorization": "Bearer " + GITHUB_TOKEN, "Accept": "application/vnd.github.raw" } });
-        if (!r.ok) return null;
-        return await r.text();
-      } catch (e) { return null; }
-    })());
-  }
-  const results = await Promise.allSettled(tasks);
-  for (const p of results) {
-    if (p.status === "fulfilled" && typeof p.value === "string") {
-      const lines = p.value.split(/\r?\n/).map(s => s.trim()).filter(s => s && s.startsWith("https://"));
-      if (lines.length > 0) { urls = lines; break; }
-    }
-  }
-  // 兜底：读KV里上次成功的URL列表
-  if (urls.length === 0) {
-    try {
-      const kv = globalThis?.KV_CACHE;
-      const kvStr = kv ? await kv.get("last_good_urls") : null;
-      if (kvStr) urls = kvStr.split("\n").map(s=>s.trim()).filter(Boolean);
-    } catch (_) {}
-  }
-  if (urls.length > 0) {
-    cachedUrls = urls;
-    cachedUrlsAt = now;
-    try { const kv = globalThis?.KV_CACHE; if (kv) await kv.put("last_good_urls", urls.join("\n"), { expirationTtl: 86400 }); } catch(_){}
-  }
-  return urls.slice();
+// ========= 工具 =========
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+function scoreOf(u){if(!health.has(u))health.set(u,0.7);return health.get(u);}
+function mark(u,ok){
+  const s=scoreOf(u);
+  const next = ok ? Math.min(0.99, 0.18 + 0.82*s) : Math.max(0.02, s*HEALTH_DECAY*HEALTH_DECAY);
+  health.set(u, next);
 }
-
-// ========= 2. 健康打分辅助 =========
-function scoreOf(url) {
-  if (!health.has(url)) health.set(url, 0.7);
-  return health.get(url);
+function uniqUrls(arr){
+  const seen = new Set(); const out=[];
+  for(const u of arr||[]){
+    if(!u||typeof u!=="string") continue;
+    const uu=u.trim();
+    if(!uu||!uu.startsWith("https://")) continue;
+    if(seen.has(uu)) continue;
+    seen.add(uu); out.push(uu);
+  }
+  return out;
 }
-function mark(url, ok) {
-  const s = scoreOf(url);
-  const next = ok ? (0.15 + 0.85 * s) : (s * HEALTH_DECAY * HEALTH_DECAY);
-  health.set(url, Math.max(0.01, Math.min(0.99, next)));
-}
-function sortByHealth(urls) {
-  // 先按健康分，再把lastGoodUrl排最前面（如果在列表里）
-  const arr = urls.slice();
-  arr.sort((a, b) => {
-    if (a === lastGoodUrl) return -999;
-    if (b === lastGoodUrl) return 999;
-    return scoreOf(b) - scoreOf(a);
+function sortByHealth(urls){
+  const arr = (urls||[]).slice();
+  arr.sort((a,b)=>{
+    if(a===lastGoodUrl) return -999;
+    if(b===lastGoodUrl) return 999;
+    const sb=scoreOf(b), sa=scoreOf(a);
+    if(Math.abs(sb-sa)>0.0001) return sb-sa;
+    return 0;
   });
   return arr;
 }
 
-// ========= 3. 带超时的fetch =========
-function fetchWithTimeout(url, req, body) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-  const target = url + (req.url.startsWith("/") ? req.url : "/" + req.url);
-  const init = {
-    method: req.method,
-    headers: new Headers(req.headers),
-    signal: ctl.signal,
-    redirect: "manual",
-  };
-  init.headers.set("Host", new URL(url).host);
-  init.headers.set("User-Agent", "Cloudflare-Worker/6.0 (+zhuiguang v6 multi-tunnel)");
-  if (init.headers.has("cf-connecting-ip")) init.headers.delete("cf-connecting-ip");
-  if (body && ["POST","PUT","PATCH","DELETE"].includes(req.method)) init.body = body;
-  const p = fetch(target, init).then(r => { clearTimeout(timer); return r; }).catch(e => { clearTimeout(timer); throw e; });
-  return { p, cancel: () => ctl.abort() };
-}
-
-// ========= 4. 核心：并行探测多URL，选第一个成功响应 =========
-async function bestEffortFetch(urls, req) {
-  let body = null;
-  try {
-    if (["POST","PUT","PATCH","DELETE"].includes(req.method)) body = await req.clone().arrayBuffer();
-  } catch (_) {}
-  const ordered = sortByHealth(urls);
-  const flights = [];
-  const ctrls = [];
-  // 第0名立刻发，第1名等400ms落后发（避免同时浪费两条隧道带宽），第2名等900ms
-  const stagger = [0, 400, 900];
-  for (let i = 0; i < ordered.length; i++) {
-    const u = ordered[i];
-    const delay = stagger[i] ?? 1400;
-    const task = new Promise((res) => {
-      setTimeout(() => {
-        const { p, cancel } = fetchWithTimeout(u, req, body);
-        ctrls.push(cancel);
-        p.then(r => { mark(u, r.ok || r.status < 500); res({ ok: true, url: u, r, status: r.status }); })
-         .catch(e => { mark(u, false); res({ ok: false, url: u, err: String(e?.name || e) }); });
-      }, delay);
-    });
-    flights.push(task);
-  }
-  // 取第一个成功（HTTP<500 且非异常）的结果
-  let lastFail = null;
-  for (let i = 0; i < flights.length; i++) {
-    const one = await flights[i];
-    if (one.ok && one.r) {
-      // 取消其他仍在跑的（尽力）
-      ctrls.forEach(c => { try { c(); } catch(_){} });
-      if (one.r.ok || one.r.status < 500) {
-        lastGoodUrl = one.url;
-        return one.r;
+// ========= 1. 取 GitHub 当前 tunnel-url.txt（支持多行） =========
+async function fetchCurrentUrls(){
+  try{
+    const hdrs = { "Accept":"text/plain,application/vnd.github.raw" };
+    if(GITHUB_TOKEN) hdrs["Authorization"]="Bearer "+GITHUB_TOKEN;
+    // 两路并行：Raw + Contents API raw
+    const tasks = [
+      (async ()=>{
+        try{
+          const r=await fetch(GITHUB_RAW+"?t="+Date.now(),{cf:{cacheTtl:10,cacheEverything:true}});
+          if(!r.ok) return "";
+          return await r.text();
+        }catch(e){ return ""; }
+      })(),
+      (async ()=>{
+        try{
+          const r=await fetch(GITHUB_API_CONTENTS,{headers:hdrs});
+          if(!r.ok) return "";
+          return await r.text();
+        }catch(e){ return ""; }
+      })(),
+    ];
+    const res = await Promise.allSettled(tasks);
+    for(const p of res){
+      if(p.status==="fulfilled" && typeof p.value==="string" && p.value.trim().length>0){
+        const lines = p.value.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.startsWith("https://"));
+        if(lines.length>0) return lines;
       }
-      lastFail = one;
-    } else {
-      lastFail = one;
     }
-  }
-  // 全部失败：返回最后一个结果或兜底友好页
-  if (lastFail && lastFail.r) return lastFail.r;
-  return null;
+  }catch(e){}
+  return [];
 }
 
-// ========= 5. 友好错误页（v6保留v5的<details>调试块） =========
-function friendlyErr(urls, tries, msg) {
-  const urlList = (urls||[]).map(u => {
-    const s = (scoreOf(u)*100).toFixed(0);
-    return `<li>${escapeHtml(u)} <span style="color:#888">健康度 ${s}%</span></li>`;
+// ========= 2. 取 GitHub 最近 3 次 commit 里的历史 tunnel-url.txt =========
+async function fetchHistoryUrls(){
+  const out = [];
+  try{
+    const hdrs = { "Accept":"application/vnd.github+json" };
+    if(GITHUB_TOKEN) hdrs["Authorization"]="Bearer "+GITHUB_TOKEN;
+    const rc = await fetch(GITHUB_API_COMMITS,{headers:hdrs,cf:{cacheTtl:60}});
+    if(!rc.ok) return [];
+    const commits = await rc.json();
+    if(!Array.isArray(commits)) return [];
+    const shas = [];
+    for(const c of commits.slice(0, MAX_HISTORY_URLS+1)){
+      if(c && c.sha && typeof c.sha==="string") shas.push(c.sha);
+    }
+    // 并行取历史文件
+    const tasks = shas.map(sha => (async ()=>{
+      try{
+        const u = `https://raw.githubusercontent.com/wrm120318/zhuiguang/${sha}/tunnel-url.txt`;
+        const r = await fetch(u,{cf:{cacheTtl:300}});
+        if(!r.ok) return "";
+        return await r.text();
+      }catch(e){ return ""; }
+    })());
+    const ress = await Promise.allSettled(tasks);
+    for(const p of ress){
+      if(p.status!=="fulfilled"||typeof p.value!=="string") continue;
+      const lines = p.value.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.startsWith("https://"));
+      for(const l of lines) out.push(l);
+    }
+  }catch(e){}
+  return out;
+}
+
+// ========= 3. KV 兜底 last_good_urls =========
+async function fetchKvUrls(){
+  try{
+    const kv = globalThis?.KV_CACHE;
+    if(!kv) return [];
+    const s = await kv.get("last_good_urls");
+    if(!s||typeof s!=="string") return [];
+    const arr = s.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    return arr.slice(0, MAX_KV_URLS);
+  }catch(e){ return []; }
+}
+async function writeKvUrls(urls){
+  try{
+    const kv = globalThis?.KV_CACHE;
+    if(!kv) return;
+    const data = uniqUrls(urls).slice(0, MAX_KV_URLS).join("\n");
+    if(!data) return;
+    await kv.put("last_good_urls", data, {expirationTtl: 86400*7});
+  }catch(e){}
+}
+
+// ========= 4. 组合 3 层候选池 =========
+async function fetchCandidateUrls(force){
+  const now = Date.now();
+  if(!force && cachedUrls.length>0 && now-cachedUrlsAt<URL_CACHE_TTL_MS){
+    return cachedUrls.slice();
+  }
+  const [curr, hist, kvu] = await Promise.all([
+    fetchCurrentUrls(),
+    fetchHistoryUrls(),
+    fetchKvUrls(),
+  ]);
+  const merged = uniqUrls([ ...(curr||[]), ...(hist||[]), ...(kvu||[]) ]);
+  if(merged.length>0){
+    cachedUrls = merged.slice();
+    cachedUrlsAt = now;
+    // 异步写KV
+    writeKvUrls(merged).catch(()=>{});
+  }
+  return merged.slice();
+}
+
+// ========= 5. 带超时的 fetch（无异常抛出版本，永远不抛1101） =========
+function safeFetch(urlStr, req, body){
+  let ctrl; let timer; let settled=false;
+  try { ctrl = new AbortController(); } catch(e){ ctrl = null; }
+  try {
+    timer = setTimeout(()=>{
+      if(ctrl && !settled){ try{ ctrl.abort(); }catch(_){} }
+    }, FETCH_TIMEOUT_MS);
+  }catch(e){ timer = null; }
+
+  let target; let host;
+  try{
+    target = urlStr + (req.url.startsWith("/")?req.url:"/"+req.url);
+    host = new URL(urlStr).host;
+  }catch(e){
+    // URL解析失败，直接返回失败结果
+    return Promise.resolve({ok:false, url:urlStr, err:"URL_PARSE"});
+  }
+
+  const init = { method: req.method, redirect: "follow" }; // ← 修复BUG2：redirect 从 manual 改成 follow，让302自动跳转
+  try{
+    init.headers = new Headers(req.headers);
+    init.headers.set("Host", host);
+    init.headers.set("User-Agent", "Cloudflare-Worker/6.1 (+zhuiguang v6.1 pool)");
+    init.headers.set("X-Forwarded-Proto", "https");
+    if(init.headers.has("cf-connecting-ip")) init.headers.delete("cf-connecting-ip");
+    if(init.headers.has("cf-ray")) init.headers.delete("cf-ray");
+    if(init.headers.has("cf-worker")) init.headers.delete("cf-worker");
+    if(ctrl) init.signal = ctrl.signal;
+  }catch(e){}
+  if(body && ["POST","PUT","PATCH","DELETE"].includes(req.method)) init.body = body;
+
+  const p = fetch(target, init).then(r=>{
+    settled=true;
+    if(timer) clearTimeout(timer);
+    // 2xx 或 3xx 都算成功（redirect follow后最终是2xx也正常）
+    const ok = (r.status>=200 && r.status<500);
+    mark(urlStr, ok);
+    return {ok, url:urlStr, status: r.status, r};
+  }).catch(e=>{
+    settled=true;
+    if(timer) clearTimeout(timer);
+    mark(urlStr, false);
+    return {ok:false, url:urlStr, err: String(e?.name || e || "FETCH_ERR")};
+  });
+  return p;
+}
+
+// ========= 6. 多候选并行错峰请求（核心：任何异常都捕获，绝不抛1101） =========
+async function bestEffortFetch(urls, req){
+  if(!urls || urls.length===0) return null;
+  let body = null;
+  try{
+    if(["POST","PUT","PATCH","DELETE"].includes(req.method)){
+      try{ body = await req.clone().arrayBuffer(); }catch(_){ body=null; }
+    }
+  }catch(_){}
+  const ordered = sortByHealth(urls);
+  const tasks = [];
+  const stagger = [0, 350, 800, 1400, 2200];
+  for(let i=0;i<ordered.length;i++){
+    const u = ordered[i];
+    const d = stagger[i] ?? 3000;
+    const task = new Promise(resolve=>{
+      setTimeout(()=>{
+        safeFetch(u, req, body).then(resolve).catch(err=>{
+          resolve({ok:false, url:u, err: String(err?.name||err||"CATCH")});
+        });
+      }, d);
+    });
+    tasks.push(task);
+  }
+  // 按完成顺序拿第一个成功的
+  try{
+    let firstOk = null;
+    const wraps = tasks.map(t => t.then(r=>{ return {r}; }));
+    // 简易首个成功：一个个等
+    for(let i=0;i<wraps.length;i++){
+      try{
+        const w = await wraps[i];
+        if(w.r && w.r.ok && w.r.r){
+          firstOk = w.r;
+          break;
+        }
+      }catch(_){}
+    }
+    if(firstOk){
+      lastGoodUrl = firstOk.url;
+      return firstOk.r;
+    }
+    // 没有成功：找最后一个有响应的作为兜底
+    const all = await Promise.all(tasks);
+    for(const r of all){
+      if(r && r.r){ lastGoodUrl = r.url; return r.r; }
+    }
+    return null;
+  }catch(e){
+    return null;
+  }
+}
+
+// ========= 7. 友好错误页（v6.1：任何情况都返回这个，不会抛1101） =========
+function friendlyErr(urls, tries, msg){
+  const urlList = (urls||[]).map(u=>{
+    const s=(scoreOf(u)*100).toFixed(0);
+    return `<li>${esc(u)} <span style="color:#888">健康度 ${s}%</span></li>`;
   }).join("");
   const body = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>服务正在重连中 - 追光学科平台</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;background:#f8fafc;color:#0f172a;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{background:#fff;border-radius:16px;padding:36px 32px;max-width:520px;width:100%;box-shadow:0 10px 40px rgba(15,23,42,.08);text-align:center;border:1px solid #e2e8f0}
+.card{background:#fff;border-radius:16px;padding:36px 32px;max-width:560px;width:100%;box-shadow:0 10px 40px rgba(15,23,42,.08);text-align:center;border:1px solid #e2e8f0}
 .spin{width:44px;height:44px;border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;margin:0 auto 20px;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 h1{font-size:20px;margin:0 0 8px;color:#0f172a}
@@ -173,42 +292,41 @@ p{margin:6px 0;color:#475569;font-size:14px;line-height:1.7}
 .btn:hover{background:#2563eb}
 details{margin-top:18px;text-align:left;background:#f1f5f9;border-radius:8px;padding:8px 14px}
 details summary{cursor:pointer;color:#64748b;font-size:12px;padding:2px 0}
-pre{margin:8px 0 0;font-size:11px;white-space:pre-wrap;word-break:break-all;color:#334155;max-height:200px;overflow:auto}
+pre{margin:8px 0 0;font-size:11px;white-space:pre-wrap;word-break:break-all;color:#334155;max-height:240px;overflow:auto}
 </style></head><body>
 <div class="card">
   <div class="spin"></div>
   <h1>服务正在重连中</h1>
   <p>隧道正在自动切换，通常 10~30 秒内恢复。</p>
   <p>请稍候片刻，然后刷新页面。</p>
-  <div class="hint">💡 v6 新特性：当前已同时使用 <b>${Math.max(1,urls?.length||0)} 条独立隧道</b>并行探测，自动选择最快可用的那一条，比v5单隧道切换更快、更稳定。</div>
+  <div class="hint">💡 v6.1 新特性：3层候选URL池（GitHub当前 + 最近3次历史URL + KV缓存）= 即使物理隧道切换中，也有 ${Math.max(1,(urls?.length||0))} 条候选自动探测，通常一次刷新即可恢复。</div>
   <button class="btn" onclick="location.reload(true)">刷新页面</button>
   <details>
-    <summary>🔧 调试信息（出现一直不恢复时截图发给管理员）</summary>
-<pre>Worker版本: zhuiguang-worker v6
-错误信息: ${escapeHtml(msg||"隧道暂时不可达")}
+    <summary>🔧 调试信息（一直不恢复请截图发管理员）</summary>
+<pre>Worker版本: zhuiguang-worker v6.1
+错误信息: ${esc(msg||"隧道暂时不可达")}
 连续失败次数: ${tries ?? 1}
-候选隧道数: ${urls?.length ?? 0}
+候选URL数: ${urls?.length ?? 0}
 健康状态:
-${urlList || "  (无可用隧道)"}
+${urlList || "  (无候选，后台正在建隧道)"}
 时间: ${new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}</pre>
   </details>
 </div>
 <script>
-// 自动重刷：最多6次，间隔(3,5,7,9,11,13)s
 (function(){
   try {
-    const k = 'zg_retry_v6';
-    const v = JSON.parse(sessionStorage.getItem(k) || '{"n":0,"t":0}');
-    if (Date.now() - v.t > 180000) v.n = 0;
-    if (v.n < 6) {
-      v.n += 1; v.t = Date.now();
+    const k='zg_retry_v61';
+    const v=JSON.parse(sessionStorage.getItem(k)||'{"n":0,"t":0}');
+    if(Date.now()-v.t>180000) v.n=0;
+    if(v.n<6){
+      v.n+=1; v.t=Date.now();
       sessionStorage.setItem(k, JSON.stringify(v));
-      const delays = [3000,5000,7000,9000,11000,13000];
-      setTimeout(()=>location.reload(true), delays[v.n-1] || 5000);
-    } else {
+      const delays=[3000,5000,7000,9000,11000,13000];
+      setTimeout(()=>location.reload(true), delays[v.n-1]||5000);
+    }else{
       sessionStorage.setItem(k, JSON.stringify({n:0,t:0}));
     }
-  } catch(e){}
+  }catch(e){}
 })();
 </script></body></html>`;
   return new Response(body, {
@@ -216,43 +334,84 @@ ${urlList || "  (无可用隧道)"}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, private",
-      "X-Zg-Worker-Version": "v6-multi-tunnel",
+      "X-Zg-Worker-Version": "v6.1-3layer-pool",
       "X-Zg-Candidate-Count": String(urls?.length || 0),
       "X-Zg-Last-Good": lastGoodUrl || "",
       "Retry-After": "10",
     },
   });
 }
-function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]); }
 
-// ========= 6. 主入口 =========
+// ========= 8. 主入口（任何异常都捕获 → 友好页，绝不抛1101） =========
 export default {
   async fetch(req, env, ctx) {
-    if (env?.KV_CACHE) globalThis.KV_CACHE = env.KV_CACHE;
-    const url = new URL(req.url);
-    // 健康检查
-    if (url.pathname === "/__zg_health") {
-      const urls = await fetchTunnelUrls(false);
-      return new Response(JSON.stringify({ version: "v6", urls, candidateCount: urls.length, health: Object.fromEntries([...health.entries()].map(([k,v])=>[k, Math.round(v*1000)/1000])) }, null, 2), { headers: { "Content-Type":"application/json; charset=utf-8", "Access-Control-Allow-Origin":"*" } });
+    try {
+      if(env?.KV_CACHE){ try{ globalThis.KV_CACHE = env.KV_CACHE; }catch(_){} }
+      const url = new URL(req.url);
+
+      // 健康检查调试接口
+      if(url.pathname === "/__zg_health"){
+        let urls = [];
+        try{ urls = await fetchCandidateUrls(false); }catch(_){ urls = cachedUrls.slice(); }
+        const hObj = {};
+        for(const [k,v] of health.entries()){ try{ hObj[k] = Math.round(v*1000)/1000; }catch(_){} }
+        const body = JSON.stringify({
+          version: "v6.1",
+          urls,
+          candidateCount: urls.length,
+          health: hObj,
+          lastGoodUrl,
+          cacheAgeMs: cachedUrlsAt ? Date.now() - cachedUrlsAt : -1,
+        }, null, 2);
+        return new Response(body, { headers: { "Content-Type":"application/json; charset=utf-8", "Access-Control-Allow-Origin":"*", "X-Zg-Worker-Version":"v6.1" }});
+      }
+
+      // 静态资源和普通请求 → 走候选池并行探测
+      let urls = [];
+      try {
+        urls = await fetchCandidateUrls(false);
+      } catch(e){
+        try{ urls = cachedUrls.slice(); }catch(_){ urls=[]; }
+      }
+      if(urls.length===0){
+        return friendlyErr([], 0, "尚未获取到隧道地址，请稍后再试");
+      }
+      let res = null;
+      try {
+        res = await bestEffortFetch(urls, req);
+      } catch(e){
+        res = null;
+      }
+      if(res){
+        // 成功 → 透传响应（加上 v6.1 header 方便排障）
+        try{
+          const newHdrs = new Headers(res.headers);
+          newHdrs.set("X-Zg-Worker-Version", "v6.1-3layer-pool");
+          newHdrs.set("X-Zg-Candidate-Count", String(urls.length));
+          return new Response(res.body, { status: res.status, statusText: res.statusText, headers: newHdrs });
+        }catch(_){
+          return res;
+        }
+      }
+      // 第一轮全部失败 → 强制重拉候选池一次再试
+      try {
+        const urls2 = await fetchCandidateUrls(true);
+        if(urls2.length>0){
+          try{
+            const res2 = await bestEffortFetch(urls2, req);
+            if(res2) return res2;
+          }catch(_){}
+          return friendlyErr(urls2, 2, "全部候选隧道暂时不可达，后台正在自动切换");
+        }
+      }catch(_){}
+      return friendlyErr(urls, 2, "全部候选隧道暂时不可达，后台正在自动切换");
+    } catch (eTop) {
+      // ❗❗ 任何没有被上面捕获的漏网之鱼 → 最后兜底友好页，绝不抛1101
+      try {
+        return friendlyErr(cachedUrls.slice(), 3, "Worker内部异常: " + String(eTop?.message || eTop?.name || eTop));
+      } catch(_fatal){
+        return new Response("服务重连中，请稍后刷新 (v6.1 fatal fallback)", { status: 503, headers: { "Content-Type":"text/plain; charset=utf-8", "Retry-After":"10" }});
+      }
     }
-    // favicon静态文件走源站
-    if (req.method === "GET" && /\.(png|jpg|jpeg|gif|svg|ico|css|js|woff2?|ttf|map|webp)$/i.test(url.pathname)) {
-      const urls = await fetchTunnelUrls(false);
-      if (urls.length === 0) return friendlyErr([], 0, "尚未获取到隧道地址，请稍后再试");
-      const r = await bestEffortFetch(urls, req);
-      if (r) return r;
-    }
-    // 普通请求
-    const urls = await fetchTunnelUrls(false);
-    if (urls.length === 0) return friendlyErr([], 0, "尚未获取到隧道地址，请稍后再试");
-    const res = await bestEffortFetch(urls, req);
-    if (!res) {
-      // 彻底失败，强制重拉URL一次再试
-      const urls2 = await fetchTunnelUrls(true);
-      const res2 = urls2.length > 0 ? await bestEffortFetch(urls2, req) : null;
-      if (res2) return res2;
-      return friendlyErr(urls2.length ? urls2 : urls, 2, "所有隧道均暂时不可达，后台正在自动切换");
-    }
-    return res;
   },
 };
