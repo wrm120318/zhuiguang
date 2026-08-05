@@ -1,6 +1,6 @@
 // 追光网站 - Cloudflare Worker 反向代理 v6.5.3（✅ caches.default手动缓存=API真HIT，速度3~10倍）
 // 更新日期：2026-08-05
-// 核心改进 v6.5.3（解决v6.5.1/v6.5.2「带Authorization头的请求被Cloudflare强制BYPASS缓存」问题）：
+// 核心改进 v6.5.3（解决v6.5.1/v6.5.3「带Authorization头的请求被Cloudflare强制BYPASS缓存」问题）：
 //   0. ✅ v6.5.1所有特性保留：X-Pinggy-No-Screen头 + 特殊UA → 永不出现「Caution请信任该网站」
 //   1. ✅ 重磅：caches.default 手动API缓存（100%绕过CF Authorization=BYPASS限制）
 //        · 缓存key = method + pathname + search + authHash（不同用户100%隔离，永不串数据）
