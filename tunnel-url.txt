@@ -1,3 +1,1 @@
-# daemon-watchdog v1.1 2条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
-https://qahdc-115-191-57-248.free.pinggy.net
-https://qofhn-115-191-57-248.run.pinggy-free.link
+https://fqlym-115-191-63-211.free.pinggy.net
