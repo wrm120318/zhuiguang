@@ -1,4 +1,1 @@
-# v6.1 3层URL候选池 - 第1层直接写多行（向后兼容）
-https://ubyty-124-174-33-195.free.pinggy.net
-https://behua-115-191-57-248.run.pinggy-free.link
-https://ajava-115-191-57-248.run.pinggy-free.link
+https://woaqb-115-191-63-211.run.pinggy-free.link
