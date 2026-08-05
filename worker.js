@@ -181,14 +181,16 @@ async function bestEffortFetch(req, urls, force){
         newHdrs.set("X-Zg-Pinggy-Bypass", "1");
         const p = (new URL(req.url)).pathname;
         const IS_STATIC = /\.(js|css|png|jpe?g|svg|gif|webp|woff2?|ttf|ico|mp4|webm|map|avif)$/i.test(p);
-        const IS_HTML = !p.includes(".") || p.endsWith(".html") || p.startsWith("/login") || p.startsWith("/admin") || p.startsWith("/articles") || p.startsWith("/pages") || p.startsWith("/home") || p.startsWith("/profile") || p === "/";
+        // v6.5.1 ✅ 修复：/api/* 用 startsWith("/api/") 精确判断（之前正则^\/api\/有时不生效），其他再看HTML/静态
+        const IS_API = p.startsWith("/api/");
+        const IS_HTML = !IS_API && !IS_STATIC && (!p.includes(".") || p.endsWith(".html") || p.startsWith("/login") || p.startsWith("/admin") || p.startsWith("/articles") || p.startsWith("/pages") || p.startsWith("/home") || p.startsWith("/profile") || p === "/");
         if (IS_STATIC && res.status >= 200 && res.status < 400) {
           newHdrs.set("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000, immutable");
           newHdrs.set("X-Zg-Cache", "STATIC-7D");
         } else if (IS_HTML && res.status >= 200 && res.status < 400) {
           newHdrs.set("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=300");
           newHdrs.set("X-Zg-Cache", "HTML-30s");
-        } else if (/^\/api\//i.test(p)) {
+        } else if (IS_API) {
           newHdrs.set("Cache-Control", "no-cache, no-store, max-age=0");
           newHdrs.set("X-Zg-Cache", "API-BYPASS");
         } else {
