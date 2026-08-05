@@ -1,2 +1,1 @@
-# daemon-watchdog v1.1 1条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
-https://bacth-101-126-17-35.free.pinggy.net
+https://hnbbo-115-191-63-211.run.pinggy-free.link
