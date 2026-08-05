@@ -286,8 +286,21 @@ async function bestEffortFetch(req, urls, force, ctx){
           newHdrs.set("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=300");
           newHdrs.set("X-Zg-Cache", "HTML-30s");
         } else if (IS_API) {
-          newHdrs.set("Cache-Control", "no-cache, no-store, max-age=0");
-          newHdrs.set("X-Zg-Cache", "API-BYPASS");
+          // v6.5.3：/api/* GET接口TTL分级缓存（5~30秒），POST/PUT永远不缓存
+          const mtd = (req.method||"GET").toUpperCase();
+          const at = apiTtlSecFor(p);
+          if (mtd === "GET" || mtd === "HEAD") {
+            if (at > 0) {
+              newHdrs.set("Cache-Control", `public, max-age=${at}, s-maxage=${at+5}, stale-while-revalidate=${at*4}`);
+              newHdrs.set("X-Zg-Cache", `API-EDGE-${at}s`);
+            } else {
+              newHdrs.set("Cache-Control", "no-cache, no-store, max-age=0");
+              newHdrs.set("X-Zg-Cache", "API-BYPASS (auth/login or zero TTL)");
+            }
+          } else {
+            newHdrs.set("Cache-Control", "no-cache, no-store, max-age=0");
+            newHdrs.set("X-Zg-Cache", "API-BYPASS (POST/PUT/DELETE write op)");
+          }
         } else {
           newHdrs.set("X-Zg-Cache", "DEFAULT");
         }
