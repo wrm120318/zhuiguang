@@ -1,6 +1,2 @@
-# daemon-watchdog v1.1 5条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
-https://gyhum-124-174-33-195.run.pinggy-free.link
-https://legtq-124-174-33-195.run.pinggy-free.link
-https://losbi-124-174-33-195.free.pinggy.net
-https://rhpnk-124-174-33-195.free.pinggy.net
-https://zqqub-115-190-92-241.free.pinggy.net
+# v6.4 3层候选池 - keeper v5.2合并历史
+https://dkefl-115-191-57-248.free.pinggy.net
