@@ -1,4 +1,4 @@
-// 追光网站 - Cloudflare Worker 反向代理 v6.3（环境变量GITHUB_TOKEN时序修复+安全解Secret Scanning）（【1101异常修复版 + 3层URL候选池】）
+// 追光网站 - Cloudflare Worker 反向代理 v6.4（【多行解析Edge Cache彻底修复】+force强制重读）（【1101异常修复版 + 3层URL候选池】）
 // 更新日期：2026-08-05
 // 修复v6 bug：
 //   BUG1: 1101 JavaScript异常 —— v6 里 Promise.allSettled 索引0访问+健康分排序没有URL时的空数组越界，或headers Host设置时URL解析失败，都会抛出未捕获异常=Error 1101
@@ -73,7 +73,7 @@ async function fetchCurrentUrls(){
     const tasks = [
       (async ()=>{
         try{
-          const r=await fetch(GITHUB_RAW+"?t="+Date.now(),{cf:{cacheTtl:10,cacheEverything:true}});
+          const r=await fetch(GITHUB_RAW+"?t="+Date.now()+"&r="+Math.random().toString(36).slice(2),{cf:{cacheTtl:1,cacheKey:GITHUB_RAW+"?v=v6.4"}});
           if(!r.ok) return "";
           return await r.text();
         }catch(e){ return ""; }
@@ -115,7 +115,7 @@ async function fetchHistoryUrls(){
     const tasks = shas.map(sha => (async ()=>{
       try{
         const u = `https://raw.githubusercontent.com/wrm120318/zhuiguang/${sha}/tunnel-url.txt`;
-        const r = await fetch(u,{cf:{cacheTtl:300}});
+        const r = await fetch(u+"?r="+Math.random().toString(36).slice(2),{cf:{cacheTtl:60,cacheKey:u+"?v=v6.4"}});
         if(!r.ok) return "";
         return await r.text();
       }catch(e){ return ""; }
@@ -157,12 +157,28 @@ async function fetchCandidateUrls(force){
   if(!force && cachedUrls.length>0 && now-cachedUrlsAt<URL_CACHE_TTL_MS){
     return cachedUrls.slice();
   }
-  const [curr, hist, kvu] = await Promise.all([
-    fetchCurrentUrls(),
-    fetchHistoryUrls(),
-    fetchKvUrls(),
-  ]);
-  const merged = uniqUrls([ ...(curr||[]), ...(hist||[]), ...(kvu||[]) ]);
+  // v6.4 修复：force=true时先绕过缓存，强制重读GitHub Contents API（Raw CDN有Edge Cache 1秒也过期了但怕没清）
+  let curr = [];
+  let hist = [];
+  if(force){
+    try {
+      const hdrs = { "Accept":"application/vnd.github.raw" };
+      if(GITHUB_TOKEN) hdrs["Authorization"]="Bearer "+GITHUB_TOKEN;
+      // Contents API raw直接取，不走CDN
+      const rForce = await fetch(GITHUB_API_CONTENTS+"?t="+Date.now()+"&r="+Math.random().toString(36).slice(2), {headers: hdrs, cf:{cacheTtl:1}});
+      if(rForce.ok){
+        const txt = await rForce.text();
+        curr = txt.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.startsWith("https://"));
+      }
+    } catch(_){ curr = []; }
+  }
+  // 没force或force失败，走标准流程
+  if(curr.length===0) curr = await fetchCurrentUrls();
+  try { hist = await fetchHistoryUrls(); } catch(_){ hist = []; }
+  let kvu = [];
+  try { kvu = await fetchKvUrls(); } catch(_){ kvu = []; }
+  const [currF, histF, kvuF] = [curr, hist, kvu];
+  const merged = uniqUrls([ ...(currF||[]), ...(histF||[]), ...(kvuF||[]) ]);
   if(merged.length>0){
     cachedUrls = merged.slice();
     cachedUrlsAt = now;
@@ -195,7 +211,7 @@ function safeFetch(urlStr, req, body){
   try{
     init.headers = new Headers(req.headers);
     init.headers.set("Host", host);
-    init.headers.set("User-Agent", "Cloudflare-Worker/6.3 (+zhuiguang v6.1 pool)");
+    init.headers.set("User-Agent", "Cloudflare-Worker/6.4 (+zhuiguang v6.1 pool)");
     init.headers.set("X-Forwarded-Proto", "https");
     if(init.headers.has("cf-connecting-ip")) init.headers.delete("cf-connecting-ip");
     if(init.headers.has("cf-ray")) init.headers.delete("cf-ray");
@@ -334,7 +350,7 @@ ${urlList || "  (无候选，后台正在建隧道)"}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, private",
-      "X-Zg-Worker-Version": "v6.3-3layer-pool",
+      "X-Zg-Worker-Version": "v6.4-3layer-pool",
       "X-Zg-Candidate-Count": String(urls?.length || 0),
       "X-Zg-Last-Good": lastGoodUrl || "",
       "Retry-After": "10",
@@ -370,7 +386,7 @@ export default {
         const hObj = {};
         for(const [k,v] of health.entries()){ try{ hObj[k] = Math.round(v*1000)/1000; }catch(_){} }
         const body = JSON.stringify({
-          version: "v6.3",
+          version: "v6.4",
           urls,
           candidateCount: urls.length,
           health: hObj,
