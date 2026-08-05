@@ -1,3 +1,2 @@
-# daemon-watchdog v1.1 2条候选池（Worker v6.3/v6.5自动取多条，1条不通立刻换下一条，用户完全无感）
-https://imots-124-174-33-195.run.pinggy-free.link
-https://qyqkz-124-174-33-195.free.pinggy.net
+# fix.sh自动修复生成 候选池 1条
+https://cwpqq-115-191-63-211.run.pinggy-free.link
