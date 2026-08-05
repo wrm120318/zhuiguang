@@ -1,2 +1,1 @@
-# fix.sh自动修复生成 候选池 1条
-https://dsqlz-115-191-63-211.run.pinggy-free.link
+https://ccptp-115-190-92-241.free.pinggy.net
