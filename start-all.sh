@@ -16,9 +16,39 @@ if [ -f .env ]; then
 fi
 
 # 自动检查并安装依赖（环境重置后 node_modules 可能被清空）
-if [ ! -d node_modules/dotenv ] || [ ! -d node_modules/express ]; then
-  echo "$(date '+%H:%M:%S') [init] node_modules 缺失，自动安装依赖..."
-  npm install --production 2>&1 | tail -3
+# 关键依赖列表：缺任意一个就触发 npm install（更精准）
+CRITICAL_DEPS=(
+  "dotenv/lib/main.js"
+  "express/index.js"
+  "better-sqlite3/build/Release/better_sqlite3.node"
+  "better-sqlite3"
+  "jsonwebtoken"
+  "bcryptjs"
+  "cors"
+  "multer"
+  "axios"
+  "cheerio"
+  "marked"
+  "@supabase/supabase-js"
+  "xlsx"
+)
+need_install=0
+for dep in "${CRITICAL_DEPS[@]}"; do
+  if [ ! -d "node_modules/$dep" ] && [ ! -f "node_modules/$dep" ]; then
+    echo "$(date '+%H:%M:%S') [init] 关键依赖缺失: $dep"
+    need_install=1
+  fi
+done
+if [ $need_install -eq 1 ]; then
+  echo "$(date '+%H:%M:%S') [init] 触发 npm install --production ..."
+  npm install --production 2>&1 | tail -5
+  echo "$(date '+%H:%M:%S') [init] 依赖安装完成"
+fi
+# 二次验证：express + better-sqlite3 必须存在
+if [ ! -d "node_modules/express" ] || [ ! -d "node_modules/better-sqlite3" ]; then
+  echo "$(date '+%H:%M:%S') [init] ⚠️ 二次验证仍失败，强制完整重装..."
+  rm -rf node_modules package-lock.json
+  npm install --production 2>&1 | tail -10
 fi
 
 # 停止旧进程
