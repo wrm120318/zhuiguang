@@ -1,7 +1,10 @@
 #!/bin/bash
-# tunnel-keeper.sh v4 - 方案A全套优化
-# 特性：多服务器故障转移、指数退避、DNS校验、GitHub写入重试、空串兜底
-# 用法：bash tunnel-keeper.sh
+# tunnel-keeper.sh v5 - 【革命性双隧道并行版】解决用户反馈的"频繁断线无法使用"
+# 重大升级：不再单隧道单写！改为同时跑2条独立隧道：
+#   主隧道：Cloudflare Quick Tunnel (cloudflared trycloudflare.com) - 官方出品，稳定性>>SSH隧道
+#   备隧道：pinggy SSH 免费隧道 - 故障转移
+# 写GitHub的tunnel-url.txt格式：一行一个URL，优先放Cloudflare的
+# 配合 worker.js v6 同时轮询多URL，500ms级切换
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 REPO="wrm120318/zhuiguang"
@@ -10,37 +13,36 @@ PROXY="127.0.0.1:18080"
 LOCAL_PORT=3001
 LOG="/tmp/tunnel-keeper.log"
 
-# 多个 pinggy 服务器（故障转移）
 PINGGY_SERVERS=(
   "a.pinggy.io"
   "b.pinggy.io"
   "us-east-1.a.pinggy.io"
-  "us-west-2.a.pinggy.io"
-  "eu-west-1.a.pinggy.io"
 )
-
-# 重试间隔（秒），指数退避
 RETRY_DELAY=5
 MAX_RETRY_DELAY=120
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] v4 启动（方案A优化版）" >> "$LOG"
+echo "==========================================" >> "$LOG"
+echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 双隧道并行版启动" >> "$LOG"
+echo "==========================================" >> "$LOG"
 
-# ===== GitHub写入（带3次重试） =====
-update_github_url() {
-  local url="$1"
-  local encoded=$(echo -n "$url" | base64)
+# ===== GitHub写入（v5：写多行URL，一行一个，带3次重试）=====
+update_github_multi_url() {
+  local url_list="$1"   # 多行，每行一个URL，优先的放前面
+  if [ -z "$url_list" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ⚠️ 全部隧道失败，写空串兜底" >> "$LOG"
+    url_list=""
+  fi
+  local encoded=$(echo -n "$url_list" | base64 -w0 2>/dev/null || echo -n "$url_list" | base64)
   local max_retries=3
-  local retry_delay=5
 
-  for attempt in $(seq 1 $max_retries); do
-    # 获取当前文件 SHA
+  for attempt in 1 2 3; do
     local sha=$(curl -s -x "http://$PROXY" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Accept: application/vnd.github.v3+json" \
       "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
       python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
 
-    local payload=$(python3 -c "import json; print(json.dumps({'message':'更新隧道URL','content':'$encoded','sha':'$sha'}))")
+    local payload=$(python3 -c "import json; import sys; print(json.dumps({'message':'更新隧道URL(v5双隧道)','content':sys.argv[1],'sha':sys.argv[2] if len(sys.argv)>2 else ''}))" "$encoded" "$sha")
     local result=$(curl -s -x "http://$PROXY" -X PUT \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Accept: application/vnd.github.v3+json" \
@@ -48,22 +50,23 @@ update_github_url() {
       -d "$payload" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'content' in d else d.get('message','error'))" 2>/dev/null)
 
     if [ "$result" = "ok" ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新成功 (第${attempt}次, URL: $url)" >> "$LOG"
+      local count=$(echo "$url_list" | grep -c . || echo 0)
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ✅ GitHub更新成功 (第${attempt}次, 共${count}条URL)" >> "$LOG"
+      echo "  URL列表:" >> "$LOG"
+      echo "$url_list" | while read -r u; do [ -n "$u" ] && echo "    - $u" >> "$LOG"; done
       return 0
     fi
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新失败第${attempt}/${max_retries}次: $result" >> "$LOG"
-    [ $attempt -lt $max_retries ] && sleep $retry_delay
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] GitHub更新失败第${attempt}/3次: $result" >> "$LOG"
+    [ $attempt -lt 3 ] && sleep 5
   done
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] GitHub更新彻底失败，写入空串兜底" >> "$LOG"
-  # 兜底：写入空字符串，Worker收到空串返回友好提示而非1016
-  local empty_encoded=$(echo -n "" | base64)
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ❌ GitHub更新彻底失败，写空串兜底" >> "$LOG"
+  local empty_encoded=$(echo -n "" | base64 -w0 2>/dev/null || echo -n "" | base64)
   local sha2=$(curl -s -x "http://$PROXY" \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
-  local payload2=$(python3 -c "import json; print(json.dumps({'message':'隧道断开兜底','content':'$empty_encoded','sha':'$sha2'}))")
+  local payload2=$(python3 -c "import json; import sys; print(json.dumps({'message':'隧道断开兜底(v5)','content':sys.argv[1],'sha':sys.argv[2] if len(sys.argv)>2 else ''}))" "$empty_encoded" "$sha2")
   curl -s -x "http://$PROXY" -X PUT \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
@@ -72,37 +75,63 @@ update_github_url() {
   return 1
 }
 
-# ===== 隧道URL可达性校验 =====
-validate_tunnel_url() {
+# ===== 单URL健康检测 =====
+validate_url() {
   local url="$1"
-  # 通过代理HEAD请求校验隧道URL是否真正可达
-  local code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -x "http://$PROXY" "$url/api/pages/guide" 2>/dev/null)
+  local code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$url/api/pages/guide" 2>/dev/null)
   if [ "$code" = "200" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL校验通过 (HTTP $code)" >> "$LOG"
     return 0
   else
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL校验失败 (HTTP $code)，等待5秒重试..." >> "$LOG"
-    sleep 5
-    # 再校验一次
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -x "http://$PROXY" "$url/api/pages/guide" 2>/dev/null)
-    if [ "$code" = "200" ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL二次校验通过 (HTTP $code)" >> "$LOG"
-      return 0
-    else
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道URL二次校验仍失败 (HTTP $code)" >> "$LOG"
-      return 1
-    fi
+    # 二次
+    sleep 2
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$url/api/pages/guide" 2>/dev/null)
+    [ "$code" = "200" ] && return 0
+    return 1
   fi
 }
 
-# ===== 启动隧道 =====
-start_tunnel() {
+# ===== 启动 Cloudflare Quick Tunnel (主隧道) =====
+start_cloudflared_tunnel() {
+  local output_file="/tmp/cf_tunnel_$$_$RANDOM"
+  local url=""
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 🔵 启动Cloudflare Quick Tunnel (主隧道)" >> "$LOG"
+  nohup cloudflared tunnel --url http://localhost:$LOCAL_PORT --no-autoupdate --loglevel warn > "$output_file" 2>&1 &
+  local pid=$!
+
+  for i in $(seq 1 30); do
+    sleep 1
+    url=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "$output_file" 2>/dev/null | grep -v "^https://api\.trycloudflare\.com$" | head -1)
+    if [ -n "$url" ]; then break; fi
+    if ! kill -0 "$pid" 2>/dev/null; then break; fi
+  done
+
+  if [ -z "$url" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ❌ Cloudflare隧道失败（未拿到URL）" >> "$LOG"
+    kill -9 $pid 2>/dev/null
+    rm -f "$output_file"
+    return 1
+  fi
+  # 校验
+  if validate_url "$url"; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ✅ Cloudflare隧道建立: $url (PID=$pid, 校验HTTP200通过)" >> "$LOG"
+  else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ⚠️ Cloudflare隧道建立但未通过校验，先保留: $url (PID=$pid)" >> "$LOG"
+  fi
+  echo "$pid" > /tmp/tunnel-cf-pid
+  echo "$url" > /tmp/tunnel-cf-url
+  rm -f "$output_file"
+  export CF_PID=$pid
+  export CF_URL=$url
+  return 0
+}
+
+# ===== 启动 Pinggy SSH 隧道 (备隧道) =====
+start_pinggy_tunnel() {
   local server_idx=${1:-0}
   local server="${PINGGY_SERVERS[$server_idx]}"
   local output_file="/tmp/pinggy_$$_$RANDOM"
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 尝试服务器: $server" >> "$LOG"
-
+  local url=""
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 🟡 启动Pinggy备隧道 server=$server" >> "$LOG"
   nohup ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o "ProxyCommand=nc -X connect -x $PROXY %h %p" \
     -o ConnectTimeout=15 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
@@ -110,8 +139,6 @@ start_tunnel() {
     -R0:localhost:$LOCAL_PORT "$server" > "$output_file" 2>&1 &
   local pid=$!
 
-  # 等待 URL（最多 20 秒）
-  local url=""
   for i in $(seq 1 20); do
     sleep 1
     url=$(grep -oP 'https://[a-z0-9-]+\.(run\.pinggy-free\.link|free\.pinggy\.net)' "$output_file" 2>/dev/null | head -1)
@@ -120,89 +147,134 @@ start_tunnel() {
   done
 
   if [ -z "$url" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 服务器 $server 失败（未获取到URL）" >> "$LOG"
-    kill "$pid" 2>/dev/null
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ❌ Pinggy隧道失败 server=$server" >> "$LOG"
+    kill -9 $pid 2>/dev/null
     rm -f "$output_file"
     return 1
   fi
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道已建立: $url (PID: $pid, 服务器: $server)" >> "$LOG"
-
-  # ★ 软校验：尝试可达性验证，失败不杀隧道（可能是代理问题而非隧道问题）
-  validate_tunnel_url "$url" || echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 校验未通过但保留隧道（Worker有1016自动重试兜底）" >> "$LOG"
-
-  # ★ 写GitHub（带3次重试+空串兜底）
-  update_github_url "$url"
-
-  echo "$pid" > "/tmp/tunnel-pid"
-  echo "$url" > "/tmp/tunnel-url-current"
-  echo "$server" > "/tmp/tunnel-server"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ✅ Pinggy备隧道建立: $url (PID=$pid server=$server)" >> "$LOG"
+  echo "$pid" > /tmp/tunnel-pg-pid
+  echo "$url" > /tmp/tunnel-pg-url
   rm -f "$output_file"
+  export PG_PID=$pid
+  export PG_URL=$url
   return 0
 }
 
-# 本地服务异常容忍次数（避免后端刚启动时短暂不可达误杀隧道）
+# ===== 本地服务异常容忍 =====
 LOCAL_FAIL_LIMIT=3
 local_fail_count=0
-
-# 主循环
 SERVER_IDX=0
+
+# ===== 主循环 =====
 while true; do
-  if ! start_tunnel $SERVER_IDX; then
-    # 重置本地服务失败计数
-    local_fail_count=0
-    # 故障转移到下一个服务器
+  echo "" >> "$LOG"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ============ 新一轮双隧道启动 ============" >> "$LOG"
+  CF_URL=""
+  PG_URL=""
+
+  # Step A: 启动Cloudflare主隧道
+  if start_cloudflared_tunnel; then
+    CF_URL=$(cat /tmp/tunnel-cf-url 2>/dev/null)
+  else
+    CF_URL=""
+  fi
+  sleep 3
+
+  # Step B: 启动Pinggy备隧道（无论主隧道成败都要）
+  PG_TRY_COUNT=0
+  while [ $PG_TRY_COUNT -lt 3 ]; do
+    if start_pinggy_tunnel $SERVER_IDX; then
+      PG_URL=$(cat /tmp/tunnel-pg-url 2>/dev/null)
+      break
+    fi
+    PG_TRY_COUNT=$((PG_TRY_COUNT + 1))
     SERVER_IDX=$(( (SERVER_IDX + 1) % ${#PINGGY_SERVERS[@]} ))
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 切换到服务器 $SERVER_IDX，${RETRY_DELAY}秒后重试..." >> "$LOG"
+    sleep 3
+  done
+
+  # Step C: 组合URL列表（Cloudflare优先）
+  URL_LIST=""
+  [ -n "$CF_URL" ] && URL_LIST="${CF_URL}"
+  [ -n "$PG_URL" ] && URL_LIST="${URL_LIST:+$URL_LIST
+}$PG_URL"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 最终可用URL列表: [$(echo "$URL_LIST" | tr '\n' '|' | sed 's/|$//')]" >> "$LOG"
+
+  # Step D: 写GitHub（多行格式）
+  update_github_multi_url "$URL_LIST" || true
+
+  # 如果两条都失败，等一会重试
+  if [ -z "$CF_URL" ] && [ -z "$PG_URL" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ❌ 两条隧道全部失败，${RETRY_DELAY}秒后整体重试..." >> "$LOG"
     sleep $RETRY_DELAY
-    # 指数退避
     RETRY_DELAY=$(( RETRY_DELAY * 2 ))
     [ $RETRY_DELAY -gt $MAX_RETRY_DELAY ] && RETRY_DELAY=$MAX_RETRY_DELAY
     continue
   fi
-
-  # 重置重试间隔
   RETRY_DELAY=5
+  local_fail_count=0
 
-  # 读取 PID
-  pid=$(cat /tmp/tunnel-pid 2>/dev/null)
-  if [ -z "$pid" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 无法读取PID，重启..." >> "$LOG"
-    sleep 5
-    continue
-  fi
+  # Step E: 监控循环（最长50分钟主动重连双隧道，更保守）
+  pid_cf=$(cat /tmp/tunnel-cf-pid 2>/dev/null)
+  pid_pg=$(cat /tmp/tunnel-pg-pid 2>/dev/null)
+  loop_start=$(date +%s)
+  MAX_RUN=$(( 50 * 60 ))
 
-  # 监控（最长 55 分钟主动重连，避免 pinggy 60 分钟过期）
-  local_start=$(date +%s)
   while true; do
     sleep 20
-    # 检查隧道进程
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 隧道进程退出，重启..." >> "$LOG"
-      break
-    fi
-    # 检查本地服务是否存活（连续失败3次才重启隧道，避免误杀）
+    # 检测本地服务
     if ! curl -s -o /dev/null --max-time 3 "http://localhost:$LOCAL_PORT/api/pages/guide" 2>/dev/null; then
       local_fail_count=$(( local_fail_count + 1 ))
       if [ $local_fail_count -ge $LOCAL_FAIL_LIMIT ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 本地服务连续异常${LOCAL_FAIL_LIMIT}次，重启隧道..." >> "$LOG"
-        local_fail_count=0
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 本地服务连续异常${LOCAL_FAIL_LIMIT}次，整体重启双隧道" >> "$LOG"
         break
-      else
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 本地服务异常($local_fail_count/$LOCAL_FAIL_LIMIT)，继续观察..." >> "$LOG"
       fi
     else
       local_fail_count=0
     fi
-    # 55 分钟主动重连
-    local_now=$(date +%s)
-    local_elapsed=$((local_now - local_start))
-    if [ $local_elapsed -ge 3300 ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper] 55分钟到，主动重连..." >> "$LOG"
+
+    # 检测隧道进程是否都死了
+    cf_alive=0; pg_alive=0
+    [ -n "$pid_cf" ] && kill -0 "$pid_cf" 2>/dev/null && cf_alive=1
+    [ -n "$pid_pg" ] && kill -0 "$pid_pg" 2>/dev/null && pg_alive=1
+    if [ $cf_alive -eq 0 ] && [ $pg_alive -eq 0 ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 两条隧道进程都退出，整体重启" >> "$LOG"
+      break
+    fi
+
+    # 每5分钟做一次HTTP健康检测，如果某条隧道挂了就立即重写GitHub（把好的URL写上去）
+    now=$(date +%s)
+    if [ $(( now - loop_start )) -gt 0 ] && [ $(( (now - loop_start) % 300 )) -lt 21 ]; then
+      need_rewrite=0
+      NEW_LIST=""
+      if [ $cf_alive -eq 1 ] && validate_url "$CF_URL"; then
+        NEW_LIST="$CF_URL"
+      else
+        [ -n "$CF_URL" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ⚠️ Cloudflare主隧道HTTP检测失败" >> "$LOG" && need_rewrite=1
+      fi
+      if [ $pg_alive -eq 1 ] && validate_url "$PG_URL"; then
+        NEW_LIST="${NEW_LIST:+$NEW_LIST
+}$PG_URL"
+      else
+        [ -n "$PG_URL" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] ⚠️ Pinggy备隧道HTTP检测失败" >> "$LOG" && need_rewrite=1
+      fi
+      if [ $need_rewrite -eq 1 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 🔄 5分钟例行检测，有隧道失效，重写GitHub URL列表" >> "$LOG"
+        update_github_multi_url "$NEW_LIST" || true
+      fi
+    fi
+
+    # 50分钟主动整体重连
+    elapsed=$(( now - loop_start ))
+    if [ $elapsed -ge $MAX_RUN ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5] 50分钟到，主动整体重建双隧道" >> "$LOG"
       break
     fi
   done
 
-  kill "$pid" 2>/dev/null
-  sleep 3
+  # 清理隧道进程
+  kill -9 "$pid_cf" 2>/dev/null
+  kill -9 "$pid_pg" 2>/dev/null
+  pkill -9 -f "cloudflared tunnel" 2>/dev/null
+  sleep 4
 done
