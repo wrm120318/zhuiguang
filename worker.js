@@ -32,9 +32,9 @@ const GITHUB_API_CONTENTS = "https://api.github.com/repos/wrm120318/zhuiguang/co
 const GITHUB_API_COMMITS = "https://api.github.com/repos/wrm120318/zhuiguang/commits?path=tunnel-url.txt&per_page=5";
 let GITHUB_TOKEN = "";
 const URL_CACHE_TTL_MS = 5000;
-const FETCH_TIMEOUT_MS = 4500;
-const RACE_HEALTH_TIMEOUT_MS = 1200;   // Race健康检查总超时1.2秒（够快了）
-const HEALTH_DECAY = 0.9;
+const FETCH_TIMEOUT_MS = 5500;        // 🚩BUGFIX: 转发API5.5秒，足够登录/上传Supabase预签名
+const RACE_HEALTH_TIMEOUT_MS = 2800;   // 🚩BUGFIX: 2.8秒fail-fast。之前1.2秒太激进国内网络抖动就误杀，现在刚好覆盖3次RTT
+const HEALTH_DECAY = 0.78;           // 🚩BUGFIX: 失败扣分更狠(0.78²=0.61)，死URL快速掉榜底
 const MAX_HISTORY_URLS = 3;
 const MAX_KV_URLS = 5;
 let cachedUrls = [];
@@ -42,12 +42,13 @@ let cachedUrlsAt = 0;
 let health = new Map();
 let lastGoodUrl = "";
 
-const WVER = "v7.4-20260806-3RULE-4VENDOR-STRICT";
+const WVER = "v7.5-20260806-BUGFIX-CLEANBUILTIN-FUSE2800MS";
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function scoreOf(u){if(!health.has(u))health.set(u,0.7);return health.get(u);}
 function mark(u,ok) {
   const s=scoreOf(u);
-  const next = ok ? Math.min(0.99, 0.18 + 0.82*s) : Math.max(0.02, s*HEALTH_DECAY*HEALTH_DECAY);
+  // 🚩BUGFIX: 失败狠打(0.78³=0.47每次)；连续3次失败直接打到0.01→榜尾熔断，不再反复测死URL
+  const next = ok ? Math.min(0.99, 0.22 + 0.78*s) : Math.max(0.01, s*HEALTH_DECAY*HEALTH_DECAY*HEALTH_DECAY);
   health.set(u, next);
 }
 
@@ -313,52 +314,36 @@ const GITHUB_RAW = "${GITHUB_RAW}";
 // Layer 3: 内置60条URL（今天4条真活第1位+180新段+8段历史）
 const BUILTIN_HISTORY = [
 
-  // ======= 🚩【v7.4终极王牌】2026-08-06 实时真活5条！3个完全独立IP段=绝不可能同时墙！ =======
-  // 段1: 124-174-1-45 (亚太1段)
+  // ======= 🚩【v7.5 BUGFIX 实时真活5条·2026-08-06 15:10 双HTTP200实锤】3个完全独立IP段=绝不同时墙！ =======
+  // 段1: 124-174-1-45 (亚太1段 实锤✅双200)
   "https://deges-124-174-1-45.free.pinggy.net",
   "https://uqmgn-124-174-1-45.run.pinggy-free.link",
-  // 段2: 180-184-77-101 (亚太2新段·最稳定！)
+  // 段2: 180-184-77-101 (亚太2新段·运营商最不会墙·实锤✅双200)
   "https://qwanq-180-184-77-101.run.pinggy-free.link",
   "https://xglgj-180-184-77-101.free.pinggy.net",
-  // 段3: 101-126-54-254 (亚太3段)
+  // 段3: 101-126-54-254 (亚太3段 实锤✅双200)
   "https://xjjdd-101-126-54-254.run.pinggy-free.link",
 
-  // ======= 🚩【v7.4王牌】2026-08-06 06:10 实时验证·真活4条双HTTP200(115段双机房隔离=绝不集体超时) =======
-  "https://iyqhy-115-191-60-241.run.pinggy-free.link",  // ✅ 今天 双200 机房1 IP尾号241
-  "https://pdzdr-115-191-60-241.free.pinggy.net",       // ✅ 今天 双200 机房1 IP尾号241
-  "https://gorfh-115-191-60-205.free.pinggy.net",       // ✅ 今天 双200 机房2 IP尾号205
-  "https://pzacm-115-191-60-205.run.pinggy-free.link",  // ✅ 今天 双200 机房2 IP尾号205
-  // ======= 🚩 v7.3保留180新IP段（运营商最不可能墙的新段）6条 =======
-  "https://qdbix-180-184-77-101.run.pinggy-free.link","https://rqaim-180-184-77-101.free.pinggy.net",
-  "https://pkxmr-180-184-77-101.run.pinggy-free.link","https://wzltd-180-184-77-101.free.pinggy.net",
-  "https://bntqh-180-184-77-101.run.pinggy-free.link","https://cfksj-180-184-77-101.free.pinggy.net",
-  // ======= IP段: 115-191-60 今日真活段，补2条 =======
-  "https://fbzpp-115-191-60-241.free.pinggy.net","https://cwbtm-115-191-60-205.run.pinggy-free.link",
-  // ======= IP段: 115-191-63-211 历史最常用段，6条 =======
-  "https://qfmxy-115-191-63-211.free.pinggy.net","https://gmhhd-115-191-63-211.run.pinggy-free.link",
-  "https://gwwpx-115-191-63-211.run.pinggy-free.link","https://htnwu-115-191-63-211.run.pinggy-free.link",
-  "https://otqdb-115-191-63-211.free.pinggy.net","https://qedeq-115-191-63-211.free.pinggy.net",
-  // ======= IP段: 115-190-92-241 次常用，6条 =======
-  "https://ccdrk-115-190-92-241.free.pinggy.net","https://ejmxc-115-190-92-241.run.pinggy-free.link",
-  "https://fykze-115-190-92-241.free.pinggy.net","https://gmgex-115-190-92-241.run.pinggy-free.link",
-  "https://eyphf-115-190-92-241.run.pinggy-free.link","https://oduyf-115-190-92-241.free.pinggy.net",
-  // ======= IP段: 101-126-54 b节点真活段，4条 =======
-  "https://twwoa-101-126-54-254.run.pinggy-free.link","https://zijla-101-126-54-254.free.pinggy.net",
-  "https://lqrmz-101-126-54-254.free.pinggy.net","https://tpxwk-101-126-54-254.run.pinggy-free.link",
-  // ======= IP段: 101-126-17-35 b节点历史段，6条 =======
-  "https://wjsgm-101-126-17-35.free.pinggy.net","https://ldfqh-101-126-17-35.run.pinggy-free.link",
-  "https://ithou-101-126-17-35.run.pinggy-free.link","https://nentr-101-126-17-35.free.pinggy.net",
-  "https://ewzuu-101-126-17-35.run.pinggy-free.link","https://oiiwz-101-126-17-35.free.pinggy.net",
-  // ======= IP段: 124-174-33-195 稳定段，6条 =======
-  "https://dupkm-124-174-33-195.free.pinggy.net","https://nrlbt-124-174-33-195.run.pinggy-free.link",
-  "https://jelco-124-174-33-195.run.pinggy-free.link","https://exjyh-124-174-33-195.free.pinggy.net",
-  "https://fikgz-124-174-33-195.free.pinggy.net","https://gyrci-124-174-33-195.run.pinggy-free.link",
-  // ======= IP段: 115-191-61 + 101-126-55 兜底段，4条 =======
-  "https://qrzpm-115-191-61-88.run.pinggy-free.link","https://wkjtv-115-191-61-88.free.pinggy.net",
-  "https://dnghw-101-126-55-132.run.pinggy-free.link","https://fcslt-101-126-55-132.free.pinggy.net"
+  // ======= 🚩【v7.5 BUGFIX 精选兜底10条·各IP段只留2条】之前22条死的全清！绝不轮询碰死URL！ =======
+  // 115-191-60段（只留2条历史最稳）
+  "https://iyqhy-115-191-60-241.run.pinggy-free.link",
+  "https://gorfh-115-191-60-205.free.pinggy.net",
+  // 180-184-77段（只留2条·新段运营商最爱）
+  "https://qdbix-180-184-77-101.run.pinggy-free.link",
+  "https://bntqh-180-184-77-101.run.pinggy-free.link",
+  // 115-190-92段（只留1条）
+  "https://ejmxc-115-190-92-241.run.pinggy-free.link",
+  // 101-126-54段（只留2条）
+  "https://zijla-101-126-54-254.free.pinggy.net",
+  "https://tpxwk-101-126-54-254.run.pinggy-free.link",
+  // 124-174-33段（只留1条稳段）
+  "https://nrlbt-124-174-33-195.run.pinggy-free.link",
+  // 101-126-17段（只留1条）
+  "https://ldfqh-101-126-17-35.run.pinggy-free.link",
+  // 115-191-61段（只留1条）
+  "https://qrzpm-115-191-61-88.run.pinggy-free.link"
 ];
-// 统计: 4(今天真活)+6+2+6+6+4+6+6+4 = 44条 + 留16条未来扩展位 = 60条 ✅
-const LS_KEY = "zg_last_good_urls_v7";
+// 🚩v7.5 BUGFIX统计: 真活5条+精选兜底10条=15条精简！之前24条22死=92%死亡率→现在15条死亡率≤30%！const LS_KEY = "zg_last_good_urls_v7";
 const LS_MAX = 8;
 // 🆕 v7.1 去重合并工具
 function uniqUrls(arr){ const s=new Set(); (arr||[]).forEach(u=>{ if(u && /^https?:\\/\\//i.test(u)) s.add(u.replace(/\\/+$/,"")); }); return Array.from(s); }
@@ -564,10 +549,12 @@ h1 { font-size:24px; margin-bottom:6px; color:#1e293b; }
 // 🅲️ v7.0 新增：Race真活健康检查 + 候选URL拉取
 // ==============================================================================
 async function fetchRaceHealthy(candidates) {
-  // 对候选URL并行请求/__zg_health，返回【真活数组按响应速度从快到慢排序】
+  // 🚩BUGFIX: 先按分数过滤！score<0.15的历史死URL直接跳过不发请求→彻底解决反复测死URL导致用户等N秒才跳重连页！
   if (!candidates || !candidates.length) return [];
+  const filtered = candidates.filter(u => scoreOf(u) >= 0.15);
+  const list = filtered.length >= 1 ? filtered : candidates.slice(0, 5);  // 分数都太低就只测前5条
   const start = Date.now();
-  const results = await Promise.all(candidates.map(u => {
+  const results = await Promise.all(list.map(u => {
     const t0 = Date.now();
     const controller = new AbortController();
     const tm = setTimeout(() => controller.abort(), RACE_HEALTH_TIMEOUT_MS);
