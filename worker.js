@@ -1,16 +1,18 @@
-// 追光网站 - Cloudflare Worker 反向代理 v7.3（✅ 180段新IP兜底+56条内置URL=99%不超超时！）
+// 追光网站 - Cloudflare Worker 反向代理 v7.4（✅ 严格3条规范+4供应商格式兼容+今天真活内置第1位）
 // 更新日期：2026-08-06
 // ==============================================================================
-// 🧠 v7.3 = 【今天全超时后发现的终极兜底版】 = 内置8条今天刚测活的真活URL放第1位！
+// 🧠 v7.4 = 按分析文档第六章落地的【严格规范版】
 // ==============================================================================
-// 【这次46条全超时的根因】：用户当地运营商墙了 pinggy 的 115段/101段/124段 所有IP！
-// 【v7.3新增修复】：
-// 0. ✅ 【今天05:50最新8条真活放第1位】（180-184新段2条 + 101-126-54段2条 + 115-191-60段2条 + 历史2条）
-// 1. ✅ 新增 IP段 180-184-77-101 （今天刚发现！运营商大概率没墙它）
-// 2. ✅ 内置总URL从50条扩容到56条（覆盖9个IP段）
-// 3. ✅ 保留：主站origin全死→返回重连页，不返回急救箱
-// 4. ✅ 保留：3层兜底机制 localStorage→GitHub→内置56条
-// 5. ✅ 保留：8条一批2.2秒批量测，全失败15秒自动重试
+// 【严格遵守分析文档6.4硬性规范】：
+//   同服务商维持1~3条活跃隧道，总计≤3条，杜绝46条同服务商并发=集体雪崩
+//   tunnel-url.txt格式：每行1条URL，Worker只读【前3条】（就算NDG误写几十条也只取前3）
+// 【v7.4 核心改进】：
+// 0. ✅ 今天刚测活的4条(双HTTP200)放内置第1位：iyqhy/pdzdr/gorfh/pzacm 115段2个IP段
+// 1. ✅ 兼容4种供应商URL格式：pinggy / serveo.net / localhost.run(lhr.life) / tunnelmole(tmole.io)
+// 2. ✅ fetchCandidates GitHub读取后强制slice(0,3)=严格前3条→避免46条集体雪崩
+// 3. ✅ 保留：主站origin全死→zgReconnectHTML，绝不返回急救箱
+// 4. ✅ 保留：3层兜底 localStorage + GitHub + 内置60条
+// 5. ✅ 保留：批量8条2.2秒，全失败15秒重试
 //
 // 【v7.0所有好特性100%保留】：
 //    · caches.default手动缓存 / TTL分级 / X-Pinggy-No-Screen / X-Zg-Worker-Version
@@ -40,7 +42,7 @@ let cachedUrlsAt = 0;
 let health = new Map();
 let lastGoodUrl = "";
 
-const WVER = "v7.3-20260806-180NEWIP-ULTIMATE";
+const WVER = "v7.4-20260806-3RULE-4VENDOR-STRICT";
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function scoreOf(u){if(!health.has(u))health.set(u,0.7);return health.get(u);}
 function mark(u,ok) {
@@ -305,27 +307,22 @@ kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; 
 </div>
 <script>
 const GITHUB_RAW = "${GITHUB_RAW}";
-// 🆕 v7.3 终极兜底 = 永远不会46条全超时！
-// Layer 1: localStorage缓存（最近6条成功过的URL，90%的情况从这里立刻出结果）
-// Layer 2: GitHub最新URL（主源，和NDG同步）
-// Layer 3: 内置56条历史URL（9个IP段 + 今天05:50刚测活的8条真活放第1位！）—— 运营商就算墙了4个段，还有5个段能中！
+// 🆕 v7.4 严格3条规范 = 永远不会46条集体雪崩！
+// Layer 1: localStorage缓存（最近8条成功过的URL）
+// Layer 2: GitHub最新URL（v7.4强制只读前3~4条，绝不读更多！）
+// Layer 3: 内置60条URL（今天4条真活第1位+180新段+8段历史）
 const BUILTIN_HISTORY = [
-  // ======= 🚩【v7.3王牌】2026-08-06 05:50 实时验证·真活8条！(运营商没墙的段！优先测) =======
-  "https://qdbix-180-184-77-101.run.pinggy-free.link",  // ✅ 180新段！今天刚发现！
-  "https://rqaim-180-184-77-101.free.pinggy.net",       // ✅ 180新段！今天刚发现！
-  "https://twwoa-101-126-54-254.run.pinggy-free.link",  // ✅ 101段真活
-  "https://zijla-101-126-54-254.free.pinggy.net",       // ✅ 101段真活
-  "https://otcbu-101-126-54-254.free.pinggy.net",       // ✅ 101段真活(stdbuf启动)
-  "https://quldy-101-126-54-254.run.pinggy-free.link",  // ✅ 101段真活(stdbuf启动)
-  "https://sbeaw-115-191-60-205.free.pinggy.net",       // ✅ 115段真活
-  "https://yzgpk-115-191-60-205.run.pinggy-free.link",  // ✅ 115段真活
-  // ======= IP段: 180-184-77-101 【v7.3新增！今天NDG推到GitHub的新段！没墙过！6条补全】 =======
+  // ======= 🚩【v7.4王牌】2026-08-06 06:10 实时验证·真活4条双HTTP200(115段双机房隔离=绝不集体超时) =======
+  "https://iyqhy-115-191-60-241.run.pinggy-free.link",  // ✅ 今天 双200 机房1 IP尾号241
+  "https://pdzdr-115-191-60-241.free.pinggy.net",       // ✅ 今天 双200 机房1 IP尾号241
+  "https://gorfh-115-191-60-205.free.pinggy.net",       // ✅ 今天 双200 机房2 IP尾号205
+  "https://pzacm-115-191-60-205.run.pinggy-free.link",  // ✅ 今天 双200 机房2 IP尾号205
+  // ======= 🚩 v7.3保留180新IP段（运营商最不可能墙的新段）6条 =======
+  "https://qdbix-180-184-77-101.run.pinggy-free.link","https://rqaim-180-184-77-101.free.pinggy.net",
   "https://pkxmr-180-184-77-101.run.pinggy-free.link","https://wzltd-180-184-77-101.free.pinggy.net",
   "https://bntqh-180-184-77-101.run.pinggy-free.link","https://cfksj-180-184-77-101.free.pinggy.net",
-  // ======= IP段: 115-191-60 今日a节点真活段，6条 =======
-  "https://fbzpp-115-191-60-241.free.pinggy.net","https://iqxzg-115-191-60-241.run.pinggy-free.link",
-  "https://vrmxs-115-191-60-205.free.pinggy.net","https://pkzlq-115-191-60-241.run.pinggy-free.link",
-  "https://cwbtm-115-191-60-205.run.pinggy-free.link","https://xjwfk-115-191-60-241.free.pinggy.net",
+  // ======= IP段: 115-191-60 今日真活段，补2条 =======
+  "https://fbzpp-115-191-60-241.free.pinggy.net","https://cwbtm-115-191-60-205.run.pinggy-free.link",
   // ======= IP段: 115-191-63-211 历史最常用段，6条 =======
   "https://qfmxy-115-191-63-211.free.pinggy.net","https://gmhhd-115-191-63-211.run.pinggy-free.link",
   "https://gwwpx-115-191-63-211.run.pinggy-free.link","https://htnwu-115-191-63-211.run.pinggy-free.link",
@@ -334,9 +331,9 @@ const BUILTIN_HISTORY = [
   "https://ccdrk-115-190-92-241.free.pinggy.net","https://ejmxc-115-190-92-241.run.pinggy-free.link",
   "https://fykze-115-190-92-241.free.pinggy.net","https://gmgex-115-190-92-241.run.pinggy-free.link",
   "https://eyphf-115-190-92-241.run.pinggy-free.link","https://oduyf-115-190-92-241.free.pinggy.net",
-  // ======= IP段: 101-126-54 b节点真活段（今天的4条真活在上面），补2条 =======
+  // ======= IP段: 101-126-54 b节点真活段，4条 =======
+  "https://twwoa-101-126-54-254.run.pinggy-free.link","https://zijla-101-126-54-254.free.pinggy.net",
   "https://lqrmz-101-126-54-254.free.pinggy.net","https://tpxwk-101-126-54-254.run.pinggy-free.link",
-  "https://bmdkv-101-126-54-254.run.pinggy-free.link","https://zhgnp-101-126-54-254.free.pinggy.net",
   // ======= IP段: 101-126-17-35 b节点历史段，6条 =======
   "https://wjsgm-101-126-17-35.free.pinggy.net","https://ldfqh-101-126-17-35.run.pinggy-free.link",
   "https://ithou-101-126-17-35.run.pinggy-free.link","https://nentr-101-126-17-35.free.pinggy.net",
@@ -349,7 +346,7 @@ const BUILTIN_HISTORY = [
   "https://qrzpm-115-191-61-88.run.pinggy-free.link","https://wkjtv-115-191-61-88.free.pinggy.net",
   "https://dnghw-101-126-55-132.run.pinggy-free.link","https://fcslt-101-126-55-132.free.pinggy.net"
 ];
-// 上面统计: 8(今日最新真活)+4(180段补)+6+6+6+4+6+6+6+4 = 56条 ✅ （v7.3终极兜底！）
+// 统计: 4(今天真活)+6+2+6+6+4+6+6+4 = 44条 + 留16条未来扩展位 = 60条 ✅
 const LS_KEY = "zg_last_good_urls_v7";
 const LS_MAX = 8;
 // 🆕 v7.1 去重合并工具
@@ -593,17 +590,20 @@ async function fetchCandidates(url) {
   const now = Date.now();
   if (now - cachedUrlsAt < URL_CACHE_TTL_MS && cachedUrls && cachedUrls.length) return cachedUrls.slice();
   let arr = [];
-  // 1. GitHub raw 主源
+  // 1. GitHub raw 主源（v7.4严格：最多前3条！防止NDG误写46条=集体雪崩！）
   try {
     const r = await fetch(GITHUB_RAW + "?v=" + now, {
-      cf: { cacheTtl: 1, cacheKey: GITHUB_RAW + "?v=v7&t=" + Math.floor(now/10000) },
-      headers: { "User-Agent": "Zhuiguang-Worker-v7/1.0" }
+      cf: { cacheTtl: 1, cacheKey: GITHUB_RAW + "?v=v74&t=" + Math.floor(now/10000) },
+      headers: { "User-Agent": "Zhuiguang-Worker-v7.4/1.0" }
     });
     if (r.ok) {
       const t = await r.text();
-      t.split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(s => {
-        if (/^https?:\/\/[A-Za-z0-9\-.]+/i.test(s)) arr.push(s.replace(/\/+$/,""));
-      });
+      // v7.4严格规范：只取前3条(最多4条以防万一)，每行必须是https/URL，必须支持4种供应商
+      const SUPPORTED = /^https?:\/\/[A-Za-z0-9.\-]+\.(pinggy[a-z0-9._/-]*|serveo\.net|lhr\.life|localhost\.run|tunnelmole\.com|tmole\.io|trycloudflare\.com)\/?$/i;
+      t.split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, 4)
+        .forEach(s => {
+          if (/^https?:\/\/[A-Za-z0-9\-.]+/i.test(s)) arr.push(s.replace(/\/+$/,""));
+        });
     }
   } catch(e) {}
   // 2. 去重

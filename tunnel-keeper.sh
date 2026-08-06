@@ -1,273 +1,282 @@
-#!/bin/bash
-# tunnel-keeper.sh v5.1 - 【双SSH隧道并行版】解决cloudflared quick tunnel在代理环境无法获取URL的问题
-# 修正：cloudflared --url quick tunnel 需要直连Cloudflare边缘节点，本环境必须走18080代理，用不了
-# 改为：2条独立SSH免费隧道并行（Pinggy池 + localhost.run池），互不影响
-# 每条隧道各有3台服务器，单隧道断线最多5秒切换
-# 配合 worker.js v6 多URL自动轮询+健康评分
+#!/usr/bin/env bash
+# ==============================================================================
+# tunnel-keeper.sh v5.0  严格3条规范版  (按分析文档6.4硬性规范落地)
+# 更新日期: 2026-08-06
+# ==============================================================================
+# 🧠 6.4硬性规范:
+#   · 同服务商维持≤3条活跃隧道(本脚本=3条Pinggy a.pinggy.io，错开sleep)
+#   · 之前46条同Pinggy隧道=自杀式部署→平台限流/IP封禁/连接队列打满→集体超时
+#   · Worker v7.4只读GitHub tunnel-url.txt【前3条】，就算本脚本误写几十条也只取3
+#
+# 核心流程:
+#   1. 启动时清理僵尸，只留3条a.pinggy.io，stdout/stderr都用stdbuf永久后台
+#   2. 每60秒巡检: 进程活? /__zg_health 200? 死了立刻重启
+#   3. 每55分钟(3300秒) 平滑滚动重启: 先启新的→测活→写GitHub→再杀旧的(零中断)
+#   4. 每次隧道URL有变化 → 测活双200 → 前3条 → git push GitHub
+#
+# 零成本承诺: 不绑卡, 不花钱, 只用 Pinggy 免费 + GitHub公开仓库
+# ==============================================================================
+set +e
+umask 022
+export LANG=C LC_ALL=C TZ="Asia/Shanghai"
 
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-REPO="wrm120318/zhuiguang"
-FILE_PATH="tunnel-url.txt"
-PROXY="127.0.0.1:18080"
-LOCAL_PORT=3001
-LOG="/tmp/tunnel-keeper.log"
+WORK_DIR="/workspace"
+TMP_DIR="/tmp/ult"
+LOG_FILE="$TMP_DIR/tkeeper_v5.log"
+mkdir -p "$TMP_DIR"
 
-# 主隧道池：Pinggy 5台服务器（全球节点分散）
-PINGGY_SERVERS=(
-  "a.pinggy.io"
-  "b.pinggy.io"
-  "us-east-1.a.pinggy.io"
-  "us-west-2.a.pinggy.io"
-  "eu-west-1.a.pinggy.io"
-)
-# 备隧道池：localhost.run / serveo 免费SSH隧道（和Pinggy不同服务商，物理独立）
-BACKUP_SERVERS=(
-  "nokey@localhost.run"     # 服务商A：localhost.run
-  "serveo.net"              # 服务商B：Serveo（不同基础设施）
-)
-RETRY_DELAY=5
-MAX_RETRY_DELAY=120
+# ============ 基础配置 ============
+PROXY="http://127.0.0.1:18080"
+export HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY" http_proxy="$PROXY" https_proxy="$PROXY"
+BACKEND_PORT=3001
+GIT_REMOTE="origin"
+GIT_BRANCH="main"
+TUNNEL_COUNT=3           # 严格=3
+SSH_NODE="a.pinggy.io"   # 沙箱环境只有这个节点能握手成功(b/in/serveo/lhrun全超时)
+TUN_TO=22
+TUN_SLEEP=(0 5 11)       # 3条错开启动秒数，避免同时抢端口=平台限流
+RESTART_EVERY_S=3300     # 55分钟=3300s 平滑滚动刷新(在Pinggy免费60min过期前)
+HEALTHY_EVERY_S=60       # 60s健康巡检
+GRACE_S=45               # 启动后最大45s内必须出URL+双200，否则判死重建
 
-echo "==========================================" >> "$LOG"
-echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 双SSH隧道并行版启动（Pinggy主 + localhost.run/Serveo备）" >> "$LOG"
-echo "==========================================" >> "$LOG"
+# ============ 日志 ============
+log()  { echo "[$(date +'%m-%d %H:%M:%S')] 💡 $*" | tee -a "$LOG_FILE"; }
+warn() { echo "[$(date +'%m-%d %H:%M:%S')] ⚠️ $*" | tee -a "$LOG_FILE"; }
+err()  { echo "[$(date +'%m-%d %H:%M:%S')] 🧨 $*" | tee -a "$LOG_FILE"; }
 
-# ===== GitHub写入（多行URL，一行一个，带3次重试）=====
-update_github_multi_url() {
-  local url_list="$1"
-  if [ -z "$url_list" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ⚠️ 全部隧道失败，写空串兜底" >> "$LOG"
-    url_list=""
-  fi
-  local encoded=$(echo -n "$url_list" | base64 -w0 2>/dev/null || echo -n "$url_list" | base64)
-  for attempt in 1 2 3; do
-    local sha=$(curl -s -x "http://$PROXY" \
-      -H "Authorization: token $GITHUB_TOKEN" \
-      -H "Accept: application/vnd.github.v3+json" \
-      "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
-      python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
-    local payload=$(python3 -c "import json,sys; print(json.dumps({'message':'更新隧道URL(v5.1双SSH)','content':sys.argv[1],'sha':sys.argv[2] if len(sys.argv)>2 else ''}))" "$encoded" "$sha")
-    local result=$(curl -s -x "http://$PROXY" -X PUT \
-      -H "Authorization: token $GITHUB_TOKEN" \
-      -H "Accept: application/vnd.github.v3+json" \
-      "https://api.github.com/repos/$REPO/contents/$FILE_PATH" \
-      -d "$payload" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if 'content' in d else d.get('message','error'))" 2>/dev/null)
-    if [ "$result" = "ok" ]; then
-      local count=$(echo "$url_list" | grep -c . || echo 0)
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ✅ GitHub更新成功 (第${attempt}次, 共${count}条URL)" >> "$LOG"
-      echo "$url_list" | while read -r u; do [ -n "$u" ] && echo "    - $u" >> "$LOG"; done
-      return 0
-    fi
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] GitHub更新失败第${attempt}/3次: $result" >> "$LOG"
-    [ $attempt -lt 3 ] && sleep 5
+# ============ 清理僵尸SSH ============
+cleanup_zombies() {
+  local KILLED=0
+  ps aux | grep -v sshd | grep "ssh " | grep -v grep | awk '{print $2}' | while read PID; do
+    local CMD
+    CMD=$(cat /proc/$PID/cmdline 2>/dev/null | tr '\0' ' ')
+    case "$CMD" in
+      *"$SSH_NODE"*) ;; # 我们的目标节点，不在这里杀(单独处理)
+      *) kill -9 $PID 2>/dev/null; KILLED=$((KILLED+1)) ;;
+    esac
   done
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ❌ GitHub更新彻底失败，写空串兜底" >> "$LOG"
-  local empty_encoded=$(echo -n "" | base64 -w0 2>/dev/null || echo -n "" | base64)
-  local sha2=$(curl -s -x "http://$PROXY" \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/$REPO/contents/$FILE_PATH" 2>/dev/null | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
-  local payload2=$(python3 -c "import json,sys; print(json.dumps({'message':'隧道断开兜底(v5.1)','content':sys.argv[1],'sha':sys.argv[2] if len(sys.argv)>2 else ''}))" "$empty_encoded" "$sha2")
-  curl -s -x "http://$PROXY" -X PUT \
-    -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/$REPO/contents/$FILE_PATH" \
-    -d "$payload2" 2>/dev/null >/dev/null
-  return 1
+  [ "$KILLED" -gt 0 ] && log "清理僵尸SSH非目标节点: $KILLED 条"
+  true
 }
 
-# ===== URL健康检测 =====
-validate_url() {
-  local url="$1"
-  local code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$url/api/pages/guide" 2>/dev/null)
-  [ "$code" = "200" ] && return 0
-  sleep 2
-  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$url/api/pages/guide" 2>/dev/null)
-  [ "$code" = "200" ] && return 0
-  return 1
+# ============ 启动1条隧道(永久后台 stdbuf强制行缓冲写log) ============
+start_one_tunnel() {
+  local idx=$1
+  local logf="$TMP_DIR/tk_tun_${idx}.log"
+  local pidf="$TMP_DIR/tk_tun_${idx}.pid"
+  local startf="$TMP_DIR/tk_tun_${idx}.started_at"
+  rm -f "$logf"
+  touch "$startf"
+  nohup stdbuf -oL -eL ssh -4 -tt \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o TCPKeepAlive=yes \
+    -o ConnectTimeout=20 \
+    -o ProxyCommand="nc -X connect -x ${PROXY#http://} %h %p" \
+    -p 443 -R0:localhost:${BACKEND_PORT} $SSH_NODE \
+    &> "$logf" < /dev/null &
+  local PID=$!
+  echo $PID > "$pidf"
+  log "启动 tun_${idx} PID=$PID LOG=$logf"
+  echo $PID
 }
 
-# ===== 启动 SSH 隧道（通用函数）=====
-# 参数: $1=连接字符串(server[:port] 或 user@server) $2=标识(PINGGY/BACKUP) $3=正则提取URL
-start_ssh_tunnel() {
-  local conn="$1"
-  local label="$2"
-  local regex="$3"
-  local output_file="/tmp/ssh_${label}_$$_$RANDOM"
-  local url=""
-  # 支持 user@server 和 纯server两种格式；port默认443
-  local user=""
-  local server="$conn"
-  local port=443
-  if echo "$conn" | grep -q "@"; then
-    user=$(echo "$conn" | cut -d@ -f1)
-    server=$(echo "$conn" | cut -d@ -f2)
-  fi
-  # Serveo特殊：默认22端口，不用443
-  if echo "$server" | grep -q "serveo\.net"; then port=22; fi
-
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 🟢 启动${label}隧道 $user@$server:$port" >> "$LOG"
-  # localhost.run特殊：需加 --no-inject-http-proxy-headers
-  local extra_opt=""
-  echo "$server" | grep -q "localhost\.run" && extra_opt="-o StrictHostKeyChecking=no"
-
-  nohup ssh -p $port -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    -o "ProxyCommand=nc -X connect -x $PROXY %h %p" \
-    -o ConnectTimeout=15 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
-    -o ExitOnForwardFailure=yes \
-    $([ -n "$user" ] && echo "$user@")$server \
-    -R0:localhost:$LOCAL_PORT $extra_opt > "$output_file" 2>&1 &
-  local pid=$!
-
-  for i in $(seq 1 22); do
-    sleep 1
-    url=$(grep -oP "$regex" "$output_file" 2>/dev/null | head -1)
-    if [ -n "$url" ]; then break; fi
-    if ! kill -0 "$pid" 2>/dev/null; then break; fi
-  done
-
-  if [ -z "$url" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ❌ ${label}隧道失败 server=$server (未拿到URL)" >> "$LOG"
-    kill -9 $pid 2>/dev/null
-    rm -f "$output_file"
-    return 1
-  fi
-  # 健康检测
-  if validate_url "$url"; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ✅ ${label}隧道建立: $url (PID=$pid, HTTP200校验通过)" >> "$LOG"
-  else
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ⚠️ ${label}隧道建立但未通过校验，保留: $url (PID=$pid)" >> "$LOG"
-  fi
-  # 存到对应临时文件
-  echo "$pid" > "/tmp/tunnel-${label}-pid"
-  echo "$url" > "/tmp/tunnel-${label}-url"
-  rm -f "$output_file"
-  export URL_${label}="$url"
-  export PID_${label}="$pid"
-  return 0
+# ============ 从日志提取URL ============
+extract_urls() {
+  local logf="$1"
+  [ -f "$logf" ] || return 1
+  grep -oE "https://[a-zA-Z0-9-]+\.pinggy[a-z0-9._/-]+" "$logf" 2>/dev/null \
+    | grep -v "dashboard.pinggy.io" | sort -u | tail -4
 }
 
-# ===== 主循环 =====
-LOCAL_FAIL_LIMIT=3
-local_fail_count=0
-IDX_PINGGY=0
-IDX_BACKUP=0
+# ============ 健康检测(双200=通过) ============
+is_url_alive() {
+  local U="$1"
+  local C1 C2
+  C1=$(curl -s -o /dev/null -w "%{http_code}" --max-time 7 "$U/__zg_health" 2>/dev/null)
+  C2=$(curl -s -o /dev/null -w "%{http_code}" --max-time 7 "$U/login"     2>/dev/null)
+  [ "$C1" = "200" ] && [ "$C2" = "200" ]
+}
 
-while true; do
-  echo "" >> "$LOG"
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ============ 新一轮双隧道启动 ============" >> "$LOG"
-  URL_PRIMARY=""   # Pinggy主隧道URL
-  URL_BACKUP=""    # localhost.run/Serveo备隧道URL
-
-  # ① 启动Pinggy主隧道（最多重试3次不同服务器）
-  for t in 1 2 3; do
-    if start_ssh_tunnel "${PINGGY_SERVERS[$IDX_PINGGY]}" "PINGGY" 'https://[a-z0-9-]+\.(run\.pinggy-free\.link|free\.pinggy\.net)'; then
-      URL_PRIMARY=$(cat /tmp/tunnel-PINGGY-url 2>/dev/null)
-      break
-    fi
-    IDX_PINGGY=$(( (IDX_PINGGY + 1) % ${#PINGGY_SERVERS[@]} ))
-    sleep 3
+# ============ 推送到GitHub tunnel-url.txt (严格前3条真活) ============
+push_to_github() {
+  local -n urls=$1
+  local LIVE3=() i=0
+  for U in "${urls[@]}"; do
+    is_url_alive "$U" && LIVE3+=("$U") && i=$((i+1))
+    [ $i -ge 3 ] && break
   done
-  sleep 2
+  [ "${#LIVE3[@]}" -lt 2 ] && { warn "GitHub推送中止: 真活只有${#LIVE3[@]}条(要求≥2)"; return 1; }
+  printf "%s\n" "${LIVE3[@]:0:3}" > "$WORK_DIR/tunnel-url.txt"
+  cd "$WORK_DIR" >/dev/null
+  {
+    git add tunnel-url.txt
+    git -c http.proxy="$PROXY" -c https.proxy="$PROXY" commit \
+      -m "🔥 tk-v5 自动刷新[$(date +'%m-%d %H:%M')] ${#LIVE3[@]}条真活(严格≤3)" tunnel-url.txt --allow-empty
+    git -c http.proxy="$PROXY" -c https.proxy="$PROXY" push -f $GIT_REMOTE $GIT_BRANCH
+  } >/dev/null 2>&1
+  log "→ GitHub已推送 ${#LIVE3[@]}条真活 前3条:"
+  for U in "${LIVE3[@]:0:3}"; do log "    · $U"; done
+  true
+}
 
-  # ② 启动Backup备隧道（localhost.run / serveo）
-  for t in 1 2 3; do
-    BK="${BACKUP_SERVERS[$IDX_BACKUP]}"
-    REGEX='https://[a-zA-Z0-9-]+\.(lhr\.life|serveo\.net|ssh\.localtunnel\.me)'
-    # localhost.run的URL特征：*.lhr.life
-    echo "$BK" | grep -q "localhost\.run" && REGEX='https://[a-zA-Z0-9-]+\.lhr\.life'
-    # serveo的URL特征：*.serveo.net
-    echo "$BK" | grep -q "serveo\.net" && REGEX='https://[a-zA-Z0-9-]+\.serveo\.net'
-    if start_ssh_tunnel "$BK" "BACKUP" "$REGEX"; then
-      URL_BACKUP=$(cat /tmp/tunnel-BACKUP-url 2>/dev/null)
-      break
-    fi
-    IDX_BACKUP=$(( (IDX_BACKUP + 1) % ${#BACKUP_SERVERS[@]} ))
-    sleep 3
+# ============ 主流程 ============
+main_loop() {
+  log "========== tunnel-keeper v5.0 启动（严格3条规范） =========="
+  log "节点=$SSH_NODE × ${TUNNEL_COUNT}条 · 刷新间隔=$((RESTART_EVERY_S/60))分钟"
+  cleanup_zombies
+
+  # 1. 首次启动3条
+  local -a PIDS
+  local -a LOGS
+  for i in $(seq 1 $TUNNEL_COUNT); do
+    idx=$((i-1))
+    [ "${TUN_SLEEP[$idx]}" -gt 0 ] && sleep "${TUN_SLEEP[$idx]}"
+    PID=$(start_one_tunnel $i)
+    PIDS[$idx]=$PID
+    LOGS[$idx]="$TMP_DIR/tk_tun_${i}.log"
   done
 
-  # ③ 组合URL列表（主隧道在前）
-  URL_LIST=""
-  [ -n "$URL_PRIMARY" ] && URL_LIST="$URL_PRIMARY"
-  [ -n "$URL_BACKUP" ] && URL_LIST="${URL_LIST:+$URL_LIST
-}$URL_BACKUP"
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 最终可用URL列表: [$(echo "$URL_LIST" | tr '\n' '|' | sed 's/|$//')]" >> "$LOG"
+  # 2. 等所有出URL(最多45s)
+  log "等隧道出URL(最多${GRACE_S}s)..."
+  sleep $GRACE_S
 
-  # ④ 写GitHub
-  update_github_multi_url "$URL_LIST" || true
-
-  # ⑤ 都失败就整体等并重试
-  if [ -z "$URL_PRIMARY" ] && [ -z "$URL_BACKUP" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ❌ 两条隧道全部失败，${RETRY_DELAY}秒后重试..." >> "$LOG"
-    sleep $RETRY_DELAY
-    RETRY_DELAY=$(( RETRY_DELAY * 2 ))
-    [ $RETRY_DELAY -gt $MAX_RETRY_DELAY ] && RETRY_DELAY=$MAX_RETRY_DELAY
-    continue
-  fi
-  RETRY_DELAY=5
-  local_fail_count=0
-
-  # ⑥ 监控循环（40分钟主动重建，更保守，避免60分钟pinggy强制断档）
-  pid_pri=$(cat /tmp/tunnel-PINGGY-pid 2>/dev/null)
-  pid_bak=$(cat /tmp/tunnel-BACKUP-pid 2>/dev/null)
-  loop_start=$(date +%s)
-  MAX_RUN=$(( 40 * 60 ))
-
+  # 3. 主循环
+  local start_epoch now last_restart_epoch
+  start_epoch=$(date +%s)
+  last_restart_epoch=$start_epoch
   while true; do
-    sleep 20
-    # 本地服务检测
-    if ! curl -s -o /dev/null --max-time 3 "http://localhost:$LOCAL_PORT/api/pages/guide" 2>/dev/null; then
-      local_fail_count=$(( local_fail_count + 1 ))
-      if [ $local_fail_count -ge $LOCAL_FAIL_LIMIT ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 本地服务连续异常${LOCAL_FAIL_LIMIT}次，整体重启" >> "$LOG"
-        break
-      fi
-    else
-      local_fail_count=0
-    fi
-    # 隧道进程存活检测（都死了才重建，只死一个就HTTP重写URL）
-    pri_alive=0; bak_alive=0
-    [ -n "$pid_pri" ] && kill -0 "$pid_pri" 2>/dev/null && pri_alive=1
-    [ -n "$pid_bak" ] && kill -0 "$pid_bak" 2>/dev/null && bak_alive=1
-    if [ $pri_alive -eq 0 ] && [ $bak_alive -eq 0 ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 两条隧道进程都退出，整体重建" >> "$LOG"
-      break
-    fi
-    # 每4分钟做一次HTTP健康检测，任何一条挂了就立即重写GitHub（只写健康的）
     now=$(date +%s)
-    if [ $(( now - loop_start )) -gt 0 ] && [ $(( (now - loop_start) % 240 )) -lt 21 ]; then
-      need=0
-      NEW=""
-      if [ $pri_alive -eq 1 ] && validate_url "$URL_PRIMARY"; then
-        NEW="$URL_PRIMARY"
-      else
-        [ -n "$URL_PRIMARY" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ⚠️ Pinggy主隧道HTTP失败，从候选中移除" >> "$LOG" && need=1
-      fi
-      if [ $bak_alive -eq 1 ] && validate_url "$URL_BACKUP"; then
-        NEW="${NEW:+$NEW
-}$URL_BACKUP"
-      else
-        [ -n "$URL_BACKUP" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] ⚠️ Backup备隧道HTTP失败，从候选中移除" >> "$LOG" && need=1
-      fi
-      if [ $need -eq 1 ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 🔄 4分钟例行检测发现隧道失效，重写GitHub候选列表" >> "$LOG"
-        update_github_multi_url "$NEW" || true
-      fi
-    fi
-    # 40分钟主动整体重建
-    elapsed=$(( now - loop_start ))
-    if [ $elapsed -ge $MAX_RUN ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') [keeper-v5.1] 40分钟到，主动整体重建双隧道（避免60分钟强制断档）" >> "$LOG"
-      break
-    fi
-  done
 
-  # 清理
-  kill -9 "$pid_pri" 2>/dev/null
-  kill -9 "$pid_bak" 2>/dev/null
-  pkill -9 -f "ssh.*pinggy\.io" 2>/dev/null
-  pkill -9 -f "ssh.*localhost\.run" 2>/dev/null
-  pkill -9 -f "ssh.*serveo\.net" 2>/dev/null
-  sleep 4
-done
+    # --- 收集所有活URL ---
+    local ALL_LIVE=()
+    local ALIVE_COUNT=0
+    for i in $(seq 1 $TUNNEL_COUNT); do
+      idx=$((i-1))
+      PID="${PIDS[$idx]}"
+      # a. 进程死了？立刻重启
+      if ! kill -0 "$PID" 2>/dev/null; then
+        warn "tun_${i} PID=$PID 死了！立刻重启"
+        NEW_PID=$(start_one_tunnel $i)
+        PIDS[$idx]="$NEW_PID"
+        sleep $GRACE_S
+      fi
+      # b. 从日志取URL+测活
+      URLS=$(extract_urls "${LOGS[$idx]}")
+      if [ -n "$URLS" ]; then
+        while read U; do
+          if is_url_alive "$U"; then
+            ALL_LIVE+=("$U")
+            ALIVE_COUNT=$((ALIVE_COUNT+1))
+          fi
+        done <<< "$URLS"
+      fi
+    done
+
+    # --- 去重 ---
+    ALL_LIVE=($(printf "%s\n" "${ALL_LIVE[@]}" | sort -u))
+    ALIVE_COUNT=${#ALL_LIVE[@]}
+
+    # --- 变化就推GitHub ---
+    local HASH_NEW
+    HASH_NEW=$(printf "%s\n" "${ALL_LIVE[@]:0:3}" | md5sum | awk '{print $1}')
+    local HASH_OLD=""
+    [ -f "$TMP_DIR/tk_last_push.md5" ] && HASH_OLD=$(cat "$TMP_DIR/tk_last_push.md5")
+    if [ "$HASH_NEW" != "$HASH_OLD" ] && [ "$ALIVE_COUNT" -ge 2 ]; then
+      push_to_github ALL_LIVE && echo "$HASH_NEW" > "$TMP_DIR/tk_last_push.md5"
+    fi
+
+    # --- 55分钟滚动平滑重启: 先启新3条→测活→推GitHub→再杀旧3条 ---
+    local ELAPSED=$((now - last_restart_epoch))
+    if [ $ELAPSED -ge $RESTART_EVERY_S ]; then
+      warn "滚动重启：运行${ELAPSED}s≥${RESTART_EVERY_S}s，先启新3条再杀旧3条"
+      local -a NEW_PIDS NEW_LOGS
+      for i in $(seq 1 $TUNNEL_COUNT); do
+        idx=$((i-1))
+        [ "${TUN_SLEEP[$idx]}" -gt 0 ] && sleep "${TUN_SLEEP[$idx]}"
+        # 新日志用_new后缀
+        local logf="$TMP_DIR/tk_tun_${i}_new.log"
+        rm -f "$logf"
+        nohup stdbuf -oL -eL ssh -4 -tt \
+          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -o TCPKeepAlive=yes \
+          -o ConnectTimeout=20 \
+          -o ProxyCommand="nc -X connect -x ${PROXY#http://} %h %p" \
+          -p 443 -R0:localhost:${BACKEND_PORT} $SSH_NODE \
+          &> "$logf" < /dev/null &
+        NEW_PIDS[$idx]=$!
+        NEW_LOGS[$idx]="$logf"
+      done
+      sleep $GRACE_S
+      # 收集新的URL
+      local NEW_LIVE=()
+      for i in $(seq 1 $TUNNEL_COUNT); do
+        idx=$((i-1))
+        URLS=$(extract_urls "${NEW_LOGS[$idx]}")
+        while read U; do
+          is_url_alive "$U" && NEW_LIVE+=("$U")
+        done <<< "$URLS"
+      done
+      NEW_LIVE=($(printf "%s\n" "${NEW_LIVE[@]}" | sort -u))
+      if [ "${#NEW_LIVE[@]}" -ge 2 ]; then
+        push_to_github NEW_LIVE
+        # 新的成功了！替换旧PID+LOG+杀旧
+        for i in $(seq 1 $TUNNEL_COUNT); do
+          idx=$((i-1))
+          OLD_PID="${PIDS[$idx]}"
+          # 重命名新日志→正式日志
+          mv "$TMP_DIR/tk_tun_${i}_new.log" "$TMP_DIR/tk_tun_${i}.log" 2>/dev/null
+          LOGS[$idx]="$TMP_DIR/tk_tun_${i}.log"
+          kill -9 "$OLD_PID" 2>/dev/null
+          PIDS[$idx]="${NEW_PIDS[$idx]}"
+        done
+        last_restart_epoch=$(date +%s)
+        log "✅ 滚动重启完成！新真活数=${#NEW_LIVE[@]}"
+      else
+        warn "⚠️  新3条URL不足2条真活，保留旧的不杀，${HEALTHY_EVERY_S}s后再巡检"
+        # 清理新的
+        for PID in "${NEW_PIDS[@]}"; do kill -9 $PID 2>/dev/null; done
+      fi
+      cleanup_zombies
+    fi
+
+    # --- 心跳日志(每5分钟打一次) ---
+    local MIN_ELAPSED=$(( (now - start_epoch) / 60 ))
+    if [ $(( MIN_ELAPSED % 5 )) -eq 0 ] && [ ! -f "$TMP_DIR/.heartbeat_${MIN_ELAPSED}" ]; then
+      log "💓 运行${MIN_ELAPSED}分钟: 活URL=${ALIVE_COUNT}条 进程PID列表: ${PIDS[*]}"
+      touch "$TMP_DIR/.heartbeat_${MIN_ELAPSED}"
+    fi
+
+    sleep $HEALTHY_EVERY_S
+  done
+}
+
+# ============ 入口 ============
+cd "$WORK_DIR"
+if [ "$1" = "--once" ]; then
+  # 调试：跑一次健康+推送
+  cleanup_zombies
+  declare -a LIVE_DEBUG=()
+  for f in "$TMP_DIR"/tk_tun_*.log; do
+    [ -f "$f" ] || continue
+    URLS=$(extract_urls "$f")
+    while read U; do
+      is_url_alive "$U" && LIVE_DEBUG+=("$U")
+    done <<< "$URLS"
+  done
+  LIVE_DEBUG=($(printf "%s\n" "${LIVE_DEBUG[@]}" | sort -u))
+  echo "活URL数=${#LIVE_DEBUG[@]}"
+  printf "  %s\n" "${LIVE_DEBUG[@]}"
+  [ "${#LIVE_DEBUG[@]}" -ge 2 ] && push_to_github LIVE_DEBUG
+  exit 0
+fi
+
+# 防止重复启动
+PIDF="$TMP_DIR/tkeeper_v5.pid"
+if [ -f "$PIDF" ] && kill -0 "$(cat $PIDF)" 2>/dev/null; then
+  echo "tunnel-keeper v5 已在运行，PID=$(cat $PIDF)，退出"
+  exit 0
+fi
+echo $$ > "$PIDF"
+trap 'rm -f "$PIDF"; exit 0' INT TERM EXIT
+
+main_loop
