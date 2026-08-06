@@ -1,0 +1,39 @@
+# ============================================================
+# 🚀 追光学科共享平台 · Cloudflare Workers 配置（D1 + Pages）
+# ============================================================
+# 部署命令:
+#   npx wrangler deploy
+#
+# D1数据库创建:
+#   npx wrangler d1 create zhuiguang-db
+#   → 把返回的 database_id 填到下面 d1_databases.database_id
+# ============================================================
+
+name = "zhuiguang-api"
+main = "worker-api.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ====== D1 数据库 binding ======
+[[d1_databases]]
+binding = "DB"
+database_name = "zhuiguang-db"
+database_id = "在这里填入wrangler d1 create返回的database_id"
+
+# ====== 环境变量（在Cloudflare Dashboard或这里配置） ======
+[vars]
+JWT_SECRET = "zhuiguang-secret-2026"
+JWT_EXPIRES = "7d"
+SUPABASE_URL = "在这里填入你的Supabase URL"
+SUPABASE_SERVICE_KEY = "在这里填入你的Supabase Service Key"
+SUPABASE_BUCKET = "zhuiguang-files"
+
+# ====== 自定义路由（绑定xkzg.de5.net用） ======
+# 方式1: Workers自定义域名 (推荐)
+# 在Cloudflare Dashboard → Workers → 你的Worker → Settings → Triggers → Custom Domains
+# 添加 api.xkzg.de5.net（或直接用 xkzg.de5.net 如果前端单独部署Pages）
+
+# 方式2: 通过routes（需要域名在Cloudflare托管）
+# routes = [
+#   { pattern = "api.xkzg.de5.net/*", zone_name = "xkzg.de5.net" }
+# ]
