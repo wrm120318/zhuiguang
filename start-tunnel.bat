@@ -19,7 +19,7 @@ if errorlevel 1 (
 echo.
 echo ========================================
 echo   正在连接 Cloudflare Tunnel...
-echo   连接成功后访问: https://xkzg.de5.net
+echo   连接成功后访问: https://xkzg.dpdns.org
 echo   请保持此窗口打开
 echo ========================================
 echo.

@@ -23,9 +23,9 @@
 //   1. 登录 dash.cloudflare.com → Workers & Pages → xkzg-de5-net
 //   2. 右上角「Edit code」→ 全选清空 → Ctrl+V 粘贴本文件 → 点「Deploy」（不是Save！）
 //   3. 验证（3条全过=部署成功）：
-//      · https://xkzg.de5.net/zg-auto-fix  → 应该看到🚑自动修复页（标题含「追光·急救箱」）
-//      · https://xkzg.de5.net/zg-status   → 应该看到状态页（候选URL列表）
-//      · https://xkzg.de5.net/login        → 应该正常打开追光登录页（origin死了显示「重连中」）
+//      · https://xkzg.dpdns.org/zg-auto-fix  → 应该看到🚑自动修复页（标题含「追光·急救箱」）
+//      · https://xkzg.dpdns.org/zg-status   → 应该看到状态页（候选URL列表）
+//      · https://xkzg.dpdns.org/login        → 应该正常打开追光登录页（origin死了显示「重连中」）
 // ==============================================================================
 const GITHUB_RAW = "https://raw.githubusercontent.com/wrm120318/zhuiguang/main/tunnel-url.txt";
 const GITHUB_API_CONTENTS = "https://api.github.com/repos/wrm120318/zhuiguang/contents/tunnel-url.txt";
@@ -302,7 +302,7 @@ kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; 
 
   <div class="footer">
     <div>💡 小技巧：把本页加入<b>浏览器收藏夹</b>，下次网站坏了直接点收藏夹就行～</div>
-    <div>页面地址：<code>https://xkzg.de5.net/zg-auto-fix</code></div>
+    <div>页面地址：<code>https://xkzg.dpdns.org/zg-auto-fix</code></div>
     <div style="margin-top:6px">Worker版本：${WVER}</div>
   </div>
 </div>

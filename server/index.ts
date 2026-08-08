@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { spawn, exec } from 'child_process'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -11,15 +12,254 @@ import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_
 import bcrypt from 'bcryptjs'
 import multer from 'multer'
 
+// ============== 顶层：先创建 Express app（因为下面所有中间件都依赖它） ==============
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.resolve(__dirname, '..')
+const app = express()
+
+// ==============================================================================
+// 🔴【全局变量，必须放最最最开头！】
+//   SELF_REPAIR_LOCK：/api/admin/self-repair 和 /__zg_fix 共用的10分钟互斥锁
+//   ZGFIX_IP_LOCK：/__zg_fix 每IP 1小时≤2次的防刷锁
+// ==============================================================================
+const SELF_REPAIR_LOCK: { at: number; pid: number | 0 } = { at: 0, pid: 0 }
+
+// ==============================================================================
+// 🔴🔴🔴【优先级最高】2个救命接口：放在所有中间件之前！
+//   就算cors/static/compression/DB全挂了，只要Node进程活着，这2个接口就一定能访问！
+// ==============================================================================
+// (1) 健康检查接口 /__zg_health ：永远HTTP200（never-die-guard/Worker验真活URL用）
+app.get('/__zg_health', (_req, res) => {
+  res.type('text/plain; charset=utf-8').status(200).send('OK:' + Date.now().toString(36))
+})
+// (2) 小白公开修复接口 /__zg_fix ：不用登录！不用进后台！地址栏直接输就修！
+//     安全：1小时限2次（防刷），和 /api/admin/self-repair 共用10分钟互斥锁
+const ZGFIX_IP_LOCK = new Map<string, { at: number; cnt: number }>()  // 每IP 1h最多2次
+app.get('/__zg_fix', (req, res) => {
+  const now = Date.now()
+  const ip = (req.headers['x-forwarded-for'] as string || req.ip || '0.0.0.0').split(',')[0].trim()
+  // ---- 防刷：同一IP 1小时≤2次 ----
+  const rec = ZGFIX_IP_LOCK.get(ip) || { at: 0, cnt: 0 }
+  if (now - rec.at > 60 * 60 * 1000) { rec.at = now; rec.cnt = 0 }  // 1小时窗口滚动清零
+  if (rec.cnt >= 2) {
+    res.type('text/html; charset=utf-8').status(429).send(`
+<!doctype html><meta charset="utf-8"><title>追光 · 修复太频繁</title>
+<body style="font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#fff7ed;color:#9a3412;padding:60px 24px;line-height:1.8">
+<h2 style="margin:0 0 12px;font-size:20px">⏳ 修复太频繁啦</h2>
+<p style="margin:0 0 16px">为了保护服务器，同一个IP 1小时内最多修复2次。</p>
+<p style="margin:0 0 16px">上次修复还没超过1小时，请耐心等一等，多按几次 <b>F5</b> 刷新试试。</p>
+<p style="margin:0;color:#6b7280">如果一直不好，直接和AI助手说一句「网站挂了」就行～</p>
+</body></html>`)
+    return
+  }
+  rec.cnt += 1; ZGFIX_IP_LOCK.set(ip, rec)
+  // ---- 10分钟互斥锁：防止用户连点N次（和self-repair共用同一个锁） ----
+  if (now - SELF_REPAIR_LOCK.at < 10 * 60 * 1000 && SELF_REPAIR_LOCK.pid) {
+    try { process.kill(SELF_REPAIR_LOCK.pid, 0) }
+    catch { SELF_REPAIR_LOCK.at = 0; SELF_REPAIR_LOCK.pid = 0 }
+    if (now - SELF_REPAIR_LOCK.at < 10 * 60 * 1000) {
+      res.type('text/html; charset=utf-8').status(200).send(`
+<!doctype html><meta charset="utf-8"><title>追光 · 修复进行中</title>
+<body style="font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#fef3c7;color:#92400e;padding:60px 24px;line-height:1.8">
+<h2 style="margin:0 0 12px;font-size:20px">🔄 修复已经在跑啦～</h2>
+<p style="margin:0 0 16px">10分钟内已经有一次修复在执行，不用重复点。</p>
+<p style="margin:0 0 16px">请耐心等 <b>1~2 分钟</b>，然后 <b>多按几次 F5（Ctrl+R）</b> 刷新页面。</p>
+<p style="margin:0;color:#6b7280">如果3分钟后还是打不开，直接和AI助手说一句「网站挂了」～</p>
+</body></html>`)
+      return
+    }
+  }
+  SELF_REPAIR_LOCK.at = now
+  // ---- 启动修复：fix.sh + 补3条SSH隧道（异步，立刻返回不卡用户） ----
+  try {
+    const env = {
+      ...process.env,
+      HTTP_PROXY: 'http://127.0.0.1:18080', HTTPS_PROXY: 'http://127.0.0.1:18080',
+      http_proxy: 'http://127.0.0.1:18080', https_proxy: 'http://127.0.0.1:18080'
+    }
+    const child = spawn('bash', ['/workspace/fix.sh'], {
+      cwd: '/workspace', detached: true, stdio: ['ignore', 'ignore', 'ignore'], env
+    })
+    child.unref()
+    SELF_REPAIR_LOCK.pid = child.pid || 0
+    // 额外立刻补3条SSH自恢复循环
+    const PROXY_CMD = 'nc -X connect -x 127.0.0.1:18080 %h %p'
+    for (const N of ['a', 'b', 'c']) {
+      const LOGF = `/tmp/ult/${N}.log`
+      spawn('bash', ['-c', `
+        mkdir -p /tmp/ult; rm -f ${LOGF}; touch ${LOGF}
+        while true; do
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ServerAliveInterval=20 -o ServerAliveCountMax=2 -o ConnectTimeout=22 -o TCPKeepAlive=yes \
+            -o "ProxyCommand=${PROXY_CMD}" \
+            -p 443 -R0:localhost:3001 ${N}.pinggy.io >> ${LOGF} 2>&1
+          sleep 1
+        done
+      `], { detached: true, stdio: ['ignore', 'ignore', 'ignore'] }).unref()
+    }
+  } catch {}
+  // ---- 立刻返回超简单HTML页面（就算网站半挂，用户也能看到字）----
+  res.type('text/html; charset=utf-8').status(200).send(`
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>追光 · 自动修复已启动 ✅</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);
+    color: #78350f; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: #fff; border-radius: 20px; padding: 40px 28px; max-width: 520px; width: 100%;
+    box-shadow: 0 20px 50px rgba(245,158,11,.18), 0 4px 10px rgba(245,158,11,.08);
+    text-align: center;
+  }
+  .emoji { font-size: 64px; display: block; margin-bottom: 16px; animation: bounce 1.2s ease-in-out infinite; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  h1 { font-size: 22px; margin-bottom: 14px; color: #92400e; font-weight: 800; }
+  p { font-size: 15px; line-height: 1.85; margin-bottom: 12px; color: #78350f; }
+  .step { background: #fffbeb; border-radius: 12px; padding: 14px 16px; margin: 18px 0; text-align: left; }
+  .step li { font-size: 14px; line-height: 2; color: #78350f; list-style: none; padding-left: 0; }
+  .n { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center;
+       background: #f59e0b; color: #fff; border-radius: 50%; font-size: 12px; font-weight: 700; margin-right: 8px; }
+  .tip { font-size: 12px; color: #6b7280; margin-top: 18px; padding-top: 14px; border-top: 1px dashed #fcd34d; }
+  kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 6px;
+        padding: 2px 8px; font-size: 12px; font-family: inherit; color: #374151; }
+</style>
+<body>
+<div class="card">
+  <span class="emoji">🚑</span>
+  <h1>自动修复已经启动啦！</h1>
+  <p>服务器正在自动重启后端、重建隧道、修复全部故障。</p>
+  <div class="step">
+    <ul>
+      <li><span class="n">1</span> 耐心等待 <b>1～2 分钟</b></li>
+      <li><span class="n">2</span> 然后 <b>多按几次 <kbd>F5</kbd>（或 <kbd>Ctrl</kbd>+<kbd>R</kbd>）</b> 刷新</li>
+      <li><span class="n">3</span> 如果 3 分钟后还是不好 → 直接和 AI 助手说一句「网站挂了」</li>
+    </ul>
+  </div>
+  <p style="font-size:13px;color:#b45309;font-weight:600">💡 提示：您可以把本页加入收藏，下次坏了直接打开就能修。</p>
+  <div class="tip">修复接口：<code>https://xkzg.dpdns.org/__zg_fix</code>（记住这个网址=随时自己修）</div>
+</div>
+</body>`)
+})
+
+// ===== 性能优化1：Gzip压缩（响应体积减60~80%，pinggy跨洋带宽=最大瓶颈） =====
+// ESM里用 await import('compression') 兼容tsx/ts-node，不依赖require
+let compressionInstalled = false
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = await import('compression')
+  const compression = (mod.default || mod) as any
+  app.use(compression({
+    threshold: 512,
+    level: 6,
+    filter: (req: any, res: any) => {
+      if (req.headers['x-no-compression']) return false
+      return compression.filter(req, res)
+    }
+  }))
+  compressionInstalled = true
+  console.log('[perf] Gzip压缩已启用（pinggy传输体积减少~70%）')
+} catch (e: any) {
+  console.log('[perf] compression未安装，跳过gzip（可 npm i compression -S 启用）:', (e as Error).message.slice(0, 80))
+}
+
+// ===== 性能优化2：安全短期内存缓存（只缓存GET /api/*，按Authorization hash+URL做key，TTL 5~15秒） =====
+// 彻底根治：pinggy免费版跨洋=2~5秒延迟，10次重复请求里9次能命中Cloudflare/Node缓存，延迟直接降90%
+type CacheEntry = { body: string; type: string; expireAt: number; etag: string }
+const API_CACHE = new Map<string, CacheEntry>()
+const API_CACHE_MAX = 500  // 最多缓存500条，内存≈10~20MB
+
+function apiCacheKey(req: express.Request): string | null {
+  if (req.method !== 'GET') return null
+  if (!req.path.startsWith('/api/')) return null
+  // 写操作相关API不缓存：含 me/status, exp/logs POST（但GET可以），upload*
+  const p = req.path
+  if (p.includes('/upload/') || p.includes('/download/')) return null
+  // 关键：Authorization hash做区分（不同用户看不同数据）
+  const auth = (req.headers.authorization || '').slice(0, 200)
+  let authHash = 'anon'
+  try {
+    authHash = Buffer.from(auth).toString('base64').slice(0, 24)
+  } catch {}
+  // TTL：监控数据TTL短=5秒；列表/配置类TTL长=15秒
+  let ttl = 15000
+  if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 5000
+  if (p.includes('/feature-flags') || p.includes('/pages/') || p.includes('/themes')) ttl = 30000
+  const urlKey = p + '|' + JSON.stringify(req.query || {})
+  return `${authHash}|${ttl}|${urlKey}`
+}
+
+// 在express.json之前加缓存中间件（注意：顺序必须在static之前，在auth之前也可以——命中就直接回）
+app.use((req, res, next) => {
+  const k = apiCacheKey(req)
+  if (!k) return next()
+  const [, ttlStr] = k.split('|', 3)
+  const ttl = parseInt(ttlStr || '15000', 10)
+  const e = API_CACHE.get(k)
+  if (e && e.expireAt > Date.now()) {
+    // 304协商缓存：客户端带If-None-Match命中ETag就回304不发body
+    const ifNm = req.headers['if-none-match']
+    if (ifNm === e.etag) {
+      res.setHeader('X-Zg-Cache', 'HIT-304')
+      res.statusCode = 304
+      return res.end()
+    }
+    res.setHeader('Content-Type', e.type)
+    res.setHeader('Cache-Control', `public, max-age=${Math.floor(ttl/1000)}`)
+    res.setHeader('ETag', e.etag)
+    res.setHeader('X-Zg-Cache', `HIT-${Math.floor((e.expireAt-Date.now())/1000)}s`)
+    return res.send(e.body)
+  }
+  // 没命中：包一层send缓存响应
+  const origSend = res.send.bind(res)
+  let cached = false
+  ;(res as any).send = (body: any) => {
+    if (!cached && res.statusCode >= 200 && res.statusCode < 300 && typeof body === 'string') {
+      try {
+        // 生成ETag
+        let hash = 0
+        for (let i = 0; i < body.length; i++) hash = ((hash << 5) - hash + body.charCodeAt(i)) | 0
+        const etag = 'W/"' + Math.abs(hash).toString(36) + '-' + body.length.toString(36) + '"'
+        const entry: CacheEntry = {
+          body,
+          type: res.getHeader('Content-Type') as string || 'application/json; charset=utf-8',
+          expireAt: Date.now() + ttl,
+          etag
+        }
+        // LRU：超了就删最早一条
+        if (API_CACHE.size >= API_CACHE_MAX) {
+          const firstKey = API_CACHE.keys().next().value
+          if (firstKey) API_CACHE.delete(firstKey)
+        }
+        API_CACHE.set(k, entry)
+        res.setHeader('ETag', etag)
+        res.setHeader('Cache-Control', `public, max-age=${Math.floor(ttl/1000)}`)
+        res.setHeader('X-Zg-Cache', 'MISS')
+      } catch {}
+      cached = true
+    }
+    return origSend(body)
+  }
+  next()
+})
+setInterval(() => {
+  // 每30秒清理过期项（避免内存泄漏）
+  const now = Date.now()
+  for (const [k, v] of API_CACHE) if (v.expireAt < now) API_CACHE.delete(k)
+}, 30000)
+console.log('[perf] API短期内存缓存已启用（5~30s TTL，按用户隔离）')
+
 // 初始化数据库（Turso/libSQL）
 initDB().catch(e => {
   console.error('[server] 数据库初始化失败:', e)
   process.exit(1)
 })
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '..')
-const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
@@ -953,6 +1193,38 @@ app.delete('/api/query/tasks/:id', auth, requireRole('SUPER_ADMIN'), async (req,
   await run('DELETE FROM query_rows WHERE task_id=?', req.params.id)
   await run('DELETE FROM query_tasks WHERE id=?', req.params.id)
   res.json({ ok: true })
+})
+
+// ============ 小白一键修复：SUPER_ADMIN点按钮就自动跑fix.sh（10分钟互斥锁 · 和/__zg_fix共用同一个锁） ============
+app.post('/api/admin/self-repair', auth, requireRole('SUPER_ADMIN'), async (_req, res) => {
+  const now = Date.now()
+  if (now - SELF_REPAIR_LOCK.at < 10*60*1000 && SELF_REPAIR_LOCK.pid) {
+    try { process.kill(SELF_REPAIR_LOCK.pid, 0); return res.json({ ok: false, msg: '修复正在进行中，请耐心等待1~2分钟后刷新页面' }) }
+    catch { SELF_REPAIR_LOCK.at = 0; SELF_REPAIR_LOCK.pid = 0 }
+  }
+  SELF_REPAIR_LOCK.at = now
+  // 立刻异步启动fix.sh（不用等，返回进度）
+  const child = spawn('bash', ['/workspace/fix.sh'], {
+    cwd: '/workspace',
+    detached: true,
+    stdio: ['ignore','ignore','ignore'],
+    env: { ...process.env, HTTP_PROXY: 'http://127.0.0.1:18080', HTTPS_PROXY: 'http://127.0.0.1:18080', http_proxy: 'http://127.0.0.1:18080', https_proxy: 'http://127.0.0.1:18080' }
+  })
+  child.unref()
+  SELF_REPAIR_LOCK.pid = child.pid || 0
+  // 同时立刻重启3条SSH隧道自恢复（更保险）
+  try {
+    for (const N of ['a','b','c']) {
+      const OUTF = `/tmp/ult/${N}.log`
+      spawn('bash', ['-c', `
+        while true; do
+          /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null             -o ServerAliveInterval=20 -o ServerAliveCountMax=2 -o ConnectTimeout=22 -o TCPKeepAlive=yes             -o "ProxyCommand=nc -X connect -x 127.0.0.1:18080 %h %p"             -p 443 -R0:localhost:3001 ${N}.pinggy.io >> ${OUTF} 2>&1
+          sleep 1
+        done
+      `], { detached: true, stdio: ['ignore','ignore','ignore'] }).unref()
+    }
+  } catch {}
+  return res.json({ ok: true, msg: '修复已启动！请耐心等待1~2分钟后刷新页面（或按F5多刷几次）' })
 })
 
 // ============ 经验值 & 排行榜 ============

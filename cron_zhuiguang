@@ -1,0 +1,75 @@
+# /etc/cron.d/zhuiguang - 追光学科共享平台 定时双保险
+# 作用：NDG万一崩了（极端情况），3分钟内自动拉起来
+#       后端/隧道死了，5分钟内自动跑fix.sh兜底
+# 
+# 注意：NDG自己15秒查一次，比cron快得多！cron这里只是「双保险的双保险」。
+# 就算NDG+shell都崩了极端概率，还有这个兜底。
+#
+# 安装：cp /workspace/cron_zhuiguang /etc/cron.d/zhuiguang && chmod 644 /etc/cron.d/zhuiguang
+# 更新日期：2026-08-06  NDG v4.0 配套
+# ==============================================================================
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# ---------- 保险1：每3分钟 检查NDG是否活着，死了就拉起来 ----------
+*/3 * * * * root /bin/bash -c '\
+set +e; \
+WORK_DIR="/workspace"; \
+TMP_DIR="/tmp/ult"; \
+mkdir -p "$TMP_DIR"; \
+PIDF="$TMP_DIR/ndg.pid"; \
+ALIVE=0; \
+if [ -f "$PIDF" ]; then \
+  OLD=$(cat "$PIDF" 2>/dev/null | tr -cd "0-9"); \
+  if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then ALIVE=1; fi; \
+fi; \
+# 双重检查：进程名也查一下
+if [ "$ALIVE" = "0" ]; then \
+  N=$(ps -e -o args= | grep "never-die-guard" | grep -v grep | wc -l); \
+  if [ "$N" -ge "1" ]; then ALIVE=1; fi; \
+fi; \
+if [ "$ALIVE" = "0" ]; then \
+  echo "[$(date +"%Y-%m-%d %H:%M:%S")] CRON: NDG死了，拉起！" >> /tmp/zhuiguang-cron.log 2>&1; \
+  rm -f "$PIDF"; \
+  cd "$WORK_DIR"; \
+  setsid nohup bash "$WORK_DIR/never-die-guard.sh" >> /tmp/never-die-guard.log 2>&1 < /dev/null & \
+  disown $! 2>/dev/null || true; \
+fi \
+' 2>&1 >> /tmp/zhuiguang-cron.log
+
+# ---------- 保险2：每5分钟 检查后端健康，死了就直接跑fix.sh ----------
+*/5 * * * * root /bin/bash -c '\
+set +e; \
+PROXY="http://127.0.0.1:18080"; \
+H1=$(curl -s --max-time 4 -o /dev/null -w "%{http_code}" "http://localhost:3001/__zg_health" 2>/dev/null); \
+if [ "$H1" = "200" ]; then exit 0; fi; \
+sleep 6; \
+H2=$(curl -s --max-time 4 -o /dev/null -w "%{http_code}" "http://localhost:3001/__zg_health" 2>/dev/null); \
+if [ "$H2" = "200" ]; then exit 0; fi; \
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] CRON: 后端HTTP=$H1/$H2，双失败！跑fix.sh兜底" >> /tmp/zhuiguang-cron.log 2>&1; \
+HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY" http_proxy="$PROXY" https_proxy="$PROXY" \
+  nohup bash /workspace/fix.sh >> /tmp/zhuiguang-fix-cron.log 2>&1 < /dev/null & \
+disown $! 2>/dev/null || true; \
+' 2>&1 >> /tmp/zhuiguang-cron.log
+
+# ---------- 保险3：每10分钟 检查真活URL数<1条时 强制重启3条SSH隧道（极端兜底） ----------
+*/10 * * * * root /bin/bash -c '\
+set +e; \
+TMP_DIR="/tmp/ult"; \
+WORK_DIR="/workspace"; \
+PROXY="http://127.0.0.1:18080"; \
+mkdir -p "$TMP_DIR"; \
+export HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY" http_proxy="$PROXY" https_proxy="$PROXY"; \
+# 如果有Python验活脚本就调用
+if [ -f "$WORK_DIR/ndg_check_live.py" ]; then \
+  OUT=$(python3 "$WORK_DIR/ndg_check_live.py" 2>/dev/null); \
+  CNT=$(echo "$OUT" | grep -oE "^LIVE:[0-9]+" | head -1 | cut -c6-); \
+  if [ -n "$CNT" ] && [ "$CNT" -ge "1" ] 2>/dev/null; then exit 0; fi; \
+fi; \
+# 没脚本或<1条真活：强制杀SSH（下一轮NDG会重拉）或直接重拉
+echo "[$(date +"%Y-%m-%d %H:%M:%S")] CRON: 真活URL<1条，清理SSH让NDG重拉" >> /tmp/zhuiguang-cron.log 2>&1; \
+for p in $(ps -e -o pid=,args= | awk "$3==\"/usr/bin/ssh\" && /pinggy\.io/ {print $1}" 2>/dev/null); do \
+  kill -9 "$p" 2>/dev/null; \
+done; \
+' 2>&1 >> /tmp/zhuiguang-cron.log

@@ -139,13 +139,13 @@ nohup bash /workspace/tunnel-keeper.sh >> /tmp/keeper_v52.log 2>&1 &
 KPID=$!
 echo "  tunnel-keeper PID=$KPID 已启动（监控+周期性重建）"
 
-step "最终验证：线上 https://xkzg.de5.net/login"
+step "最终验证：线上 https://xkzg.dpdns.org/login"
 echo "  等12秒Worker缓存刷新..."
 sleep 12
 FAIL=0
 for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
-  C=$(curl -s --max-time 12 -o /dev/null -w "%{http_code}" "https://xkzg.de5.net/login?t=$(date +%s%3N)" 2>&1)
+  C=$(curl -s --max-time 12 -o /dev/null -w "%{http_code}" "https://xkzg.dpdns.org/login?t=$(date +%s%3N)" 2>&1)
   echo "    第${i}次: HTTP $C"
   [ "$C" != "200" ] && FAIL=$((FAIL+1))
   [ "$C" = "200" ] && [ $i -eq 1 ] && break
@@ -154,7 +154,7 @@ echo ""
 echo "======================================"
 if [ "$FAIL" -le 2 ]; then
   echo "✅✅✅ 修复成功！10次请求失败=$FAIL ≤ 2，线上现在可以正常访问了！"
-  echo "🌐 打开 https://xkzg.de5.net/login 试试吧～"
+  echo "🌐 打开 https://xkzg.dpdns.org/login 试试吧～"
   echo "📄 详细日志：$LOG"
 else
   echo "⚠️ 仍有问题。请贴 $LOG 内容给AI助手排查"

@@ -2,7 +2,7 @@
 # health-check.sh - 追光平台自动健康检查（crontab每5分钟跑一次，0成本）
 # 功能：
 #   A. 后端3001挂了 → 自动拉起
-#   B. 线上xkzg.de5.net连续3次非200 → 自动执行fix.sh 1键修复
+#   B. 线上xkzg.dpdns.org连续3次非200 → 自动执行fix.sh 1键修复
 #   C. 日志写 /tmp/health-check.log，排障直接看
 set +e
 LOG="/tmp/health-check.log"
@@ -45,11 +45,11 @@ else
   log "✅ 后端3001 HTTP200 正常"
 fi
 
-# B. 检查线上 xkzg.de5.net（连续3次）
+# B. 检查线上 xkzg.dpdns.org（连续3次）
 BAD=0
 for n in 1 2 3; do
   sleep 1
-  CC=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://xkzg.de5.net/login?t=$(date +%s%3N)" 2>&1)
+  CC=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://xkzg.dpdns.org/login?t=$(date +%s%3N)" 2>&1)
   [ "$CC" != "200" ] && BAD=$((BAD+1))
 done
 if [ $BAD -ge 2 ]; then

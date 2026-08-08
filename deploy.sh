@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # ============================================================================
-# 追光 · 学科共享平台 —— 一键部署到 xkzg.de5.net (HTTPS)
+# 追光 · 学科共享平台 —— 一键部署到 xkzg.dpdns.org (HTTPS)
 #
 # 用法（在目标公网服务器上，项目根目录执行）：
-#   1) 先把域名 xkzg.de5.net 的 A 记录解析到本服务器公网 IP
+#   1) 先把域名 xkzg.dpdns.org 的 A 记录解析到本服务器公网 IP
 #   2) sudo EMAIL=you@example.com bash deploy.sh
 #
 # 前置条件：
 #   - Ubuntu 20.04+ / Debian 11+（公网服务器，非本沙箱）
 #   - 80/443 端口可对外访问
-#   - 域名 xkzg.de5.net 的 A 记录已指向本机公网 IP
+#   - 域名 xkzg.dpdns.org 的 A 记录已指向本机公网 IP
 # ============================================================================
 set -euo pipefail
 
-DOMAIN="xkzg.de5.net"
+DOMAIN="xkzg.dpdns.org"
 APP_PORT=3001
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EMAIL="${EMAIL:-}"

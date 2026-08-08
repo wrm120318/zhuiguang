@@ -18,7 +18,7 @@
 # 📋 准备清单（2分钟）
 # ============================================================
 1. 【Replit账号】：https://replit.com → GitHub一键登录·零绑卡（如果已有直接用）
-2. 【Cloudflare账号】：您已经有了（xkzg.de5.net托管在那的）
+2. 【Cloudflare账号】：您已经有了（xkzg.dpdns.org托管在那的）
 3. 【UptimeRobot账号】：https://uptimerobot.com → 邮箱注册·零绑卡
 4. 【本地数据库文件】：您的 /workspace/server/local.db（这是19张表核心数据·必须要上传）
 
@@ -82,10 +82,10 @@ Replit免费Workspace规则：连续30-60分钟没有外部HTTP请求，项目�
    （以后不用管UptimeRobot了，它自己跑）
 
 # ============================================================
-# 🌐 Step 3 · Cloudflare Worker 纯反代绑定 xkzg.de5.net（3分钟·彻底告别隧道！）
+# 🌐 Step 3 · Cloudflare Worker 纯反代绑定 xkzg.dpdns.org（3分钟·彻底告别隧道！）
 # ============================================================
-这一步把您自己的域名 xkzg.de5.net → 转发到 Replit repl.co URL
-→ 对外完全看不到repl.co地址，用户只知道xkzg.de5.net
+这一步把您自己的域名 xkzg.dpdns.org → 转发到 Replit repl.co URL
+→ 对外完全看不到repl.co地址，用户只知道xkzg.dpdns.org
 → Worker代码从v7.5的750行（隧道轮询）→ 精简到120行（纯转发）= 稳定如磐石！不会再出现"服务重连中"弹窗！
 
 1. 打开 Cloudflare Dashboard → 左侧【Workers & Pages】→ 找到您现在用的Worker（名字是 zhuiguang-proxy 或您起的那个）→ 点进去
@@ -102,9 +102,9 @@ Replit免费Workspace规则：连续30-60分钟没有外部HTTP请求，项目�
    例：const REPLIT_ORIGIN = "https://zhuiguang-abc--wrm120318.repl.co";
 6. 右上角【Save and Deploy】→ 等3秒显示 Deployed ✅
 7. 【测试！】：
-   浏览器打开 https://xkzg.de5.net/__proxy_status → 应该返回JSON，里面target是您的repl.co URL！✅
-   再打开 https://xkzg.de5.net/login → 登录页打开！✅
-   → 大功告成！从此 xkzg.de5.net = 直接转发Replit！彻底告别Pinggy隧道+Worker轮询！
+   浏览器打开 https://xkzg.dpdns.org/__proxy_status → 应该返回JSON，里面target是您的repl.co URL！✅
+   再打开 https://xkzg.dpdns.org/login → 登录页打开！✅
+   → 大功告成！从此 xkzg.dpdns.org = 直接转发Replit！彻底告别Pinggy隧道+Worker轮询！
 
 # ============================================================
 # 🎁 Step 4（推荐·可选·体验升级）· 前端Vue上Cloudflare Pages（5分钟·静态秒开）
@@ -131,29 +131,29 @@ Replit免费Workspace规则：连续30-60分钟没有外部HTTP请求，项目�
       const PROD_API_BASE = import.meta.env.VITE_API_BASE_URL || ''
       → Pages构建时注入VITE_API_BASE_URL=Replit地址，前端axios直接发Replit·不用走同源
 5. 底部【Save and Deploy】→ 等3-5分钟构建完成→显示Your site is live ✅
-6. 【绑定您的域名 xkzg.de5.net】：
+6. 【绑定您的域名 xkzg.dpdns.org】：
    Pages项目→【Custom domains】标签→【Set up a custom domain】
-   → 输入 xkzg.de5.net → Continue → Activate domain（Cloudflare自动配DNS·2分钟Active ✅）
+   → 输入 xkzg.dpdns.org → Continue → Activate domain（Cloudflare自动配DNS·2分钟Active ✅）
 7. 【Worker要改1行！】：
-   现在您的域名指向Pages（前端）了，后端API需要单独一个子域名（比如 api.xkzg.de5.net）
+   现在您的域名指向Pages（前端）了，后端API需要单独一个子域名（比如 api.xkzg.dpdns.org）
    → Cloudflare DNS→Add record→CNAME：
       Name: api   Target: 【您的Worker域名，去Workers页面找，格式是xxx.xxx.workers.dev】   Proxy status: 开(橙色云朵)
-   → 然后去Worker→【Triggers】→【Custom Domains】→【Add Custom Domain】→ 填 api.xkzg.de5.net
+   → 然后去Worker→【Triggers】→【Custom Domains】→【Add Custom Domain】→ 填 api.xkzg.dpdns.org
    → 等2分钟生效
-   → 最后回到Pages项目→环境变量→把VITE_API_BASE_URL改成 https://api.xkzg.de5.net （Worker反代域名，对外统一）
+   → 最后回到Pages项目→环境变量→把VITE_API_BASE_URL改成 https://api.xkzg.dpdns.org （Worker反代域名，对外统一）
    → Retry Deployment重新构建
-8. Done！https://xkzg.de5.net 打开网站→秒开！API走api.xkzg.de5.net（Worker反代Replit）
+8. Done！https://xkzg.dpdns.org 打开网站→秒开！API走api.xkzg.dpdns.org（Worker反代Replit）
    （如果嫌麻烦，Step 4可以不做，Step 1-3已经完全够用，只是静态资源慢一点）
 
 # ============================================================
 # ✅ 做完后的终局架构
 # ============================================================
 ```
-用户访问 https://xkzg.de5.net
+用户访问 https://xkzg.dpdns.org
    │
    ├─【做了Step4 Pages升级】→ 🌩️ Cloudflare Pages 全球CDN（Vue dist/静态资源）
    │                              ↓ API请求
-   │                           api.xkzg.de5.net（Cloudflare Worker纯反代120行）
+   │                           api.xkzg.dpdns.org（Cloudflare Worker纯反代120行）
    │                              ↓
    │                           💻 Replit Workspace Mode（tsx server/index.ts）
    │                              ↓
@@ -161,7 +161,7 @@ Replit免费Workspace规则：连续30-60分钟没有外部HTTP请求，项目�
    │                              ↓ 文件上传旁路（保留优秀设计）
    │                           📦 Supabase Storage（前端直传，不经过Replit）
    │
-   └─【没做Step4·只用Step1-3】→ 🌐 Cloudflare Worker纯反代（xkzg.de5.net → Replit repl.co）
+   └─【没做Step4·只用Step1-3】→ 🌐 Cloudflare Worker纯反代（xkzg.dpdns.org → Replit repl.co）
                                   ↓ 整站转发
                                💻 Replit Workspace Mode + SQLite
 ```
@@ -174,7 +174,7 @@ Replit免费Workspace规则：连续30-60分钟没有外部HTTP请求，项目�
 |---|---|---|
 | Replit Run时better-sqlite3编译失败 | 原生模块编译缺gcc/g++ | Shell里执行：`npm install better-sqlite3 --build-from-source`，然后重新点Run |
 | npm install太慢超时 | Replit装依赖网络慢 | 等2分钟自己就好，或Shell里加`npm install --registry=https://registry.npmmirror.com` |
-| xkzg.de5.net打开503"启动中"刷几次就好 | Replit容器刚从休眠恢复（冷启动5-10秒） | 正常现象！UptimeRobot保活后99.9%用户不会遇到；偶尔遇到等5秒自动刷新就好 |
+| xkzg.dpdns.org打开503"启动中"刷几次就好 | Replit容器刚从休眠恢复（冷启动5-10秒） | 正常现象！UptimeRobot保活后99.9%用户不会遇到；偶尔遇到等5秒自动刷新就好 |
 | /login打开404 | 上传的local.db路径错了！不是在根目录！ | Replit文件树：路径必须是 **server/local.db**（子目录，不是根目录），检查一遍 |
 | JWT登录成功但立刻401跳回登录 | 本地生成JWT_SECRET和Replit环境变量不一样 | Replit左侧【Tools】→【Secrets】→ 加一条：Key=`JWT_SECRET`，Value=您本地.env里的字符串（如果不记得，沙箱里cat /workspace/.env 看一眼），然后Replit重新点Run |
 | 点击登录按钮没反应 | 浏览器缓存了旧的503重连HTML | Ctrl+Shift+R 强制刷新（清缓存刷新）立刻好 |

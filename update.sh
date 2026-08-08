@@ -72,7 +72,7 @@ fi
 
 echo "" | tee -a "$LOG"
 if [ "$HTTP" = "200" ]; then
-  echo "✅ 更新完成！打开 https://xkzg.de5.net 验证" | tee -a "$LOG"
+  echo "✅ 更新完成！打开 https://xkzg.dpdns.org 验证" | tee -a "$LOG"
 else
   echo "❌ 服务异常，请检查日志：tail -50 /tmp/zhuiguang-app.log" | tee -a "$LOG"
 fi

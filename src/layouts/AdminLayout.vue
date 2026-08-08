@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 
@@ -9,6 +10,34 @@ const router = useRouter()
 const user = useUserStore()
 const data = useDataStore()
 const mobileOpen = ref(false)
+const repairing = ref(false)
+
+// 🔧 小白一键修复：SUPER_ADMIN点按钮就自动调后端跑fix.sh（10分钟锁）
+async function selfRepair() {
+  if (!user.isSuperAdmin) return
+  try {
+    await ElMessageBox.confirm(
+      '网站出现问题了吗？点击确定，服务器会在1~2分钟内自动修复全部故障（后端崩溃、隧道断了、1016/530错误），您只需稍后刷新页面即可。\n\n💡 小提示：也可以直接和我对话说「网站又挂了」，我会立刻帮您修好。',
+      '🔧 小白一键修复',
+      { confirmButtonText: '确定开始自动修复', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+  if (repairing.value) { ElMessage.warning('修复正在进行中，请耐心等待1~2分钟后按F5刷新'); return }
+  repairing.value = true
+  ElMessage.info('🔄 自动修复已启动！正在重启后端+重建隧道，请耐心等待1~2分钟，然后多按几次F5刷新页面...')
+  try {
+    const r = await fetch('/api/admin/self-repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+    const d = await r.json().catch(() => ({}))
+    if (d?.msg) ElMessage.success('✅ ' + d.msg)
+    setTimeout(() => { repairing.value = false }, 70 * 1000)
+  } catch (e: any) {
+    ElMessage.error('自动修复启动失败：' + (e?.message || '未知错误'))
+    repairing.value = false
+  }
+}
 
 const menus = computed(() => {
   const list: { name: string; label: string; icon: string; badge?: number; role?: string }[] = [
@@ -69,6 +98,19 @@ function go(name: string) {
         <transition name="fade" mode="out-in"><component :is="Component" /></transition>
       </router-view>
     </main>
+
+    <!-- 🔧 小白一键修复按钮：只有超级管理员能看到，悬浮在右下角，永远不挡内容 -->
+    <button
+      v-if="user.isSuperAdmin"
+      class="zg-self-repair-btn"
+      :class="{ repairing: repairing }"
+      @click="selfRepair"
+      :disabled="repairing"
+      title="🔧 小白一键修复：如果网站出问题（1016/530、点不动、白屏），点这里1~2分钟自动修好！"
+    >
+      <span class="zg-sr-icon">{{ repairing ? '⏳' : '🔧' }}</span>
+      <span class="zg-sr-text">{{ repairing ? '修复中...' : '一键修复' }}</span>
+    </button>
   </div>
 </template>
 
@@ -122,5 +164,48 @@ function go(name: string) {
   .sb-icon { font-size: 19px; }
   .admin-main { padding: 14px 14px calc(24px + env(safe-area-inset-bottom)); }
   .sb-mask { display:block; position: fixed; inset: 0; z-index: 155; background: rgba(0,0,0,0.25); backdrop-filter: blur(2px); animation: zgFadeIn .25s; }
+}
+
+/* 🔧 小白一键修复按钮：右下角悬浮，超级管理员专属（只有登录后看到） */
+.zg-self-repair-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 28px;
+  z-index: 99999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 40%, #f59e0b 100%);
+  box-shadow: 0 8px 28px rgba(239,68,68,.35), 0 2px 6px rgba(245,158,11,.18);
+  transition: all .2s cubic-bezier(.2,.8,.2,1);
+  animation: zgPulse 2.4s ease-in-out infinite;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.zg-self-repair-btn:hover { transform: translateY(-2px) scale(1.03); box-shadow: 0 12px 36px rgba(239,68,68,.42), 0 4px 10px rgba(245,158,11,.22); }
+.zg-self-repair-btn:active { transform: translateY(0) scale(0.98); }
+.zg-self-repair-btn:disabled,
+.zg-self-repair-btn.repairing {
+  background: linear-gradient(135deg, #64748b 0%, #94a3b8 100%);
+  cursor: not-allowed;
+  animation: none;
+  box-shadow: 0 4px 14px rgba(100,116,139,.25);
+}
+.zg-sr-icon { font-size: 16px; line-height: 1; }
+.zg-sr-text { letter-spacing: .5px; }
+
+@keyframes zgPulse {
+  0%,100% { box-shadow: 0 8px 28px rgba(239,68,68,.35), 0 2px 6px rgba(245,158,11,.18); }
+  50%     { box-shadow: 0 10px 34px rgba(239,68,68,.52), 0 3px 10px rgba(245,158,11,.28); }
+}
+@media (max-width: 640px) {
+  .zg-self-repair-btn { right: 14px; bottom: 20px; padding: 10px 14px; font-size: 13px; }
 }
 </style>

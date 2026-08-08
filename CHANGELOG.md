@@ -1,0 +1,199 @@
+# 更新日志（CHANGELOG）
+
+> 本文件记录「追光 · 学科共享平台」所有版本的变更内容，按时间倒序排列。
+> 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 规范。
+
+---
+
+## [v2.0.0] - 2026-08-08
+
+### 概述
+
+**架构大迁移：从「Pinggy SSH 隧道 + 本地 Node.js Express + SQLite」全面迁移至「Cloudflare Workers + D1 + Pages + Supabase」无服务器架构。** 彻底告别隧道，全免费、零绑卡、全球 CDN 秒开、永不休眠。
+
+### 新增
+
+- **Cloudflare Workers 后端**：新增 `worker-api.ts`，基于 Hono 框架，从 Express 版本（`server/index.ts`）转换而来，保留全部 115+ 路由的完整业务逻辑、SQL 查询、JWT 认证、Supabase Storage 集成。
+- **Cloudflare D1 数据库**：新增 `schema.sql` 完整建表脚本（23 张表 + 索引），新增 `wrangler.toml` 配置文件（D1 binding + 环境变量）。
+- **数据迁移脚本**：新增 `scripts/migrate-to-d1.sh`，支持从本地 SQLite（`server/local.db`）迁移存量数据到 Cloudflare D1。
+- **前端动态 API 地址**：改造 `src/api/http.ts`，支持通过 `VITE_API_BASE_URL` 环境变量在构建时注入后端 Worker 地址，零代码修改适配本地开发/云端分离部署。
+- **部署文档**：新增 `Workers-D1上云指南.md`，详细记录 Cloudflare Workers + D1 + Pages 部署全流程。
+
+### 变更
+
+- **后端部署方式**：从本地 Node.js Express（`server/index.ts`，监听 3001 端口）迁移至 Cloudflare Workers（`worker-api.ts`，边缘运行）。
+- **数据库**：从本地 SQLite（`server/local.db`）迁移至 Cloudflare D1（`zhuiguang-db`）。
+- **前端部署**：从本地 Vite 开发服务器 + 隧道暴露，迁移至 Cloudflare Pages（绑定 `xkzg.dpdns.org`，全球 CDN）。
+- **文件存储**：保留 Supabase Storage 前端直传 presign URL 架构不变（Bucket: `zhuiguang`）。
+
+### 移除
+
+- **Pinggy SSH 隧道**：彻底移除隧道依赖（`tunnel-keeper.sh`、`keep-alive.sh` 等守护脚本不再需要）。
+- **Worker 反向代理**：移除原 `worker.js` 反向代理逻辑（不再需要 Worker 转发到隧道）。
+- **never-die-guard 保活**：移除本地保活脚本（云端永不休眠）。
+- **rc.local 开机自启**：移除本地开机自启配置（不再依赖本地服务器）。
+
+### 架构对比
+
+| 维度 | v1.x（隧道方案） | v2.0.0（无服务器） |
+|---|---|---|
+| 稳定性 | 依赖 Pinggy 节点，55 分钟必须刷新，1016 频繁 | 云端 7x24 常驻，零刷新零隧道 |
+| 速度 | 国内→香港隧道→沙箱→返回，慢 | Cloudflare 全球 CDN，快 3-5 倍 |
+| 维护成本 | 多个守护脚本 + 杀僵尸 + 推 GitHub | 什么都不用管，点按钮部署 |
+| 电脑关机 | 沙箱关了网站立刻挂 | 电脑关机网站照样在线 |
+| 费用 | 零 | 零 |
+
+### 注意事项
+
+- `server/index.ts` 保留用于本地开发，生产环境使用 `worker-api.ts`。
+- 后端改动须同时修改 `worker-api.ts` 和 `server/index.ts` 保持一致。
+- `worker-api.ts` 改动后须手动 `npx wrangler deploy` 部署（Pages 不会自动部署 Worker）。
+- `schema.sql` 改动后须手动 `npx wrangler d1 execute` 执行。
+
+---
+
+## [v1.2.0] - 2026-08-05
+
+### 概述
+
+**Worker v5 双路兜底 + start-all 依赖加固。** 在隧道方案末期，针对 Pinggy 隧道 60 分钟强制过期导致频繁 1016/530 错误的问题，做了最后的兜底加固，并完善了自动修复机制。
+
+### 新增
+
+- **Worker v5 双路兜底**：Cloudflare Worker 反向代理同时维护多个隧道 URL 候选池，假死 URL 自动剔除，随机轮询可用 URL，降低单点故障率。
+- **公开修复路由 `GET /__zg_fix`**：无需登录、无需进后台，浏览器地址栏直接输入 `xkzg.dpdns.org/__zg_fix` 即可触发自动修复。返回独立 HTML 页面，含 IP 限频（1 小时最多 2 次）和 10 分钟互斥锁。
+- **健康检查接口 `GET /__zg_health`**：固定返回 `OK:<timestamp>`，永远 HTTP 200，供保活脚本验证。
+- **登录页修复按钮**：`LoginView.vue` 右上角新增极小圆形修复按钮，点击新标签页打开 `/__zg_fix`，能看到登录页就能修复。
+- **后台修复按钮**：`AdminLayout.vue` 右下角新增橙红色"一键修复"呼吸动画大按钮。
+- **never-die-guard v3.0**：3 秒保活 + 15 秒 Python 代理验真活 URL，假死 URL 立即剔除，根治 60 分钟过期问题。
+- **rc.local 开机自启**：配置开机自动启动后端 + SSH 自恢复 + NDG 保活。
+
+### 变更
+
+- **start-all.sh 依赖加固**：启动前自动检查 `node_modules` 是否存在，不存在则自动 `npm install`；加载 `.env` 环境变量；进程崩溃后 3 秒自动重启。
+- **SELF_REPAIR_LOCK 前置**：互斥锁定义移至 `const app = express()` 之后最开头，修复 `Cannot access before initialization` 崩溃问题；删除重复声明。
+
+### 修复
+
+- 修复 `SELF_REPAIR_LOCK` 定义在 1192 行但 `/__zg_fix` 在 30 行引用导致 `Cannot access before initialization` 崩溃。
+- 修复 `never-die-guard` 验证的健康检查接口不存在（404 假死）问题。
+- 修复 Pinggy 免费 SSH 隧道每 60 分钟强制过期，旧 URL 残留在候选池导致 530/1016 错误。
+
+---
+
+## [v1.1.0] - 2026-08-04
+
+### 概述
+
+**Bug9 大修复。** 用户一次性报告 9 条业务 Bug，涉及美文审核、评论、账号禁用、注册开关、学生确认美文、状态标注、经验记录、审核积分、教师权限，全部修复并通过 10/10 回归验证。
+
+### 修复
+
+#### Bug1：美文审核篡改作者 + 经验错加
+
+- **问题**：学生发美文 → 超管审核 → 系统强行把作者篡改成超管，经验也错加到超管。
+- **根因**：审核逻辑 UPDATE 时顺手改了 `user_id`，经验 `addExp` 给了审核人而非原作者。
+- **修复**：`PATCH articles/:id/status` 只改 status 不改 user_id；发文经验 `addExp` 绑定实际作者。
+
+#### Bug2：美文评论接口 500
+
+- **问题**：美文共赏评论功能失效，接口报 500。
+- **根因**：SQLite/libsql 返回的 `lastInsertRowid` 是 BigInt，`JSON.stringify` 报错。
+- **修复**：评论接口 `Number(r.lastInsertRowid)` 显式转 number 后返回。
+
+#### Bug3：美文审核形同虚设
+
+- **问题**：点了审核状态不变，列表还是显示全部。
+- **根因**：①路由顺序 `pending-student` 被 `/:id` 吃掉；②status 更新 SQL 的 WHERE 没写对。
+- **修复**：①`pending-student` 等具体路由前置；②UPDATE 用正确 WHERE id=?。
+
+#### Bug4：账号禁用未生效
+
+- **问题**：被禁用者正在使用时不会被踢下线，之后还能登录。
+- **根因**：登录接口未判断 `users.status === 'disabled'`。
+- **修复**：登录密码校验通过后额外检查 status，禁用则返回"账号已被禁用"；auth 中间件每次请求检查 status。
+
+#### Bug5：注册开关缺失
+
+- **问题**：管理员无法在管理面板开关注册功能。
+- **根因**：①前端 FeatureFlagsView 漏了 `registration_enabled` 项；②后端 helpers 未合并 KV 表值；③无 public 接口给登录页读开关。
+- **修复**：①ALL_FLAGS 数组加自助注册卡片；②`getFeatureFlags()` 读 `feature_flags` KV 表；③新增 `GET /api/feature-flags/public`。
+
+#### Bug6：学生确认美文发布功能缺失
+
+- **问题**：教师代发美文后，学生无法确认发布，别人看不到。
+- **根因**：①前端缺"待我确认美文"入口；②缺 `student-approve`/`student-reject` 接口；③缺 messages 富文本通知。
+- **修复**：①补 `POST /api/articles/:id/student-approve` & `student-reject`；②代发后 `addNotice` + INSERT messages 富文本；③前端补 pending-student 列表页入口。
+
+#### Bug7：美文状态未标注 + 可见性错误
+
+- **问题**：未审核/未通过/未确认的美文未标注状态，且不应可见的人能看到。
+- **根因**：①详情/列表 SQL 未 JOIN 出作者名；②列表查询缺少行级可见性判断。
+- **修复**：①articles 查询统一 JOIN users；②列表 WHERE 叠加可见性条件（自己是作者 OR 教师任教学科 OR 超管）；③前端统一渲染状态标签（pending/pending_student=黄色, rejected=红色, approved=绿色）。
+
+#### Bug8：经验记录显示异常
+
+- **问题**：个人中心经验记录空白/全 undefined/报错。
+- **根因**：①接口路由错（前端调 `/exp-logs`，后端是 `/exp/logs`）；②返回字段名不匹配。
+- **修复**：统一后端 `GET /api/exp/logs` 返回数组 `{id, user_id, action_type, exp_change, description, created_at}`，前端对齐字段名。
+
+#### Bug9：教师权限越界
+
+- **问题**：学科教师管理页面看到了用户管理/功能开关/经验设置/删用户等不该有的权限。
+- **根因**：①`/api/users` 等用了 `requireStaff` 而非 `requireRole('SUPER_ADMIN')`；②前端 sidebar 菜单 teacher 角色漏 v-if 限制。
+- **修复**：①敏感接口统一 `requireRole('SUPER_ADMIN')`（/api/users、/api/settings/feature_flags、/api/exp/* 写接口）；②前端菜单用 computed 按 role 过滤。
+
+### 变更
+
+- `server/index.ts`：路由顺序修复、权限中间件加固、BigInt 转换、新增 student-approve/reject 路由、新增 feature-flags/public 接口。
+- `server/helpers.ts`：`getFeatureFlags()` 从 `feature_flags` KV 表读 `registration_enabled`。
+- `server/db.ts`：新建 `article_comments` 表 + 索引。
+
+### 验证
+
+- 回归验证脚本 `/data/user/work/full_verify_9bugs_v2.py`，10/10 全部通过。
+
+---
+
+## [v1.0.0] - 2026-08-04
+
+### 概述
+
+**初版完整交接文档。** 项目首个正式版本，完成全部核心功能开发，整理完整交接文档，确立项目维护规范。
+
+### 新增
+
+- **完整交接文档**：创建 `交接文档_追光学科共享平台.md`，涵盖项目身份卡、凭证、部署架构、技术栈、数据库结构、核心文件索引、文件上传架构、角色权限、业务规则、Bug 清单、功能清单、运维指南、常用命令、故障排查、维护约束、时间线共 16 章。
+- **开发工作日志**：创建 `开发工作日志_追光平台.md`，逐条记录所有开发/运维/验证工作。
+- **维护者提示词**：创建 `给新AI维护者的提示词_首条消息必贴.txt`，确立 10 条铁律。
+
+### 核心功能（全部上线）
+
+- 美文共享（含审核流程、评论、点赞、学生确认发布）
+- 资料共享（含分类、收藏、下载、审核）
+- 题库自测（含单选/多选/判断、自动/手动批改、成绩报告）
+- 单题训练（学科题目池、即时反馈、教师批阅）
+- 成绩查询（教师发布成绩表、学生查询、Excel 导出）
+- 站内信（师生互发、附件、未读提醒、全量联系人）
+- 经验值系统（登录/发文/答题/审核等行为、自动升级、排行榜）
+- 班级学科管理（班级、成员、学科、模块、公告）
+- 公告与指南、主题切换、功能开关、用户管理
+
+### 技术栈（v1.0.0 时期）
+
+- 前端：Vue 3 + Element Plus + Vite + Pinia + Vue Router
+- 后端：Node.js + Express + tsx + better-sqlite3（本地 SQLite）
+- 文件存储：Supabase Storage（前端直传 presign URL）
+- 对外访问：Pinggy 免费 SSH 隧道 + Cloudflare Worker 反向代理
+- 域名：https://xkzg.dpdns.org
+
+### 数据库
+
+- 23 张表完整建表（users, classes, class_members, subjects, articles, resources, query_tasks, query_rows, exp_logs, notices, pages, page_comments, messages, quizzes, quiz_questions, quiz_submissions, subject_questions, practice_submissions, likes_map, article_comments, feature_flags, themes, settings）
+- 首次运行自动建表 + 种子数据（超管账号、2 个班级、9 个学科、默认主题）
+
+### 默认初始数据
+
+- 超管账号：`admin` / `admin123456`
+- 2 个班级：高二 1 班、高二 2 班
+- 9 个学科：语文、数学、英语、物理、化学、生物、政治、历史、地理 + 信息技术

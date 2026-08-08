@@ -5,7 +5,7 @@
 #
 # 🔹 WatchDog A（3秒/次）  - 后端进程+3001HTTP，非200 3秒内拉起
 # 🔹 WatchDog B（10秒/次） - SSH隧道<2条 立即补建；每60秒 全量活着的URL+历史→写GitHub（≥3条候选）
-# 🔹 WatchDog C（30秒/次） - 线上xkzg.de5.net 1次非200 → 自动触发bash /workspace/fix.sh（有10分钟锁）
+# 🔹 WatchDog C（30秒/次） - 线上xkzg.dpdns.org 1次非200 → 自动触发bash /workspace/fix.sh（有10分钟锁）
 #
 # 启动方式： nohup bash /workspace/daemon-watchdog.sh >> /tmp/daemon-watchdog.log 2>&1 &
 # 验证： ps aux | grep daemon-watchdog （应有 ~10 个进程=1主+3子while+sleep们）
@@ -120,7 +120,7 @@ print(json.dumps(d))" "$encoded" "$sha")
 log "=========== daemon-watchdog v1.1 【终极无缝版】启动 ==========="
 log "🔹 A(3s): 后端3001 HTTP检测，挂了3秒内拉起"
 log "🔹 B(10s): SSH隧道进程<2立即补建 + 每60s自动合并所有活着URL→写GitHub(≥3条候选)"
-log "🔹 C(30s): 线上xkzg.de5.net 1次非200→自动bash /workspace/fix.sh"
+log "🔹 C(30s): 线上xkzg.dpdns.org 1次非200→自动bash /workspace/fix.sh"
 log "================================================================"
 
 # ============================================================
@@ -208,7 +208,7 @@ log "✅ WatchDog B 启动 PID=$WDB_PID"
 (
   while true; do
     sleep 30
-    C=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://xkzg.de5.net/login?t=$(date +%s%3N)" 2>&1)
+    C=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://xkzg.dpdns.org/login?t=$(date +%s%3N)" 2>&1)
     if [ "$C" != "200" ]; then
       log "⚠️ [C] 线上HTTP=$C ≠200，自动触发 bash /workspace/fix.sh..."
       if can_fix; then

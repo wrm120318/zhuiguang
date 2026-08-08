@@ -2,7 +2,7 @@
 // 🚀 追光学科共享平台 · Cloudflare Worker 纯反向代理版 v1.0（Replit Workspace模式专用）
 // ============================================================
 //
-// 🎯 作用：彻底告别隧道！所有请求 xkzg.de5.net → 直接转发到 Replit Workspace repl.co URL
+// 🎯 作用：彻底告别隧道！所有请求 xkzg.dpdns.org → 直接转发到 Replit Workspace repl.co URL
 //     删除了所有复杂的：隧道轮询 / 健康探测 / GitHub拉取 / 多源熔断 逻辑
 //     代码从v7.5的750行精简到~120行，稳定如磐石，不会再出现"服务重连"弹窗！
 //

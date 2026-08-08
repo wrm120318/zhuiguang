@@ -16,14 +16,16 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "@supabase/supabase-js": "^2.45.0",
+    "@supabase/supabase-js": "^2.112.2",
     "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "echarts": "^5.5.1",
     "element-plus": "^2.8.4",
     "express": "^5.2.1",
+    "hono": "^4.13.1",
     "jsonwebtoken": "^9.0.3",
     "localtunnel": "^2.0.2",
     "marked": "^18.0.7",
@@ -42,10 +44,10 @@
     "@types/multer": "^2.2.0",
     "@vitejs/plugin-vue": "^5.1.4",
     "concurrently": "^10.0.4",
-    "typescript": "^5.6.3",
+    "typescript": "^5.9.3",
     "unplugin-auto-import": "^0.18.3",
     "unplugin-vue-components": "^0.27.4",
     "vite": "^5.4.10",
-    "vue-tsc": "^2.1.10"
+    "vue-tsc": "^2.2.12"
   }
 }

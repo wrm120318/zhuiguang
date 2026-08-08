@@ -100,17 +100,17 @@ curl -X POST https://zhuiguang-api.xxx.workers.dev/api/auth/login \
    - 例：`https://zhuiguang-api.xxx.workers.dev`
 5. Save and Deploy → 等3分钟构建完成 ✅
 
-### Step 7·绑定域名 xkzg.de5.net（2分钟）
+### Step 7·绑定域名 xkzg.dpdns.org（2分钟）
 1. Pages项目 → Custom domains → Set up a custom domain
-2. 输入 `xkzg.de5.net` → Continue → Activate
+2. 输入 `xkzg.dpdns.org` → Continue → Activate
 3. Cloudflare自动配置DNS → 2分钟Active ✅
-4. 打开 https://xkzg.de5.net → **网站秒开！登录正常！彻底告别隧道！**
+4. 打开 https://xkzg.dpdns.org → **网站秒开！登录正常！彻底告别隧道！**
 
 ---
 
 ## ✅ 做完后的终局架构
 ```
-用户访问 xkzg.de5.net
+用户访问 xkzg.dpdns.org
   ↓ Cloudflare全球CDN（300+节点·国内<50ms）
 🌤️ Cloudflare Pages（Vue静态前端）
   ↓ API请求

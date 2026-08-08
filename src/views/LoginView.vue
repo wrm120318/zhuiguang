@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,6 +13,7 @@ const mode = ref<'login' | 'register'>('login')
 const form = ref({ username: '', password: '', realName: '', email: '', phone: '' })
 const loading = ref(false)
 const regEnabled = ref(true)
+const fixing = ref(false)
 
 onMounted(async () => {
   try {
@@ -42,6 +43,27 @@ async function submit() {
     ElMessage.error(e?.response?.data?.message || e?.message || '操作失败')
   } finally { loading.value = false }
 }
+
+// 🔧 登录页右上角小扳手：不用登录、不用进后台、网站半挂也能点修
+async function clickFixLoginPage() {
+  if (fixing.value) { ElMessage.warning('修复正在跑，请耐心等1~2分钟后F5刷新'); return }
+  try {
+    await ElMessageBox.confirm(
+      '网站有问题吗？点确定后服务器会在1~2分钟内自动修好（后端崩溃、隧道断了、1016/530错误都能修），您只需稍后多按几次F5刷新页面即可。\n\n💡 终极方案：如果连这个按钮都点不了 → 直接和AI助手说「网站挂了」，0操作成本。',
+      '🔧 一键修复（不用登录）',
+      { confirmButtonText: '确定自动修复', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+  fixing.value = true
+  // 关键：直接打开 /__zg_fix 新标签页（就算Vue崩了也没事，后端直接返回HTML）
+  try {
+    window.open('/__zg_fix', '_blank')
+    ElMessage.info('🔄 新标签页已打开修复页面！请耐心等待1~2分钟，然后多按几次F5刷新本页～')
+  } catch {
+    location.href = '/__zg_fix'
+  }
+  setTimeout(() => { fixing.value = false }, 70 * 1000)
+}
 </script>
 
 <template>
@@ -51,6 +73,14 @@ async function submit() {
       <div class="lb-orb b"></div>
       <div class="lb-orb c"></div>
     </div>
+    <!-- 🔧 登录页右上角极小的「🔧」修复按钮（不用登录，能看到登录页就能点！） -->
+    <button
+      class="zg-login-fix-btn"
+      :class="{ on: fixing }"
+      @click="clickFixLoginPage"
+      :disabled="fixing"
+      title="🔧 一键修复：网站出问题（1016/530/白屏/点不动）点这里，不用登录！"
+    >{{ fixing ? '⏳' : '🔧' }}</button>
     <div class="login-card glass-strong zg-scale-in">
       <div class="lc-logo">
         <span class="lc-emoji">🌟</span>
@@ -109,5 +139,40 @@ async function submit() {
   .lc-emoji { font-size: 44px; }
   .lc-logo h1 { font-size: 40px; }
   .lc-subtitle { font-size: 15px; margin-bottom: 36px; }
+}
+
+/* 🔧 登录页右上角小修复按钮：极小，不挡UI，只有管理员知道用途 */
+.zg-login-fix-btn {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 99999;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+  font-size: 17px;
+  line-height: 1;
+  transition: all .25s cubic-bezier(.2,.8,.2,1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.zg-login-fix-btn:hover {
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  color: #fff;
+  transform: scale(1.12) rotate(-12deg);
+  box-shadow: 0 6px 18px rgba(239,68,68,.3);
+}
+.zg-login-fix-btn:active { transform: scale(0.95); }
+.zg-login-fix-btn:disabled,
+.zg-login-fix-btn.on { background: rgba(100,116,139,.25); color: #475569; cursor: not-allowed; animation: zgSpin 1.4s linear infinite; transform: none; box-shadow: none; }
+@keyframes zgSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .zg-login-fix-btn { top: 12px; right: 12px; width: 32px; height: 32px; font-size: 15px; }
 }
 </style>

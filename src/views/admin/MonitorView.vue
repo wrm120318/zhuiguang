@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
@@ -11,12 +11,14 @@ const chart2 = ref<HTMLDivElement>()
 let c1: echarts.ECharts | null = null
 let c2: echarts.ECharts | null = null
 let timer: any = null
+let renderRetryTimer: any = null
 
 async function load() {
   loading.value = true
   try {
     data.value = await api.monitor() as any
-    renderCharts()
+    await nextTick()
+    scheduleRender(0)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '加载监控数据失败')
   } finally {
@@ -24,11 +26,26 @@ async function load() {
   }
 }
 
+function scheduleRender(attempt: number) {
+  if (attempt > 3) return
+  const r1 = document.querySelector<HTMLElement>('[data-chart="c1"]') || chart1.value
+  const r2 = document.querySelector<HTMLElement>('[data-chart="c2"]') || chart2.value
+  if (r1 || r2 || attempt > 0) {
+    renderCharts()
+  }
+  if ((!chart1.value || !chart2.value) && attempt < 3) {
+    renderRetryTimer = setTimeout(() => scheduleRender(attempt + 1), 300)
+  }
+}
+
 function renderCharts() {
   if (!data.value) return
+  const dom1 = chart1.value || document.querySelector<HTMLElement>('[data-chart="c1"]')
+  const dom2 = chart2.value || document.querySelector<HTMLElement>('[data-chart="c2"]')
   // 7天活跃趋势图
-  if (chart1.value) {
-    if (!c1) c1 = echarts.init(chart1.value)
+  if (dom1) {
+    if (!c1) c1 = echarts.init(dom1 as any)
+    else c1.resize()
     c1.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       legend: { textStyle: { color: '#78350F' }, top: 0 },
@@ -40,51 +57,45 @@ function renderCharts() {
         axisLine: { lineStyle: { color: 'rgba(245,158,11,.3)' } }
       },
       yAxis: [
-        {
-          type: 'value', name: '活跃用户',
-          axisLabel: { color: '#78350F' },
-          splitLine: { lineStyle: { color: 'rgba(245,158,11,.12)' } }
-        },
-        {
-          type: 'value', name: '美文数',
-          axisLabel: { color: '#78350F' },
-          splitLine: { show: false }
-        }
+        { type: 'value', name: '活跃用户', axisLabel: { color: '#78350F' }, splitLine: { lineStyle: { color: 'rgba(245,158,11,.12)' } } },
+        { type: 'value', name: '美文数', axisLabel: { color: '#78350F' }, splitLine: { show: false } }
       ],
       series: [
-        {
-          name: '活跃用户', type: 'bar',
-          data: data.value.dailyActive.map((d: any) => d.users),
-          itemStyle: { color: '#f59e0b', borderRadius: [6, 6, 0, 0] }
-        },
-        {
-          name: '美文数', type: 'line', yAxisIndex: 1, smooth: true,
-          data: data.value.dailyActive.map((d: any) => d.articles),
-          itemStyle: { color: '#ef4444' },
-          lineStyle: { width: 3 },
-          areaStyle: { color: 'rgba(239,68,68,.12)' }
-        }
+        { name: '活跃用户', type: 'bar', data: data.value.dailyActive.map((d: any) => d.users), itemStyle: { color: '#f59e0b', borderRadius: [6, 6, 0, 0] } },
+        { name: '美文数', type: 'line', yAxisIndex: 1, smooth: true, data: data.value.dailyActive.map((d: any) => d.articles), itemStyle: { color: '#ef4444' }, lineStyle: { width: 3 }, areaStyle: { color: 'rgba(239,68,68,.12)' } }
       ]
-    })
+    }, true)
+    requestAnimationFrame(() => c1?.resize())
   }
-  // 服务器饼图
-  if (chart2.value) {
-    if (!c2) c2 = echarts.init(chart2.value)
+  // 学科内容分布饼图
+  if (dom2) {
+    if (!c2) c2 = echarts.init(dom2 as any)
+    else c2.resize()
+    const pieData = (data.value.subjectDist || []).map((s: any) => ({
+      name: s.name, value: s.value
+    }))
     c2.setOption({
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       legend: { textStyle: { color: '#78350F' }, bottom: 0, type: 'scroll' },
       series: [{
         type: 'pie', radius: ['45%', '70%'], center: ['50%', '45%'],
         label: { color: '#78350F', formatter: '{b}\n{d}%' },
-        data: [
-          { name: '已用内存', value: data.value.server.usedMem, itemStyle: { color: '#f59e0b' } },
-          { name: '空闲内存', value: data.value.server.freeMem, itemStyle: { color: '#34d399' } },
-        ],
+        data: pieData.length > 0 ? pieData : [{ name: '暂无数据', value: 1, itemStyle: { color: '#e5e7eb' } }],
         itemStyle: { borderColor: 'rgba(245,158,11,.3)', borderWidth: 2 }
       }]
-    })
+    }, true)
+    requestAnimationFrame(() => c2?.resize())
   }
 }
+
+watch([data, chart1, chart2], ([nv, c1d, c2d]) => {
+  if (nv && (c1d || c2d)) {
+    nextTick(() => {
+      renderCharts()
+      requestAnimationFrame(() => resize())
+    })
+  }
+}, { flush: 'post' })
 
 const tableNameZh: Record<string, string> = {
   users: '用户', classes: '班级', class_members: '班级成员', subjects: '学科',
@@ -94,23 +105,24 @@ const tableNameZh: Record<string, string> = {
   subject_questions: '单题训练题', practice_submissions: '训练提交', likes_map: '点赞收藏',
 }
 
+const totalTableRows = computed(() => {
+  if (!data.value?.database?.tables) return 0
+  return Object.values(data.value.database.tables).reduce((s: number, n: any) => s + Number(n), 0)
+})
+
 function resize() { c1?.resize(); c2?.resize() }
 
 onMounted(async () => {
   await load()
-  // 自动刷新：30秒一次
-  timer = setInterval(load, 30000)
+  timer = setInterval(load, 15000)
   window.addEventListener('resize', resize)
 })
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  if (renderRetryTimer) clearTimeout(renderRetryTimer)
   window.removeEventListener('resize', resize)
   c1?.dispose(); c2?.dispose()
 })
-
-function pctBar(pct: number, color = '#f59e0b') {
-  return `background:linear-gradient(90deg, ${color} ${pct}%, rgba(245,158,11,.08) ${pct}%);border-radius:8px;padding:4px 10px;font-weight:700;`
-}
 </script>
 
 <template>
@@ -119,7 +131,7 @@ function pctBar(pct: number, color = '#f59e0b') {
       <h1 class="dh-title">🖥️ 网站运行监控</h1>
       <div>
         <el-button @click="load" :loading="loading">🔄 刷新</el-button>
-        <span class="auto-refresh-hint">自动每30秒刷新</span>
+        <span class="auto-refresh-hint">自动每15秒刷新</span>
       </div>
     </div>
 
@@ -185,54 +197,53 @@ function pctBar(pct: number, color = '#f59e0b') {
         </div>
       </div>
 
-      <!-- 服务器状态 -->
-      <div class="section-title">🖥️ 服务器运行状态</div>
+      <!-- Cloudflare 平台状态 + 用户角色分布 -->
+      <div class="section-title">☁️ Cloudflare 平台状态</div>
       <div class="row">
-        <div class="glass info-panel server">
-          <div class="ip-title">💻 系统信息</div>
-          <div class="kv"><span class="k">主机名</span><span class="v">{{ data.server.hostname }}</span></div>
-          <div class="kv"><span class="k">系统</span><span class="v">{{ data.server.platform }} / {{ data.server.arch }}</span></div>
-          <div class="kv"><span class="k">CPU</span><span class="v">{{ data.server.cpuModel }}</span></div>
-          <div class="kv"><span class="k">核心数</span><span class="v">{{ data.server.cpuCores }} 核</span></div>
-          <div class="kv"><span class="k">系统运行</span><span class="v strong">{{ data.server.serverUptimeFmt }}</span></div>
-          <div class="kv"><span class="k">Node运行</span><span class="v strong">{{ data.server.nodeUptimeFmt }}</span></div>
+        <div class="glass info-panel">
+          <div class="ip-title">🌐 运行环境</div>
+          <div class="kv"><span class="k">运行时</span><span class="v strong">{{ data.platform.runtime }}</span></div>
+          <div class="kv"><span class="k">边缘节点</span><span class="v strong">{{ data.platform.colo }}</span></div>
+          <div class="kv"><span class="k">访问地区</span><span class="v">{{ data.platform.country }}</span></div>
+          <div class="kv"><span class="k">HTTP协议</span><span class="v">{{ data.platform.httpProtocol }}</span></div>
+          <div class="kv"><span class="k">TLS加密</span><span class="v">{{ data.platform.tlsVersion }}</span></div>
+          <div class="kv"><span class="k">边缘部署</span><span class="v strong" style="color:#10b981;">✅ 是</span></div>
         </div>
 
         <div class="glass info-panel">
-          <div class="ip-title">⚡ CPU & 内存负载</div>
-          <div class="bar-row">
-            <div class="br-label">1分钟负载</div>
-            <div class="br-bar">{{ data.server.loadAvg1.toFixed(2) }}</div>
-          </div>
-          <div class="bar-row">
-            <div class="br-label">5分钟负载</div>
-            <div class="br-bar">{{ data.server.loadAvg5.toFixed(2) }}</div>
-          </div>
-          <div class="bar-row">
-            <div class="br-label">15分钟负载</div>
-            <div class="br-bar">{{ data.server.loadAvg15.toFixed(2) }}</div>
-          </div>
-          <div class="bar-row">
-            <div class="br-label">内存使用率</div>
-            <div class="br-bar" :style="pctBar(data.server.memUsagePct, data.server.memUsagePct>80?'#ef4444':'#f59e0b')">
-              {{ data.server.memUsagePct }}% · {{ data.server.usedMemFmt }} / {{ data.server.totalMemFmt }}
-            </div>
-          </div>
-          <div class="bar-row">
-            <div class="br-label">Node堆内存</div>
-            <div class="br-bar" :style="pctBar(data.server.nodeHeapPct, '#f97316')">
-              {{ data.server.nodeHeapPct }}% · {{ data.server.nodeHeapUsedFmt }} / {{ data.server.nodeHeapTotalFmt }}
-            </div>
-          </div>
-          <div class="bar-row">
-            <div class="br-label">Node总占用(RSS)</div>
-            <div class="br-bar">{{ data.server.nodeRssFmt }}</div>
-          </div>
+          <div class="ip-title">📊 套餐限制</div>
+          <div class="kv"><span class="k">D1数据库区域</span><span class="v">{{ data.platform.d1Region }}</span></div>
+          <div class="kv"><span class="k">D1容量上限</span><span class="v strong">{{ data.platform.d1SizeLimit }}</span></div>
+          <div class="kv"><span class="k">Worker CPU</span><span class="v">{{ data.platform.workerCpuLimit }}</span></div>
+          <div class="kv"><span class="k">子请求限制</span><span class="v">{{ data.platform.workerSubrequests }}</span></div>
+          <div class="kv"><span class="k">每日请求</span><span class="v">100,000 次 (免费)</span></div>
+          <div class="kv"><span class="k">费用</span><span class="v strong" style="color:#10b981;">¥0 不绑卡</span></div>
         </div>
 
         <div class="glass info-panel">
-          <div class="ip-title">💾 数据库 SQLite</div>
-          <div class="kv"><span class="k">数据库文件</span><span class="v strong">{{ data.database.fileSizeFmt }}</span></div>
+          <div class="ip-title">👤 用户角色分布</div>
+          <div v-for="r of data.roleDist" :key="r.name" class="role-row">
+            <span class="role-name">{{ r.name }}</span>
+            <span class="role-bar">
+              <span class="role-bar-fill" :style="{ width: (r.value / data.online.totalUsers * 100) + '%' }"></span>
+            </span>
+            <span class="role-num">{{ r.value }} 人</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- D1 数据库状态 -->
+      <div class="section-title">💾 D1 数据库状态</div>
+      <div class="db-row">
+        <div class="glass info-panel db-info">
+          <div class="ip-title">🗄️ 数据库概况</div>
+          <div class="kv"><span class="k">数据库</span><span class="v strong">Cloudflare D1</span></div>
+          <div class="kv"><span class="k">已用空间</span><span class="v strong">{{ data.database.fileSizeFmt }}</span></div>
+          <div class="kv"><span class="k">总记录数</span><span class="v strong">{{ totalTableRows.toLocaleString() }} 条</span></div>
+          <div class="kv"><span class="k">表数量</span><span class="v">{{ Object.keys(data.database.tables).length }} 张</span></div>
+        </div>
+        <div class="glass info-panel db-tables">
+          <div class="ip-title">📋 各表数据量</div>
           <div class="tables">
             <div v-for="(n, t) of data.database.tables" :key="t" class="tbl-row">
               <span class="tbl-name">{{ tableNameZh[t] || t }}</span>
@@ -247,11 +258,11 @@ function pctBar(pct: number, color = '#f59e0b') {
       <div class="chart-row">
         <div class="chart-card glass">
           <div class="cc-title">最近 7 天活跃趋势</div>
-          <div ref="chart1" class="chart"></div>
+          <div ref="chart1" data-chart="c1" class="chart"></div>
         </div>
         <div class="chart-card glass">
-          <div class="cc-title">内存分配占比</div>
-          <div ref="chart2" class="chart"></div>
+          <div class="cc-title">学科内容分布</div>
+          <div ref="chart2" data-chart="c2" class="chart"></div>
         </div>
       </div>
     </template>
@@ -283,11 +294,16 @@ function pctBar(pct: number, color = '#f59e0b') {
 .v { color:var(--zg-text); text-align:right; max-width:60%; word-break:break-all; }
 .v.strong { font-weight:700; color:var(--zg-primary); }
 
-.bar-row { display:flex; align-items:center; gap:12px; margin:4px 0; }
-.br-label { width:110px; font-size:12px; color:var(--zg-text-dim); flex-shrink:0; }
-.br-bar { flex:1; padding:4px 10px; font-size:12px; background:rgba(245,158,11,.08); border-radius:8px; font-weight:600; }
+.role-row { display:flex; align-items:center; gap:10px; padding:6px 0; }
+.role-name { width:80px; font-size:13px; flex-shrink:0; }
+.role-bar { flex:1; height:20px; background:rgba(245,158,11,.08); border-radius:10px; overflow:hidden; }
+.role-bar-fill { display:block; height:100%; background:linear-gradient(90deg,#f59e0b,#fbbf24); border-radius:10px; transition:width .3s; }
+.role-num { width:60px; font-size:13px; font-weight:700; text-align:right; flex-shrink:0; }
 
-.tables { margin-top:6px; max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+.db-row { display:grid; grid-template-columns:300px 1fr; gap:16px; }
+.db-info { padding:20px; }
+.db-tables { padding:20px; }
+.tables { margin-top:6px; max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
 .tbl-row { display:flex; justify-content:space-between; padding:5px 8px; font-size:12px; border-radius:6px; }
 .tbl-row:nth-child(odd) { background:rgba(245,158,11,.05); }
 .tbl-name { color:var(--zg-text-dim); }
@@ -301,6 +317,7 @@ function pctBar(pct: number, color = '#f59e0b') {
 @media (max-width:1100px){
   .row { grid-template-columns:1fr; }
   .chart-row { grid-template-columns:1fr; }
+  .db-row { grid-template-columns:1fr; }
 }
 @media (max-width:768px){
   .stat-grid { grid-template-columns:repeat(2,1fr); gap:10px; }

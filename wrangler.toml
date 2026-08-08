@@ -18,22 +18,22 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "zhuiguang-db"
-database_id = "在这里填入wrangler d1 create返回的database_id"
+database_id = "996ab327-1a44-47fb-ac1d-5ab963dd04a5"
 
 # ====== 环境变量（在Cloudflare Dashboard或这里配置） ======
 [vars]
-JWT_SECRET = "zhuiguang-secret-2026"
+JWT_SECRET = "b537718c3056bde0b547ed7b727d2b4ada4609f698fdd5cb7d1da657196e6507"
 JWT_EXPIRES = "7d"
-SUPABASE_URL = "在这里填入你的Supabase URL"
-SUPABASE_SERVICE_KEY = "在这里填入你的Supabase Service Key"
-SUPABASE_BUCKET = "zhuiguang-files"
+SUPABASE_URL = "https://njwkkinzgmwzyfifagwl.supabase.co"
+SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qd2traW56Z213enlmaWZhZ3dsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTY2NTc2NSwiZXhwIjoyMTAxMjQxNzY1fQ.MKN5pktqXQJFmya3elBmb6PTynnjR-j70mhSHg13Y08"
+SUPABASE_BUCKET = "zhuiguang"
 
-# ====== 自定义路由（绑定xkzg.de5.net用） ======
+# ====== 自定义路由（绑定xkzg.dpdns.org用） ======
 # 方式1: Workers自定义域名 (推荐)
 # 在Cloudflare Dashboard → Workers → 你的Worker → Settings → Triggers → Custom Domains
-# 添加 api.xkzg.de5.net（或直接用 xkzg.de5.net 如果前端单独部署Pages）
+# 添加 api.xkzg.dpdns.org（或直接用 xkzg.dpdns.org 如果前端单独部署Pages）
 
 # 方式2: 通过routes（需要域名在Cloudflare托管）
 # routes = [
-#   { pattern = "api.xkzg.de5.net/*", zone_name = "xkzg.de5.net" }
+#   { pattern = "api.xkzg.dpdns.org/*", zone_name = "xkzg.dpdns.org" }
 # ]
