@@ -289,7 +289,7 @@ function apiCacheKey(c: Context): string | null {
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
   let ttl = 15000
-  if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 5000
+  if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 30000
   if (p.includes('/feature-flags') || p.includes('/pages/') || p.includes('/themes')) ttl = 30000
   const urlKey = p + '|' + new URL(c.req.url).search
   return `${authHash}|${ttl}|${urlKey}`
@@ -2140,6 +2140,8 @@ app.get('/api/messages/:peerId', auth, async (c) => {
 // ============ 需求5：超管网站运行监控 ============
 // ==============================================================================
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const t0 = Date.now()
+  c.header('X-Monitor-Version', 'v2-optimized')
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
   const today = new Date().toLocaleDateString('sv-SE')
@@ -2226,6 +2228,7 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
     roleDist: roleDist.map(r => ({ name: r.role === 'SUPER_ADMIN' ? '超级管理员' : r.role === 'TEACHER' ? '教师' : '学生', value: r.n })),
     pending: { articles: todayRow.pArticles, resources: todayRow.pResources },
     dailyActive,
+    _debug: { totalMs: Date.now() - t0 },
   })
 })
 

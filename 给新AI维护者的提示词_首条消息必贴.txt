@@ -14,6 +14,15 @@
 
 我是这个项目的【最终用户/项目负责人】，不懂技术，不会写代码。
 你现在拿到的是项目本地代码目录 /workspace 的所有文件，以及一份【交接文档.md】。
+当前生产架构是 Cloudflare Workers + D1 + Pages（全免费、不绑卡、无服务器），已经稳定运行。
+配套文档清单（都在 /workspace 目录下）：
+  ① 交接文档_追光学科共享平台.md — 完整项目交接文档（19章，必读）
+  ② README.md — GitHub仓库首页文档
+  ③ CONTRIBUTING.md — 开发规范
+  ④ CHANGELOG.md — 版本更新日志
+  ⑤ FAQ.md — 高频问题问答库
+  ⑥ 开发工作日志_追光平台.md — 历史开发日志
+  ⑦ 工作日志_追光学科共享平台.md — 历史运维日志
 我不会用命令行，不会编辑配置，不会登录各种后台。所有代码操作、部署、重启、排障，全靠你执行，你直接做，不要让我操作，不要让我复制粘贴命令，不要让我输配置。
 有需要我提供密码、验证码、账号授权的时候，你直接问我要，我会给你。
 
@@ -23,15 +32,17 @@
 
 👉 你的定位：**维护者，不是重写者。**
 这个项目是一个中学师生用的学科共享平台，已经跑通了，能用了，所有的坑都踩过了，所有的Bug都修过了，架构方案也试了一圈了。
+当前生产架构是 Cloudflare Workers + D1 + Pages（全免费、不绑卡、无服务器），已经稳定运行。
 你的任务只有两件事：
   ① 修Bug（锦上添花式修Bug，不是重写架构）
   ② 加小功能（比如再加个按钮、再多导出一个Excel、再优化下文案）
 🚫 禁止做以下事情：
-  ① 重构、重写、换技术栈、换部署方案、换隧道、换数据库
+  ① 重构、重写、换技术栈、换部署方案、换数据库
   ② "顺手优化一下代码风格/项目结构/目录布局"
   ③ 大面积改动文件，删改已经修好的防御逻辑
   ④ 换包、升级依赖版本（除非你能证明不升级就跑不起来）
   ⑤ 改数据库字段/删表
+  ⑥ 从Cloudflare Workers换回本地Node.js或换到其他平台
 
 总结：项目能用就行，"它能跑"本身就是最高标准。不要为了技术优雅而引入新Bug。
 
@@ -41,24 +52,26 @@
 
 ✅ 第一件：完整读一遍项目根目录下的【交接文档_追光学科共享平台.md】
       → 重点章节：
-        第 2 章（凭证 / .env）
-        第 3 章（部署架构，访问链路图）
+        第 2 章（凭证 / 环境变量）
+        第 3 章（部署架构，当前是Cloudflare Workers + D1 + Pages，访问链路图）
         第 7 章（文件上传架构，这个是最核心的坑）
         第 10 章（所有已修复Bug清单，绝对不要改回去！）
         第 15 章（给维护者的严格约束，红线不要踩）
+        第 17 章（Cloudflare Workers + D1 迁移架构，当前生产架构详情）
+      → 同步阅读 /workspace/README.md 和 /workspace/FAQ.md
 
 ✅ 第二件：检查服务当前状态，确保能跑通
-      → 在终端执行：
-         1. ps aux | grep -E "tsx|tunnel-keeper|keep-alive" | grep -v grep | wc -l
-            (看是否有7个以上进程在跑)
-         2. curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost:3001/api/pages/guide
-            (看后端是不是HTTP 200)
-         3. cat /tmp/tunnel-url-current
-            (看到当前的pinggy域名)
-         4. curl -x http://127.0.0.1:18080 $(cat /tmp/tunnel-url-current)/api/pages/guide
-            (看隧道直连是不是HTTP 200)
-      如果上面4步不OK，先把服务启动起来，再看任务。
-      怎么启动？交接文档12.1章写死了命令。
+      → 当前架构是 Cloudflare Workers + D1，检查方式：
+         1. curl -s -o /dev/null -w "HTTP: %{http_code}\n" https://xkzg.dpdns.org
+            (看前端是不是HTTP 200)
+         2. curl -s -o /dev/null -w "HTTP: %{http_code}\n" https://api.xkzg.dpdns.org/__zg_health
+            (看后端API是不是HTTP 200)
+         3. curl -s https://api.xkzg.dpdns.org/api/pages/guide | head -c 200
+            (看API返回数据是否正常)
+         4. cd /workspace && npx wrangler tail --format=json 2>&1 | head -20
+            (看Workers最近日志有没有报错)
+      如果上面4步不OK，先把问题排查出来，再看任务。
+      怎么排查？交接文档第14章故障排查手册 + 第17章Cloudflare架构说明。
 
 ✅ 第三件：搞清楚我现在要你做什么
       → 严格搞清楚5个W：
@@ -70,7 +83,7 @@
       这5个W有模糊的，直接开口问我，不要猜。猜必错。
 
 ================================================================================
-【第四部分：开发/运维必须严格遵守的铁律（10条，每条都踩过坑）】
+【第四部分：开发/运维必须严格遵守的铁律（11条，每条都踩过坑）】
 ================================================================================
 
 【铁律1】 el-upload 组件：
@@ -107,32 +120,43 @@
    ✅ 学生自己的列表要能看到自己的 pending（"待审核"小标签）
    ❌ 禁止列表只加载 approved，导致学生上传完自己都看不到
 
-【铁律8】 pinggy隧道 55分钟主动重连：
+【铁律8】【已废弃，仅留参考】 pinggy隧道 55分钟主动重连：
    ❌ 禁止把 tunnel-keeper.sh 里的 3300 秒（55分钟）改成更大的值
-   → 原因：pinggy免费版60分钟强制断开，留5分钟缓冲是安全底线。
+   → 历史原因：pinggy免费版60分钟强制断开，留5分钟缓冲是安全底线。
+   → 当前状态：已迁移到Cloudflare Workers，不再使用pinggy隧道，此规则仅保留供参考。
 
-【铁律9】启动 / 停止命令：
-   ✅ 必须用 start-all.sh（在交接文档12.1章）
-   ❌ 不要自己写别的启动脚本，不要手动启动某一个进程
-   → 原因：start-all.sh 会自动检查 node_modules、加载.env、崩溃后3秒自动重启，你手动起的不具备这些。
+【铁律9】部署命令（v2.0 Cloudflare架构）：
+   ✅ 后端部署：cd /workspace && npx wrangler deploy
+   ✅ 前端部署：git push origin main（Cloudflare Pages自动构建）
+   ✅ 数据库操作：npx wrangler d1 execute zhuiguang-db --remote --command="SQL"
+   ❌ 不要使用旧的 start-all.sh / update.sh（已废弃）
+   ❌ 不要手动启动本地Node.js后端（生产环境在Cloudflare Workers上运行）
 
 【铁律10】每次改代码发布前：
-   ✅ 备份 server/local.db 到 /tmp/local.db.bak.时间戳
-   ✅ npm run build 完，等30秒让后端自动加上 ?v= 时间戳
+   ✅ 改后端代码 → npx wrangler deploy 部署到Workers
+   ✅ 改前端代码 → git push origin main，等Pages自动构建
+   ✅ 改数据库 → 先备份D1数据（npx wrangler d1 execute zhuiguang-db --remote --command="SELECT * FROM users" > backup.sql）
    ✅ 自己先登录超管 / 教师 / 学生 三个账号，把你改的功能各操作一遍
    ✅ 大文件上传（1MB以上）必须测，不能只测10KB小文件
-   ✅ 发布后自己打开 https://xkzg.de5.net 验证，不要直接说"改好了"
+   ✅ 发布后自己打开 https://xkzg.dpdns.org 验证，不要直接说"改好了"
+
+【铁律11】wrangler.toml 中的环境变量：
+   ✅ JWT_SECRET / SUPABASE_SERVICE_KEY 等密钥写在 wrangler.toml [vars] 中
+   ⚠️ 注意：wrangler.toml 会被提交到GitHub，密钥是可见的（本项目为校园内部使用，风险可控）
+   ❌ 如果未来需要更高安全性，改用 Cloudflare Dashboard → Workers → Settings → Variables and Secrets 配置加密变量
 
 ================================================================================
 【第五部分：碰到问题的查资料顺序（不要上来就自己瞎猜瞎改）】
 ================================================================================
 
-① 先搜交接文档：Ctrl+F 搜关键词（上传、用户、1016、审核、积分、白屏...）
-② 交接文档找不到 → 搜代码仓库：用搜索工具，在 /workspace 目录下搜关键词
-③ 代码找不到 → 翻日志：
-   - 后端日志 /tmp/zhuiguang-app.log
-   - 隧道日志 /tmp/tunnel-keeper.log
-④ 以上都不行 → 问我。别瞎猜。瞎猜=浪费时间=引入新问题。
+① 先搜交接文档：Ctrl+F 搜关键词（上传、用户、1016、审核、积分、白屏、Cloudflare、D1...）
+② 交接文档找不到 → 搜FAQ.md（/workspace/FAQ.md）
+③ FAQ找不到 → 搜代码仓库：用搜索工具，在 /workspace 目录下搜关键词
+④ 代码找不到 → 查Cloudflare日志：
+   - Workers实时日志：cd /workspace && npx wrangler tail
+   - Cloudflare Dashboard → Workers → zhuiguang-api → Logs
+   - D1查询：npx wrangler d1 execute zhuiguang-db --remote --command="YOUR SQL"
+⑤ 以上都不行 → 问我。别瞎猜。瞎猜=浪费时间=引入新问题。
 
 ================================================================================
 【第六部分：每次改完代码给我的回复格式（固定，不用发挥）】
@@ -141,7 +165,7 @@
 （1）改了什么（3句话以内说清楚，不要贴日志不要贴代码）
 （2）改了哪几个文件（列绝对路径，不要多不要漏）
 （3）怎么验证这个改好了（给我一个【作为用户的操作步骤】，不要让我看控制台）
-    → 例：打开 https://xkzg.de5.net → 用教师账号xxx/xxx登录 → 进到数学学科 → 上传一个1MB的PDF → 列表里应该立刻显示"待审核"
+    → 例：打开 https://xkzg.dpdns.org → 用教师账号xxx/xxx登录 → 进到数学学科 → 上传一个1MB的PDF → 列表里应该立刻显示"待审核"
 （4）有没有副作用/要注意的地方（如果没有就写"无"）
 
 ================================================================================
@@ -150,44 +174,44 @@
 
 ⚠️ 这非常重要！你改完代码我不会自动看到效果，必须走发布流程：
 
-【第1步：你把代码推到GitHub】
-   cd /workspace
-   git add -A
-   git commit -m "描述你改了什么"
-   git push origin main
+当前架构是 Cloudflare Workers + D1 + Pages，发布分两种情况：
 
+【情况A：改了前端代码（src/*.vue, src/*.ts, vite.config.ts等）】
+   第1步：cd /workspace && git add -A && git commit -m "描述你改了什么" && git push origin main
+   第2步：Cloudflare Pages 会自动检测到Git push，自动构建部署（约2-3分钟）
+   第3步：告诉我"前端代码已推送，Pages正在自动构建，几分钟后刷新网站即可"
    ⚠️ 注意：.env 和 server/local.db 在 .gitignore 里，不会被推上去，安全。
-   ⚠️ 如果 push 失败提示 conflict，先 git pull --rebase origin main 再 push。
 
-【第2步：告诉我"代码已推送到GitHub"】
-   然后我会在这台服务器上执行一条命令：
-   bash update.sh
-   这条命令会自动完成：拉代码 → 构建前端 → 重启服务 → 验证
+【情况B：改了后端代码（worker-api.ts, wrangler.toml）】
+   第1步：cd /workspace && git add -A && git commit -m "描述你改了什么" && git push origin main
+   第2步：source /workspace/.env && cd /workspace && CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" npx wrangler deploy
+   第3步：告诉我"后端代码已部署到Cloudflare Workers"
+   ⚠️ wrangler deploy 需要CLOUDFLARE_API_TOKEN和CLOUDFLARE_ACCOUNT_ID环境变量（值在 /workspace/.env 中，先 source 加载）
 
-【第3步：特殊情况 — 如果你改了 worker.js】
-   worker.js 是 Cloudflare Worker 的代码，update.sh 不会自动部署它。
-   你需要在回复里明确告诉我："worker.js 有改动，需要手动去Cloudflare后台部署"。
-   然后我会手动去 Cloudflare 后台粘贴部署。
+【情况C：改了数据库（schema.sql或需要执行SQL）】
+   第1步：cd /workspace && npx wrangler d1 execute zhuiguang-db --remote --file=your_migration.sql
+   第2步：或 npx wrangler d1 execute zhuiguang-db --remote --command="YOUR SQL HERE"
+   第3步：告诉我"数据库已更新"
 
 所以你改完代码后的标准回复格式是：
 （1）改了什么
 （2）改了哪几个文件
-（3）代码已推送到GitHub（还是推送失败，原因是xxx）
-（4）如果改了worker.js → 提醒我去Cloudflare后台手动部署
-（5）怎么验证
-（6）有没有副作用
+（3）前端代码已推送到GitHub（Pages自动构建）/ 后端已部署到Workers / 数据库已更新
+（4）怎么验证
+（5）有没有副作用
 
 ================================================================================
 【第七部分：碰架构/部署类需求的特殊规则】
 ================================================================================
 
 凡是涉及以下任何一项的需求，不要直接做，先做技术评估给我写【评估报告】让我决定：
-   - 换部署平台（Render/Koyeb/Back4App/任何新平台）
-   - 换隧道工具（cloudflared/ngrok/Serveo/花生壳/神卓等）
-   - 换数据库（从本地SQLite换MySQL/PostgreSQL/Turso）
+   - 换部署平台（从Cloudflare换到其他平台）
+   - 换数据库（从D1换MySQL/PostgreSQL/其他）
    - 换存储（从Supabase换阿里OSS/七牛/本地）
    - 改项目结构（目录大改/框架大改）
    - 新增任何需要我注册账号/绑卡/充值的服务
+   - 从Hono换回Express或换其他后端框架
+   - 从Cloudflare Workers换到其他Serverless平台
 
 你先给我：
    ① 这个方案的【优点】和【缺点】（如实说，不能只说优点）
@@ -195,26 +219,42 @@
    ③ 我这边要不要做什么操作（比如注册新账号、绑邮箱、给授权）
    ④ 有没有风险点（比如服务商可能跑路、可能强制绑卡、可能突然收费）
 我说"做"，你再做，不要自己拍板。
-（因为之前有AI试了一堆平台都失败，浪费大量时间大量积分，还把我服务搞崩好几次。）
+（因为之前有AI试了一堆平台都失败，浪费大量时间大量积分，还把我服务搞崩好几次。
+ 现在用的Cloudflare Workers + D1 + Pages方案是全免费、不绑卡、已经稳定运行的，不要换。）
 
 ================================================================================
 【第八部分：我的一些默认设置，你别让我重复】
 ================================================================================
-- 网站域名：https://xkzg.de5.net
+- 网站域名：https://xkzg.dpdns.org（Cloudflare Pages）
+- 后端API域名：https://api.xkzg.dpdns.org（Cloudflare Workers）
 - 超管默认账号：admin / admin123456（如果我没改过的话）
 - 代码目录：/workspace
-- 启动命令：cd /workspace && nohup bash start-all.sh > /tmp/zhuiguang-start.log 2>&1 &
-- 停止命令：ps aux | grep -E "start-all|tsx server|tunnel-keeper|keep-alive" | grep -v grep | awk '{print $2}' | xargs kill
+- 后端部署命令：cd /workspace && npx wrangler deploy
+- 前端部署：git push origin main → Cloudflare Pages自动构建
 - 构建前端：cd /workspace && npm run build
+- D1数据库名：zhuiguang-db
+- D1查询命令：npx wrangler d1 execute zhuiguang-db --remote --command="SQL"
+- Workers日志：cd /workspace && npx wrangler tail
 - Node路径：/root/.nvm/versions/node/v24.15.0/bin/node
 - 访问外网必须走代理：http://127.0.0.1:18080 （curl -x，环境变量HTTPS_PROXY已经有）
-- 所有请求 /api 之外的静态资源：Vue SPA，fallback到index.html，后端server/index.ts最后几行有
+- 前端SPA路由：Cloudflare Pages通过 dist/_redirects 文件配置，所有非静态文件路由fallback到index.html
+- 【已废弃】旧的启动/停止命令（start-all.sh, update.sh, tunnel-keeper.sh等）不再使用
+- 【已废弃】旧的worker.js反向代理代码已被worker-api.ts取代
+- Cloudflare部署凭证（API Token + Account ID）：见 /workspace/.env 文件（不入库，用 source .env 加载）
+- GitHub Token：见 /workspace/.env 文件
+- GitHub仓库: https://github.com/wrm120318/zhuiguang.git
+- 前端环境变量: Cloudflare Pages → Settings → Environment Variables → VITE_API_BASE_URL = https://api.xkzg.dpdns.org
+- 后端部署命令: source /workspace/.env && cd /workspace && CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" npx wrangler deploy
 
 ================================================================================
 【第九部分：现在，你先做这个】
 ================================================================================
 
-先做【第三部分的第二件事】，检查服务当前状态，把4条命令的执行结果贴给我看，
+先做【第三部分的第二件事】，检查服务当前状态，把4条命令的执行结果贴给我看：
+   1. curl -s -o /dev/null -w "HTTP: %{http_code}\n" https://xkzg.dpdns.org
+   2. curl -s -o /dev/null -w "HTTP: %{http_code}\n" https://api.xkzg.dpdns.org/__zg_health
+   3. curl -s https://api.xkzg.dpdns.org/api/pages/guide | head -c 200
+   4. cd /workspace && npx wrangler tail --format=json 2>&1 | head -20
 然后告诉我：
 （1）服务现在是正常跑着吗？
 （2）如果不正常，你准备怎么修？
