@@ -171,7 +171,7 @@ function getSupabase() {
   return _supabase
 }
 
-export const STORAGE_ENABLED = true
+const STORAGE_ENABLED = true
 
 /** 生成 Supabase 签名上传 URL（前端直传用） */
 export async function createPresignedUploadUrl(key: string): Promise<{ signedUrl: string; publicUrl: string } | null> {
@@ -320,11 +320,13 @@ app.use('*', async (c, next) => {
   await next()
 })
 
-// ===== 中间件2：CORS =====
+// ===== 中间件2：CORS（动态回显Origin，支持withCredentials） =====
 app.use('*', async (c, next) => {
-  c.header('Access-Control-Allow-Origin', '*')
+  const origin = c.req.header('Origin') || '*'
+  c.header('Access-Control-Allow-Origin', origin)
   c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
   c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  c.header('Access-Control-Allow-Credentials', 'true')
   if (c.req.method === 'OPTIONS') return c.text('', 204)
   await next()
 })
@@ -2138,34 +2140,49 @@ app.get('/api/messages/:peerId', auth, async (c) => {
 // ============ 需求5：超管网站运行监控 ============
 // ==============================================================================
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  // 1. 实时在线人数
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
-  const online5min = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE last_active>=? AND status=?', fiveMinAgo, 'active'))!.n
-  const online1hour = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE last_active>=? AND status=?', oneHourAgo, 'active'))!.n
-  const totalUsers = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users'))!.n
-  const activeUsers = (await get<{ n: number }>('SELECT COUNT(*) as n FROM users WHERE status=?', 'active'))!.n
+  const today = new Date().toLocaleDateString('sv-SE')
+  const sevenDaysAgo = new Date(Date.now() - 6 * 86400 * 1000).toLocaleDateString('sv-SE')
 
-  // 2. 数据库使用情况
-  const tables = [
-    'users', 'classes', 'class_members', 'subjects', 'articles', 'resources',
-    'query_tasks', 'query_rows', 'exp_logs', 'notices', 'pages', 'page_comments',
-    'messages', 'quizzes', 'quiz_questions', 'quiz_submissions',
-    'subject_questions', 'practice_submissions', 'likes_map',
-  ]
+  // ---- 批次1: 用户统计 + 今日数据 + 待审核 (合并为单条SQL) ----
+  const userStatsRow = (await get<{ total: number; active: number; online5: number; online1h: number }>(
+    `SELECT COUNT(*) as total,
+       COUNT(CASE WHEN status='active' THEN 1 END) as active,
+       COUNT(CASE WHEN last_active>=? AND status='active' THEN 1 END) as online5,
+       COUNT(CASE WHEN last_active>=? AND status='active' THEN 1 END) as online1h
+     FROM users`, fiveMinAgo, oneHourAgo))!
+  const todayRow = (await get<{ logins: number; articles: number; resources: number; exps: number; pArticles: number; pResources: number }>(
+    `SELECT (SELECT COUNT(DISTINCT user_id) FROM exp_logs WHERE action_type='login' AND substr(created_at,1,10)=?) as logins,
+       (SELECT COUNT(*) FROM articles WHERE substr(created_at,1,10)=?) as articles,
+       (SELECT COUNT(*) FROM resources WHERE substr(created_at,1,10)=?) as resources,
+       (SELECT COALESCE(SUM(exp_change),0) FROM exp_logs WHERE substr(created_at,1,10)=?) as exps,
+       (SELECT COUNT(*) FROM articles WHERE status IN ('pending','pending_student')) as pArticles,
+       (SELECT COUNT(*) FROM resources WHERE status='pending') as pResources`, today, today, today, today))!
+
+  // ---- 批次2: 19张表COUNT(*) 一次batch ----
+  const tables = ['users','classes','class_members','subjects','articles','resources','query_tasks','query_rows','exp_logs','notices','pages','page_comments','messages','quizzes','quiz_questions','quiz_submissions','subject_questions','practice_submissions','likes_map']
+  const batchResults = await D1.batch(tables.map(t => D1.prepare(`SELECT COUNT(*) as n FROM ${t}`)))
   const tableStats: Record<string, number> = {}
-  for (const t of tables) {
-    try {
-      const r = await get<{ n: number }>(`SELECT COUNT(*) as n FROM ${t}`)
-      tableStats[t] = r?.n ?? 0
-    } catch { tableStats[t] = 0 }
-  }
-  // D1 数据库大小（通过 PRAGMA page_count * page_size 计算）
+  tables.forEach((t, i) => { tableStats[t] = (batchResults[i]?.results?.[0] as any)?.n ?? 0 })
+
+  // ---- 批次3: 7天活跃趋势 (2条GROUP BY替代14条串行) + 角色分布 + 学科分布 ----
+  const [dailyUsers, dailyArticles, roleDist, subjArticles, subjResources, subjects] = await Promise.all([
+    all<{ d: string; n: number }>("SELECT substr(created_at,1,10) as d, COUNT(DISTINCT user_id) as n FROM exp_logs WHERE substr(created_at,1,10)>=? GROUP BY d", sevenDaysAgo),
+    all<{ d: string; n: number }>("SELECT substr(created_at,1,10) as d, COUNT(*) as n FROM articles WHERE substr(created_at,1,10)>=? GROUP BY d", sevenDaysAgo),
+    all<{ role: string; n: number }>("SELECT role, COUNT(*) as n FROM users GROUP BY role ORDER BY n DESC"),
+    all<{ subject_id: number; n: number }>('SELECT subject_id, COUNT(*) as n FROM articles GROUP BY subject_id'),
+    all<{ subject_id: number; n: number }>('SELECT subject_id, COUNT(*) as n FROM resources GROUP BY subject_id'),
+    all<{ id: number; name: string; icon: string }>('SELECT id, name, icon FROM subjects ORDER BY display_order'),
+  ])
+
+  // D1 数据库大小
   let dbSize = 0
   try {
-    const pc = await D1.prepare('PRAGMA page_count').first<{ page_count: number }>()
-    const ps = await D1.prepare('PRAGMA page_size').first<{ page_size: number }>()
-    if (pc && ps) dbSize = (pc.page_count || 0) * (ps.page_size || 4096)
+    const [pc, ps] = await D1.batch([D1.prepare('PRAGMA page_count'), D1.prepare('PRAGMA page_size')])
+    const pcVal = (pc?.results?.[0] as any)?.page_count || 0
+    const psVal = (ps?.results?.[0] as any)?.page_size || 4096
+    dbSize = pcVal * psVal
   } catch {}
   function fmtBytes(b: number) {
     if (b < 1024) return b + ' B'
@@ -2174,65 +2191,40 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
     return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
   }
 
-  // 3. 服务器运行情况（Workers 没有 os 模块，返回 Workers 环境信息）
-  function fmtUptime(s: number) {
-    if (!s) return 'N/A'
-    const d = Math.floor(s / 86400)
-    const h = Math.floor((s % 86400) / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    return `${d}天${h}时${m}分`
-  }
-
-  // 4. 今日数据概览
-  const today = new Date().toLocaleDateString('sv-SE')
-  const todayLogins = (await get<{ n: number }>("SELECT COUNT(DISTINCT user_id) as n FROM exp_logs WHERE action_type='login' AND substr(created_at,1,10)=?", today))!.n
-  const todayArticles = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE substr(created_at,1,10)=?", today))!.n
-  const todayResources = (await get<{ n: number }>("SELECT COUNT(*) as n FROM resources WHERE substr(created_at,1,10)=?", today))!.n
-  const todayExps = (await get<{ n: number }>("SELECT COALESCE(SUM(exp_change),0) as n FROM exp_logs WHERE substr(created_at,1,10)=?", today))!.n
-  const pendingAuditArticles = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE status IN ('pending','pending_student')"))!.n
-  const pendingAuditResources = (await get<{ n: number }>("SELECT COUNT(*) as n FROM resources WHERE status='pending'"))!.n
-
-  // 最近7天活跃趋势
+  // 组装7天趋势
+  const userMap = new Map(dailyUsers.map(r => [r.d, r.n]))
+  const articleMap = new Map(dailyArticles.map(r => [r.d, r.n]))
   const dailyActive: { date: string; users: number; articles: number }[] = []
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400 * 1000).toLocaleDateString('sv-SE')
-    const us = (await get<{ n: number }>("SELECT COUNT(DISTINCT user_id) as n FROM exp_logs WHERE substr(created_at,1,10)=?", d))!.n
-    const as = (await get<{ n: number }>("SELECT COUNT(*) as n FROM articles WHERE substr(created_at,1,10)=?", d))!.n
-    dailyActive.push({ date: d.slice(5), users: us, articles: as })
+    dailyActive.push({ date: d.slice(5), users: userMap.get(d) ?? 0, articles: articleMap.get(d) ?? 0 })
   }
 
+  // 组装学科分布
+  const artMap = new Map(subjArticles.map(r => [r.subject_id, r.n]))
+  const resMap = new Map(subjResources.map(r => [r.subject_id, r.n]))
+  const subjectDist = subjects
+    .map(s => ({ name: `${s.icon || '📚'} ${s.name}`, value: (artMap.get(s.id) ?? 0) + (resMap.get(s.id) ?? 0) }))
+    .filter(s => s.value > 0)
+
+  const cf = (c.req.raw as any).cf
   return c.json({
     online: {
-      online5min, online1hour, totalUsers, activeUsers,
-      todayLogins, todayArticles, todayResources, todayExps,
+      online5min: userStatsRow.online5, online1hour: userStatsRow.online1h,
+      totalUsers: userStatsRow.total, activeUsers: userStatsRow.active,
+      todayLogins: todayRow.logins, todayArticles: todayRow.articles,
+      todayResources: todayRow.resources, todayExps: todayRow.exps,
     },
-    database: {
-      fileSize: dbSize,
-      fileSizeFmt: fmtBytes(dbSize),
-      tables: tableStats,
+    database: { fileSize: dbSize, fileSizeFmt: fmtBytes(dbSize), tables: tableStats },
+    platform: {
+      runtime: 'Cloudflare Workers', colo: cf?.colo || 'N/A', country: cf?.country || 'N/A',
+      httpProtocol: cf?.httpProtocol || 'HTTP/2', tlsVersion: cf?.tlsVersion || 'TLSv1.3',
+      isEdge: true, d1Region: 'WNAM', d1SizeLimit: '500 MB (免费套餐)',
+      workerCpuLimit: '10ms CPU/请求 (免费套餐)', workerSubrequests: '50 子请求/请求',
     },
-    server: {
-      hostname: 'cloudflare-workers',
-      platform: 'cloudflare',
-      arch: 'wasm',
-      cpuModel: 'Cloudflare Workers',
-      cpuCores: 0,
-      loadAvg1: 0, loadAvg5: 0, loadAvg15: 0,
-      totalMem: 0, totalMemFmt: 'N/A',
-      usedMem: 0, usedMemFmt: 'N/A',
-      freeMem: 0, freeMemFmt: 'N/A',
-      memUsagePct: 0,
-      serverUptime: 0, serverUptimeFmt: 'N/A',
-      nodeUptime: 0, nodeUptimeFmt: 'N/A',
-      nodeRss: 0, nodeRssFmt: 'N/A',
-      nodeHeapUsed: 0, nodeHeapUsedFmt: 'N/A',
-      nodeHeapTotal: 0, nodeHeapTotalFmt: 'N/A',
-      nodeHeapPct: 0,
-    },
-    pending: {
-      articles: pendingAuditArticles,
-      resources: pendingAuditResources,
-    },
+    subjectDist,
+    roleDist: roleDist.map(r => ({ name: r.role === 'SUPER_ADMIN' ? '超级管理员' : r.role === 'TEACHER' ? '教师' : '学生', value: r.n })),
+    pending: { articles: todayRow.pArticles, resources: todayRow.pResources },
     dailyActive,
   })
 })
