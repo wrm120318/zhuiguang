@@ -23,6 +23,15 @@ export default defineConfig({
   },
   build: {
     cssCodeSplit: false,
-    modulePreload: false,
+    modulePreload: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'element-plus-color-picker': ['element-plus/es/components/color-picker/index'],
+          'element-plus-input-number': ['element-plus/es/components/input-number/index'],
+          'element-plus-switch': ['element-plus/es/components/switch/index'],
+        }
+      }
+    }
   }
 })
