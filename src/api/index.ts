@@ -2,24 +2,101 @@ import http from './http'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+// ===== 客户端图片压缩（Canvas API） =====
+// 上传前对图片做压缩：转为 WebP、质量 0.85、最大边 1920px，减少带宽与存储占用
+const COMPRESS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+const COMPRESS_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const COMPRESS_MAX_DIMENSION = 1920
+const COMPRESS_QUALITY = 0.85
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url)
+      reject(e)
+    }
+    img.src = url
+  })
+}
+
+async function compressImage(file: File): Promise<File> {
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  const isImage = COMPRESS_IMAGE_EXTS.includes(ext) || COMPRESS_IMAGE_TYPES.includes(file.type.toLowerCase())
+  if (!isImage) {
+    return file
+  }
+
+  try {
+    const img = await loadImageFromFile(file)
+    let { width, height } = img
+    // 超过最大边时按比例缩放
+    if (width > COMPRESS_MAX_DIMENSION || height > COMPRESS_MAX_DIMENSION) {
+      if (width >= height) {
+        height = Math.round((height * COMPRESS_MAX_DIMENSION) / width)
+        width = COMPRESS_MAX_DIMENSION
+      } else {
+        width = Math.round((width * COMPRESS_MAX_DIMENSION) / height)
+        height = COMPRESS_MAX_DIMENSION
+      }
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return file
+    // PNG 透明通道转 WebP 时填充白底，避免出现黑底
+    if (file.type.toLowerCase() === 'image/png') {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+    }
+    ctx.drawImage(img, 0, 0, width, height)
+    const blob: Blob | null = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/webp', COMPRESS_QUALITY)
+    })
+    if (!blob) return file
+    const baseName = file.name.replace(/\.[^/.]+$/, '')
+    return new File([blob], `${baseName}.webp`, { type: 'image/webp', lastModified: Date.now() })
+  } catch (e: any) {
+    console.warn('[compressImage] 压缩失败，返回原文件:', e?.message)
+    return file
+  }
+}
+
 // ===== 直传 Supabase 工具函数（绕过 pinggy 隧道大文件限制） =====
 // 流程：前端调 /api/upload/presign 拿签名URL → 直接 PUT 到 Supabase → 返回公共URL
 async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
+  // 图片先做客户端压缩（Canvas → WebP），失败则使用原文件
+  let uploadFile = file
+  if (kind === 'image') {
+    try {
+      uploadFile = await compressImage(file)
+    } catch (e: any) {
+      console.warn('[directUpload] 图片压缩失败，使用原文件上传:', e?.message)
+      uploadFile = file
+    }
+  }
+
   const presignEndpoint = kind === 'image' ? '/api/upload/presign-image' : '/api/upload/presign'
   let presignResp: any
   try {
-    presignResp = await http.post(presignEndpoint, { fileName: file.name, contentType: file.type })
+    presignResp = await http.post(presignEndpoint, { fileName: uploadFile.name, contentType: uploadFile.type })
   } catch (e: any) {
     // presign 接口本身不可用（如后端未启动），回退到旧接口
     console.warn('[directUpload] presign 请求失败，回退到旧接口:', e?.message)
-    const fd = new FormData(); fd.append('file', file)
+    const fd = new FormData(); fd.append('file', uploadFile)
     const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
     return http.post(oldEndpoint, fd)
   }
 
   // Supabase 不可用，回退到旧的 /api/upload/* 接口
   if (presignResp?.fallback) {
-    const fd = new FormData(); fd.append('file', file)
+    const fd = new FormData(); fd.append('file', uploadFile)
     const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
     return http.post(oldEndpoint, fd)
   }
@@ -31,8 +108,8 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   // 直传到 Supabase（PUT 签名URL，不需要 Authorization header）
   const upResp = await fetch(presignResp.signedUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    body: file,
+    headers: { 'Content-Type': uploadFile.type || 'application/octet-stream' },
+    body: uploadFile,
   })
   if (!upResp.ok) {
     const detail = await upResp.text().catch(() => '')
@@ -46,9 +123,9 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   return {
     url: presignResp.publicUrl,
     filePath: presignResp.key,
-    fileName: file.name,
+    fileName: uploadFile.name,
     fileType: presignResp.fileType || 'file',
-    fileSize: file.size,
+    fileSize: uploadFile.size,
   }
 }
 
@@ -104,12 +181,35 @@ export const api = {
   createResource: (data: any) => http.post('/api/resources', data),
   auditResource: (id: number, status: string) => http.patch(`/api/resources/${id}/status`, { status }),
   deleteResource: (id: number) => http.delete(`/api/resources/${id}`),
-  downloadResource: (id: number) => {
-    const http2 = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL as string) || '', timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
-    const token = localStorage.getItem('zg_token')
+  downloadResource: async (id: number) => {
+    const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+    const token = localStorage.getItem('zg_token') || ''
+    const http2 = axios.create({ baseURL, timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
     if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
-    // 返回完整 axios 响应对象（含 headers），SubjectView 需要读取 content-type/content-disposition
-    return http2.post(`/api/resources/${id}/download`)
+    // 优先尝试新的 GET /file/r/:id?token=xxx（返回完整 axios 响应对象，含 headers，SubjectView 需要读取 content-type/content-disposition）
+    try {
+      return await http2.get(`/file/r/${id}`, { params: { token } })
+    } catch (err: any) {
+      // 失败（如 401）回退到旧的 POST /api/resources/:id/download
+      console.warn('[downloadResource] GET /file/r/:id 失败，回退到 POST 接口:', err?.response?.status || err?.message)
+      return http2.post(`/api/resources/${id}/download`)
+    }
+  },
+  // 文件直链 URL（带 token，供 <img>/<a>/新窗口直接访问）
+  fileDownloadUrl: (id: number): string => {
+    const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+    const token = localStorage.getItem('zg_token') || ''
+    return `${baseURL}/file/r/${id}?token=${encodeURIComponent(token)}`
+  },
+  filePreviewUrl: (id: number): string => {
+    const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+    const token = localStorage.getItem('zg_token') || ''
+    return `${baseURL}/file/r/${id}/preview?token=${encodeURIComponent(token)}`
+  },
+  fileRawUrl: (key: string): string => {
+    const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+    const token = localStorage.getItem('zg_token') || ''
+    return `${baseURL}/file/raw/${key}?token=${encodeURIComponent(token)}`
   },
   likeResource: (id: number) => http.post(`/api/resources/${id}/like`),
   uploadFile: (file: File) => directUpload(file, 'file'),
@@ -151,6 +251,10 @@ export const api = {
   pinPage: (id: number, pinned: boolean, pinnedScope?: string) => http.patch(`/api/pages/${id}/pin`, { pinned, pinnedScope }),
   // 需求5：网站运行监控（仅超管）
   monitor: () => http.get('/api/admin/monitor'),
+  // 存储与缓存管理（仅超管）
+  storageMonitor: () => http.get('/api/admin/storage/monitor'),
+  storageOptimize: (action: string) => http.post('/api/admin/storage/optimize', { action }),
+  cacheStats: () => http.get('/api/admin/cache/stats'),
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),
   allExpLogs: (page?: number, pageSize?: number) => http.get('/api/exp/all-logs', { params: { page, pageSize } }),

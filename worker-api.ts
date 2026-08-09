@@ -253,6 +253,191 @@ export async function downloadFile(filePath: string): Promise<{ buffer: ArrayBuf
 }
 
 // ==============================================================================
+// 🔒 全局双层缓存鉴权系统（/file/* 站内路由专用）
+// 第一层：JWT 登录校验（支持 query param + header 双模式）
+// 第二层：资源权限校验（已审核公开 / 未审核仅本人+管理可见）
+// ==============================================================================
+
+/** 从请求中提取并验证 JWT（支持 Authorization header 和 ?token= query param） */
+async function verifyFileAccess(c: Context): Promise<{ id: number; role: string } | null> {
+  // 优先从 header 取
+  let token = c.req.header('authorization')
+  if (token && token.startsWith('Bearer ')) token = token.slice(7)
+  // 回退到 query param（用于浏览器直接访问 /file/r/123?token=xxx）
+  if (!token) token = c.req.query('token') || ''
+  if (!token) return null
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { id: number; role: string }
+    const u = await get<{ status: string; role: string }>('SELECT status, role FROM users WHERE id=?', payload.id)
+    if (!u || u.status === 'disabled') return null
+    return { id: payload.id, role: u.role }
+  } catch { return null }
+}
+
+// ==============================================================================
+// 🚀 边缘缓存 + 热点文件常驻缓存（根治 Supabase 429 限流）
+// ==============================================================================
+const EDGE_CACHE = caches.default
+
+// 热点文件内存缓存（Worker 实例级常驻，LRU 淘汰）
+type HotFileEntry = { buffer: ArrayBuffer; contentType: string; size: number; expireAt: number; hits: number }
+const HOT_FILE_CACHE = new Map<string, HotFileEntry>()
+const HOT_FILE_MAX = 30           // 最多缓存30个热点文件
+const HOT_FILE_MAX_SIZE = 5 * 1024 * 1024  // 单文件最大5MB才入热点缓存
+const HOT_FILE_TTL = 30 * 60 * 1000         // 热点缓存30分钟
+
+function hotFileCleanup() {
+  const now = Date.now()
+  for (const [k, v] of HOT_FILE_CACHE) {
+    if (v.expireAt < now) HOT_FILE_CACHE.delete(k)
+  }
+  // 超出数量限制时，按 hits 降序淘汰最冷门的
+  if (HOT_FILE_CACHE.size > HOT_FILE_MAX) {
+    const sorted = [...HOT_FILE_CACHE.entries()].sort((a, b) => a[1].hits - b[1].hits)
+    while (HOT_FILE_CACHE.size > HOT_FILE_MAX && sorted.length > 0) {
+      const [k] = sorted.shift()!
+      HOT_FILE_CACHE.delete(k)
+    }
+  }
+}
+
+/** 生成边缘缓存 key（带版本号，方便批量失效） */
+const FILE_CACHE_VERSION = 'v1'
+function fileCacheKey(resourceId: number, mode: string): string {
+  return `${FILE_CACHE_VERSION}:file:r:${resourceId}:${mode}`
+}
+
+/** 生成边缘缓存 Request（Cache API 需要 Request 作为 key） */
+function fileCacheRequest(resourceId: number, mode: string): Request {
+  const url = `https://zguang-file-cache.internal/${fileCacheKey(resourceId, mode)}`
+  return new Request(url)
+}
+
+// ==============================================================================
+// 📦 文件轻量化适配 - 容量监控辅助函数
+// ==============================================================================
+
+/** 列出 Supabase 存储桶中的所有文件（分页） */
+async function listSupabaseFiles(prefix?: string): Promise<{ name: string; size: number; id: string; lastModified: string }[]> {
+  const sb = getSupabase()
+  if (!sb) return []
+  const allFiles: { name: string; size: number; id: string; lastModified: string }[] = []
+  let offset = 0
+  const limit = 100
+  // 最多取500个文件，防止超时
+  for (let i = 0; i < 5; i++) {
+    const { data, error } = await sb.storage.from(SUPABASE_BUCKET).list(prefix || '', {
+      limit,
+      offset,
+      sortBy: { column: 'created_at', order: 'desc' },
+    })
+    if (error || !data) break
+    for (const f of data) {
+      if (f.name && !f.id.endsWith('/')) {
+        allFiles.push({
+          name: f.name,
+          size: (f.metadata as any)?.size || 0,
+          id: f.id,
+          lastModified: (f.metadata as any)?.lastModified || (f.created_at as string) || '',
+        })
+      }
+    }
+    if (data.length < limit) break
+    offset += limit
+  }
+  return allFiles
+}
+
+/** 获取 Supabase 存储桶总用量 */
+async function getSupabaseStorageUsage(): Promise<{ totalFiles: number; totalSize: number; files: any[] }> {
+  const files = await listSupabaseFiles()
+  const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0)
+  return { totalFiles: files.length, totalSize, files }
+}
+
+/** 获取 Supabase 数据库统计（通过 REST API） */
+async function getSupabaseDbStats(): Promise<any> {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return null
+  try {
+    // 查询各表行数（通过 PostgREST count header）
+    const tables = ['users', 'articles', 'resources', 'exp_logs', 'notices', 'pages', 'messages', 'quizzes', 'quiz_questions', 'quiz_submissions', 'subject_questions', 'practice_submissions', 'likes_map', 'class_members', 'classes', 'subjects', 'query_tasks', 'query_rows', 'article_comments', 'page_comments']
+    const results: Record<string, number> = {}
+    // 分批查询，避免超时（每次5个表）
+    for (let i = 0; i < tables.length; i += 5) {
+      const batch = tables.slice(i, i + 5)
+      await Promise.all(batch.map(async (t) => {
+        try {
+          const resp = await fetch(`${SUPABASE_URL}/rest/v1/${t}?select=*&limit=1`, {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Prefer': 'count=exact',
+              'Range': '0-0',
+            },
+          })
+          const range = resp.headers.get('content-range')
+          if (range) {
+            const m = range.match(/\/(\d+)/)
+            results[t] = m ? parseInt(m[1]) : 0
+          } else {
+            results[t] = 0
+          }
+        } catch { results[t] = 0 }
+      }))
+    }
+    return results
+  } catch { return null }
+}
+
+/** 生成文件优化建议 */
+function generateOptimizationSuggestions(files: any[], resources: any[]): any[] {
+  const suggestions: any[] = []
+  const resourceMap = new Map(resources.map((r: any) => [r.file_path, r]))
+  for (const f of files) {
+    const ext = f.name.split('.').pop()?.toLowerCase() || ''
+    const size = f.size || 0
+    const resource = resourceMap.get(f.name) || resourceMap.get(f.id)
+    if (size > 500 * 1024) { // >500KB 的文件才建议优化
+      let type = ''
+      let potentialSaving = 0
+      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) {
+        type = 'image'
+        potentialSaving = Math.floor(size * 0.4) // 图片预计可压缩40-60%
+      } else if (ext === 'pdf') {
+        type = 'pdf'
+        potentialSaving = Math.floor(size * 0.2) // PDF预计可压缩15-30%
+      } else if (['doc', 'docx', 'ppt', 'pptx'].includes(ext)) {
+        type = 'document'
+        potentialSaving = Math.floor(size * 0.15)
+      } else if (['zip', 'rar', '7z'].includes(ext)) {
+        type = 'archive'
+        potentialSaving = Math.floor(size * 0.05)
+      }
+      if (type) {
+        suggestions.push({
+          fileName: f.name,
+          fileSize: size,
+          fileType: type,
+          resourceId: resource?.id || null,
+          resourceTitle: resource?.title || '未关联资源',
+          potentialSaving,
+          savingPercent: Math.round((potentialSaving / size) * 100),
+        })
+      }
+    }
+  }
+  return suggestions.sort((a, b) => b.potentialSaving - a.potentialSaving)
+}
+
+/** 格式化字节 */
+function fmtBytes(b: number): string {
+  if (b < 1024) return b + ' B'
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB'
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+}
+
+// ==============================================================================
 // 工具函数
 // ==============================================================================
 const j = (s: string | null | undefined) => { try { return s ? JSON.parse(s) : null } catch { return null } }
@@ -547,6 +732,173 @@ app.get('/__zg_fix', async (c) => {
 </div>
 </body>`, 200)
 })
+
+// ==============================================================================
+// 🔒 /file/* 站内文件路由 —— 全局双层缓存鉴权系统
+// 所有文件下载/预览强制走此路由，未登录直接拦截
+// 双线路兼容：旧 POST /api/resources/:id/download 自动重定向到此路由
+// ==============================================================================
+
+// GET /file/r/:id        → 下载文件（attachment）
+// GET /file/r/:id/preview → 预览文件（inline）
+// GET /file/raw/:key     → 直接按存储 key 获取文件（头像/图片等，需登录）
+app.get('/file/r/:id', async (c) => {
+  return serveFileWithCache(c, c.req.param('id'), 'download')
+})
+app.get('/file/r/:id/preview', async (c) => {
+  return serveFileWithCache(c, c.req.param('id'), 'preview')
+})
+app.get('/file/raw/*', async (c) => {
+  // 直接按路径获取文件（头像、文章图片等，需登录但不需资源权限校验）
+  const user = await verifyFileAccess(c)
+  if (!user) return c.json({ message: '请先登录' }, 401)
+  const path = new URL(c.req.url).pathname.replace('/file/raw/', '')
+  const key = decodeURIComponent(path)
+  if (!key) return c.json({ message: '无效的文件路径' }, 400)
+  const file = await downloadFile(key)
+  if (!file) return c.json({ message: '文件不存在' }, 404)
+  const ct = file.contentType || guessContentType(key)
+  const headers: Record<string, string> = {
+    'Content-Type': ct,
+    'Cache-Control': 'private, max-age=3600',
+    'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Expose-Headers': 'Content-Type, Content-Length',
+  }
+  return new Response(file.buffer, { headers })
+})
+
+/** 核心文件服务函数：鉴权 → 缓存检查 → Supabase 下载 → 缓存写入 → 返回 */
+async function serveFileWithCache(c: Context, resourceId: string, mode: 'download' | 'preview'): Promise<Response> {
+  const t0 = Date.now()
+  // ===== 第一层：JWT 登录校验 =====
+  const user = await verifyFileAccess(c)
+  if (!user) {
+    return c.json({ message: '请先登录后下载', needLogin: true }, 401)
+  }
+
+  const id = parseInt(resourceId, 10)
+  if (!id) return c.json({ message: '无效的资源ID' }, 400)
+
+  // ===== 查询资源信息 =====
+  const r = await get<any>('SELECT * FROM resources WHERE id=?', id)
+  if (!r) return c.json({ message: '资源不存在' }, 404)
+
+  // ===== 第二层：资源权限校验 =====
+  if (r.status !== 'approved') {
+    const me = await get<any>('SELECT role, subject_id FROM users WHERE id=?', user.id)
+    const isOwner = Number(r.user_id) === Number(user.id)
+    if (!isOwner && !canManageSubject(me, r.subject_id)) {
+      return c.json({ message: '该资料尚未通过审核' }, 403)
+    }
+  }
+
+  if (!r.file_path) return c.json({ message: '文件不存在，可能已被清理' }, 404)
+
+  // ===== 边缘缓存检查（仅对已审核资源启用，未审核资源不缓存） =====
+  const cacheable = r.status === 'approved'
+  if (cacheable) {
+    // 1. 检查热点文件内存缓存
+    const hotKey = `${id}:${mode}`
+    hotFileCleanup()
+    const hot = HOT_FILE_CACHE.get(hotKey)
+    if (hot && hot.expireAt > Date.now()) {
+      hot.hits++
+      const filename = r.file_name || r.title || 'download'
+      const encoded = encodeURIComponent(filename)
+      const disposition = mode === 'preview' ? 'inline' : 'attachment'
+      const headers: Record<string, string> = {
+        'Content-Type': hot.contentType,
+        'Content-Disposition': `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+        'Content-Length': String(hot.size),
+        'Cache-Control': 'public, max-age=86400',
+        'X-Zg-File-Cache': `HOT-${hot.hits}hits`,
+        'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type, Content-Length',
+      }
+      // 异步更新下载计数（不阻塞响应）
+      c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
+      return new Response(hot.buffer, { headers })
+    }
+
+    // 2. 检查边缘缓存（Cache API）
+    try {
+      const cached = await EDGE_CACHE.match(fileCacheRequest(id, mode))
+      if (cached) {
+        // 从边缘缓存恢复，同时写入热点缓存
+        const buffer = await cached.arrayBuffer()
+        const ct = cached.headers.get('Content-Type') || 'application/octet-stream'
+        if (buffer.byteLength < HOT_FILE_MAX_SIZE) {
+          HOT_FILE_CACHE.set(`${id}:${mode}`, {
+            buffer, contentType: ct, size: buffer.byteLength,
+            expireAt: Date.now() + HOT_FILE_TTL, hits: 1,
+          })
+        }
+        const filename = r.file_name || r.title || 'download'
+        const encoded = encodeURIComponent(filename)
+        const disposition = mode === 'preview' ? 'inline' : 'attachment'
+        const headers = new Headers(cached.headers)
+        headers.set('X-Zg-File-Cache', 'EDGE-HIT')
+        headers.set('Access-Control-Allow-Origin', c.req.header('Origin') || '*')
+        headers.set('Access-Control-Allow-Credentials', 'true')
+        headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length')
+        headers.set('Content-Disposition', `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`)
+        c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
+        return new Response(buffer, { status: cached.status, headers })
+      }
+    } catch {}
+  }
+
+  // ===== 从 Supabase 下载文件 =====
+  const file = await downloadFile(r.file_path)
+  if (!file) return c.json({ message: '文件不存在，可能已被清理' }, 404)
+
+  const filename = r.file_name || r.title || 'download'
+  const encoded = encodeURIComponent(filename)
+  const disposition = mode === 'preview' ? 'inline' : 'attachment'
+  const contentType = file.contentType || guessContentType(r.file_path)
+  const fileSize = file.buffer.byteLength
+
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Content-Disposition': `${disposition}; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+    'Content-Length': String(fileSize),
+    'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type, Content-Length',
+  }
+
+  // 更新下载计数
+  c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
+
+  // ===== 写入缓存（仅对已审核资源） =====
+  if (cacheable && fileSize < HOT_FILE_MAX_SIZE) {
+    // 写入热点内存缓存
+    HOT_FILE_CACHE.set(`${id}:${mode}`, {
+      buffer: file.buffer.slice(0),
+      contentType, size: fileSize,
+      expireAt: Date.now() + HOT_FILE_TTL, hits: 1,
+    })
+    // 写入边缘缓存
+    if (fileSize < 10 * 1024 * 1024) { // <10MB 入边缘缓存
+      try {
+        const cacheResp = new Response(file.buffer, {
+          headers: {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+            'X-Zg-File-Cache': 'MISS',
+          },
+        })
+        c.executionCtx.waitUntil(EDGE_CACHE.put(fileCacheRequest(id, mode), cacheResp))
+      } catch {}
+    }
+  }
+
+  headers['X-Zg-File-Cache'] = 'MISS'
+  headers['X-Zg-File-Ms'] = String(Date.now() - t0)
+  return new Response(file.buffer, { headers })
+}
 
 // ==============================================================================
 // ============ 认证 ============
@@ -1276,18 +1628,56 @@ app.post('/api/resources/:id/download', auth, async (c) => {
     }
   }
   if (!r.file_path) return c.json({ message: '文件不存在，可能已被清理' }, 404)
+
+  // ===== 热点缓存检查（POST 请求也走热点缓存，减少 Supabase 调用） =====
+  const cacheable = r.status === 'approved'
+  if (cacheable) {
+    const hotKey = `${id}:download`
+    hotFileCleanup()
+    const hot = HOT_FILE_CACHE.get(hotKey)
+    if (hot && hot.expireAt > Date.now()) {
+      hot.hits++
+      const filename = r.file_name || r.title || 'download'
+      const encoded = encodeURIComponent(filename)
+      c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
+      return new Response(hot.buffer, {
+        headers: {
+          'Content-Type': hot.contentType,
+          'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+          'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type',
+          'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+          'Access-Control-Allow-Credentials': 'true',
+          'X-Zg-File-Cache': `HOT-${hot.hits}hits`,
+        },
+      })
+    }
+  }
+
   const file = await downloadFile(r.file_path)
   if (!file) return c.json({ message: '文件不存在，可能已被清理' }, 404)
   const filename = r.file_name || r.title || 'download'
   const encoded = encodeURIComponent(filename)
-  await run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id)
+  const fileSize = file.buffer.byteLength
+  const contentType = file.contentType || guessContentType(r.file_path)
+
+  // 写入热点缓存
+  if (cacheable && fileSize < HOT_FILE_MAX_SIZE) {
+    HOT_FILE_CACHE.set(`${id}:download`, {
+      buffer: file.buffer.slice(0),
+      contentType, size: fileSize,
+      expireAt: Date.now() + HOT_FILE_TTL, hits: 1,
+    })
+  }
+
+  c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
   const headers: Record<string, string> = {
     'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+    'Content-Type': contentType,
     'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type',
     'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
     'Access-Control-Allow-Credentials': 'true',
+    'X-Zg-File-Cache': 'MISS',
   }
-  if (file.contentType) headers['Content-Type'] = file.contentType
   return new Response(file.buffer, { headers })
 })
 
@@ -2469,7 +2859,224 @@ app.get('/api/messages/:peerId', auth, async (c) => {
 })
 
 // ==============================================================================
-// ============ 需求5：超管网站运行监控 ============
+// ============ 存储监控 & 文件轻量化优化 API（仅超管） ============
+// ==============================================================================
+
+// 存储监控：Supabase 存储用量 + 大文件排行 + 优化建议
+app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const t0 = Date.now()
+  try {
+    // 并行获取：存储文件列表 + D1 资源记录 + Supabase DB 统计
+    const [storageData, resources, supaDbStats] = await Promise.all([
+      getSupabaseStorageUsage(),
+      all<any>('SELECT id, title, file_name, file_path, file_size, file_type, downloads, status, created_at FROM resources ORDER BY id DESC LIMIT 200'),
+      getSupabaseDbStats(),
+    ])
+
+    // 大体积文件 TOP 20
+    const topFiles = [...storageData.files]
+      .sort((a, b) => (b.size || 0) - (a.size || 0))
+      .slice(0, 20)
+      .map(f => ({
+        ...f,
+        sizeFmt: fmtBytes(f.size || 0),
+      }))
+
+    // 高频访问文件 TOP 20（按下载量排序）
+    const hotResources = resources
+      .filter(r => r.downloads > 0)
+      .sort((a, b) => (b.downloads || 0) - (a.downloads || 0))
+      .slice(0, 20)
+      .map(r => ({
+        id: r.id,
+        title: r.title,
+        fileName: r.file_name,
+        fileSize: r.file_size || 0,
+        fileSizeFmt: fmtBytes(r.file_size || 0),
+        downloads: r.downloads,
+        status: r.status,
+      }))
+
+    // 冗余文件统计：D1 中有记录但 Supabase 中找不到对应文件的资源
+    const storageFileNames = new Set(storageData.files.map(f => f.name))
+    const orphanedResources = resources.filter(r => {
+      const key = extractKey(r.file_path || '')
+      return key && !storageFileNames.has(key)
+    }).map(r => ({
+      id: r.id,
+      title: r.title,
+      fileName: r.file_name,
+      filePath: r.file_path,
+      fileSize: r.file_size || 0,
+    }))
+
+    // 未关联资源记录的孤立文件
+    const resourceKeys = new Set(resources.map(r => extractKey(r.file_path || '')).filter(Boolean))
+    const orphanedFiles = storageData.files.filter(f => !resourceKeys.has(f.name)).map(f => ({
+      ...f,
+      sizeFmt: fmtBytes(f.size || 0),
+    }))
+
+    // 生成优化建议
+    const suggestions = generateOptimizationSuggestions(storageData.files, resources)
+
+    // 当日上传/删除流量统计
+    const today = dateNowBeijing()
+    const todayUploads = resources.filter(r => r.created_at && r.created_at.startsWith(today))
+    const todayUploadSize = todayUploads.reduce((sum, r) => sum + (r.file_size || 0), 0)
+
+    // 容量告警判断
+    const TOTAL_CAPACITY = 1024 * 1024 * 1024 // 1GB
+    const usedPercent = (storageData.totalSize / TOTAL_CAPACITY) * 100
+    const alerts: any[] = []
+    if (usedPercent > 80) {
+      alerts.push({ level: 'danger', message: `存储容量已使用 ${usedPercent.toFixed(1)}%，接近上限！建议立即优化大体积文件` })
+    } else if (usedPercent > 60) {
+      alerts.push({ level: 'warning', message: `存储容量已使用 ${usedPercent.toFixed(1)}%，建议进行文件轻量化优化` })
+    }
+    if (suggestions.length > 0) {
+      const totalPotentialSaving = suggestions.reduce((sum, s) => sum + s.potentialSaving, 0)
+      alerts.push({
+        level: 'info',
+        message: `发现 ${suggestions.length} 个可优化文件，预计可节省 ${fmtBytes(totalPotentialSaving)} 空间`,
+      })
+    }
+    if (orphanedFiles.length > 0) {
+      const orphanSize = orphanedFiles.reduce((sum, f) => sum + (f.size || 0), 0)
+      alerts.push({
+        level: 'warning',
+        message: `发现 ${orphanedFiles.length} 个孤立文件（未关联资源记录），占用 ${fmtBytes(orphanSize)} 空间`,
+      })
+    }
+
+    return c.json({
+      storage: {
+        totalFiles: storageData.totalFiles,
+        totalSize: storageData.totalSize,
+        totalSizeFmt: fmtBytes(storageData.totalSize),
+        capacity: TOTAL_CAPACITY,
+        capacityFmt: '1 GB',
+        usedPercent: usedPercent.toFixed(1),
+        remaining: TOTAL_CAPACITY - storageData.totalSize,
+        remainingFmt: fmtBytes(TOTAL_CAPACITY - storageData.totalSize),
+        equivalentExpansion: (TOTAL_CAPACITY / Math.max(TOTAL_CAPACITY - storageData.totalSize, 1)).toFixed(1) + 'x',
+      },
+      topFiles,
+      hotResources,
+      orphanedResources,
+      orphanedFiles,
+      suggestions,
+      todayStats: {
+        uploadCount: todayUploads.length,
+        uploadSize: todayUploadSize,
+        uploadSizeFmt: fmtBytes(todayUploadSize),
+      },
+      supabaseDbStats,
+      alerts,
+      _debug: { totalMs: Date.now() - t0 },
+    })
+  } catch (e: any) {
+    return c.json({ message: '存储监控数据获取失败: ' + (e.message || ''), error: true }, 500)
+  }
+})
+
+// 文件优化：批量处理大体积文件（标记优化状态）
+app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const { action } = await c.req.json()
+  // action: 'list' | 'optimize_images' | 'clean_orphaned' | 'purge_cache'
+
+  if (action === 'purge_cache') {
+    // 清除所有文件缓存
+    HOT_FILE_CACHE.clear()
+    try {
+      // 边缘缓存按 key 逐个删除
+      const resources = await all<any>('SELECT id FROM resources WHERE status=?', 'approved')
+      await Promise.all(resources.map(r =>
+        EDGE_CACHE.delete(fileCacheRequest(r.id, 'download')).catch(() => {})
+      ))
+    } catch {}
+    return c.json({ ok: true, message: '已清除所有文件缓存' })
+  }
+
+  if (action === 'clean_orphaned') {
+    // 清理孤立文件（未关联资源记录的文件）
+    const [storageData, resources] = await Promise.all([
+      getSupabaseStorageUsage(),
+      all<any>('SELECT file_path FROM resources WHERE file_path IS NOT NULL'),
+    ])
+    const resourceKeys = new Set(resources.map(r => extractKey(r.file_path || '')).filter(Boolean))
+    const orphanedFiles = storageData.files.filter(f => !resourceKeys.has(f.name))
+    let cleanedCount = 0
+    let cleanedSize = 0
+    for (const f of orphanedFiles) {
+      try {
+        await deleteFile(f.name)
+        cleanedCount++
+        cleanedSize += f.size || 0
+      } catch {}
+    }
+    return c.json({
+      ok: true,
+      message: `已清理 ${cleanedCount} 个孤立文件，释放 ${fmtBytes(cleanedSize)} 空间`,
+      cleanedCount, cleanedSize, cleanedSizeFmt: fmtBytes(cleanedSize),
+    })
+  }
+
+  if (action === 'list') {
+    // 列出需要优化的文件
+    const [storageData, resources] = await Promise.all([
+      getSupabaseStorageUsage(),
+      all<any>('SELECT id, title, file_name, file_path, file_size, file_type FROM resources'),
+    ])
+    const suggestions = generateOptimizationSuggestions(storageData.files, resources)
+    const totalPotentialSaving = suggestions.reduce((sum, s) => sum + s.potentialSaving, 0)
+    return c.json({
+      suggestions,
+      totalPotentialSaving,
+      totalPotentialSavingFmt: fmtBytes(totalPotentialSaving),
+      count: suggestions.length,
+    })
+  }
+
+  return c.json({ message: '未知操作' }, 400)
+})
+
+// 获取缓存统计信息
+app.get('/api/admin/cache/stats', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  let totalHotSize = 0
+  let totalHotHits = 0
+  const hotFileDetails: any[] = []
+  for (const [k, v] of HOT_FILE_CACHE) {
+    totalHotSize += v.size
+    totalHotHits += v.hits
+    hotFileDetails.push({
+      key: k,
+      size: v.size,
+      sizeFmt: fmtBytes(v.size),
+      hits: v.hits,
+      expireIn: Math.max(0, Math.floor((v.expireAt - Date.now()) / 1000)) + 's',
+    })
+  }
+  hotFileDetails.sort((a, b) => b.hits - a.hits)
+  return c.json({
+    hotFileCache: {
+      count: HOT_FILE_CACHE.size,
+      maxSize: HOT_FILE_MAX,
+      totalSize: totalHotSize,
+      totalSizeFmt: fmtBytes(totalHotSize),
+      totalHits: totalHotHits,
+      files: hotFileDetails.slice(0, 10),
+    },
+    apiCache: {
+      count: API_CACHE.size,
+      maxSize: API_CACHE_MAX,
+    },
+    version: FILE_CACHE_VERSION,
+  })
+})
+
+// ==============================================================================
+// ============ 需求5：超管网站运行监控（增强版 - 双库全覆盖） ============
 // ==============================================================================
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const t0 = Date.now()
@@ -2512,17 +3119,83 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
 
   // D1 数据库大小
   let dbSize = 0
+  let d1PageCount = 0
+  let d1PageSize = 4096
+  let d1FreePages = 0
   try {
-    const [pc, ps] = await D1.batch([D1.prepare('PRAGMA page_count'), D1.prepare('PRAGMA page_size')])
-    const pcVal = (pc?.results?.[0] as any)?.page_count || 0
-    const psVal = (ps?.results?.[0] as any)?.page_size || 4096
-    dbSize = pcVal * psVal
+    const [pc, ps, fp] = await D1.batch([
+      D1.prepare('PRAGMA page_count'),
+      D1.prepare('PRAGMA page_size'),
+      D1.prepare('PRAGMA freelist_count'),
+    ])
+    d1PageCount = (pc?.results?.[0] as any)?.page_count || 0
+    d1PageSize = (ps?.results?.[0] as any)?.page_size || 4096
+    d1FreePages = (fp?.results?.[0] as any)?.freelist_count || 0
+    dbSize = d1PageCount * d1PageSize
   } catch {}
-  function fmtBytes(b: number) {
-    if (b < 1024) return b + ' B'
-    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
-    if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB'
-    return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+
+  // D1 各表详细统计（含数据行大小估算）
+  const d1TableDetails = tables.map((t, i) => {
+    const rows = tableStats[t] || 0
+    return { table: t, rows, avgRowsPerKB: rows > 0 ? (rows / Math.max(dbSize / 1024, 1)).toFixed(2) : '0' }
+  })
+
+  // D1 空数据表统计（行数为0的表）
+  const emptyTables = d1TableDetails.filter(t => t.rows === 0).map(t => t.table)
+
+  // 并行获取 Supabase 数据库统计 + 存储统计 + 缓存统计
+  const [supaDbStats, storageData, hotCacheStats] = await Promise.all([
+    getSupabaseDbStats(),
+    getSupabaseStorageUsage().catch(() => ({ totalFiles: 0, totalSize: 0, files: [] })),
+    Promise.resolve().then(() => {
+      let totalSize = 0, totalHits = 0
+      for (const [, v] of HOT_FILE_CACHE) { totalSize += v.size; totalHits += v.hits }
+      return { count: HOT_FILE_CACHE.size, totalSize, totalHits }
+    }),
+  ])
+
+  // Supabase 存储容量计算
+  const TOTAL_CAPACITY = 1024 * 1024 * 1024 // 1GB
+  const storageUsedPercent = storageData.totalSize ? (storageData.totalSize / TOTAL_CAPACITY) * 100 : 0
+  const storageRemaining = TOTAL_CAPACITY - (storageData.totalSize || 0)
+
+  // 大体积文件 TOP 10
+  const topStorageFiles = [...(storageData.files || [])]
+    .sort((a, b) => (b.size || 0) - (a.size || 0))
+    .slice(0, 10)
+    .map(f => ({ name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0) }))
+
+  // 高频访问资源 TOP 10
+  const hotDownloadResources = await all<any>(
+    'SELECT id, title, file_name, file_size, downloads FROM resources WHERE downloads > 0 ORDER BY downloads DESC LIMIT 10'
+  ).catch(() => [])
+
+  // 当日上传/删除流量
+  const todayUploadStats = await get<{ cnt: number; sz: number }>(
+    `SELECT COUNT(*) as cnt, COALESCE(SUM(file_size),0) as sz FROM resources WHERE substr(created_at,1,10)=?`, today
+  ).catch(() => ({ cnt: 0, sz: 0 }))
+
+  // ===== 统一告警判断 =====
+  const alerts: any[] = []
+  // D1 容量告警
+  const d1Limit = 500 * 1024 * 1024 // 500MB
+  const d1UsedPercent = (dbSize / d1Limit) * 100
+  if (d1UsedPercent > 80) {
+    alerts.push({ level: 'danger', source: 'D1', message: `D1数据库已使用 ${d1UsedPercent.toFixed(1)}%，接近500MB上限` })
+  }
+  // Supabase 存储告警
+  if (storageUsedPercent > 80) {
+    alerts.push({ level: 'danger', source: 'Supabase存储', message: `存储容量已使用 ${storageUsedPercent.toFixed(1)}%，接近1GB上限！` })
+  } else if (storageUsedPercent > 60) {
+    alerts.push({ level: 'warning', source: 'Supabase存储', message: `存储容量已使用 ${storageUsedPercent.toFixed(1)}%，建议优化` })
+  }
+  // 空表告警
+  if (emptyTables.length > 0) {
+    alerts.push({ level: 'info', source: 'D1', message: `${emptyTables.length} 张数据表行数为0（${emptyTables.join(', ')}），可考虑清理` })
+  }
+  // 缓存命中率告警
+  if (hotCacheStats.count === 0 && todayRow.resources > 0) {
+    alerts.push({ level: 'info', source: '缓存', message: '热点文件缓存为空，首次访问可能较慢' })
   }
 
   // 组装7天趋势
@@ -2549,7 +3222,64 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
       todayLogins: todayRow.logins, todayArticles: todayRow.articles,
       todayResources: todayRow.resources, todayExps: todayRow.exps,
     },
-    database: { fileSize: dbSize, fileSizeFmt: fmtBytes(dbSize), tables: tableStats },
+    // ===== D1 数据库监控（增强） =====
+    database: {
+      fileSize: dbSize, fileSizeFmt: fmtBytes(dbSize),
+      tables: tableStats,
+      pageCount: d1PageCount, pageSize: d1PageSize,
+      freePages: d1FreePages,
+      freeSpace: d1FreePages * d1PageSize,
+      freeSpaceFmt: fmtBytes(d1FreePages * d1PageSize),
+      usedPercent: d1UsedPercent.toFixed(1),
+      tableCount: tables.length,
+      totalRows: Object.values(tableStats).reduce((s: number, n: any) => s + Number(n), 0),
+      emptyTables,
+      tableDetails: d1TableDetails,
+    },
+    // ===== Supabase 数据库监控 =====
+    supabaseDb: {
+      url: SUPABASE_URL ? SUPABASE_URL.replace('https://', '').replace('.supabase.co', '') : '未配置',
+      configured: !!SUPABASE_URL,
+      tableStats: supaDbStats,
+      totalRows: supaDbStats ? Object.values(supaDbStats).reduce((s: number, n: any) => s + Number(n), 0) : 0,
+    },
+    // ===== Supabase 存储监控 =====
+    supabaseStorage: {
+      bucket: SUPABASE_BUCKET,
+      totalFiles: storageData.totalFiles || 0,
+      totalSize: storageData.totalSize || 0,
+      totalSizeFmt: fmtBytes(storageData.totalSize || 0),
+      capacity: TOTAL_CAPACITY,
+      capacityFmt: '1 GB',
+      usedPercent: storageUsedPercent.toFixed(1),
+      remaining: storageRemaining,
+      remainingFmt: fmtBytes(storageRemaining),
+      topFiles: topStorageFiles,
+      todayUploads: todayUploadStats?.cnt || 0,
+      todayUploadSize: todayUploadStats?.sz || 0,
+      todayUploadSizeFmt: fmtBytes(todayUploadStats?.sz || 0),
+      hotResources: (hotDownloadResources || []).map((r: any) => ({
+        ...r, fileSizeFmt: fmtBytes(r.file_size || 0),
+      })),
+    },
+    // ===== 缓存监控 =====
+    cache: {
+      hotFile: {
+        count: hotCacheStats.count,
+        maxCount: HOT_FILE_MAX,
+        totalSize: hotCacheStats.totalSize,
+        totalSizeFmt: fmtBytes(hotCacheStats.totalSize),
+        totalHits: hotCacheStats.totalHits,
+      },
+      api: {
+        count: API_CACHE.size,
+        maxCount: API_CACHE_MAX,
+      },
+      edgeCache: 'Cloudflare Cache API (边缘节点级)',
+    },
+    // ===== 统一告警 =====
+    alerts,
+    // ===== 平台信息 =====
     platform: {
       runtime: 'Cloudflare Workers', colo: cf?.colo || 'N/A', country: cf?.country || 'N/A',
       httpProtocol: cf?.httpProtocol || 'HTTP/2', tlsVersion: cf?.tlsVersion || 'TLSv1.3',
