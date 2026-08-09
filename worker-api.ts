@@ -308,7 +308,7 @@ function apiCacheKey(c: Context): string | null {
   if (c.req.method !== 'GET') return null
   const p = new URL(c.req.url).pathname
   if (!p.startsWith('/api/')) return null
-  if (p.includes('/upload/') || p.includes('/download/') || p.includes('/comments')) return null
+  if (p.includes('/upload/') || p.includes('/download/') || p.includes('/comments') || p.includes('/export')) return null
   const auth = (c.req.header('authorization') || '').slice(0, 200)
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
@@ -1270,6 +1270,8 @@ app.post('/api/resources/:id/download', auth, async (c) => {
   const headers: Record<string, string> = {
     'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
     'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type',
+    'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+    'Access-Control-Allow-Credentials': 'true',
   }
   if (file.contentType) headers['Content-Type'] = file.contentType
   return new Response(file.buffer, { headers })
@@ -1432,7 +1434,10 @@ app.get('/api/query/tasks/:id/export', auth, requireStaff, async (c) => {
   return new Response(buf, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`
+      'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+      'Access-Control-Expose-Headers': 'Content-Disposition, Content-Type',
+      'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+      'Access-Control-Allow-Credentials': 'true',
     }
   })
 })
