@@ -195,7 +195,8 @@ CREATE TABLE IF NOT EXISTS pages (
   likes INTEGER DEFAULT 0,
   pinned INTEGER DEFAULT 0,
   pinned_scope TEXT DEFAULT 'none',
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
 );
 
 -- 页面评论表

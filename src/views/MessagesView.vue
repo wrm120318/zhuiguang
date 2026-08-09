@@ -38,6 +38,15 @@ async function loadSessions() {
   contacts.value = r.allUsers || sessions.value.map(s => s.peer).filter(Boolean)
 }
 
+async function readAllMessages() {
+  try {
+    await api.readAllMessages()
+    sessions.value.forEach((s: any) => { s.unread = 0 })
+    window.dispatchEvent(new Event('messages-read'))
+    ElMessage.success('已全部标记为已读')
+  } catch { ElMessage.error('操作失败，请重试') }
+}
+
 async function openPeer(peerId: number) {
   if (!peerId) return
   activePeer.value = await findUser(peerId)
@@ -122,7 +131,7 @@ watch(() => route.params.peerId, async (pid) => {
     <div class="msg-layout">
       <!-- 左侧：会话列表 / 联系人 -->
       <aside class="sidebar glass">
-        <div class="sb-title">会话</div>
+        <div class="sb-title">会话<el-button v-if="sessions.some((s:any)=>s.unread)" size="small" text type="primary" style="margin-left:auto" @click="readAllMessages">全部已读</el-button></div>
         <div class="sb-list">
           <div v-for="s in sessions" :key="s.peer?.id" class="sb-item" :class="{ on: activePeer?.id === s.peer?.id && !adminMode }" @click="openPeer(s.peer.id)">
             <img :src="s.peer?.avatar" class="si-avatar" />

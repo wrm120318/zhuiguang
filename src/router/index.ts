@@ -28,8 +28,8 @@ const routes: RouteRecordRaw[] = [
   // 站内信
   { path: '/messages', name: 'messages', component: () => import('@/views/MessagesView.vue') },
   { path: '/messages/:peerId', name: 'message-thread', component: () => import('@/views/MessagesView.vue') },
-  // 经验值说明
-  { path: '/exp-doc', name: 'exp-doc', component: () => import('@/views/ExpDocView.vue') },
+  // 经验值说明（已合并到网站说明）
+  { path: '/exp-doc', redirect: '/guide' },
   // 题库自测
   { path: '/quizzes', name: 'quizzes', component: () => import('@/views/quiz/QuizListView.vue') },
   { path: '/quiz/new', name: 'quiz-new', component: () => import('@/views/quiz/QuizEditView.vue') },
@@ -54,6 +54,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'guide', name: 'admin-guide', component: () => import('@/views/admin/GuideEditView.vue') },
       { path: 'exp-rules', name: 'admin-exp-rules', component: () => import('@/views/admin/ExpRulesView.vue') },
       { path: 'feature-flags', name: 'admin-feature-flags', component: () => import('@/views/admin/FeatureFlagsView.vue') },
+      { path: 'site-config', name: 'admin-site-config', component: () => import('@/views/admin/SiteConfigView.vue') },
       // 需求5：网站运行监控（仅超管）
       { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/MonitorView.vue') },
     ]

@@ -185,7 +185,6 @@ function typeLabel(t: string) {
         <div class="d-item" v-if="settings.isEnabled('announcement')" @click="go('/announcements')">📢 网站公告</div>
         <div class="d-item" v-if="settings.isEnabled('quiz')" @click="go('/quizzes')">📝 题库自测</div>
         <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')">🏆 经验榜</div>
-        <div class="d-item" @click="go('/exp-doc')">⭐ 经验值说明</div>
         <div class="d-item" @click="go('/profile')">👤 个人中心</div>
         <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')">⭐ 我的收藏</div>
         <div class="d-item" v-if="user.isStaff" @click="go('/admin')">⚙️ 管理后台</div>

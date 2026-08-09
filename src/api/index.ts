@@ -105,7 +105,7 @@ export const api = {
   auditResource: (id: number, status: string) => http.patch(`/api/resources/${id}/status`, { status }),
   deleteResource: (id: number) => http.delete(`/api/resources/${id}`),
   downloadResource: (id: number) => {
-    const http2 = axios.create({ baseURL: '', timeout: 60000, responseType: 'blob' })
+    const http2 = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL as string) || '', timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
     const token = localStorage.getItem('zg_token')
     if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
     return http2.post(`/api/resources/${id}/download`)
@@ -119,9 +119,10 @@ export const api = {
   doQuery: (id: number) => http.post(`/api/query/tasks/${id}/query`),
   createQueryTask: (data: any) => http.post('/api/query/tasks', data),
   deleteQueryTask: (id: number) => http.delete(`/api/query/tasks/${id}`),
+  updateQueryTask: (id: number, data: any) => http.put(`/api/query/tasks/${id}`, data),
   // 需求1：导出查询任务Excel（超管下载所有人的，教师下载自己的）
   exportQueryTask: (id: number) => {
-    const http2 = axios.create({ baseURL: '', timeout: 60000, responseType: 'blob' })
+    const http2 = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL as string) || '', timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
     const token = localStorage.getItem('zg_token')
     if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
     return http2.get(`/api/query/tasks/${id}/export`)
@@ -159,11 +160,13 @@ export const api = {
   broadcastNotice: (data: { title: string; content: string; type?: string }) => http.post('/api/notices/broadcast', data),
   // 修改用户密码（超管）
   setUserPassword: (id: number, password: string) => http.post(`/api/users/${id}/password`, { password }),
-  // ===== 设置：经验规则 / 功能开关 =====
+  // ===== 设置：经验规则 / 功能开关 / 网站自定义 =====
   getExpRules: () => http.get('/api/settings/exp_rules'),
   saveExpRules: (rules: Record<string, number>) => http.put('/api/settings/exp_rules', rules),
   getFeatureFlags: () => http.get('/api/settings/feature_flags'),
   saveFeatureFlags: (flags: Record<string, boolean>) => http.put('/api/settings/feature_flags', flags),
+  getSiteConfig: () => http.get('/api/settings/site_config'),
+  saveSiteConfig: (config: any) => http.put('/api/settings/site_config', config),
   // ===== 题库自测 =====
   quizzes: (params?: any) => http.get('/api/quizzes', { params }),
   quiz: (id: number) => http.get(`/api/quizzes/${id}`),
@@ -202,5 +205,6 @@ export const api = {
   messageThread: (peerId: number) => http.get(`/api/messages/${peerId}`),
   sendMessage: (toId: number, content: string, attachments?: any[]) => http.post('/api/messages', { toId, content, attachments }),
   messageUnreadCount: () => http.get('/api/messages/unread/count'),
+  readAllMessages: () => http.post('/api/messages/read-all'),
   messageAll: (aId: number, bId: number) => http.get(`/api/messages/all/${aId}/${bId}`),
 }

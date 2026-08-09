@@ -1,0 +1,315 @@
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { api } from '@/api'
+import { ElMessage } from 'element-plus'
+
+interface QuickLink {
+  icon: string
+  label: string
+  path: string
+  color: string
+}
+
+interface SiteConfig {
+  siteName: string
+  siteSlogan: string
+  heroSubtitle: string
+  showQuickLinks: boolean
+  quickLinks: QuickLink[]
+  footerText: string
+  showAnnouncementBar: boolean
+  announcementBar: string
+}
+
+const loading = ref(true)
+const saving = ref(false)
+
+// 默认配置：与首页 HomeView 的快捷入口保持一致
+function defaultConfig(): SiteConfig {
+  return {
+    siteName: '追光学科共享平台',
+    siteSlogan: '追光的人，终会身披万丈光芒',
+    heroSubtitle: '在这里分享知识，收获成长。',
+    showQuickLinks: true,
+    quickLinks: [
+      { icon: '📚', label: '学科广场', path: '/subjects', color: '#F59E0B' },
+      { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '#FBBF24' },
+      { icon: '👤', label: '个人中心', path: '/profile', color: '#FB923C' },
+      { icon: '⭐', label: '我的收藏', path: '/favorites', color: '#FDE68A' },
+    ],
+    footerText: '© 追光学科共享平台 · 用知识点亮未来',
+    showAnnouncementBar: false,
+    announcementBar: '欢迎来到追光学科共享平台！',
+  }
+}
+
+const form = reactive<SiteConfig>(defaultConfig())
+
+// 合并后端返回的配置，缺失字段补默认值
+function mergeConfig(remote: any) {
+  const d = defaultConfig()
+  if (!remote || typeof remote !== 'object') return
+  form.siteName = remote.siteName ?? d.siteName
+  form.siteSlogan = remote.siteSlogan ?? d.siteSlogan
+  form.heroSubtitle = remote.heroSubtitle ?? d.heroSubtitle
+  form.showQuickLinks = remote.showQuickLinks ?? d.showQuickLinks
+  form.quickLinks = Array.isArray(remote.quickLinks) && remote.quickLinks.length
+    ? remote.quickLinks.map((q: any) => ({
+        icon: q.icon ?? '⭐',
+        label: q.label ?? '',
+        path: q.path ?? '/',
+        color: q.color ?? '#F59E0B',
+      }))
+    : d.quickLinks
+  form.footerText = remote.footerText ?? d.footerText
+  form.showAnnouncementBar = remote.showAnnouncementBar ?? d.showAnnouncementBar
+  form.announcementBar = remote.announcementBar ?? d.announcementBar
+}
+
+onMounted(async () => {
+  try {
+    const cfg: any = await api.getSiteConfig()
+    mergeConfig(cfg)
+  } catch (e: any) {
+    ElMessage.error('加载网站配置失败：' + (e?.message || '请稍后重试'))
+  } finally {
+    loading.value = false
+  }
+})
+
+async function save() {
+  saving.value = true
+  try {
+    await api.saveSiteConfig({ ...form, quickLinks: form.quickLinks.map(q => ({ ...q })) })
+    ElMessage.success('网站配置已保存，立即生效')
+  } catch (e: any) {
+    ElMessage.error('保存失败：' + (e?.message || '请稍后重试'))
+  } finally {
+    saving.value = false
+  }
+}
+
+// ===== 快捷入口动态编辑 =====
+const PRESET_COLORS = ['#F59E0B', '#FB923C', '#FBBF24', '#FDE68A', '#F97316', '#EF4444', '#34D399', '#60A5FA']
+const PRESET_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '✍️', '📦', '🎓', '💡', '🔥']
+
+function addLink() {
+  form.quickLinks.push({ icon: '⭐', label: '', path: '/', color: '#F59E0B' })
+}
+
+function removeLink(index: number) {
+  form.quickLinks.splice(index, 1)
+}
+
+function moveLink(index: number, dir: -1 | 1) {
+  const target = index + dir
+  if (target < 0 || target >= form.quickLinks.length) return
+  const list = form.quickLinks
+  ;[list[index], list[target]] = [list[target], list[index]]
+}
+
+function resetConfig() {
+  Object.assign(form, defaultConfig())
+  ElMessage.info('已恢复为默认配置（未保存）')
+}
+</script>
+
+<template>
+  <div v-loading="loading">
+    <div class="head">
+      <div>
+        <h1 class="dh-title">🏠 网站自定义</h1>
+        <p class="dh-sub">自定义首页标题、标语、快捷入口与公告栏，保存后全站立即生效。</p>
+      </div>
+      <div class="head-actions">
+        <el-button @click="resetConfig">恢复默认</el-button>
+        <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
+      </div>
+    </div>
+
+    <el-form label-position="top" class="config-form">
+      <div class="glass-strong config-page">
+        <div class="tip">💡 修改后点击「保存配置」即可全站生效。快捷入口可拖动排序、自由增删。</div>
+
+        <!-- 基础信息 -->
+        <div class="sec">
+          <div class="sec-title"><span class="sec-bar"></span>基础信息</div>
+          <div class="sec-body">
+            <el-form-item label="网站名称">
+              <el-input v-model="form.siteName" placeholder="如：追光学科共享平台" maxlength="40" show-word-limit />
+            </el-form-item>
+            <el-form-item label="网站标语">
+              <el-input v-model="form.siteSlogan" placeholder="如：追光的人，终会身披万丈光芒" maxlength="60" show-word-limit />
+            </el-form-item>
+            <el-form-item label="首页副标题">
+              <el-input v-model="form.heroSubtitle" placeholder="首页 Hero 区域的副标题文字" maxlength="80" show-word-limit />
+            </el-form-item>
+            <el-form-item label="页脚文字">
+              <el-input v-model="form.footerText" placeholder="如：© 追光学科共享平台" maxlength="80" show-word-limit />
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- 快捷入口 -->
+        <div class="sec">
+          <div class="sec-title">
+            <span class="sec-bar"></span>快捷入口
+            <el-switch class="sec-switch" v-model="form.showQuickLinks" />
+            <span class="sec-switch-label">{{ form.showQuickLinks ? '已显示' : '已隐藏' }}</span>
+          </div>
+          <div class="sec-body" v-show="form.showQuickLinks">
+            <div class="ql-tip">每个快捷入口包含图标、名称、跳转路径与主题色。</div>
+
+            <div v-if="!form.quickLinks.length" class="ql-empty">
+              暂无快捷入口，点击下方按钮添加。
+            </div>
+
+            <div v-for="(link, idx) in form.quickLinks" :key="idx" class="ql-item">
+              <div class="ql-index">{{ idx + 1 }}</div>
+
+              <div class="ql-preview" :style="{ background: `linear-gradient(135deg, ${link.color}, ${link.color}cc)` }">
+                {{ link.icon || '⭐' }}
+              </div>
+
+              <div class="ql-fields">
+                <div class="ql-row">
+                  <el-input v-model="link.icon" class="ql-emoji" placeholder="🔥" maxlength="4">
+                    <template #prepend>图标</template>
+                  </el-input>
+                  <el-input v-model="link.label" placeholder="入口名称" maxlength="12">
+                    <template #prepend>名称</template>
+                  </el-input>
+                  <el-input v-model="link.path" placeholder="/subjects" maxlength="60">
+                    <template #prepend>路径</template>
+                  </el-input>
+                </div>
+                <div class="ql-row ql-color-row">
+                  <span class="ql-color-label">主题色</span>
+                  <el-color-picker v-model="link.color" />
+                  <span class="ql-color-val">{{ link.color }}</span>
+                  <div class="ql-swatches">
+                    <span
+                      v-for="c in PRESET_COLORS"
+                      :key="c"
+                      class="ql-sw"
+                      :class="{ on: link.color.toLowerCase() === c.toLowerCase() }"
+                      :style="{ background: c }"
+                      @click="link.color = c"
+                    ></span>
+                  </div>
+                </div>
+                <div class="ql-emoji-quick">
+                  <span class="ql-eq-label">快捷图标：</span>
+                  <span
+                    v-for="e in PRESET_EMOJIS"
+                    :key="e"
+                    class="ql-eq-item"
+                    :class="{ on: link.icon === e }"
+                    @click="link.icon = e"
+                  >{{ e }}</span>
+                </div>
+              </div>
+
+              <div class="ql-ops">
+                <el-button :icon="'↑'" circle size="small" :disabled="idx === 0" @click="moveLink(idx, -1)" title="上移" />
+                <el-button :icon="'↓'" circle size="small" :disabled="idx === form.quickLinks.length - 1" @click="moveLink(idx, 1)" title="下移" />
+                <el-button type="danger" :icon="'✕'" circle size="small" @click="removeLink(idx)" title="删除" />
+              </div>
+            </div>
+
+            <el-button class="ql-add" plain @click="addLink">＋ 添加快捷入口</el-button>
+          </div>
+        </div>
+
+        <!-- 公告栏 -->
+        <div class="sec">
+          <div class="sec-title">
+            <span class="sec-bar"></span>公告栏
+            <el-switch class="sec-switch" v-model="form.showAnnouncementBar" />
+            <span class="sec-switch-label">{{ form.showAnnouncementBar ? '已显示' : '已隐藏' }}</span>
+          </div>
+          <div class="sec-body" v-show="form.showAnnouncementBar">
+            <el-form-item label="公告栏内容">
+              <el-input
+                v-model="form.announcementBar"
+                type="textarea"
+                :rows="3"
+                placeholder="首页顶部公告栏显示的文字，支持纯文本。"
+                maxlength="200"
+                show-word-limit
+                resize="vertical"
+              />
+            </el-form-item>
+          </div>
+        </div>
+
+        <div class="foot">
+          <el-button @click="resetConfig">恢复默认</el-button>
+          <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
+        </div>
+      </div>
+    </el-form>
+  </div>
+</template>
+
+<style scoped>
+.head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+.dh-title { font-size: 24px; font-weight: 800; }
+.dh-sub { font-size: 13px; color: var(--zg-text-dim); margin-top: 4px; }
+.head-actions { display: flex; gap: 10px; }
+
+.config-page { padding: 24px; }
+.tip { background: rgba(245,158,11,.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 22px; }
+
+.sec { margin-bottom: 24px; }
+.sec:last-of-type { margin-bottom: 0; }
+.sec-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.sec-bar { width: 4px; height: 18px; border-radius: 4px; background: linear-gradient(var(--zg-accent), var(--zg-primary)); }
+.sec-switch { margin-left: auto; }
+.sec-switch-label { font-size: 12px; color: var(--zg-text-dim); font-weight: 500; }
+.sec-body { display: flex; flex-direction: column; gap: 4px; }
+
+/* 快捷入口编辑器 */
+.ql-tip { font-size: 12px; color: var(--zg-text-dim); margin-bottom: 12px; }
+.ql-empty { padding: 24px; text-align: center; color: var(--zg-text-dim); font-size: 13px; background: rgba(245,158,11,.04); border-radius: 12px; border: 1px dashed rgba(245,158,11,.2); }
+.ql-item { display: flex; align-items: flex-start; gap: 14px; padding: 16px; background: rgba(245,158,11,.04); border-radius: 12px; margin-bottom: 10px; border: 1px solid transparent; transition: border-color .2s; }
+.ql-item:hover { border-color: rgba(245,158,11,.2); }
+.ql-index { width: 24px; height: 24px; border-radius: 50%; background: var(--zg-primary); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 4px; }
+.ql-preview { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(245,158,11,.2); color: #fff; }
+.ql-fields { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ql-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ql-row .el-input { flex: 1; min-width: 120px; }
+.ql-emoji { max-width: 110px; flex: 0 0 110px !important; }
+.ql-color-row { align-items: center; }
+.ql-color-label { font-size: 12px; color: var(--zg-text-dim); white-space: nowrap; }
+.ql-color-val { font-size: 12px; color: var(--zg-text-dim); font-family: monospace; }
+.ql-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.ql-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(245,158,11,.3); transition: transform .15s; }
+.ql-sw:hover { transform: scale(1.15); }
+.ql-sw.on { box-shadow: 0 0 0 2px var(--zg-primary); }
+.ql-emoji-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ql-eq-label { font-size: 12px; color: var(--zg-text-dim); }
+.ql-eq-item { font-size: 18px; cursor: pointer; padding: 2px 4px; border-radius: 6px; transition: all .15s; }
+.ql-eq-item:hover { background: rgba(245,158,11,.12); transform: scale(1.15); }
+.ql-eq-item.on { background: rgba(245,158,11,.2); box-shadow: 0 0 0 1px var(--zg-primary); }
+.ql-ops { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.ql-add { width: 100%; margin-top: 4px; border-style: dashed !important; }
+
+.foot { margin-top: 28px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.15); display: flex; justify-content: flex-end; gap: 10px; }
+
+@media (max-width: 768px) {
+  .config-page { padding: 16px; }
+  .dh-title { font-size: 20px; }
+  .tip { font-size: 12px; padding: 8px 12px; margin-bottom: 16px; }
+  .sec { margin-bottom: 20px; }
+  .sec-title { font-size: 15px; margin-bottom: 12px; }
+  .ql-item { flex-wrap: wrap; padding: 12px; gap: 10px; }
+  .ql-preview { width: 42px; height: 42px; border-radius: 12px; font-size: 20px; }
+  .ql-ops { flex-direction: row; margin-left: auto; }
+  .ql-row { flex-direction: column; gap: 8px; }
+  .ql-row .el-input { min-width: 0; }
+  .ql-emoji { max-width: none; flex: 1 1 100% !important; }
+  .foot { flex-direction: column-reverse; gap: 8px; }
+  .foot .el-button { width: 100%; }
+}
+</style>

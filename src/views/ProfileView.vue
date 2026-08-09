@@ -10,6 +10,7 @@ const router = useRouter()
 const user = useUserStore()
 const expLogs = ref<any[]>([])
 const myArticles = ref<any[]>([])
+const myResources = ref<any[]>([])
 const pendingStudentArticles = ref<any[]>([])  // 需求3：待我（学生）确认的代发美文
 const editing = ref(false)
 const form = ref({ realName: '', email: '', phone: '', avatar: '' })
@@ -21,6 +22,9 @@ async function load() {
   try {
     const all = (await api.articles({ author: user.current?.username, limit: 10 })) as any
     myArticles.value = all
+  } catch { /* */ }
+  try {
+    myResources.value = (await api.resources({ mine: '1', userId: user.current?.id })) as any
   } catch { /* */ }
   // 需求3：学生账号加载「待我确认的代发美文」
   if (user.isStudent) {
@@ -126,7 +130,7 @@ onMounted(() => { expProgress.value = calcProgress() })
       <div class="section-title">经验记录</div>
       <div class="exp-list">
         <div v-for="log in expLogs.slice(0, 10)" :key="log.id" class="exp-item glass">
-          <div class="ei-icon" :class="{ pos: log.change > 0, neg: log.change < 0 }">{{ log.change > 0 ? '+' : '' }}{{ log.change }}</div>
+          <div class="ei-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
           <div class="ei-body">
             <div class="ei-desc">{{ log.description }}</div>
             <div class="ei-meta">{{ log.action_type }} · {{ log.created_at?.slice(0, 16) }}</div>
@@ -172,6 +176,22 @@ onMounted(() => { expProgress.value = calcProgress() })
             <span :class="['ma-status', a.status]">{{ a.status === 'approved' ? '已通过' : a.status === 'pending' ? '待超管审核' : a.status === 'pending_student' ? '待作者确认' : a.status === 'rejected_student' ? '作者已拒绝' : '已驳回' }}</span>
             <span>❤ {{ a.likes || 0 }}</span>
             <span>{{ a.created_at?.slice(0, 10) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 我的资料 -->
+    <div class="section" v-if="myResources.length">
+      <div class="section-title">我的资料</div>
+      <div class="my-art-list">
+        <div v-for="r in myResources" :key="r.id" class="my-art-item glass zg-card">
+          <div class="ma-title">{{ r.title }}</div>
+          <div class="ma-meta">
+            <span :class="['ma-status', r.status]">{{ r.status === 'approved' ? '已通过' : r.status === 'pending' ? '待审核' : '已驳回' }}</span>
+            <span>⬇ {{ r.downloads || 0 }}</span>
+            <span>❤ {{ r.likes || 0 }}</span>
+            <span>{{ r.created_at?.slice(0, 10) }}</span>
           </div>
         </div>
       </div>

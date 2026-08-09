@@ -48,6 +48,7 @@ const menus = computed(() => {
     { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF' },
     { name: 'admin-query', label: '数据查询', icon: '📈', role: 'STAFF' },
     { name: 'admin-guide', label: '网站说明', icon: '📖', role: 'SUPER_ADMIN' },
+    { name: 'admin-site-config', label: '网站自定义', icon: '🏠', role: 'SUPER_ADMIN' },
     { name: 'admin-exp-rules', label: '经验设置', icon: '⭐', role: 'SUPER_ADMIN' },
     { name: 'admin-feature-flags', label: '功能开关', icon: '🧩', role: 'SUPER_ADMIN' },
     { name: 'admin-theme', label: '界面风格', icon: '🎨', role: 'SUPER_ADMIN' },

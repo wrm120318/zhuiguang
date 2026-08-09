@@ -10,6 +10,7 @@ const user = useUserStore()
 const data = useDataStore()
 const articles = ref<any[]>([])
 const stats = ref<any>({})
+const siteConfig = ref<any>(null)
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -28,6 +29,9 @@ onMounted(async () => {
   try {
     stats.value = (await api.stats()) as any
   } catch { /* */ }
+  try {
+    siteConfig.value = await api.getSiteConfig()
+  } catch { /* */ }
 })
 
 function goArticle(id: number) { router.push(`/article/${id}`) }
@@ -39,9 +43,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <div class="hero glass-strong zg-slide-up">
       <div class="hero-bg"></div>
       <div class="hero-content">
-        <div class="hero-tag">🌟 追光学科共享平台</div>
+        <div class="hero-tag">🌟 {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
         <h1 class="hero-title">{{ greeting }}，<span class="zg-grad-text">{{ user.current?.realName || '追光者' }}</span>！</h1>
-        <p class="hero-sub">追光的人，终会身披万丈光芒。在这里分享知识，收获成长。</p>
+        <p class="hero-sub">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
         <div class="hero-stats" v-if="user.isLogin">
           <div class="hs-item">
             <div class="hs-num">{{ user.current?.exp || 0 }}</div>
@@ -66,24 +70,38 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       </div>
     </div>
 
+    <!-- 公告栏 -->
+    <div v-if="siteConfig?.showAnnouncementBar && siteConfig?.announcementBar" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
+      <span class="ab-icon">📢</span>
+      <span class="ab-text">{{ siteConfig.announcementBar }}</span>
+    </div>
+
     <!-- 快捷入口 -->
-    <div class="quick-grid">
-      <div class="qg-card glass zg-card" @click="router.push('/subjects')">
-        <div class="qg-icon" style="background:linear-gradient(135deg,#F59E0B,#FB923C)">📚</div>
-        <div class="qg-text">学科广场</div>
-      </div>
-      <div class="qg-card glass zg-card" @click="router.push('/leaderboard')">
-        <div class="qg-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)">🏆</div>
-        <div class="qg-text">经验排行</div>
-      </div>
-      <div class="qg-card glass zg-card" @click="router.push('/profile')">
-        <div class="qg-icon" style="background:linear-gradient(135deg,#FB923C,#EF4444)">👤</div>
-        <div class="qg-text">个人中心</div>
-      </div>
-      <div class="qg-card glass zg-card" @click="router.push('/favorites')">
-        <div class="qg-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)">⭐</div>
-        <div class="qg-text">我的收藏</div>
-      </div>
+    <div class="quick-grid" v-if="siteConfig?.showQuickLinks !== false">
+      <template v-if="siteConfig?.quickLinks?.length">
+        <div v-for="(ql, i) in siteConfig.quickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
+          <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }">{{ ql.icon }}</div>
+          <div class="qg-text">{{ ql.label }}</div>
+        </div>
+      </template>
+      <template v-else>
+        <div class="qg-card glass zg-card" @click="router.push('/subjects')">
+          <div class="qg-icon" style="background:linear-gradient(135deg,#F59E0B,#FB923C)">📚</div>
+          <div class="qg-text">学科广场</div>
+        </div>
+        <div class="qg-card glass zg-card" @click="router.push('/leaderboard')">
+          <div class="qg-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)">🏆</div>
+          <div class="qg-text">经验排行</div>
+        </div>
+        <div class="qg-card glass zg-card" @click="router.push('/profile')">
+          <div class="qg-icon" style="background:linear-gradient(135deg,#FB923C,#EF4444)">👤</div>
+          <div class="qg-text">个人中心</div>
+        </div>
+        <div class="qg-card glass zg-card" @click="router.push('/favorites')">
+          <div class="qg-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)">⭐</div>
+          <div class="qg-text">我的收藏</div>
+        </div>
+      </template>
     </div>
 
     <!-- 学科 -->
@@ -136,6 +154,10 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .hs-divider { width: 1px; height: 30px; background: rgba(245,158,11,.15); }
 
 .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 20px; }
+
+.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(245,158,11,.25); }
+.ab-icon { font-size: 18px; }
+.ab-text { font-size: var(--zg-fs-sm); color: var(--zg-text); }
 .qg-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; cursor: pointer; }
 .qg-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 14px rgba(245,158,11,.2); }
 .qg-text { font-size: var(--zg-fs-sm); font-weight: 600; color: var(--zg-text); }

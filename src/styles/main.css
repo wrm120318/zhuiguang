@@ -148,9 +148,12 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-switch.is-checked .el-switch__core { background-color: var(--zg-primary) !important; border-color: var(--zg-primary) !important; }
 .el-color-picker__trigger { border-color: rgba(245,158,11,0.3) !important; }
 .el-form-item__label { color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
-.el-message { background: rgba(255,251,235,0.97) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; }
+.el-message { top: auto !important; bottom: 24px !important; left: 24px !important; background: rgba(255,251,235,0.82) !important; backdrop-filter: blur(16px) saturate(180%) !important; -webkit-backdrop-filter: blur(16px) saturate(180%) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.14) !important; z-index: 99999 !important; animation: zgMsgIn 0.35s cubic-bezier(0.2,0.8,0.2,1) !important; }
 .el-message--error { border-color: #f87171 !important; }
 .el-message--success { border-color: #34d399 !important; }
+.el-message-fade-leave-active { transition: all 0.3s ease !important; }
+.el-message-fade-leave-to { opacity: 0 !important; transform: translateY(20px) !important; }
+@keyframes zgMsgIn { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .el-card { background: rgba(255,255,255,0.72) !important; border: 1px solid rgba(245,158,11,0.18) !important; color: var(--zg-text) !important; border-radius: var(--zg-radius) !important; }
 .el-dropdown-menu { background: rgba(255,251,235,0.97) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 14px !important; }
 .el-dropdown-menu__item { color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
