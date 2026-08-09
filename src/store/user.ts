@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
 import { api } from '@/api'
+import { transformUrl } from '@/api/http'
 
 // 将后端 snake_case 用户对象标准化为前端 camelCase
 function normalizeUser(u: any): User | null {
@@ -13,7 +14,7 @@ function normalizeUser(u: any): User | null {
     role: u.role,
     email: u.email ?? '',
     phone: u.phone ?? '',
-    avatar: u.avatar ?? '',
+    avatar: transformUrl(u.avatar ?? ''),
     exp: u.exp ?? 0,
     level: u.level ?? 1,
     status: u.status ?? 'active',

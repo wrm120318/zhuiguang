@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js'
 // ===== Workers 环境变量类型 =====
 interface Env {
   DB: D1Database
+  BUCKET: R2Bucket
   JWT_SECRET?: string
   JWT_EXPIRES?: string
   SUPABASE_URL?: string
@@ -22,6 +23,7 @@ interface Env {
 
 // ===== 全局变量（在请求中间件中从 c.env 设置） =====
 let D1: D1Database
+let R2_BUCKET: R2Bucket | null = null
 let JWT_SECRET = 'zhuiguang-secret-2026'
 let JWT_EXPIRES = '7d'
 let SUPABASE_URL = ''
@@ -174,7 +176,7 @@ export async function isFeatureEnabled(key: string): Promise<boolean> {
 }
 
 // ==============================================================================
-// Storage（Supabase Storage，Workers 兼容，删除 fs/path 本地兜底）
+// Storage（R2 优先，Supabase 回退 — 双线路兼容）
 // ==============================================================================
 let _supabase: any = null
 
@@ -188,7 +190,7 @@ function getSupabase() {
 
 const STORAGE_ENABLED = true
 
-/** 生成 Supabase 签名上传 URL（前端直传用） */
+/** 生成 Supabase 签名上传 URL（前端直传用，仅 R2 不可用时回退） */
 export async function createPresignedUploadUrl(key: string): Promise<{ signedUrl: string; publicUrl: string } | null> {
   const sb = getSupabase()
   if (!sb) return null
@@ -212,43 +214,59 @@ function guessContentType(key: string): string {
   return map[ext] || 'application/octet-stream'
 }
 
-/** 上传文件到 Supabase Storage，返回公共 URL */
+/** 上传文件 — R2 优先，Supabase 回退。返回 /file/key 或 Supabase publicUrl */
 export async function uploadFile(key: string, data: ArrayBuffer | Uint8Array, contentType?: string): Promise<string> {
+  // 线路1：R2 私有桶
+  if (R2_BUCKET) {
+    await R2_BUCKET.put(key, data, { httpMetadata: { contentType: contentType || guessContentType(key) } })
+    return `/file/${key}`
+  }
+  // 线路2：Supabase 回退
   const sb = getSupabase()
-  if (!sb) throw new Error('Storage not configured')
+  if (!sb) throw new Error('Storage not configured (R2 和 Supabase 均不可用)')
   const { error } = await sb.storage.from(SUPABASE_BUCKET).upload(key, data, { contentType, upsert: true })
   if (error) throw error
   const { data: d } = sb.storage.from(SUPABASE_BUCKET).getPublicUrl(key)
   return d.publicUrl
 }
 
-/** 删除文件 */
+/** 删除文件 — R2 + Supabase 双删（确保双线路都清理干净） */
 export async function deleteFile(key: string): Promise<void> {
+  if (!key) return
+  // R2 删除
+  if (R2_BUCKET) { try { await R2_BUCKET.delete(key) } catch {} }
+  // Supabase 删除
   const sb = getSupabase()
-  if (!sb || !key) return
-  await sb.storage.from(SUPABASE_BUCKET).remove([key])
+  if (sb) { try { await sb.storage.from(SUPABASE_BUCKET).remove([key]) } catch {} }
 }
 
-/** 从 file_path 字段提取存储 key */
+/** 从 file_path 字段提取存储 key（兼容 /file/key、Supabase URL、裸 key） */
 export function extractKey(filePath: string): string {
   if (!filePath) return ''
+  // /file/xxx 格式
+  if (filePath.startsWith('/file/')) return filePath.slice(6)
   // 如果是完整的 Supabase URL，提取 object key
-  // URL 格式: https://xxx.supabase.co/storage/v1/object/public/zhuiguang-files/file_xxx.xlsx
   if (/^https?:\/\//.test(filePath)) {
     const m = filePath.match(/\/storage\/v1\/object\/(?:public|sign)\/[^/]+\/(.+)$/)
     if (m) return m[1]
-    // 也可能是直接路径形式
     const parts = filePath.split('/')
     return parts[parts.length - 1] || ''
   }
   return filePath.replace(/^\/?uploads?\//, '')
 }
 
-/** 下载文件（从 Supabase Storage） */
+/** 下载文件 — R2 优先，Supabase 回退 */
 export async function downloadFile(filePath: string): Promise<{ buffer: ArrayBuffer; contentType?: string } | null> {
-  const sb = getSupabase()
   const key = extractKey(filePath)
-  if (!key || !sb) return null
+  if (!key) return null
+  // 线路1：R2
+  if (R2_BUCKET) {
+    const obj = await R2_BUCKET.get(key)
+    if (obj) return { buffer: await obj.arrayBuffer(), contentType: obj.httpMetadata?.contentType }
+  }
+  // 线路2：Supabase 回退
+  const sb = getSupabase()
+  if (!sb) return null
   const { data, error } = await sb.storage.from(SUPABASE_BUCKET).download(key)
   if (error || !data) return null
   return { buffer: await data.arrayBuffer(), contentType: (data as any).type }
@@ -348,6 +366,7 @@ const app = new Hono<{ Bindings: Env; Variables: { user: { id: number; role: str
 // ===== 中间件1：从 c.env 设置全局变量 =====
 app.use('*', async (c, next) => {
   D1 = c.env.DB
+  R2_BUCKET = c.env.BUCKET || null
   JWT_SECRET = c.env.JWT_SECRET || JWT_SECRET
   JWT_EXPIRES = c.env.JWT_EXPIRES || JWT_EXPIRES
   SUPABASE_URL = c.env.SUPABASE_URL || ''
@@ -444,6 +463,83 @@ app.use('*', async (c, next) => {
       c.res = new Response(body, { status: c.res.status, headers })
     }
   } catch {}
+})
+
+// ==============================================================================
+// /file/* R2 私有桶鉴权路由（复用 JWT 登录校验，支持 Cookie/Header/Query 三种鉴权方式）
+// 未登录拦截跳转登录页，已登录流式返回 R2 文件（含缓存头提速）
+// R2 未命中时自动回退 Supabase（双线路兼容）
+// ==============================================================================
+
+/** 从请求中提取 JWT token（支持 Header / Cookie / Query Param 三种方式） */
+function getTokenFromRequest(c: Context): string | null {
+  // 1. Authorization header（用于 fetch/API 请求）
+  const h = c.req.header('authorization')
+  if (h) return h.startsWith('Bearer ') ? h.slice(7) : h
+  // 2. Cookie（同域时 <img> 标签自动携带）
+  const cookie = c.req.header('cookie') || ''
+  const m = cookie.match(/zg_token=([^;]+)/)
+  if (m) return m[1]
+  // 3. Query param ?t=xxx（跨域 <img> 标签使用）
+  const t = c.req.query('t')
+  if (t) return t
+  return null
+}
+
+app.get('/file/*', async (c) => {
+  // 鉴权：复用 JWT 登录校验
+  const token = getTokenFromRequest(c)
+  if (!token) {
+    const accept = c.req.header('accept') || ''
+    if (accept.includes('text/html')) return c.redirect('/login', 302)
+    return c.json({ message: '未登录' }, 401)
+  }
+  let userId = 0
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { id: number; role: string }
+    const u = await get<{ status: string }>('SELECT status FROM users WHERE id=?', payload.id)
+    if (!u || u.status === 'disabled') return c.json({ message: '未登录' }, 401)
+    userId = payload.id
+  } catch {
+    return c.json({ message: '登录已过期' }, 401)
+  }
+
+  // 提取文件 key
+  const path = new URL(c.req.url).pathname
+  const key = decodeURIComponent(path.replace(/^\/file\//, ''))
+  if (!key) return c.json({ message: '无效路径' }, 400)
+
+  const origin = c.req.header('Origin') || '*'
+  const cacheHeaders: Record<string, string> = {
+    'Cache-Control': 'private, max-age=86400',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
+  }
+
+  // 线路1：R2 私有桶
+  if (R2_BUCKET) {
+    const obj = await R2_BUCKET.get(key)
+    if (obj) {
+      const ct = obj.httpMetadata?.contentType || guessContentType(key)
+      return new Response(obj.body, {
+        headers: { ...cacheHeaders, 'Content-Type': ct, 'ETag': obj.etag || '' },
+      })
+    }
+  }
+
+  // 线路2：Supabase 回退（旧文件仍可访问）
+  const sb = getSupabase()
+  if (sb) {
+    const { data, error } = await sb.storage.from(SUPABASE_BUCKET).download(key)
+    if (data) {
+      const ct = (data as any).type || guessContentType(key)
+      return new Response(await data.arrayBuffer(), {
+        headers: { ...cacheHeaders, 'Content-Type': ct },
+      })
+    }
+  }
+
+  return c.json({ message: '文件不存在' }, 404)
 })
 
 // ==============================================================================
@@ -563,7 +659,10 @@ app.post('/api/auth/login', async (c) => {
   const today = dateNowBeijing()
   const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
-  return c.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
+  const token = signToken({ id: u.id, role: u.role })
+  // 设置 Cookie 供 /file/* 路由鉴权（同域时 <img> 标签自动携带）
+  c.header('Set-Cookie', `zg_token=${token}; Path=/; SameSite=None; Secure; Max-Age=604800`, { append: true })
+  return c.json({ token, user: pub(u) })
 })
 
 app.get('/api/me/status', async (c) => {
@@ -729,7 +828,7 @@ app.post('/api/upload/avatar', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+  if (!R2_BUCKET && !getSupabase()) return c.json({ message: '文件存储未配置（R2 和 Supabase 均不可用）' }, 500)
   const ext = extname(file.name) || '.png'
   const key = `avatar_${c.get('user').id}_${Date.now()}${ext}`
   const arrayBuffer = await file.arrayBuffer()
@@ -738,7 +837,7 @@ app.post('/api/upload/avatar', auth, async (c) => {
   return c.json({ url })
 })
 
-// ============ 前端直传 Supabase 的预签名 URL ============
+// ============ 前端直传 Supabase 的预签名 URL（R2 可用时自动走 fallback 到后端代传） ============
 app.post('/api/upload/presign', auth, async (c) => {
   const { fileName, contentType } = await c.req.json()
   if (!fileName) return c.json({ message: '缺少 fileName' }, 400)
@@ -746,6 +845,8 @@ app.post('/api/upload/presign', auth, async (c) => {
   const rand = Math.random().toString(36).slice(2, 10)
   const key = `file_${Date.now()}_${rand}${ext}`
   const typeMap: Record<string, string> = { '.pdf': 'pdf', '.ppt': 'ppt', '.pptx': 'ppt', '.doc': 'word', '.docx': 'word', '.zip': 'zip', '.mp4': 'video', '.mov': 'video', '.xls': 'excel', '.xlsx': 'excel' }
+  // R2 可用时，直接走后端代传（返回 fallback 让前端走 /api/upload/file）
+  if (R2_BUCKET) return c.json({ fallback: true, key, fileType: typeMap[ext] || 'file' })
   const result = await createPresignedUploadUrl(key)
   if (!result) return c.json({ fallback: true, key })
   return c.json({ signedUrl: result.signedUrl, publicUrl: result.publicUrl, key, fileType: typeMap[ext] || 'file' })
@@ -757,6 +858,8 @@ app.post('/api/upload/presign-image', auth, async (c) => {
   if (!fileName) return c.json({ message: '缺少 fileName' }, 400)
   const ext = extname(fileName) || '.png'
   const key = `img_${c.get('user').id}_${Date.now()}${ext}`
+  // R2 可用时，直接走后端代传
+  if (R2_BUCKET) return c.json({ fallback: true, key })
   const result = await createPresignedUploadUrl(key)
   if (!result) return c.json({ fallback: true, key })
   return c.json({ signedUrl: result.signedUrl, publicUrl: result.publicUrl, key })
@@ -1334,7 +1437,7 @@ app.post('/api/upload/file', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+  if (!R2_BUCKET && !getSupabase()) return c.json({ message: '文件存储未配置（R2 和 Supabase 均不可用）' }, 500)
   const ext = extname(file.name)
   const rand = Math.random().toString(36).slice(2, 10)
   const key = `file_${Date.now()}_${rand}${ext}`
@@ -1348,7 +1451,7 @@ app.post('/api/upload/image', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+  if (!R2_BUCKET && !getSupabase()) return c.json({ message: '文件存储未配置（R2 和 Supabase 均不可用）' }, 500)
   const ext = extname(file.name) || '.png'
   const key = `img_${c.get('user').id}_${Date.now()}${ext}`
   const arrayBuffer = await file.arrayBuffer()
