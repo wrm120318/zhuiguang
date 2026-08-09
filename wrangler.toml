@@ -20,11 +20,6 @@ binding = "DB"
 database_name = "zhuiguang-db"
 database_id = "996ab327-1a44-47fb-ac1d-5ab963dd04a5"
 
-# ====== R2 私有桶 binding（文件存储） ======
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "zhuiguang-files"
-
 # ====== 环境变量（在Cloudflare Dashboard或这里配置） ======
 [vars]
 JWT_SECRET = "b537718c3056bde0b547ed7b727d2b4ada4609f698fdd5cb7d1da657196e6507"

@@ -2,23 +2,22 @@ import http from './http'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-// ===== 文件上传工具函数 =====
-// R2 模式：presign 返回 {fallback:true} → 自动走后端 /api/upload/* 代传到 R2
-// Supabase 模式：presign 返回 {signedUrl} → 前端直传到 Supabase
+// ===== 直传 Supabase 工具函数（绕过 pinggy 隧道大文件限制） =====
+// 流程：前端调 /api/upload/presign 拿签名URL → 直接 PUT 到 Supabase → 返回公共URL
 async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   const presignEndpoint = kind === 'image' ? '/api/upload/presign-image' : '/api/upload/presign'
   let presignResp: any
   try {
     presignResp = await http.post(presignEndpoint, { fileName: file.name, contentType: file.type })
   } catch (e: any) {
-    // presign 接口本身不可用，回退到后端代传
-    console.warn('[directUpload] presign 请求失败，回退到后端代传:', e?.message)
+    // presign 接口本身不可用（如后端未启动），回退到旧接口
+    console.warn('[directUpload] presign 请求失败，回退到旧接口:', e?.message)
     const fd = new FormData(); fd.append('file', file)
     const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
     return http.post(oldEndpoint, fd)
   }
 
-  // R2 可用或 Supabase 不可用时，走后端代传
+  // Supabase 不可用，回退到旧的 /api/upload/* 接口
   if (presignResp?.fallback) {
     const fd = new FormData(); fd.append('file', file)
     const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
@@ -29,7 +28,7 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
     throw new Error('获取上传签名失败，请重试')
   }
 
-  // Supabase 直传（PUT 签名URL，不需要 Authorization header）
+  // 直传到 Supabase（PUT 签名URL，不需要 Authorization header）
   const upResp = await fetch(presignResp.signedUrl, {
     method: 'PUT',
     headers: { 'Content-Type': file.type || 'application/octet-stream' },
@@ -40,7 +39,7 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
     throw new Error(`上传到存储服务失败 (${upResp.status}): ${detail.slice(0, 200)}`)
   }
 
-  // 返回与后端 /api/upload/file 兼容的数据结构
+  // 返回与原后端 /api/upload/file 兼容的数据结构
   if (kind === 'image') {
     return { url: presignResp.publicUrl }
   }
