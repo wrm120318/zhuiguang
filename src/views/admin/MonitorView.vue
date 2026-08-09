@@ -150,6 +150,98 @@ const d1UsedPercentNum = computed(() => {
   return parseFloat(data.value?.database?.usedPercent || '0')
 })
 
+// ===== 文件预览 & 删除 =====
+const previewVisible = ref(false)
+const previewFile = ref<any>(null)
+const previewUrl = ref('')
+const previewLoading = ref(false)
+const deletingFile = ref<any>(null)
+const deleteLoading = ref(false)
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
+const PDF_EXTS = ['pdf']
+
+function getFileExt(name: string): string {
+  return (name.split('.').pop() || '').toLowerCase()
+}
+function isImage(name: string): boolean {
+  return IMAGE_EXTS.includes(getFileExt(name))
+}
+function isPdf(name: string): boolean {
+  return PDF_EXTS.includes(getFileExt(name))
+}
+function isPreviewable(name: string): boolean {
+  return isImage(name) || isPdf(name)
+}
+
+function openPreview(file: any) {
+  previewFile.value = file
+  previewVisible.value = true
+  previewLoading.value = true
+  // 使用 /file/raw/:key 路由预览（带 token）
+  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+  const token = localStorage.getItem('zg_token') || ''
+  const encodedKey = encodeURIComponent(file.name)
+  previewUrl.value = `${baseURL}/file/raw/${encodedKey}?token=${encodeURIComponent(token)}`
+  // 图片加载完成后关闭 loading
+  if (isImage(file.name)) {
+    const img = new Image()
+    img.onload = () => { previewLoading.value = false }
+    img.onerror = () => { previewLoading.value = false }
+    img.src = previewUrl.value
+  } else {
+    setTimeout(() => { previewLoading.value = false }, 800)
+  }
+}
+
+async function confirmDeleteFile() {
+  if (!deletingFile.value) return
+  const file = deletingFile.value
+  const warning = file.hasResource
+    ? `该文件关联了资源「${file.resourceTitle || '未命名'}」（ID: ${file.resourceId}），删除后该资源的文件引用将被清除，资源记录保留但无法再下载文件。\n\n确定删除文件「${file.name}」？`
+    : `该文件为孤立文件（未关联任何资源记录），删除后不可恢复。\n\n确定删除文件「${file.name}」？`
+  try {
+    await ElMessageBox.confirm(warning, '⚠️ 删除文件确认', {
+      type: 'error',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    })
+  } catch { return }
+
+  deleteLoading.value = true
+  try {
+    const res: any = await api.deleteStorageFile(file.name)
+    ElMessage.success(res.message || '文件已删除')
+    previewVisible.value = false
+    deletingFile.value = null
+    previewUrl.value = ''
+    // 刷新监控数据
+    await Promise.all([load(), loadStorage()])
+  } catch (e: any) {
+    ElMessage.error('删除失败: ' + (e?.response?.data?.message || e?.message || ''))
+  } finally {
+    deleteLoading.value = false
+  }
+}
+
+function startDelete(file: any) {
+  deletingFile.value = file
+  // 如果可预览，先打开预览；否则直接确认删除
+  if (isPreviewable(file.name)) {
+    openPreview(file)
+  } else {
+    confirmDeleteFile()
+  }
+}
+
+function handleClosePreview(done?: () => void) {
+  previewVisible.value = false
+  deletingFile.value = null
+  previewUrl.value = ''
+  if (done) done()
+}
+
 function formatBytes(b: number): string {
   if (!b || b < 0) return '0 B'
   if (b < 1024) return b + ' B'
@@ -308,14 +400,39 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <!-- 大体积文件排行 -->
+              <!-- 大体积文件排行（支持预览+删除） -->
               <div class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title">📈 大体积文件 TOP 10</div>
+                <div class="ip-title">
+                  📈 大体积文件 TOP 10
+                  <span class="ip-hint">点击文件名预览，点击 🗑️ 删除</span>
+                </div>
                 <div class="top-list">
-                  <div v-for="(f, i) of data.supabaseStorage.topFiles" :key="i" class="top-row">
+                  <div v-for="(f, i) of data.supabaseStorage.topFiles" :key="i" class="top-row file-mgmt-row">
                     <span class="top-rank">{{ i + 1 }}</span>
-                    <span class="top-name" :title="f.name">{{ f.name }}</span>
+                    <span
+                      class="top-name file-name-clickable"
+                      :class="{ 'previewable': isPreviewable(f.name) }"
+                      :title="isPreviewable(f.name) ? '点击预览' : f.name"
+                      @click="isPreviewable(f.name) && openPreview(f)"
+                    >
+                      {{ f.name }}
+                      <span
+                        v-if="f.hasResource"
+                        class="resource-tag"
+                        :title="`关联资源: ${f.resourceTitle || '未命名'}（状态: ${f.resourceStatus || '未知'}）`"
+                      >🔗</span>
+                    </span>
                     <span class="top-size">{{ f.sizeFmt }}</span>
+                    <el-button
+                      size="small"
+                      type="danger"
+                      text
+                      class="delete-btn"
+                      @click="startDelete(f)"
+                      :loading="deleteLoading && deletingFile?.name === f.name"
+                    >
+                      <span style="font-size:14px;">🗑️</span>
+                    </el-button>
                   </div>
                   <div v-if="!data.supabaseStorage.topFiles?.length" class="empty-hint">暂无文件</div>
                 </div>
@@ -566,6 +683,68 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </template>
+
+    <!-- ===== 文件预览弹窗（超管删除前预览） ===== -->
+    <el-dialog
+      v-model="previewVisible"
+      title="📄 文件预览"
+      width="80%"
+      top="5vh"
+      :close-on-click-modal="false"
+      :before-close="handleClosePreview"
+    >
+      <div v-loading="previewLoading" class="preview-container">
+        <!-- 图片预览 -->
+        <div v-if="previewFile && isImage(previewFile.name)" class="preview-image-wrap">
+          <img :src="previewUrl" class="preview-image" alt="预览图片" @load="previewLoading = false" @error="previewLoading = false" />
+        </div>
+        <!-- PDF 预览 -->
+        <iframe
+          v-else-if="previewFile && isPdf(previewFile.name)"
+          :src="previewUrl"
+          class="preview-pdf"
+          frameborder="0"
+          @load="previewLoading = false"
+        ></iframe>
+        <!-- 不支持预览的文件类型 -->
+        <div v-else class="preview-other">
+          <div class="file-info-card">
+            <div class="file-info-icon">📎</div>
+            <div class="file-info-name">{{ previewFile?.name }}</div>
+            <div class="file-info-size">{{ previewFile?.sizeFmt }}</div>
+            <div v-if="previewFile?.hasResource" class="file-info-resource">
+              🔗 关联资源: {{ previewFile?.resourceTitle || '未命名' }}
+              <span class="file-info-id">（ID: {{ previewFile?.resourceId }}）</span>
+            </div>
+            <div v-else class="file-info-resource" style="color:#f59e0b;">⚠️ 孤立文件（未关联任何资源记录）</div>
+          </div>
+          <div class="preview-tip">该文件类型不支持在线预览，可直接删除</div>
+        </div>
+      </div>
+      <!-- 预览弹窗底部：文件信息 + 删除按钮 -->
+      <template #footer>
+        <div class="preview-footer">
+          <div class="preview-file-meta">
+            <span class="pfm-name" :title="previewFile?.name">{{ previewFile?.name }}</span>
+            <span class="pfm-size">{{ previewFile?.sizeFmt }}</span>
+            <el-tag v-if="previewFile?.hasResource" size="small" type="warning">
+              关联资源: {{ previewFile?.resourceTitle || '未命名' }}
+            </el-tag>
+            <el-tag v-else size="small" type="danger">孤立文件</el-tag>
+          </div>
+          <div class="preview-footer-actions">
+            <el-button @click="handleClosePreview">取消</el-button>
+            <el-button
+              type="danger"
+              @click="confirmDeleteFile"
+              :loading="deleteLoading"
+            >
+              <span style="margin-right:4px;">🗑️</span> 删除文件
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -677,4 +856,35 @@ onBeforeUnmount(() => {
   .opt-stat { min-width:80px; }
   .opt-num { font-size:18px; }
 }
+
+/* ===== 大体积文件管理（预览+删除） ===== */
+.ip-hint { font-size:11px; color:var(--zg-text-dim); font-weight:400; margin-left:8px; }
+.file-mgmt-row { padding:6px 8px; }
+.file-mgmt-row:hover { background:rgba(245,158,11,.1); }
+.file-name-clickable { cursor:default; }
+.file-name-clickable.previewable { cursor:pointer; color:var(--zg-accent); text-decoration:underline; text-decoration-style:dotted; }
+.file-name-clickable.previewable:hover { color:var(--zg-primary); }
+.resource-tag { font-size:12px; margin-left:4px; cursor:help; }
+.delete-btn { padding:4px 6px; flex-shrink:0; }
+
+/* ===== 文件预览弹窗 ===== */
+.preview-container { min-height:300px; display:flex; align-items:center; justify-content:center; }
+.preview-image-wrap { display:flex; justify-content:center; align-items:center; max-height:70vh; overflow:auto; }
+.preview-image { max-width:100%; max-height:70vh; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.15); }
+.preview-pdf { width:100%; height:70vh; border-radius:8px; border:1px solid rgba(0,0,0,.1); }
+.preview-other { text-align:center; padding:40px 20px; }
+.file-info-card { display:inline-flex; flex-direction:column; align-items:center; gap:8px; padding:30px 40px; background:rgba(245,158,11,.05); border-radius:12px; border:1px dashed rgba(245,158,11,.2); }
+.file-info-icon { font-size:48px; }
+.file-info-name { font-weight:700; font-size:15px; color:var(--zg-text); word-break:break-all; max-width:400px; }
+.file-info-size { font-size:13px; color:var(--zg-text-dim); }
+.file-info-resource { font-size:12px; color:var(--zg-accent); }
+.file-info-id { color:var(--zg-text-dim); }
+.preview-tip { margin-top:16px; font-size:13px; color:var(--zg-text-dim); }
+
+/* 预览弹窗底部 */
+.preview-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.preview-file-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0; }
+.pfm-name { font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px; }
+.pfm-size { font-size:12px; color:var(--zg-text-dim); flex-shrink:0; }
+.preview-footer-actions { display:flex; gap:8px; flex-shrink:0; }
 </style>

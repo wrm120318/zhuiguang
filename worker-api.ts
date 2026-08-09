@@ -2873,14 +2873,26 @@ app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c
       getSupabaseDbStats(),
     ])
 
-    // 大体积文件 TOP 20
+    // 大体积文件 TOP 20（附带关联资源信息）
+    const resourceByKey = new Map<string, any>()
+    for (const r of resources) {
+      const key = extractKey(r.file_path || '')
+      if (key) resourceByKey.set(key, r)
+    }
     const topFiles = [...storageData.files]
       .sort((a, b) => (b.size || 0) - (a.size || 0))
       .slice(0, 20)
-      .map(f => ({
-        ...f,
-        sizeFmt: fmtBytes(f.size || 0),
-      }))
+      .map(f => {
+        const linked = resourceByKey.get(f.name)
+        return {
+          ...f,
+          sizeFmt: fmtBytes(f.size || 0),
+          resourceId: linked?.id || null,
+          resourceTitle: linked?.title || '',
+          resourceStatus: linked?.status || '',
+          hasResource: !!linked,
+        }
+      })
 
     // 高频访问文件 TOP 20（按下载量排序）
     const hotResources = resources
@@ -3041,6 +3053,45 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
   return c.json({ message: '未知操作' }, 400)
 })
 
+// 删除指定存储文件（超管专用，支持预览后删除）
+app.delete('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const { fileName } = await c.req.json()
+  if (!fileName) return c.json({ message: '缺少文件名' }, 400)
+
+  // 查找关联的资源记录
+  const linked = await get<any>('SELECT id, title, file_path, status FROM resources WHERE file_path LIKE ? LIMIT 1', `%${fileName}%`)
+
+  // 删除 Supabase 存储中的文件
+  try {
+    await deleteFile(fileName)
+  } catch (e: any) {
+    return c.json({ message: '删除文件失败: ' + (e.message || ''), error: true }, 500)
+  }
+
+  // 如果有关联资源记录，清除 file_path 并标记
+  let resourceCleared = false
+  if (linked) {
+    await run('UPDATE resources SET file_path = NULL WHERE id = ?', linked.id)
+    resourceCleared = true
+    // 清除该资源的文件缓存
+    try {
+      HOT_FILE_CACHE.delete(`${linked.id}:download`)
+      HOT_FILE_CACHE.delete(`${linked.id}:preview`)
+      await EDGE_CACHE.delete(fileCacheRequest(linked.id, 'download')).catch(() => {})
+      await EDGE_CACHE.delete(fileCacheRequest(linked.id, 'preview')).catch(() => {})
+    } catch {}
+  }
+
+  clearAllCache()
+  return c.json({
+    ok: true,
+    message: `文件「${fileName}」已删除${resourceCleared ? `，关联资源「${linked.title}」的文件引用已清除` : ''}`,
+    resourceCleared,
+    resourceId: linked?.id || null,
+    resourceTitle: linked?.title || '',
+  })
+})
+
 // 获取缓存统计信息
 app.get('/api/admin/cache/stats', auth, requireRole('SUPER_ADMIN'), async (c) => {
   let totalHotSize = 0
@@ -3159,11 +3210,26 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const storageUsedPercent = storageData.totalSize ? (storageData.totalSize / TOTAL_CAPACITY) * 100 : 0
   const storageRemaining = TOTAL_CAPACITY - (storageData.totalSize || 0)
 
-  // 大体积文件 TOP 10
+  // 大体积文件 TOP 10（附带关联资源信息，支持预览后删除）
+  const monitorResources = await all<any>('SELECT id, title, file_path, status FROM resources ORDER BY id DESC LIMIT 200').catch(() => [])
+  const monitorResourceByKey = new Map<string, any>()
+  for (const r of monitorResources) {
+    const key = extractKey(r.file_path || '')
+    if (key) monitorResourceByKey.set(key, r)
+  }
   const topStorageFiles = [...(storageData.files || [])]
     .sort((a, b) => (b.size || 0) - (a.size || 0))
     .slice(0, 10)
-    .map(f => ({ name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0) }))
+    .map(f => {
+      const linked = monitorResourceByKey.get(f.name)
+      return {
+        name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0),
+        resourceId: linked?.id || null,
+        resourceTitle: linked?.title || '',
+        resourceStatus: linked?.status || '',
+        hasResource: !!linked,
+      }
+    })
 
   // 高频访问资源 TOP 10
   const hotDownloadResources = await all<any>(

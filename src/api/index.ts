@@ -254,6 +254,7 @@ export const api = {
   // 存储与缓存管理（仅超管）
   storageMonitor: () => http.get('/api/admin/storage/monitor'),
   storageOptimize: (action: string) => http.post('/api/admin/storage/optimize', { action }),
+  deleteStorageFile: (fileName: string) => http.delete('/api/admin/storage/file', { data: { fileName } }),
   cacheStats: () => http.get('/api/admin/cache/stats'),
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),
