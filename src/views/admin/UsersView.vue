@@ -97,12 +97,12 @@ async function addUser() {
 
 // ===== 编辑用户 =====
 const editVisible = ref(false)
-const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, email: '' })
+const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, email: '', classId: null as number | null })
 const editLoading = ref(false)
 
 async function openEdit(u: any) {
-  // 拉取最新学科列表，确保教师学科可选
-  await data.fetchSubjects()
+  // 拉取最新班级和学科列表
+  await Promise.all([data.fetchClasses(), data.fetchSubjects()])
   editForm.value = {
     id: u.id,
     realName: u.real_name || '',
@@ -110,6 +110,7 @@ async function openEdit(u: any) {
     role: u.role || 'STUDENT',
     subjectId: u.subject_id ?? null,
     email: u.email || '',
+    classId: u.class_id ?? null as number | null,
   }
   editVisible.value = true
 }
@@ -125,6 +126,7 @@ async function saveEdit() {
       role: editForm.value.role,
       subjectId: editForm.value.subjectId,
       email: editForm.value.email,
+      classId: editForm.value.classId,
     })
     ElMessage.success('用户信息已更新')
     editVisible.value = false
@@ -355,6 +357,9 @@ function openImport() {
           <template #default="{ row }"><span v-if="row.role === 'TEACHER'" class="subj-cell">{{ subjectName(row.subject_id) }}</span><span v-else>-</span></template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="180" />
+        <el-table-column label="班级" width="120">
+          <template #default="{ row }">{{ classNameById(row.class_id) }}</template>
+        </el-table-column>
         <el-table-column label="等级" width="90"><template #default="{ row }">Lv.{{ row.level }}</template></el-table-column>
         <el-table-column label="经验" width="100"><template #default="{ row }">{{ row.exp }}</template></el-table-column>
         <el-table-column label="状态" width="90">
@@ -415,6 +420,11 @@ function openImport() {
           </el-select>
         </el-form-item>
         <el-form-item label="邮箱"><el-input v-model="editForm.email" /></el-form-item>
+        <el-form-item label="归属班级">
+          <el-select v-model="editForm.classId" placeholder="不选则不分配班级" style="width:100%" clearable>
+            <el-option v-for="c in data.classes" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer><el-button @click="editVisible=false">取消</el-button><el-button type="primary" :loading="editLoading" @click="saveEdit">保存</el-button></template>
     </el-dialog>

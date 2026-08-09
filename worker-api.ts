@@ -614,7 +614,7 @@ app.get('/api/auth/me', auth, async (c) => {
 // ============ 用户管理 ============
 // ==============================================================================
 app.get('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const list = await all<any>('SELECT * FROM users ORDER BY id')
+  const list = await all<any>('SELECT u.*, cm.class_id FROM users u LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE role_in_class=?) cm ON u.id=cm.user_id ORDER BY u.id', 'STUDENT')
   return c.json(list.map(pub))
 })
 
@@ -654,7 +654,7 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (c) => {
 })
 
 app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const { username, realName, email, role, subjectId } = await c.req.json()
+  const { username, realName, email, role, subjectId, classId } = await c.req.json()
   const id = c.req.param('id')
   const u = await get('SELECT id FROM users WHERE id=?', id)
   if (!u) return c.json({ message: '用户不存在' }, 404)
@@ -663,6 +663,11 @@ app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   if (email !== undefined) await run('UPDATE users SET email=? WHERE id=?', email, id)
   if (role !== undefined) await run('UPDATE users SET role=? WHERE id=?', role, id)
   if (subjectId !== undefined) await run('UPDATE users SET subject_id=? WHERE id=?', subjectId ?? null, id)
+  if (classId !== undefined) {
+    // 先删除该用户的 STUDENT 类型班级关联，再按新值插入（null 表示移出班级）
+    await run('DELETE FROM class_members WHERE user_id=? AND role_in_class=?', id, 'STUDENT')
+    if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, id, 'STUDENT')
+  }
   return c.json({ ok: true })
 })
 
