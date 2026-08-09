@@ -20,7 +20,7 @@ async function load() {
     expLogs.value = (await api.expLogs()) as any
   } catch { /* */ }
   try {
-    const all = (await api.articles({ author: user.current?.username, limit: 10 })) as any
+    const all = (await api.articles({ mine: '1', limit: 10 })) as any
     myArticles.value = all
   } catch { /* */ }
   try {

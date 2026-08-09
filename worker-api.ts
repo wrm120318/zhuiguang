@@ -137,11 +137,11 @@ export async function addExp(userId: number, change: number | undefined, actionT
   }
   if (!delta) return
   await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
-  await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description) VALUES (?,?,?,?)', userId, actionType, delta, desc)
+  await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc)
 }
 
 export async function addNotice(userId: number, title: string, content: string, type: string) {
-  await run('INSERT INTO notices (user_id,title,content,type) VALUES (?,?,?,?)', userId, title, content, type)
+  await run(`INSERT INTO notices (user_id,title,content,type,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, userId, title, content, type)
 }
 
 export async function userClassIds(userId: number): Promise<number[]> {
@@ -273,7 +273,13 @@ function canManageSubject(user: any, subjectId: any): boolean {
 }
 
 function datetimeNow() {
-  return new Date().toISOString().replace('T', ' ').slice(0, 19)
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' })
+}
+function dateNowBeijing() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+}
+function datetimeBeijing(d: Date) {
+  return d.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' })
 }
 
 /** path.extname 的 Workers 兼容替代 */
@@ -351,8 +357,8 @@ app.use('*', async (c, next) => {
   if (!AUTO_MIGRATION_DONE) {
     AUTO_MIGRATION_DONE = true
     try {
-      await D1.prepare(`CREATE TABLE IF NOT EXISTS article_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT, content TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','localtime')))`).run()
-      await D1.prepare(`CREATE TABLE IF NOT EXISTS page_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, page_id INTEGER NOT NULL, user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT, content TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','localtime')))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS article_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT, content TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','+8 hours')))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS page_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, page_id INTEGER NOT NULL, user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT, content TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now','+8 hours')))`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS feature_flags (key TEXT PRIMARY KEY, value TEXT)`).run()
       try { await D1.prepare("ALTER TABLE pages ADD COLUMN updated_at TEXT").run() } catch {}
@@ -383,7 +389,7 @@ app.use('*', async (c, next) => {
       const token = authHeader.slice(7)
       const decoded: any = jwt.verify(token, JWT_SECRET)
       if (decoded && decoded.id) {
-        const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
+        const now = datetimeNow()
         run('UPDATE users SET last_active=? WHERE id=?', now, decoded.id).catch(() => {})
       }
     } catch {}
@@ -554,7 +560,7 @@ app.post('/api/auth/login', async (c) => {
   if (u.status === 'disabled') return c.json({ message: '账号已被禁用，请联系管理员', disabled: true }, 401)
   if (u.status !== 'active') return c.json({ message: '账号状态异常' }, 400)
   if (!bcrypt.compareSync(password, u.password_hash)) return c.json({ message: '密码错误' }, 400)
-  const today = new Date().toLocaleDateString('sv-SE')
+  const today = dateNowBeijing()
   const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
   return c.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
@@ -597,9 +603,9 @@ app.post('/api/auth/register', async (c) => {
   if (!username || !password || !realName) return c.json({ message: '请填写完整信息' }, 400)
   if (await get('SELECT id FROM users WHERE username = ?', username)) return c.json({ message: '用户名已存在' }, 400)
   const hash = bcrypt.hashSync(password, 8)
-  const r = await run('INSERT INTO users (username,password_hash,real_name,role,email,avatar) VALUES (?,?,?,?,?,?)', username, hash, realName, 'STUDENT', email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`)
+  const r = await run(`INSERT INTO users (username,password_hash,real_name,role,email,avatar,created_at) VALUES (?,?,?,?,?,?,datetime('now','+8 hours'))`, username, hash, realName, 'STUDENT', email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`)
   const uid = Number(r.lastInsertRowid)
-  if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, uid, 'STUDENT')
+  if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, 'STUDENT')
   await addExp(uid, undefined, 'register', '注册奖励')
   const newUser = await get<any>('SELECT * FROM users WHERE id=?', uid)
   return c.json({ token: signToken({ id: uid, role: 'STUDENT' }), user: pub(newUser) })
@@ -622,9 +628,9 @@ app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { username, realName, role, email, classId, password, subjectId } = await c.req.json()
   if (await get('SELECT id FROM users WHERE username=?', username)) return c.json({ message: '用户名已存在' }, 400)
   const hash = bcrypt.hashSync(password || '123456', 8)
-  const r = await run('INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id) VALUES (?,?,?,?,?,?,?)', username, hash, realName, role || 'STUDENT', email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`, subjectId ?? null)
+  const r = await run(`INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id,created_at) VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'))`, username, hash, realName, role || 'STUDENT', email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`, subjectId ?? null)
   const uid = Number(r.lastInsertRowid)
-  if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
+  if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
   return c.json({ id: uid })
 })
 
@@ -644,9 +650,9 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (c) => {
       const hash = bcrypt.hashSync(u.password || '123456', 8)
       const email = u.email || `${u.username}@zguang.edu`
       const avatar = `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}${i}`
-      const r = await run('INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id) VALUES (?,?,?,?,?,?,?)', u.username, hash, u.realName, role, email, avatar, u.subjectId ?? null)
+      const r = await run(`INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id,created_at) VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'))`, u.username, hash, u.realName, role, email, avatar, u.subjectId ?? null)
       const uid = Number(r.lastInsertRowid)
-      if (u.classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', u.classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
+      if (u.classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, u.classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
       results.success++
     } catch (e: any) { results.errors.push(`第${lineNo}行：${e.message || '未知错误'}`) }
   }
@@ -666,7 +672,7 @@ app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   if (classId !== undefined) {
     // 先删除该用户的 STUDENT 类型班级关联，再按新值插入（null 表示移出班级）
     await run('DELETE FROM class_members WHERE user_id=? AND role_in_class=?', id, 'STUDENT')
-    if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, id, 'STUDENT')
+    if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, id, 'STUDENT')
   }
   return c.json({ ok: true })
 })
@@ -763,7 +769,7 @@ app.get('/api/classes', auth, async (c) => c.json(await all('SELECT * FROM class
 
 app.post('/api/classes', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { name, grade, description } = await c.req.json()
-  const r = await run('INSERT INTO classes (name,grade,description) VALUES (?,?,?)', name, grade || '', description || '')
+  const r = await run(`INSERT INTO classes (name,grade,description,created_at) VALUES (?,?,?,datetime('now','+8 hours'))`, name, grade || '', description || '')
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
@@ -892,8 +898,7 @@ app.get('/api/articles', async (c) => {
   if (subjectId) { sql += ' AND a.subject_id=?'; args.push(subjectId) }
   if (mine === '1') {
     if (!me) return c.json([])
-    if (myRole === 'STUDENT') { sql += ' AND (a.user_id=? OR a.actual_user_id=?)'; args.push(myId, myId) }
-    else { sql += ' AND a.user_id=?'; args.push(myId) }
+    sql += ' AND (a.user_id=? OR a.actual_user_id=?)'; args.push(myId, myId)
   } else if (userId && myRole === 'SUPER_ADMIN') {
     sql += ' AND a.user_id=?'; args.push(userId)
   }
@@ -925,7 +930,7 @@ app.post('/api/articles/:id/student-approve', auth, async (c) => {
   await addNotice(a.user_id, '代发美文学生已确认', `学生确认同意发布《${a.title}》，现已进入待超管审核状态。`, 'audit')
   const stuMsg = `<p>你已确认同意发布美文《${a.title}》</p><p>该文现已进入<b>超管审核</b>阶段，通过后将会公开展示。请耐心等待。</p>`
   const stuAtts = JSON.stringify([{ type: 'action', articleId: Number(id), title: '查看美文' }])
-  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', a.user_id, uid, stuMsg, stuAtts)
+  await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, a.user_id, uid, stuMsg, stuAtts)
   return c.json({ ok: true })
 })
 
@@ -996,7 +1001,7 @@ app.post('/api/articles', auth, async (c) => {
     if (b.actualUserId && Number(b.actualUserId) !== id) { actualUserId = Number(b.actualUserId); status = 'pending_student' }
     else { status = 'approved' }
   }
-  const r = await run(`INSERT INTO articles (title,content,author,source,recommendation,subject_id,user_id,class_id,cover,images,tags,category,status,actual_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  const r = await run(`INSERT INTO articles (title,content,author,source,recommendation,subject_id,user_id,class_id,cover,images,tags,category,status,actual_user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
     b.title, b.content, b.author || u?.real_name, b.source || '原创', b.recommendation || '', b.subjectId, id, cid, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.tags || []), b.category || '', status, actualUserId)
   const aid = Number(r.lastInsertRowid)
   if (status === 'pending_student' && actualUserId) {
@@ -1004,7 +1009,7 @@ app.post('/api/articles', auth, async (c) => {
     await addNotice(actualUserId, '有人代你发布美文', `${teacherName}老师代你发布了《${b.title}》，请到个人中心 → 待我确认的美文中确认是否同意发布。`, 'audit')
     const msgHtml = `<p>${teacherName}老师代你发布了美文《${b.title}》</p><p>请前往「个人中心 → 待我确认的美文」中 <b>确认是否同意发布</b>。</p>`
     const atts = JSON.stringify([{ type: 'action', articleId: aid, title: '点此确认' }])
-    await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', id, actualUserId, msgHtml, atts)
+    await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, id, actualUserId, msgHtml, atts)
   }
   if (status === 'approved') {
     const expUid = actualUserId || id
@@ -1024,6 +1029,12 @@ app.patch('/api/articles/:id/status', auth, async (c) => {
   if (u?.role !== 'SUPER_ADMIN' && !canManageSubject(u, a.subject_id)) return c.json({ message: '无权限审核该学科的美文' }, 403)
   await run('UPDATE articles SET status=? WHERE id=?', newStatus, id)
   if (newStatus === 'approved' && a.status !== 'approved') {
+    // 审核通过后，给实际作者发放经验值奖励（防重复：检查是否已发放过）
+    const expUid = Number(a.actual_user_id) || Number(a.user_id)
+    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='article' AND description LIKE ?", expUid, `%${a.title}%`)
+    if (!already) {
+      await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`)
+    }
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
     if (a.actual_user_id) {
       await addNotice(Number(a.actual_user_id), '你的美文审核通过', `《${a.title}》已通过审核，已公开展示。`, 'audit')
@@ -1121,14 +1132,14 @@ app.post('/api/articles/:id/comments', auth, async (c) => {
   }
   const { content } = await c.req.json()
   const u = await get<any>('SELECT real_name, avatar FROM users WHERE id=?', uid)
-  const r = await run('INSERT INTO article_comments (article_id,user_id,user_name,avatar,content) VALUES (?,?,?,?,?)',
+  const r = await run(`INSERT INTO article_comments (article_id,user_id,user_name,avatar,content,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
     id, uid, u?.real_name, u?.avatar, content)
   const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
   if (a) {
     const expUid = Number(a.actual_user_id) || Number(a.user_id)
     if (expUid !== uid) await addExp(expUid, 1, 'comment', `《${a.title}》获得评论`)
   }
-  const created_at = new Date().toISOString().slice(0, 19).replace('T', ' ')
+  const created_at = datetimeNow()
   return c.json({ id: Number(r.lastInsertRowid), user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content, created_at, name: u?.real_name, time: created_at, text: content })
 })
 
@@ -1212,7 +1223,7 @@ app.post('/api/resources', auth, async (c) => {
   const u = await get<any>('SELECT role FROM users WHERE id=?', id)
   const b = await c.req.json()
   const status = (u?.role === 'SUPER_ADMIN' || u?.role === 'TEACHER') ? 'approved' : 'pending'
-  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
     b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status)
   const rid = Number(r.lastInsertRowid)
   return c.json({ id: rid, status })
@@ -1399,7 +1410,7 @@ app.post('/api/query/tasks', auth, requireStaff, async (c) => {
   if (role === 'TEACHER' && me?.subject_id && Number(b.subjectId) !== Number(me.subject_id)) {
     return c.json({ message: '你只能发布自己任教学科的数据查询' }, 403)
   }
-  const r = await run(`INSERT INTO query_tasks (subject_id,class_id,creator_id,creator_name,title,note,valid_until,show_comment,allow_export,headers,match_field) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  const r = await run(`INSERT INTO query_tasks (subject_id,class_id,creator_id,creator_name,title,note,valid_until,show_comment,allow_export,headers,match_field,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
     b.subjectId, b.classId, id, name, b.title, b.note || '', b.validUntil, b.showComment ? 1 : 0, b.allowExport ? 1 : 0, JSON.stringify(b.headers), b.matchField)
   const tid = Number(r.lastInsertRowid)
   for (const row of b.rows) {
@@ -1506,14 +1517,14 @@ app.post('/api/admin/self-repair', auth, requireRole('SUPER_ADMIN'), async (c) =
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         article_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
         user_name TEXT, avatar TEXT, content TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now','localtime'))
+        created_at TEXT DEFAULT (datetime('now','+8 hours'))
       )`,
       `CREATE TABLE IF NOT EXISTS page_comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         page_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT,
         content TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now','localtime'))
+        created_at TEXT DEFAULT (datetime('now','+8 hours'))
       )`,
       `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
       `CREATE TABLE IF NOT EXISTS feature_flags (key TEXT PRIMARY KEY, value TEXT)`,
@@ -1617,7 +1628,7 @@ app.post('/api/notices/broadcast', auth, requireRole('SUPER_ADMIN'), async (c) =
   const { title, content, type } = await c.req.json()
   const users = await all<{ id: number }>('SELECT id FROM users WHERE status=?', 'active')
   for (const u of users) {
-    await run('INSERT INTO notices (user_id,title,content,type) VALUES (?,?,?,?)', u.id, title, content, type || 'system')
+    await run(`INSERT INTO notices (user_id,title,content,type,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, u.id, title, content, type || 'system')
   }
   return c.json({ ok: true, count: users.length })
 })
@@ -1832,7 +1843,7 @@ app.post('/api/quizzes', auth, requireStaff, async (c) => {
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
   const b = await c.req.json()
   const r = await run(
-    `INSERT INTO quizzes (subject_id,class_id,creator_id,creator_name,title,description,duration,valid_until,status) VALUES (?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO quizzes (subject_id,class_id,creator_id,creator_name,title,description,duration,valid_until,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
     b.subjectId, b.classId, uid, me?.real_name || '', b.title, b.description || '', b.duration || 0, b.validUntil || '', b.status || 'published'
   )
   const qid = Number(r.lastInsertRowid)
@@ -1910,7 +1921,7 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
   let subId: number
   if (status === 'graded') {
     const r = await run(
-      `INSERT INTO quiz_submissions (quiz_id,user_id,answers,total_score,max_score,status,submitted_at,graded_at,graded_by) VALUES (?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?)`,
+      `INSERT INTO quiz_submissions (quiz_id,user_id,answers,total_score,max_score,status,submitted_at,graded_at,graded_by) VALUES (?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'),?)`,
       id, uid, JSON.stringify({ answers, graded }), totalScore, maxScore, status, uid
     )
     subId = Number(r.lastInsertRowid)
@@ -1927,7 +1938,7 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
     const stuName = stu?.real_name || `用户${uid}`
     const objCount = questions.filter(q => q.qtype !== 'subjective').length
     const msg = `📚 ${stuName} 提交了《${quiz.title}》的答卷\n客观题（${objCount}题）已自动评分：${totalScore} / ${maxScore} 分\n主观题等待您批改，请前往「题库 → 批改 / 报告」处理。`
-    await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', uid, quiz.creator_id, msg, '[]')
+    await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, uid, quiz.creator_id, msg, '[]')
   }
   await addNotice(uid, '题库已提交', `《${quiz.title}》已提交。${status === 'pending' ? '客观题已评分，等待教师批改主观题。' : `得分 ${totalScore}/${maxScore}。`}`, 'system')
   return c.json({ id: subId, totalScore, maxScore, status, graded, hasSubjective })
@@ -1958,14 +1969,14 @@ app.post('/api/quizzes/:id/submissions/:sid/grade', auth, requireStaff, async (c
   let fullTotal = 0
   for (const k of Object.keys(graded)) fullTotal += graded[k].score || 0
   await run(
-    `UPDATE quiz_submissions SET answers=?, total_score=?, status='graded', graded_at=datetime('now','localtime'), graded_by=? WHERE id=?`,
+    `UPDATE quiz_submissions SET answers=?, total_score=?, status='graded', graded_at=datetime('now','+8 hours'), graded_by=? WHERE id=?`,
     JSON.stringify({ answers: data.answers, graded }), fullTotal, reviewerId, sid
   )
   await addExp(sub.user_id, undefined, 'quiz_pass', `题库《${quiz.title}》批改完成（得分 ${fullTotal}/${sub.max_score}）`)
   await addNotice(sub.user_id, '题库批改完成', `《${quiz.title}》已批改，得分 ${fullTotal}/${sub.max_score}。`, 'teacher')
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 《${quiz.title}》整张试卷已批改完成\n批改人：${teacherName}\n最终得分：${fullTotal} / ${sub.max_score} 分\n完整测评报告已生成，点击「题库 → 查看报告」即可查看。`
-  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', reviewerId, sub.user_id, msg, '[]')
+  await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, reviewerId, sub.user_id, msg, '[]')
   return c.json({ ok: true, totalScore: fullTotal })
 })
 
@@ -2087,7 +2098,7 @@ app.post('/api/subjects/:id/questions', auth, requireStaff, async (c) => {
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', c.get('user').id)
   const b = await c.req.json()
   const r = await run(
-    'INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,score,attachments,sort) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    `INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,score,attachments,sort,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
     sid, c.get('user').id, me?.real_name || '', b.qtype || 'single', b.content || '', JSON.stringify(b.options || []), b.answer || '', b.score || 5, JSON.stringify(b.attachments || []), b.sort || 0
   )
   return c.json({ id: Number(r.lastInsertRowid) })
@@ -2132,7 +2143,7 @@ app.post('/api/subject-questions/:id/submit', auth, async (c) => {
   let subId: number
   if (status === 'graded') {
     const r = await run(
-      `INSERT INTO practice_submissions (question_id,subject_id,user_id,answer,score,max_score,status,correct,submitted_at,graded_at,graded_by) VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),?)`,
+      `INSERT INTO practice_submissions (question_id,subject_id,user_id,answer,score,max_score,status,correct,submitted_at,graded_at,graded_by) VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'),?)`,
       q.id, q.subject_id, uid, ans || '', score, max, status, correct ? 1 : 0, uid
     )
     subId = Number(r.lastInsertRowid)
@@ -2149,7 +2160,7 @@ app.post('/api/subject-questions/:id/submit', auth, async (c) => {
     const msg = `📝 ${stu?.real_name || '学生'} 在「${subj?.name || '学科'}」单题训练中提交了一道主观题\n请前往「题库 → 单题训练待批」进行批改。`
     const teachers = await all<any>("SELECT id FROM users WHERE role IN ('SUPER_ADMIN','TEACHER') AND (role='SUPER_ADMIN' OR subject_id=?)", q.subject_id)
     for (const t of teachers) {
-      if (t.id !== uid) await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', uid, t.id, msg, '[]')
+      if (t.id !== uid) await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, uid, t.id, msg, '[]')
     }
   }
   return c.json({ id: subId, status, score, max, correct })
@@ -2193,7 +2204,7 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   await addExp(sub.user_id, undefined, 'quiz_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')
-  await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', reviewerId, sub.user_id, msg, '[]')
+  await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, reviewerId, sub.user_id, msg, '[]')
   return c.json({ ok: true, score: sc })
 })
 
@@ -2265,7 +2276,7 @@ app.post('/api/pages/:id/comments', auth, async (c) => {
   if (!content) return c.json({ message: '评论内容不能为空' }, 400)
   const u = await get<any>('SELECT real_name, avatar FROM users WHERE id=?', uid)
   const r = await run(
-    'INSERT INTO page_comments (page_id,user_id,user_name,avatar,content) VALUES (?,?,?,?,?)',
+    `INSERT INTO page_comments (page_id,user_id,user_name,avatar,content,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
     id, uid, u?.real_name || '匿名', u?.avatar || '', content
   )
   return c.json({ id: Number(r.lastInsertRowid), page_id: Number(id), user_id: uid, user_name: u?.real_name || '匿名', avatar: u?.avatar || '', content, created_at: datetimeNow() })
@@ -2301,11 +2312,11 @@ app.put('/api/pages/guide', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const images = body.images !== undefined ? body.images : (exist ? j(exist.images) : [])
   const attachments = body.attachments !== undefined ? body.attachments : (exist ? j(exist.attachments) : [])
   if (exist) {
-    await run("UPDATE pages SET title=?, content=?, images=?, attachments=?, updated_at=datetime('now','localtime') WHERE id=?", title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), exist.id)
+    await run("UPDATE pages SET title=?, content=?, images=?, attachments=?, updated_at=datetime('now','+8 hours') WHERE id=?", title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), exist.id)
     clearAllCache()
     return c.json({ id: exist.id })
   } else {
-    const r = await run("INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status,updated_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))", 'guide', 'site', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), '超级管理员', 'published')
+    const r = await run("INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status,updated_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'))", 'guide', 'site', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), '超级管理员', 'published')
     clearAllCache()
     return c.json({ id: Number(r.lastInsertRowid) })
   }
@@ -2435,7 +2446,7 @@ app.post('/api/messages', auth, async (c) => {
   const uid = c.get('user').id
   const { toId, content, attachments } = await c.req.json()
   if (!toId || !content) return c.json({ message: '请填写收件人和内容' }, 400)
-  const r = await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', uid, toId, content, JSON.stringify(attachments || []))
+  const r = await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, uid, toId, content, JSON.stringify(attachments || []))
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
@@ -2465,10 +2476,10 @@ app.get('/api/messages/:peerId', auth, async (c) => {
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const t0 = Date.now()
   c.header('X-Monitor-Version', 'v2-optimized')
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
-  const today = new Date().toLocaleDateString('sv-SE')
-  const sevenDaysAgo = new Date(Date.now() - 6 * 86400 * 1000).toLocaleDateString('sv-SE')
+  const fiveMinAgo = datetimeBeijing(new Date(Date.now() - 5 * 60 * 1000))
+  const oneHourAgo = datetimeBeijing(new Date(Date.now() - 60 * 60 * 1000))
+  const today = dateNowBeijing()
+  const sevenDaysAgo = new Date(Date.now() - 6 * 86400 * 1000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
 
   // ---- 批次1: 用户统计 + 今日数据 + 待审核 (合并为单条SQL) ----
   const userStatsRow = (await get<{ total: number; active: number; online5: number; online1h: number }>(
@@ -2521,7 +2532,7 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const articleMap = new Map(dailyArticles.map(r => [r.d, r.n]))
   const dailyActive: { date: string; users: number; articles: number }[] = []
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400 * 1000).toLocaleDateString('sv-SE')
+    const d = new Date(Date.now() - i * 86400 * 1000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
     dailyActive.push({ date: d.slice(5), users: userMap.get(d) ?? 0, articles: articleMap.get(d) ?? 0 })
   }
 

@@ -18,14 +18,14 @@ CREATE TABLE IF NOT EXISTS users (
   status TEXT DEFAULT 'active',
   subject_id INTEGER DEFAULT NULL,
   last_active TEXT DEFAULT NULL,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 班级表
 CREATE TABLE IF NOT EXISTS classes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, grade TEXT, description TEXT,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 班级成员表
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS class_members (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   class_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
   role_in_class TEXT NOT NULL, subject_id INTEGER,
-  joined_at TEXT DEFAULT (datetime('now','localtime')),
+  joined_at TEXT DEFAULT (datetime('now','+8 hours')),
   FOREIGN KEY(class_id) REFERENCES classes(id),
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS articles (
   cover TEXT, images TEXT DEFAULT '[]', tags TEXT DEFAULT '[]', category TEXT,
   status TEXT DEFAULT 'pending', likes INTEGER DEFAULT 0, views INTEGER DEFAULT 0,
   actual_user_id INTEGER DEFAULT NULL,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 资源表
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS resources (
   user_id INTEGER, class_id INTEGER,
   status TEXT DEFAULT 'pending', downloads INTEGER DEFAULT 0,
   likes INTEGER DEFAULT 0, collects INTEGER DEFAULT 0, version INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 查询任务表
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS query_tasks (
   subject_id INTEGER, class_id INTEGER, creator_id INTEGER, creator_name TEXT,
   title TEXT NOT NULL, note TEXT, valid_until TEXT,
   show_comment INTEGER DEFAULT 1, allow_export INTEGER DEFAULT 0,
-  headers TEXT, match_field TEXT, created_at TEXT DEFAULT (datetime('now','localtime'))
+  headers TEXT, match_field TEXT, created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 查询行表
@@ -90,21 +90,21 @@ CREATE TABLE IF NOT EXISTS query_rows (
 CREATE TABLE IF NOT EXISTS exp_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL, action_type TEXT, exp_change INTEGER,
-  description TEXT, created_at TEXT DEFAULT (datetime('now','localtime'))
+  description TEXT, created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 通知表
 CREATE TABLE IF NOT EXISTS notices (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL, title TEXT, content TEXT, type TEXT,
-  read INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime'))
+  read INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 主题表
 CREATE TABLE IF NOT EXISTS themes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, config TEXT, is_active INTEGER DEFAULT 0,
-  created_by INTEGER, updated_at TEXT DEFAULT (datetime('now','localtime'))
+  created_by INTEGER, updated_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 点赞表
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
   duration INTEGER DEFAULT 0,
   valid_until TEXT,
   status TEXT DEFAULT 'published',
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 题目表
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS quiz_submissions (
   status TEXT DEFAULT 'pending',
   submitted_at TEXT,
   graded_at TEXT, graded_by INTEGER,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 学科题目池
@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS subject_questions (
   score INTEGER DEFAULT 5,
   attachments TEXT DEFAULT '[]',
   sort INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 单题训练提交记录
@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS practice_submissions (
   comment TEXT,
   submitted_at TEXT,
   graded_at TEXT, graded_by INTEGER,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 通用页面表
@@ -195,8 +195,8 @@ CREATE TABLE IF NOT EXISTS pages (
   likes INTEGER DEFAULT 0,
   pinned INTEGER DEFAULT 0,
   pinned_scope TEXT DEFAULT 'none',
-  created_at TEXT DEFAULT (datetime('now','localtime')),
-  updated_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 页面评论表
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS page_comments (
   page_id INTEGER NOT NULL,
   user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT,
   content TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 美文评论表
@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS article_comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
   user_name TEXT, avatar TEXT, content TEXT NOT NULL,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT DEFAULT datetime('now','+8 hours')
 );
 
 -- 站内信表
@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS messages (
   from_id INTEGER NOT NULL, to_id INTEGER NOT NULL,
   content TEXT NOT NULL, attachments TEXT DEFAULT '[]',
   is_read INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now','localtime'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 全局设置表
