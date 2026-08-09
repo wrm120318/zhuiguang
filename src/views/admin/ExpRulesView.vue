@@ -16,8 +16,22 @@ const RULE_META: { key: string; label: string; icon: string; desc: string }[] = 
   { key: 'query', label: '完成查询', icon: '🔍', desc: '参与数据查询' },
   { key: 'quiz_pass', label: '题库自测', icon: '📝', desc: '完成题库自测' },
   { key: 'blog', label: '发布博客', icon: '📔', desc: '在博客发布博文' },
+  { key: 'comment', label: '收到评论', icon: '💬', desc: '内容收到他人评论' },
+  { key: 'like', label: '收到点赞', icon: '❤️', desc: '内容收到他人点赞' },
+  { key: 'favorite', label: '被收藏', icon: '⭐', desc: '内容被他人收藏' },
+  { key: 'practice_pass', label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
   { key: 'announcement_read', label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   { key: 'message_reply', label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
+  { key: 'article_delete', label: '删除美文', icon: '🗑️', desc: '删除美文回收经验' },
+  { key: 'resource_delete', label: '删除资料', icon: '🗑️', desc: '删除资料回收经验' },
+  { key: 'blog_delete', label: '删除博客', icon: '🗑️', desc: '删除博客回收经验' },
+  { key: 'query_delete', label: '删除查询', icon: '🗑️', desc: '删除查询任务回收经验' },
+  { key: 'comment_delete', label: '删除评论', icon: '🗑️', desc: '删除评论回收经验' },
+  { key: 'like_cancel', label: '取消点赞', icon: '💔', desc: '点赞被取消回收经验' },
+  { key: 'favorite_cancel', label: '取消收藏', icon: '💫', desc: '收藏被取消' },
+  { key: 'quiz_fail', label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
+  { key: 'practice_fail', label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
+  { key: 'admin_adjust', label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },
 ]
 
 const ruleList = computed(() => {
@@ -54,7 +68,12 @@ async function save() {
 function reset() {
   local.value = {
     login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
+    comment: 1, like: 1, favorite: 0, practice_pass: 5,
     announcement_read: 1, message_reply: 0,
+    // 回收类规则：默认回收与获得等量的经验
+    article_delete: 15, resource_delete: 15, blog_delete: 5, query_delete: 2,
+    comment_delete: 1, like_cancel: 1, favorite_cancel: 0,
+    quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
   }
 }
 </script>

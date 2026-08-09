@@ -32,6 +32,11 @@ http.interceptors.response.use(
       localStorage.removeItem('zg_token')
       localStorage.removeItem('zg_user')
       if (!location.pathname.startsWith('/login')) router.push('/login')
+    } else if (err.response?.status === 403) {
+      // 403 权限错误：完全静默处理，不弹窗、不reject，避免学生正常浏览时弹出权限弹窗
+      console.warn('[403 权限拒绝]', msg)
+      // 返回空数据而非reject，防止组件catch块弹出错误提示
+      return Promise.resolve(err.response?.data || { data: [], message: '权限不足' })
     } else {
       ElMessage.error(msg)
     }

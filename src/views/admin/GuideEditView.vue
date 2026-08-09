@@ -20,7 +20,10 @@ async function save() {
   try {
     await api.saveGuide({ title: form.value.title, content: form.value.content })
     ElMessage.success('网站说明已保存')
-  } catch { /* */ } finally { submitting.value = false }
+    // 重新加载以确保显示最新内容
+    const r: any = await api.guide()
+    if (r) { form.value.title = r.title; form.value.content = r.content }
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '保存失败，请重试') } finally { submitting.value = false }
 }
 
 const TAGS = {

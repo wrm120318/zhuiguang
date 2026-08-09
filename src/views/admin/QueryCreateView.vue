@@ -116,9 +116,9 @@ async function publish() {
 // 需求1：超管/教师下载查询任务的Excel
 async function downloadTaskExcel(t: any) {
   try {
-    const resp: any = await api.exportQueryTask(t.id)
-    const blob = new Blob([resp.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
+    const blob: any = await api.exportQueryTask(t.id)
+    const fileBlob = new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(fileBlob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${t.title}_查询数据.xlsx`

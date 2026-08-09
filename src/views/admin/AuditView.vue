@@ -3,6 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
+import { useUserStore } from '@/store/user'
+
+const user = useUserStore()
+const isSuperAdmin = computed(() => user.isSuperAdmin)
 
 const tab = ref<'article' | 'resource'>('article')
 const articles = ref<any[]>([])
@@ -37,8 +41,15 @@ async function load() {
     api.articles({}) as any,
     api.resources({}) as any,
   ])
-  articles.value = arts || []
-  resources.value = ress || []
+  let artList = arts || []
+  let resList = ress || []
+  // 教师仅审核本学科美文和资料（按 teachingSubjects 客户端过滤）
+  if (user.isTeacher && !user.isSuperAdmin && user.teachingSubjects.length) {
+    artList = artList.filter((a: any) => user.teachingSubjects.includes(Number(a.subject_id)))
+    resList = resList.filter((r: any) => user.teachingSubjects.includes(Number(r.subject_id)))
+  }
+  articles.value = artList
+  resources.value = resList
 }
 onMounted(load)
 
@@ -53,6 +64,15 @@ async function rejectArticle(id: number) {
   await api.auditArticle(id, 'rejected')
   const a = articles.value.find(x => x.id === id); if (a) a.status = 'rejected'
   ElMessage.success('已驳回')
+}
+async function adminConfirmArticle(id: number) {
+  try {
+    await api.adminConfirmArticle(id)
+    const a = articles.value.find(x => x.id === id); if (a) a.status = 'approved'
+    ElMessage.success('已代为确认，美文已发布')
+    // 代确认成功后重新加载审核列表，确保状态与徽标数同步
+    await load()
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '代确认失败') }
 }
 async function deleteArticleItem(id: number) {
   try {
@@ -130,6 +150,7 @@ async function batchApprove() {
             </template>
             <template v-else-if="a.status === 'pending_student'">
               <el-tag type="info" size="small" effect="dark">等待学生确认</el-tag>
+              <el-button v-if="isSuperAdmin" type="warning" size="small" @click="adminConfirmArticle(a.id)">超管代确认</el-button>
             </template>
             <el-button size="small" type="danger" plain @click="deleteArticleItem(a.id)">删除</el-button>
           </div>

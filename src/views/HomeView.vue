@@ -3,14 +3,15 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
+import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
 
 const router = useRouter()
 const user = useUserStore()
 const data = useDataStore()
+const settings = useSettingsStore()
 const articles = ref<any[]>([])
 const stats = ref<any>({})
-const siteConfig = ref<any>(null)
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -21,17 +22,43 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
+// 使用共享的站点配置，避免多个组件独立加载导致闪烁
+const siteConfig = computed(() => settings.siteConfig)
+const configLoaded = computed(() => settings.siteConfigLoaded)
+
+// 默认快捷入口（与后台 SiteConfigView 默认值一致）
+const defaultQuickLinks = [
+  { icon: '📚', label: '学科广场', path: '/subjects', color: '#F59E0B' },
+  { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '#FBBF24' },
+  { icon: '👤', label: '个人中心', path: '/profile', color: '#FB923C' },
+  { icon: '⭐', label: '我的收藏', path: '/favorites', color: '#FDE68A' },
+]
+
+// 计算最终展示的快捷入口：配置加载完成前不渲染，避免闪烁
+const displayQuickLinks = computed(() => {
+  if (!configLoaded.value) return null
+  if (siteConfig.value?.showQuickLinks === false) return []
+  if (siteConfig.value?.quickLinks?.length) return siteConfig.value.quickLinks
+  return defaultQuickLinks
+})
+
+// 公告栏：配置加载完成前不渲染，避免闪烁
+const showAnnouncement = computed(() => {
+  if (!configLoaded.value) return false
+  return siteConfig.value?.showAnnouncementBar && siteConfig.value?.announcementBar
+})
+
 onMounted(async () => {
+  // 确保站点配置已加载（App.vue 也会触发，这里做兜底）
+  if (!settings.siteConfigLoaded) await settings.fetchSiteConfig()
   if (!data.subjects.length) await data.fetchSubjects()
-  try {
-    articles.value = (await api.articles({ limit: 6 })) as any
-  } catch { /* */ }
-  try {
-    stats.value = (await api.stats()) as any
-  } catch { /* */ }
-  try {
-    siteConfig.value = await api.getSiteConfig()
-  } catch { /* */ }
+  // 并行加载文章和统计数据（站点配置已由 settings store 管理）
+  const [artsRes, statsRes] = await Promise.allSettled([
+    api.articles({ limit: 6 }),
+    api.stats(),
+  ])
+  if (artsRes.status === 'fulfilled') articles.value = artsRes.value as any
+  if (statsRes.status === 'fulfilled') stats.value = statsRes.value as any
 })
 
 function goArticle(id: number) { router.push(`/article/${id}`) }
@@ -46,7 +73,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         <div class="hero-tag">🌟 {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
         <h1 class="hero-title">{{ greeting }}，<span class="zg-grad-text">{{ user.current?.realName || '追光者' }}</span>！</h1>
         <p class="hero-sub">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
-        <div class="hero-stats" v-if="user.isLogin">
+        <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
           <div class="hs-item">
             <div class="hs-num">{{ user.current?.exp || 0 }}</div>
             <div class="hs-label">经验值</div>
@@ -70,42 +97,22 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       </div>
     </div>
 
-    <!-- 公告栏 -->
-    <div v-if="siteConfig?.showAnnouncementBar && siteConfig?.announcementBar" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
+    <!-- 公告栏：配置加载完成后才渲染，避免闪烁 -->
+    <div v-if="showAnnouncement" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
       <span class="ab-icon">📢</span>
       <span class="ab-text">{{ siteConfig.announcementBar }}</span>
     </div>
 
-    <!-- 快捷入口 -->
-    <div class="quick-grid" v-if="siteConfig?.showQuickLinks !== false">
-      <template v-if="siteConfig?.quickLinks?.length">
-        <div v-for="(ql, i) in siteConfig.quickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
-          <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }">{{ ql.icon }}</div>
-          <div class="qg-text">{{ ql.label }}</div>
-        </div>
-      </template>
-      <template v-else>
-        <div class="qg-card glass zg-card" @click="router.push('/subjects')">
-          <div class="qg-icon" style="background:linear-gradient(135deg,#F59E0B,#FB923C)">📚</div>
-          <div class="qg-text">学科广场</div>
-        </div>
-        <div class="qg-card glass zg-card" @click="router.push('/leaderboard')">
-          <div class="qg-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)">🏆</div>
-          <div class="qg-text">经验排行</div>
-        </div>
-        <div class="qg-card glass zg-card" @click="router.push('/profile')">
-          <div class="qg-icon" style="background:linear-gradient(135deg,#FB923C,#EF4444)">👤</div>
-          <div class="qg-text">个人中心</div>
-        </div>
-        <div class="qg-card glass zg-card" @click="router.push('/favorites')">
-          <div class="qg-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)">⭐</div>
-          <div class="qg-text">我的收藏</div>
-        </div>
-      </template>
+    <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
+    <div class="quick-grid" v-if="displayQuickLinks && displayQuickLinks.length">
+      <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
+        <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }">{{ ql.icon }}</div>
+        <div class="qg-text">{{ ql.label }}</div>
+      </div>
     </div>
 
     <!-- 学科 -->
-    <div class="section">
+    <div class="section" v-if="data.subjects.length && (siteConfig?.showSubjects !== false)">
       <div class="section-title">学科子站</div>
       <div class="subj-row">
         <div v-for="s in data.subjects" :key="s.id" class="subj-chip glass zg-card" @click="router.push(`/subject/${s.slug}`)">
@@ -116,10 +123,10 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     </div>
 
     <!-- 最新美文 -->
-    <div class="section" v-if="articles.length">
+    <div class="section" v-if="articles.length && (siteConfig?.showLatestArticles !== false)">
       <div class="section-title">最新美文</div>
       <div class="art-grid">
-        <div v-for="(a, i) in articles" :key="a.id" class="art-card glass zg-card zg-slide-up" :style="{ animationDelay: `${i * 0.08}s` }" @click="goArticle(a.id)">
+        <div v-for="(a, i) in articles.slice(0, siteConfig?.maxArticlesOnHome || 6)" :key="a.id" class="art-card glass zg-card zg-slide-up" :style="{ animationDelay: `${i * 0.08}s` }" @click="goArticle(a.id)">
           <div class="ac-cover" v-if="a.cover" :style="{ backgroundImage: `url(${a.cover})` }"></div>
           <div class="ac-cover ac-placeholder" v-else>
             <span>{{ a.category?.[0] || '追' }}</span>
@@ -137,6 +144,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         </div>
       </div>
     </div>
+
+    <!-- 页脚文字 -->
+    <footer class="zg-footer" v-if="configLoaded && siteConfig?.footerText">
+      {{ siteConfig.footerText }}
+    </footer>
   </div>
 </template>
 
@@ -176,6 +188,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .ac-title { font-weight: 700; font-size: var(--zg-fs-base); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ac-meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); }
 .ac-dot { opacity: .5; }
+
+.zg-footer { text-align: center; padding: 32px 0 8px; margin-top: 40px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); opacity: 0.7; border-top: 1px dashed rgba(245,158,11,.12); }
 
 @media (max-width: 768px) {
   .hero { padding: 24px 20px; border-radius: 18px; margin-top: 12px; }

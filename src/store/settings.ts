@@ -24,12 +24,15 @@ const LABELS: Record<FlagKey, string> = {
 export const useSettingsStore = defineStore('settings', () => {
   const flags = ref<Record<string, boolean>>({})
   const expRules = ref<Record<string, number>>({})
+  const siteConfig = ref<any>(null)
+  const siteConfigLoaded = ref(false)
   const loaded = ref(false)
 
   async function fetchAll() {
     try {
+      // 非超管用户使用公开接口获取功能开关，避免403权限弹窗
       const [f, r] = await Promise.all([
-        api.getFeatureFlags() as any,
+        api.publicFeatureFlags() as any,
         api.getExpRules() as any,
       ])
       flags.value = f || {}
@@ -42,6 +45,28 @@ export const useSettingsStore = defineStore('settings', () => {
       expRules.value = {}
       loaded.value = true
     }
+    // 站点配置独立加载，不依赖登录状态
+    fetchSiteConfig()
+  }
+
+  async function fetchSiteConfig() {
+    try {
+      siteConfig.value = await api.getSiteConfig()
+      // 应用自定义主色调
+      if (siteConfig.value?.primaryColor) {
+        document.documentElement.style.setProperty('--zg-primary', siteConfig.value.primaryColor)
+      }
+    } catch {
+      // 配置加载失败，使用默认值
+      siteConfig.value = null
+    } finally {
+      siteConfigLoaded.value = true
+    }
+  }
+
+  async function saveSiteConfig(config: any) {
+    await api.saveSiteConfig(config)
+    siteConfig.value = { ...siteConfig.value, ...config }
   }
 
   async function saveFlags(next: Record<string, boolean>) {
@@ -64,7 +89,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const flagLabels = LABELS
 
   return {
-    flags, expRules, loaded, flagLabels,
-    fetchAll, saveFlags, saveRules, isEnabled,
+    flags, expRules, siteConfig, siteConfigLoaded, loaded, flagLabels,
+    fetchAll, fetchSiteConfig, saveSiteConfig, saveFlags, saveRules, isEnabled,
   }
 })

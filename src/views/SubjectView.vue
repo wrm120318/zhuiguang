@@ -41,10 +41,9 @@ async function load() {
   }
   subjectArticles.value = (await api.articles({ subjectId: sid, status: 'approved' })) as any
   if (user.isLogin) {
-    const all = (await api.queryTasks()) as any
-    subjectQueries.value = (all || []).filter((t: any) => t.subject_id === sid)
-    subjectQuizzes.value = (await api.quizzes({ subjectId: sid })) as any
-    subjectQuestions.value = (await api.subjectQuestions(sid)) as any
+    try { const all = (await api.queryTasks()) as any; subjectQueries.value = (all || []).filter((t: any) => t.subject_id === sid) } catch {}
+    try { subjectQuizzes.value = (await api.quizzes({ subjectId: sid })) as any } catch {}
+    try { subjectQuestions.value = (await api.subjectQuestions(sid)) as any } catch {}
   }
   contributors.value = (await api.leaderboard({ scope: 'subject', subjectId: sid, period: 'total' })) as any
 }
@@ -141,34 +140,112 @@ async function deleteQuestion(id: number) {
 }
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
 
-async function downloadResource(r: any) {
+// 正在下载中的资源 id 集合，防止重复点击
+const downloadingIds = ref<Set<number>>(new Set())
+
+// 根据 MIME 类型推断文件扩展名
+function mimeToExt(contentType: string): string {
+  const map: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'application/zip': 'zip',
+    'application/x-rar-compressed': 'rar',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/json': 'json',
+    'text/plain': 'txt',
+    'text/csv': 'csv',
+    'text/html': 'html',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'audio/mpeg': 'mp3',
+  }
+  const key = (contentType || '').split(';')[0].trim().toLowerCase()
+  return map[key] || ''
+}
+
+// 读取 Blob/响应体中的 JSON 错误信息（responseType: 'blob' 时错误体也是 Blob）
+async function readBlobError(data: any): Promise<string | null> {
   try {
+    let text: string
+    if (data instanceof Blob) {
+      text = await data.text()
+    } else if (typeof data === 'string') {
+      text = data
+    } else if (data && typeof data === 'object') {
+      text = JSON.stringify(data)
+    } else {
+      return null
+    }
+    const err = JSON.parse(text)
+    return err?.message || err?.error || null
+  } catch {
+    return null
+  }
+}
+
+async function downloadResource(r: any) {
+  // 防止重复点击
+  if (downloadingIds.value.has(r.id)) return
+  downloadingIds.value.add(r.id)
+  try {
+    // downloadResource 使用独立 axios 实例（responseType: 'blob'），
+    // 返回的是完整 axios 响应对象，包含 .data(Blob) / .headers / .status
     const resp: any = await api.downloadResource(r.id)
     const contentType = resp.headers['content-type'] || ''
+    // 后端在出错时可能仍以 application/json 返回错误信息
     if (contentType.includes('application/json')) {
-      try {
-        const text = await resp.data.text()
-        const err = JSON.parse(text)
-        ElMessage.error(err.message || '下载失败')
-      } catch {
-        ElMessage.error('下载失败')
-      }
+      const errMsg = await readBlobError(resp.data)
+      ElMessage.error(errMsg || '下载失败')
       return
     }
-    const blob = new Blob([resp.data], { type: contentType || 'application/octet-stream' })
+    // resp.data 已是 Blob，无需再次包装；兼容非 Blob 的边界情况
+    const blob = resp.data instanceof Blob
+      ? resp.data
+      : new Blob([resp.data], { type: contentType || 'application/octet-stream' })
+    // 构建下载文件名并保留扩展名
+    let fileName = r.file_name || r.title || 'download'
+    // 优先从 content-disposition 获取真实文件名
+    const disposition = resp.headers['content-disposition']
+    if (disposition) {
+      const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(disposition)
+      if (m && m[1]) {
+        try { fileName = decodeURIComponent(m[1]) } catch { fileName = m[1] }
+      }
+    }
+    // 若文件名无扩展名，则根据 contentType 推断补全，确保扩展名被保留
+    if (!/\.[^./\\]+$/.test(fileName)) {
+      const ext = mimeToExt(contentType)
+      if (ext) fileName = `${fileName}.${ext}`
+    }
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = r.file_name || r.title || 'download'
+    a.download = fileName
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 1000)
-    r.downloads++
+    r.downloads = (r.downloads || 0) + 1
     ElMessage.success('下载开始')
   } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.message || '下载失败，请重试'
+    // responseType: 'blob' 时，错误响应的 data 也是 Blob，需读取后解析
+    let msg = '下载失败，请重试'
+    const parsed = await readBlobError(e?.response?.data)
+    if (parsed) {
+      msg = parsed
+    } else if (e?.message) {
+      msg = e.message
+    }
     ElMessage.error(msg)
+  } finally {
+    downloadingIds.value.delete(r.id)
   }
 }
 

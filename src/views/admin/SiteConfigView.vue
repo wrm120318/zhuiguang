@@ -19,6 +19,19 @@ interface SiteConfig {
   footerText: string
   showAnnouncementBar: boolean
   announcementBar: string
+  // 导航栏自定义
+  navTitle: string
+  navTitleIcon: string
+  showNavSearch: boolean
+  showNavMessage: boolean
+  showNavNotice: boolean
+  // 首页布局
+  showHeroStats: boolean
+  showSubjects: boolean
+  showLatestArticles: boolean
+  maxArticlesOnHome: number
+  // 颜色主题
+  primaryColor: string
 }
 
 const loading = ref(true)
@@ -40,6 +53,19 @@ function defaultConfig(): SiteConfig {
     footerText: '© 追光学科共享平台 · 用知识点亮未来',
     showAnnouncementBar: false,
     announcementBar: '欢迎来到追光学科共享平台！',
+    // 导航栏自定义
+    navTitle: '追光学科共享平台',
+    navTitleIcon: '🌟',
+    showNavSearch: true,
+    showNavMessage: true,
+    showNavNotice: true,
+    // 首页布局
+    showHeroStats: true,
+    showSubjects: true,
+    showLatestArticles: true,
+    maxArticlesOnHome: 6,
+    // 颜色主题
+    primaryColor: '#F59E0B',
   }
 }
 
@@ -64,6 +90,19 @@ function mergeConfig(remote: any) {
   form.footerText = remote.footerText ?? d.footerText
   form.showAnnouncementBar = remote.showAnnouncementBar ?? d.showAnnouncementBar
   form.announcementBar = remote.announcementBar ?? d.announcementBar
+  // 导航栏自定义
+  form.navTitle = remote.navTitle ?? d.navTitle
+  form.navTitleIcon = remote.navTitleIcon ?? d.navTitleIcon
+  form.showNavSearch = remote.showNavSearch ?? d.showNavSearch
+  form.showNavMessage = remote.showNavMessage ?? d.showNavMessage
+  form.showNavNotice = remote.showNavNotice ?? d.showNavNotice
+  // 首页布局
+  form.showHeroStats = remote.showHeroStats ?? d.showHeroStats
+  form.showSubjects = remote.showSubjects ?? d.showSubjects
+  form.showLatestArticles = remote.showLatestArticles ?? d.showLatestArticles
+  form.maxArticlesOnHome = remote.maxArticlesOnHome ?? d.maxArticlesOnHome
+  // 颜色主题
+  form.primaryColor = remote.primaryColor ?? d.primaryColor
 }
 
 onMounted(async () => {
@@ -92,6 +131,7 @@ async function save() {
 // ===== 快捷入口动态编辑 =====
 const PRESET_COLORS = ['#F59E0B', '#FB923C', '#FBBF24', '#FDE68A', '#F97316', '#EF4444', '#34D399', '#60A5FA']
 const PRESET_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '✍️', '📦', '🎓', '💡', '🔥']
+const THEME_COLORS = ['#F59E0B', '#FB923C', '#F97316', '#EF4444', '#8B5CF6', '#3B82F6', '#10B981', '#EC4899']
 
 function addLink() {
   form.quickLinks.push({ icon: '⭐', label: '', path: '/', color: '#F59E0B' })
@@ -243,6 +283,78 @@ function resetConfig() {
           </div>
         </div>
 
+        <!-- 导航栏自定义 -->
+        <div class="sec">
+          <div class="sec-title"><span class="sec-bar"></span>导航栏自定义</div>
+          <div class="sec-body">
+            <el-form-item label="导航栏标题文字">
+              <el-input v-model="form.navTitle" placeholder="留空则默认使用网站名称" maxlength="20" show-word-limit />
+              <div class="item-tip">显示在顶部导航栏左侧的名称，留空或与网站名称一致即可。</div>
+            </el-form-item>
+            <el-form-item label="导航栏图标 emoji">
+              <el-input v-model="form.navTitleIcon" class="nav-icon-input" placeholder="🌟" maxlength="4" />
+              <span class="nav-icon-preview">当前预览：{{ form.navTitleIcon || '⭐' }}</span>
+            </el-form-item>
+            <el-form-item label="显示搜索按钮">
+              <el-switch v-model="form.showNavSearch" />
+              <span class="switch-text">{{ form.showNavSearch ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+            <el-form-item label="显示站内信按钮">
+              <el-switch v-model="form.showNavMessage" />
+              <span class="switch-text">{{ form.showNavMessage ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+            <el-form-item label="显示通知铃铛">
+              <el-switch v-model="form.showNavNotice" />
+              <span class="switch-text">{{ form.showNavNotice ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- 首页布局 -->
+        <div class="sec">
+          <div class="sec-title"><span class="sec-bar"></span>首页布局</div>
+          <div class="sec-body">
+            <el-form-item label="显示首页统计数据">
+              <el-switch v-model="form.showHeroStats" />
+              <span class="switch-text">{{ form.showHeroStats ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+            <el-form-item label="显示学科子站入口">
+              <el-switch v-model="form.showSubjects" />
+              <span class="switch-text">{{ form.showSubjects ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+            <el-form-item label="显示最新美文">
+              <el-switch v-model="form.showLatestArticles" />
+              <span class="switch-text">{{ form.showLatestArticles ? '已显示' : '已隐藏' }}</span>
+            </el-form-item>
+            <el-form-item label="首页美文展示数量">
+              <el-input-number v-model="form.maxArticlesOnHome" :min="3" :max="12" :step="1" />
+              <div class="item-tip">首页「最新美文」板块展示的文章数量，范围 3-12 篇。</div>
+            </el-form-item>
+          </div>
+        </div>
+
+        <!-- 颜色主题 -->
+        <div class="sec">
+          <div class="sec-title"><span class="sec-bar"></span>颜色主题</div>
+          <div class="sec-body">
+            <el-form-item label="主题色">
+              <el-color-picker v-model="form.primaryColor" />
+              <span class="color-val">{{ form.primaryColor }}</span>
+              <div class="color-presets">
+                <span
+                  v-for="c in THEME_COLORS"
+                  :key="c"
+                  class="color-sw"
+                  :class="{ on: form.primaryColor.toLowerCase() === c.toLowerCase() }"
+                  :style="{ background: c }"
+                  @click="form.primaryColor = c"
+                ></span>
+              </div>
+              <div class="item-tip">全站主色调，影响按钮、强调色与渐变背景。建议使用偏暖的橙黄色系以保持品牌一致。</div>
+            </el-form-item>
+          </div>
+        </div>
+
         <div class="foot">
           <el-button @click="resetConfig">恢复默认</el-button>
           <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
@@ -295,6 +407,17 @@ function resetConfig() {
 .ql-ops { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 .ql-add { width: 100%; margin-top: 4px; border-style: dashed !important; }
 
+/* 新增区块通用样式 */
+.item-tip { font-size: 12px; color: var(--zg-text-dim); margin-top: 4px; line-height: 1.5; }
+.switch-text { font-size: 12px; color: var(--zg-text-dim); margin-left: 10px; }
+.nav-icon-input { max-width: 120px; }
+.nav-icon-preview { margin-left: 12px; font-size: 14px; color: var(--zg-text-dim); }
+.color-val { margin-left: 12px; font-size: 12px; color: var(--zg-text-dim); font-family: monospace; }
+.color-presets { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: 12px; vertical-align: middle; }
+.color-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(245,158,11,.3); transition: transform .15s; display: inline-block; }
+.color-sw:hover { transform: scale(1.15); }
+.color-sw.on { box-shadow: 0 0 0 2px var(--zg-primary); }
+
 .foot { margin-top: 28px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.15); display: flex; justify-content: flex-end; gap: 10px; }
 
 @media (max-width: 768px) {
@@ -309,6 +432,7 @@ function resetConfig() {
   .ql-row { flex-direction: column; gap: 8px; }
   .ql-row .el-input { min-width: 0; }
   .ql-emoji { max-width: none; flex: 1 1 100% !important; }
+  .color-presets { margin-left: 0; margin-top: 8px; }
   .foot { flex-direction: column-reverse; gap: 8px; }
   .foot .el-button { width: 100%; }
 }

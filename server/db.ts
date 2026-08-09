@@ -193,6 +193,9 @@ export async function initDB() {
       status TEXT DEFAULT 'published',
       views INTEGER DEFAULT 0,
       likes INTEGER DEFAULT 0,
+      pinned INTEGER DEFAULT 0,
+      pinned_scope TEXT DEFAULT 'none',
+      updated_at TEXT DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS page_comments (
@@ -241,6 +244,10 @@ export async function initDB() {
   try { await db.execute('CREATE INDEX IF NOT EXISTS idx_art_c_a ON article_comments(article_id)') } catch {}
   // Bug5: feature_flags 表默认 registration_enabled=1（保证旧数据库也有）
   try { await db.execute("INSERT OR IGNORE INTO feature_flags (key,value) VALUES ('registration_enabled','1')") } catch {}
+  // 迁移：为 pages 补齐 updated_at 列（网站说明更新日期BUG）
+  try { await db.execute("ALTER TABLE pages ADD COLUMN updated_at TEXT DEFAULT NULL") } catch {}
+  // 迁移：为 resources 补齐 creator_name 列
+  try { await db.execute("ALTER TABLE resources ADD COLUMN creator_name TEXT DEFAULT ''") } catch {}
 
   await seed()
 }

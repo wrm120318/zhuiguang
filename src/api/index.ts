@@ -108,6 +108,7 @@ export const api = {
     const http2 = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL as string) || '', timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
     const token = localStorage.getItem('zg_token')
     if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
+    // 返回完整 axios 响应对象（含 headers），SubjectView 需要读取 content-type/content-disposition
     return http2.post(`/api/resources/${id}/download`)
   },
   likeResource: (id: number) => http.post(`/api/resources/${id}/like`),
@@ -125,18 +126,34 @@ export const api = {
     const http2 = axios.create({ baseURL: (import.meta.env.VITE_API_BASE_URL as string) || '', timeout: 60000, responseType: 'blob', withCredentials: !!(import.meta.env.VITE_API_BASE_URL) })
     const token = localStorage.getItem('zg_token')
     if (token) http2.defaults.headers.common.Authorization = `Bearer ${token}`
-    return http2.get(`/api/query/tasks/${id}/export`)
+    return http2.get(`/api/query/tasks/${id}/export`).then(async (res: any) => {
+      // 检查是否为错误响应（JSON 而非文件）
+      if (res.data instanceof Blob && res.data.type.includes('application/json')) {
+        const text = await res.data.text()
+        const err = JSON.parse(text)
+        throw { response: { data: err, status: res.status } }
+      }
+      return res.data
+    })
   },
   // 需求3：学生待确认美文 + 同意/拒绝
   pendingStudentArticles: () => http.get('/api/articles/pending-student'),
   approveStudentArticle: (id: number) => http.post(`/api/articles/${id}/student-approve`),
   rejectStudentArticle: (id: number) => http.post(`/api/articles/${id}/student-reject`),
+  // 需求9：超管代学生确认美文
+  adminConfirmArticle: (id: number) => http.post(`/api/articles/${id}/admin-confirm`),
+  // 需求9：删除评论（美文/页面）
+  deleteArticleComment: (articleId: number, commentId: number) => http.delete(`/api/articles/${articleId}/comments/${commentId}`),
+  deletePageComment: (pageId: number, commentId: number) => http.delete(`/api/pages/${pageId}/comments/${commentId}`),
+  // 需求9：超管修改用户信息（含用户名）
+  updateUser: (id: number, data: any) => http.patch(`/api/users/${id}`, data),
   // 需求2：公告置顶切换
   pinPage: (id: number, pinned: boolean, pinnedScope?: string) => http.patch(`/api/pages/${id}/pin`, { pinned, pinnedScope }),
   // 需求5：网站运行监控（仅超管）
   monitor: () => http.get('/api/admin/monitor'),
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),
+  allExpLogs: (page?: number, pageSize?: number) => http.get('/api/exp/all-logs', { params: { page, pageSize } }),
   leaderboard: (params: any) => http.get('/api/leaderboard', { params }),
   // 通知
   notices: () => http.get('/api/notices'),

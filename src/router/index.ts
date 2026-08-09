@@ -53,6 +53,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'theme', name: 'admin-theme', component: () => import('@/views/admin/ThemeView.vue') },
       { path: 'guide', name: 'admin-guide', component: () => import('@/views/admin/GuideEditView.vue') },
       { path: 'exp-rules', name: 'admin-exp-rules', component: () => import('@/views/admin/ExpRulesView.vue') },
+      { path: 'exp-logs', name: 'admin-exp-logs', component: () => import('@/views/admin/ExpLogsView.vue') },
       { path: 'feature-flags', name: 'admin-feature-flags', component: () => import('@/views/admin/FeatureFlagsView.vue') },
       { path: 'site-config', name: 'admin-site-config', component: () => import('@/views/admin/SiteConfigView.vue') },
       // 需求5：网站运行监控（仅超管）
@@ -72,8 +73,8 @@ router.beforeEach(async (to) => {
   if (!to.meta.public && !u.isLogin) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.path.startsWith('/admin') && !u.isStaff) return { name: 'home' }
   if (to.name === 'login' && u.isLogin) return { name: 'home' }
-  // Bug4: 已登录态路由切换时检查账号禁用状态
-  if (u.isLogin) {
+  // 仅在进入管理后台时检查账号禁用状态，避免每次路由切换都发请求
+  if (u.isLogin && to.path.startsWith('/admin')) {
     try {
       const r: any = await api.meStatus()
       if (r.disabled) {

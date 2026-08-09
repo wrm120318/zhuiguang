@@ -110,15 +110,25 @@ export async function deleteFile(key: string): Promise<void> {
 
 /** 从 file_path 字段（兼容旧格式 uploads/xxx 与新的 /uploads/xxx、完整 https URL）提取存储 key */
 export function extractKey(filePath: string): string {
-  // 完整 URL（Supabase 公共链接）直接返回空，本地下载会失败但前端可直接用此 URL 访问
-  if (/^https?:\/\//.test(filePath)) return ''
+  if (!filePath) return ''
+  // 如果是完整的 Supabase URL，提取 object key
+  // URL 格式: https://xxx.supabase.co/storage/v1/object/public/zhuiguang-files/file_xxx.xlsx
+  if (/^https?:\/\//.test(filePath)) {
+    const m = filePath.match(/\/storage\/v1\/object\/(?:public|sign)\/[^/]+\/(.+)$/)
+    if (m) return m[1]
+    // 也可能是直接路径形式
+    const parts = filePath.split('/')
+    return parts[parts.length - 1] || ''
+  }
   // /uploads/key 或 uploads/key → key
   return filePath.replace(/^\/?uploads?\//, '')
 }
 
 /**
- * 下载文件（仅本地模式需要：从磁盘读取 buffer）
- * Supabase 模式的下载走的是前端直链公共 URL，不会进这里
+ * 下载文件
+ * - 本地模式：从磁盘读取 buffer
+ * - Supabase 模式：通过 extractKey 提取的 key 从 Supabase Storage 下载 buffer
+ *   （filePath 可能是完整公共 URL 或相对 key，extractKey 均可正确提取）
  */
 export async function downloadFile(filePath: string): Promise<{ buffer: Buffer; contentType?: string } | null> {
   const key = extractKey(filePath)
@@ -130,7 +140,7 @@ export async function downloadFile(filePath: string): Promise<{ buffer: Buffer; 
     const buffer = fs.readFileSync(localPath)
     return { buffer, contentType: guessContentType(key) }
   }
-  // Supabase 模式（理论上不会走到这里，因为前端用公共 URL 直接下载）
+  // Supabase 模式：通过 key 从 Storage 下载
   const { data, error } = await supabase.storage.from(BUCKET).download(key)
   if (error || !data) return null
   const buffer = Buffer.from(await data.arrayBuffer())

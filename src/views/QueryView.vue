@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
@@ -52,6 +52,67 @@ function exportData() {
     XLSX.writeFile(wb, `${task.value.title}_我的数据.xlsx`)
   })
 }
+
+// 超管或任务创建者可编辑任务 / 导出整任务数据
+const canEdit = computed(() =>
+  !!task.value && (user.isSuperAdmin || task.value.creator_id === user.current?.id)
+)
+
+const editVisible = ref(false)
+const editSaving = ref(false)
+const editForm = ref({ title: '', note: '', validUntil: '' })
+
+function openEdit() {
+  if (!task.value) return
+  editForm.value = {
+    title: task.value.title || '',
+    note: task.value.note || '',
+    validUntil: task.value.valid_until || '',
+  }
+  editVisible.value = true
+}
+
+async function saveEdit() {
+  if (!task.value) return
+  editSaving.value = true
+  try {
+    await api.updateQueryTask(task.value.id, {
+      title: editForm.value.title,
+      note: editForm.value.note,
+      validUntil: editForm.value.validUntil,
+    })
+    ElMessage.success('查询任务已更新')
+    editVisible.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '更新失败')
+  } finally {
+    editSaving.value = false
+  }
+}
+
+const downloading = ref(false)
+
+// 导出整任务 Excel（超管下载所有人的，教师下载自己发布的）
+async function downloadTaskExcel() {
+  if (!task.value) return
+  downloading.value = true
+  try {
+    const blob: any = await api.exportQueryTask(task.value.id)
+    const fileBlob = new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(fileBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${task.value.title}_查询数据.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('Excel 已下载')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '下载失败')
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -74,6 +135,10 @@ function exportData() {
         <span class="flag" v-if="task.show_comment">💬 显示评语</span>
         <span class="flag" v-else>🚫 隐藏评语</span>
         <span class="flag" v-if="!task.allow_export">🚫 禁止导出</span>
+      </div>
+      <div class="qh-actions" v-if="canEdit">
+        <el-button size="small" @click="openEdit">✏️ 编辑任务</el-button>
+        <el-button size="small" type="success" plain :loading="downloading" @click="downloadTaskExcel">📥 导出全部数据</el-button>
       </div>
     </div>
 
@@ -120,6 +185,31 @@ function exportData() {
     </div>
   </div>
   <el-empty v-else description="查询任务不存在" style="margin-top:80px" />
+
+  <!-- 编辑查询任务对话框（仅超管 / 创建者） -->
+  <el-dialog v-model="editVisible" title="编辑查询任务" width="520px" :close-on-click-modal="false">
+    <el-form label-width="80px">
+      <el-form-item label="标题">
+        <el-input v-model="editForm.title" placeholder="查询任务标题" />
+      </el-form-item>
+      <el-form-item label="说明">
+        <el-input v-model="editForm.note" type="textarea" :rows="3" placeholder="任务说明" />
+      </el-form-item>
+      <el-form-item label="有效期">
+        <el-date-picker
+          v-model="editForm.validUntil"
+          type="date"
+          value-format="YYYY-MM-DD"
+          style="width:100%"
+          placeholder="选择有效期"
+        />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="editVisible = false">取消</el-button>
+      <el-button type="primary" :loading="editSaving" @click="saveEdit">保存</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -131,6 +221,7 @@ function exportData() {
 .dot { opacity:.5; }
 .qh-note { margin:14px 0; color:var(--zg-text); line-height:1.7; }
 .qh-flags { display:flex; gap:8px; flex-wrap:wrap; }
+.qh-actions { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
 .flag { padding:4px 10px; border-radius:8px; font-size:12px; background:rgba(245,158,11,.06); color:var(--zg-text-dim); }
 .privacy { display:flex; gap:16px; padding:20px 24px; margin-top:20px; border:1px solid rgba(245,158,11,.25); }
 .prv-icon { font-size:28px; }

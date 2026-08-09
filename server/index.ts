@@ -180,6 +180,8 @@ function apiCacheKey(req: express.Request): string | null {
   // 写操作相关API不缓存：含 me/status, exp/logs POST（但GET可以），upload*
   const p = req.path
   if (p.includes('/upload/') || p.includes('/download/')) return null
+  // 网站说明、站点配置、经验规则等可被后台编辑的内容不缓存，确保修改后立即生效
+  if (p === '/api/pages/guide' || p === '/api/settings/site_config' || p === '/api/settings/exp_rules' || p === '/api/settings/feature_flags') return null
   // 关键：Authorization hash做区分（不同用户看不同数据）
   const auth = (req.headers.authorization || '').slice(0, 200)
   let authHash = 'anon'
@@ -194,10 +196,21 @@ function apiCacheKey(req: express.Request): string | null {
   return `${authHash}|${ttl}|${urlKey}`
 }
 
+/** 清除全部缓存（公共内容修改后调用，确保所有用户立即看到最新数据） */
+function clearAllCache() {
+  API_CACHE.clear()
+}
+
 // 在express.json之前加缓存中间件（注意：顺序必须在static之前，在auth之前也可以——命中就直接回）
 app.use((req, res, next) => {
   const k = apiCacheKey(req)
-  if (!k) return next()
+  if (!k) {
+    // 非 GET 请求（POST/PUT/PATCH/DELETE）：清除全部缓存，确保后续 GET 拿到最新数据
+    if (req.method !== 'GET' && req.method !== 'OPTIONS' && req.method !== 'HEAD') {
+      clearAllCache()
+    }
+    return next()
+  }
   const [, ttlStr] = k.split('|', 3)
   const ttl = parseInt(ttlStr || '15000', 10)
   const e = API_CACHE.get(k)
@@ -260,7 +273,9 @@ initDB().catch(e => {
   process.exit(1)
 })
 
-app.use(cors())
+app.use(cors({
+  exposedHeaders: ['Content-Disposition', 'Content-Type'],
+}))
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
@@ -475,9 +490,15 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (req, res)
 })
 
 app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
-  const { realName, email, role, subjectId } = req.body
+  const { realName, username, email, role, subjectId } = req.body
   const u = await get('SELECT id FROM users WHERE id=?', req.params.id)
   if (!u) return res.status(404).json({ message: '用户不存在' })
+  // 超管可修改用户名（唯一性校验）
+  if (username !== undefined && username.trim()) {
+    const exist = await get('SELECT id FROM users WHERE username=? AND id!=?', username.trim(), req.params.id)
+    if (exist) return res.status(409).json({ message: '用户名已被占用' })
+    await run('UPDATE users SET username=? WHERE id=?', username.trim(), req.params.id)
+  }
   if (realName !== undefined) await run('UPDATE users SET real_name=? WHERE id=?', realName, req.params.id)
   if (email !== undefined) await run('UPDATE users SET email=? WHERE id=?', email, req.params.id)
   if (role !== undefined) await run('UPDATE users SET role=? WHERE id=?', role, req.params.id)
@@ -799,6 +820,15 @@ app.post('/api/articles/:id/student-reject', auth, async (req, res) => {
   res.json({ ok: true })
 })
 
+app.post('/api/articles/:id/admin-confirm', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const a = await get<any>('SELECT title, user_id, actual_user_id, status FROM articles WHERE id=?', req.params.id)
+  if (!a) return res.status(404).json({ message: '不存在' })
+  if (a.status !== 'pending_student') return res.status(400).json({ message: '该美文不处于待学生确认状态' })
+  await run('UPDATE articles SET status=? WHERE id=?', 'pending', req.params.id)
+  await addNotice(Number(a.actual_user_id) || a.user_id, '美文已被管理员确认', `《${a.title}》已被管理员代为确认，进入审核队列。`, 'audit')
+  res.json({ ok: true })
+})
+
 app.get('/api/articles/:id', async (req, res) => {
   const me = await parseOptionalAuth(req)
   const myId = me?.id ?? 0
@@ -888,11 +918,7 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
   // Bug1: 确认此处不更新 user_id（当前是对的，只改 status）
   await run('UPDATE articles SET status=? WHERE id=?', req.body.status, req.params.id)
   if (req.body.status === 'approved' && a.status !== 'approved') {
-    // Bug1/Bug8: 经验值加给实际作者（actual_user_id存在就给学生，否则给创建者），明确传 20
-    const expUid = Number(a.actual_user_id) || Number(a.user_id)
-    await addExp(expUid, 20, 'article', `美文《${a.title}》审核通过`)
-    // Bug8 核心：给审核人（超管）加 2 经验奖励
-    await addExp(reviewerId, 2, 'review', `审核通过美文《${a.title}》`)
+    // 经验值仅在美文创建时发放（POST 端点），审核通过不再重复加经验
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
     // 如果是代发的，也通知实际作者学生
     if (a.actual_user_id) {
@@ -908,11 +934,21 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
 })
 
 app.delete('/api/articles/:id', auth, async (req, res) => {
-  const a = await get<any>('SELECT user_id, subject_id FROM articles WHERE id=?', req.params.id)
+  const a = await get<any>('SELECT user_id, subject_id, title, actual_user_id, status FROM articles WHERE id=?', req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const isOwner = a.user_id === (req as any).user.id
-  if (!isOwner && !canManageSubject(u, a.subject_id)) return res.status(403).json({ message: '无权限删除' })
+  const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number((req as any).user.id)
+  if (!isOwner && !isActualUser && !canManageSubject(u, a.subject_id)) return res.status(403).json({ message: '无权限删除' })
+  // 删除前回收已发放的经验
+  const expUid = Number(a.actual_user_id) || Number(a.user_id)
+  if (expUid && a.title) {
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like') AND description LIKE ?", expUid, `%${a.title}%`)
+    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
+    if (total) await addExp(expUid, -total, 'article', `删除美文《${a.title}》回收经验`)
+  }
+  await run('DELETE FROM article_comments WHERE article_id=?', req.params.id)
+  await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'article', req.params.id)
   await run('DELETE FROM articles WHERE id=?', req.params.id)
   res.json({ ok: true })
 })
@@ -923,8 +959,8 @@ app.post('/api/articles/:id/like', auth, async (req, res) => {
   if (exist) return res.json({ liked: false })
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'article', req.params.id)
   await run('UPDATE articles SET likes = likes + 1 WHERE id=?', req.params.id)
-  const a = await get<any>('SELECT user_id, title FROM articles WHERE id=?', req.params.id)
-  if (a) await addExp(a.user_id, 1, 'like', `美文《${a.title}》获得点赞`)
+  const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', req.params.id)
+  if (a) await addExp(Number(a.actual_user_id) || Number(a.user_id), 1, 'like', `美文《${a.title}》获得点赞`)
   res.json({ liked: true })
 })
 
@@ -985,15 +1021,41 @@ app.post('/api/articles/:id/comments', auth, async (req, res) => {
   res.json({ id: Number(r.lastInsertRowid), user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content: req.body.content, created_at: new Date().toISOString().slice(0,19).replace('T',' ') })
 })
 
+app.delete('/api/articles/:id/comments/:commentId', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const u = await get<any>('SELECT role FROM users WHERE id=?', uid)
+  const comment = await get<any>('SELECT user_id FROM article_comments WHERE id=?', req.params.commentId)
+  if (!comment) return res.status(404).json({ message: '评论不存在' })
+  if (comment.user_id !== uid && u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '无权限删除' })
+  // 回收评论带来的经验：评论创建时给文章作者加1经验（仅当评论者非作者）
+  const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', req.params.id)
+  if (a) {
+    const expUid = Number(a.actual_user_id) || Number(a.user_id)
+    if (expUid !== Number(comment.user_id)) await addExp(expUid, -1, 'comment', `《${a.title}》评论被删除回收经验`)
+  }
+  await run('DELETE FROM article_comments WHERE id=?', req.params.commentId)
+  res.json({ ok: true })
+})
+
+app.delete('/api/pages/:id/comments/:commentId', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const u = await get<any>('SELECT role FROM users WHERE id=?', uid)
+  const comment = await get<any>('SELECT user_id FROM page_comments WHERE id=?', req.params.commentId)
+  if (!comment) return res.status(404).json({ message: '评论不存在' })
+  if (comment.user_id !== uid && u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '无权限删除' })
+  await run('DELETE FROM page_comments WHERE id=?', req.params.commentId)
+  res.json({ ok: true })
+})
+
 // ============ 资料 ============
 app.get('/api/resources', async (req, res) => {
   const { subjectId, status, mine, userId } = req.query
-  let sql = 'SELECT * FROM resources WHERE 1=1'
+  let sql = 'SELECT r.*, u.real_name AS creator_name FROM resources r LEFT JOIN users u ON r.user_id = u.id WHERE 1=1'
   const args: any[] = []
-  if (subjectId) { sql += ' AND subject_id=?'; args.push(subjectId) }
-  if (status) { sql += ' AND status=?'; args.push(status) }
-  if (mine === '1') { sql += ' AND user_id=?'; args.push(userId) }
-  sql += ' ORDER BY id DESC'
+  if (subjectId) { sql += ' AND r.subject_id=?'; args.push(subjectId) }
+  if (status) { sql += ' AND r.status=?'; args.push(status) }
+  if (mine === '1') { sql += ' AND r.user_id=?'; args.push(userId) }
+  sql += ' ORDER BY r.id DESC'
   const list = await all<any>(sql, ...args)
   res.json(list.map(r => ({ ...r, tags: j(r.tags) })))
 })
@@ -1024,19 +1086,33 @@ app.patch('/api/resources/:id/status', auth, async (req, res) => {
 })
 
 app.delete('/api/resources/:id', auth, async (req, res) => {
-  const r = await get<any>('SELECT user_id, file_path, subject_id FROM resources WHERE id=?', req.params.id)
+  const r = await get<any>('SELECT user_id, file_path, subject_id, title FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const isOwner = r.user_id === (req as any).user.id
   if (!isOwner && !canManageSubject(u, r.subject_id)) return res.status(403).json({ message: '无权限删除' })
+  // 删除前回收已发放的经验
+  if (r.user_id && r.title) {
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
+    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
+    if (total) await addExp(r.user_id, -total, 'resource', `删除资料《${r.title}》回收经验`)
+  }
   if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
+  await run('DELETE FROM likes_map WHERE target_type IN (?,?) AND target_id=?', 'resource', 'fav_resource', req.params.id)
   await run('DELETE FROM resources WHERE id=?', req.params.id)
   res.json({ ok: true })
 })
 
-app.post('/api/resources/:id/download', async (req, res) => {
+app.post('/api/resources/:id/download', auth, async (req, res) => {
   const r = await get<any>('SELECT * FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
+  if (r.status !== 'approved') {
+    const me = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
+    const isOwner = Number(r.user_id) === Number((req as any).user.id)
+    if (!isOwner && !canManageSubject(me, r.subject_id)) {
+      return res.status(403).json({ message: '该资料尚未通过审核' })
+    }
+  }
   if (!r.file_path) return res.status(404).json({ message: '文件不存在，可能已被清理' })
   const file = await downloadFile(r.file_path)
   if (!file) return res.status(404).json({ message: '文件不存在，可能已被清理' })
@@ -1189,7 +1265,39 @@ app.get('/api/query/tasks/:id/export', auth, requireStaff, async (req, res) => {
 
 // 需求1：GET /api/query/tasks — 超管看到所有任务；教师看到自己的（原逻辑已正确，此处不改保持原逻辑）
 
-app.delete('/api/query/tasks/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+app.put('/api/query/tasks/:id', auth, requireStaff, async (req, res) => {
+  const uid = (req as any).user.id
+  const role = (req as any).user.role
+  const t = await get<any>('SELECT creator_id FROM query_tasks WHERE id=?', req.params.id)
+  if (!t) return res.status(404).json({ message: '不存在' })
+  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) return res.status(403).json({ message: '无权限编辑' })
+  const b = req.body
+  await run('UPDATE query_tasks SET title=?, note=?, valid_until=? WHERE id=?', b.title ?? '', b.note ?? '', b.validUntil ?? '', req.params.id)
+  if (Array.isArray(b.headers) && Array.isArray(b.rows)) {
+    await run('DELETE FROM query_rows WHERE task_id=?', req.params.id)
+    for (const row of b.rows) {
+      await run('INSERT INTO query_rows (task_id,data_row) VALUES (?,?)', req.params.id, JSON.stringify(row))
+    }
+    await run('UPDATE query_tasks SET headers=?, match_field=? WHERE id=?', JSON.stringify(b.headers), b.matchField ?? '', req.params.id)
+  }
+  res.json({ ok: true })
+})
+
+app.delete('/api/query/tasks/:id', auth, requireStaff, async (req, res) => {
+  const uid = (req as any).user.id
+  const role = (req as any).user.role
+  const t = await get<any>('SELECT creator_id, title FROM query_tasks WHERE id=?', req.params.id)
+  if (!t) return res.status(404).json({ message: '不存在' })
+  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) return res.status(403).json({ message: '无权限删除' })
+  // 删除前回收已发放的经验
+  if (t.title) {
+    const logs = await all<{ user_id: number; exp_change: number }>("SELECT user_id, exp_change FROM exp_logs WHERE action_type='query' AND description LIKE ?", `%${t.title}%`)
+    const byUser = new Map<number, number>()
+    for (const l of logs) { byUser.set(l.user_id, (byUser.get(l.user_id) || 0) + (l.exp_change || 0)) }
+    for (const [userId, total] of byUser) {
+      if (total) await addExp(userId, -total, 'query', `删除查询任务「${t.title}」回收经验`)
+    }
+  }
   await run('DELETE FROM query_rows WHERE task_id=?', req.params.id)
   await run('DELETE FROM query_tasks WHERE id=?', req.params.id)
   res.json({ ok: true })
@@ -1237,6 +1345,19 @@ app.post('/api/exp/logs', auth, requireRole('SUPER_ADMIN'), async (req, res) => 
   const { userId, change, actionType, description } = req.body
   await addExp(userId, change, actionType, description)
   res.json({ ok: true })
+})
+
+app.get('/api/exp/all-logs', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const page = Number(req.query.page) || 1
+  const pageSize = Number(req.query.pageSize) || 50
+  const offset = (page - 1) * pageSize
+  const list = await all<any>(
+    `SELECT el.*, u.real_name, u.username, u.avatar, u.role 
+     FROM exp_logs el 
+     JOIN users u ON u.id = el.user_id 
+     ORDER BY el.id DESC LIMIT ? OFFSET ?`, pageSize, offset)
+  const totalRow = await get<{ n: number }>('SELECT COUNT(*) as n FROM exp_logs')
+  res.json({ list, total: totalRow?.n || 0 })
 })
 
 app.get('/api/leaderboard', async (req, res) => {
@@ -1324,7 +1445,7 @@ app.delete('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (req, res)
 })
 
 // ============ 数据统计 ============
-app.get('/api/stats', auth, requireStaff, async (req, res) => {
+app.get('/api/stats', auth, async (req, res) => {
   const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const teacherSid = (u && u.role === 'TEACHER') ? u.subject_id : null
   const subjWhere = teacherSid ? 'AND subject_id=?' : ''
@@ -1384,6 +1505,48 @@ app.put('/api/settings/feature_flags', auth, requireRole('SUPER_ADMIN'), async (
     await run("INSERT OR REPLACE INTO feature_flags (key,value) VALUES ('registration_enabled',?)", v)
   }
   refreshFeatureFlags()
+  res.json({ ok: true })
+})
+
+app.get('/api/settings/site_config', async (_req, res) => {
+  const defaults: any = {
+    siteName: '追光学科共享平台',
+    siteSlogan: '追光的人，终会身披万丈光芒',
+    heroSubtitle: '在这里分享知识，收获成长。',
+    showQuickLinks: true,
+    quickLinks: [
+      { icon: '📚', label: '学科广场', path: '/subjects', color: '#F59E0B' },
+      { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '#FBBF24' },
+      { icon: '👤', label: '个人中心', path: '/profile', color: '#FB923C' },
+      { icon: '📖', label: '网站说明', path: '/guide', color: '#EF4444' },
+    ],
+    footerText: '© 追光学科共享平台 · 用知识点亮未来',
+    showAnnouncementBar: false,
+    announcementBar: '欢迎来到追光学科共享平台！',
+    navTitle: '追光学科共享平台',
+    navTitleIcon: '🌟',
+    showNavSearch: true,
+    showNavMessage: true,
+    showNavNotice: true,
+    showHeroStats: true,
+    showSubjects: true,
+    showLatestArticles: true,
+    maxArticlesOnHome: 6,
+    primaryColor: '#F59E0B',
+  }
+  try {
+    const r = await get<{ value: string }>("SELECT value FROM settings WHERE key='site_config'")
+    if (r) {
+      const saved = JSON.parse(r.value)
+      return res.json({ ...defaults, ...saved })
+    }
+  } catch {}
+  res.json(defaults)
+})
+
+app.put('/api/settings/site_config', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const config = req.body || {}
+  await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'site_config', JSON.stringify(config))
   res.json({ ok: true })
 })
 
@@ -1901,12 +2064,15 @@ app.get('/api/announcements', auth, async (req, res) => {
 // 网站说明（管理后台编辑）
 app.put('/api/pages/guide', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
   const { title, content, images, attachments } = req.body
-  const exist = await get<any>("SELECT id FROM pages WHERE ptype='guide' ORDER BY id DESC LIMIT 1")
+  // 查询已有记录（保留已有的 images/attachments，仅当请求中明确提供时才覆盖）
+  const exist = await get<any>("SELECT id, images, attachments FROM pages WHERE ptype='guide' ORDER BY id DESC LIMIT 1")
+  const finalImages = images !== undefined ? images : (exist ? j(exist.images) : [])
+  const finalAttachments = attachments !== undefined ? attachments : (exist ? j(exist.attachments) : [])
   if (exist) {
-    await run('UPDATE pages SET title=?, content=?, images=?, attachments=? WHERE id=?', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), exist.id)
+    await run("UPDATE pages SET title=?, content=?, images=?, attachments=?, updated_at=datetime('now','localtime') WHERE id=?", title, content, JSON.stringify(finalImages || []), JSON.stringify(finalAttachments || []), exist.id)
     res.json({ id: exist.id })
   } else {
-    const r = await run('INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status) VALUES (?,?,?,?,?,?,?,?)', 'guide', 'site', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), '超级管理员', 'published')
+    const r = await run('INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status,updated_at) VALUES (?,?,?,?,?,?,?,?,datetime(\'now\',\'localtime\'))', 'guide', 'site', title, content, JSON.stringify(finalImages || []), JSON.stringify(finalAttachments || []), '超级管理员', 'published')
     res.json({ id: Number(r.lastInsertRowid) })
   }
 })
@@ -1950,12 +2116,21 @@ app.patch('/api/pages/:id/pin', auth, requireRole('SUPER_ADMIN'), async (req, re
 })
 
 app.delete('/api/pages/:id', auth, async (req, res) => {
-  const p = await get<any>('SELECT author_id, ptype, scope FROM pages WHERE id=?', req.params.id)
+  const p = await get<any>('SELECT author_id, ptype, scope, title FROM pages WHERE id=?', req.params.id)
   if (!p) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT role FROM users WHERE id=?', (req as any).user.id)
   const isOwner = p.author_id === (req as any).user.id
   if (!isOwner && u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '无权限删除' })
+  // 删除前回收已发放的经验（仅博客类型才回滚经验）
+  if (p.author_id && p.title && p.ptype === 'blog') {
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
+    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
+    if (total) await addExp(p.author_id, -total, 'blog', `删除博客《${p.title}》回收经验`)
+  }
+  await run('DELETE FROM page_comments WHERE page_id=?', req.params.id)
+  await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'page', req.params.id)
   await run('DELETE FROM pages WHERE id=?', req.params.id)
+  clearAllCache()
   res.json({ ok: true })
 })
 
@@ -2030,6 +2205,12 @@ app.post('/api/messages', auth, async (req, res) => {
   if (!toId || !content) return res.status(400).json({ message: '请填写收件人和内容' })
   const r = await run('INSERT INTO messages (from_id,to_id,content,attachments) VALUES (?,?,?,?)', uid, toId, content, JSON.stringify(attachments || []))
   res.json({ id: Number(r.lastInsertRowid) })
+})
+
+app.post('/api/messages/read-all', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  await run('UPDATE messages SET is_read=1 WHERE to_id=? AND is_read=0', uid)
+  res.json({ ok: true })
 })
 
 // 与某人的对话（参数路由，必须放在所有具名子路径之后）

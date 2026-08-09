@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
 
 const route = useRoute()
@@ -17,10 +17,22 @@ const liked = ref(false)
 const collected = ref(false)
 const comment = ref('')
 const comments = ref<any[]>([])
+const sendingComment = ref(false)
+const commentsError = ref('')
 
 onMounted(async () => {
-  article.value = await api.article(Number(route.params.id))
-  try { comments.value = (await api.articleComments(Number(route.params.id))) as any } catch {}
+  try {
+    article.value = await api.article(Number(route.params.id))
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '加载美文失败')
+    return
+  }
+  // 加载评论，捕获错误而非静默吞掉
+  try {
+    comments.value = (await api.articleComments(Number(route.params.id))) as any
+  } catch (e: any) {
+    commentsError.value = e?.response?.data?.message || '评论加载失败'
+  }
 })
 const subject = () => data.subjectById(article.value?.subject_id || article.value?.subjectId)
 
@@ -34,12 +46,31 @@ async function toggleFav() {
 }
 async function submitComment() {
   if (!comment.value.trim()) return
+  sendingComment.value = true
   try {
     const r: any = await api.addArticleComment(article.value.id, comment.value)
     comments.value.unshift(r.data || r)
     comment.value = ''
     ElMessage.success('评论已发布（实名）')
   } catch (e: any) { ElMessage.error(e?.response?.data?.message || e?.message || '评论发布失败') }
+  finally { sendingComment.value = false }
+}
+
+async function deleteComment(commentId: number) {
+  try {
+    await api.deleteArticleComment(article.value.id, commentId)
+    comments.value = comments.value.filter((c: any) => c.id !== commentId)
+    ElMessage.success('评论已删除')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '删除失败') }
+}
+
+async function deleteArticleItem() {
+  try {
+    await ElMessageBox.confirm('确定删除该美文？此操作不可恢复。', '删除美文', { type: 'error' })
+    await api.deleteArticle(article.value.id)
+    ElMessage.success('美文已删除')
+    router.back()
+  } catch { /* */ }
 }
 </script>
 
@@ -75,6 +106,7 @@ async function submitComment() {
           <div class="act" :class="{ on: liked }" @click="like">❤ {{ article.likes }}</div>
           <div class="act" :class="{ on: collected }" @click="toggleFav">⭐ {{ collected ? '已收藏' : '收藏' }}</div>
           <div class="act" @click="router.push(`/subject/${subject()?.slug}`)">📂 进入学科</div>
+          <el-button v-if="user.current?.id === article.user_id || user.current?.id === article.actual_user_id || user.isSuperAdmin || user.isTeacher" type="danger" plain size="small" @click="deleteArticleItem" style="margin-left:auto">删除美文</el-button>
         </div>
       </div>
     </article>
@@ -83,13 +115,16 @@ async function submitComment() {
       <div class="comment-input">
         <img :src="user.current?.avatar" class="c-avatar" />
         <el-input v-model="comment" placeholder="写下你的感想…" />
-        <el-button type="primary" @click="submitComment">发送</el-button>
+        <el-button type="primary" :loading="sendingComment" @click="submitComment">发送</el-button>
       </div>
       <div class="comment-list">
         <div v-for="(c, i) in comments" :key="i" class="comment-item">
           <img :src="c.avatar" class="c-avatar" />
-          <div class="c-body"><div class="c-name">{{ c.name }} <span class="c-time">{{ c.time }}</span></div><div class="c-text">{{ c.text }}</div></div>
+          <div class="c-body"><div class="c-name">{{ c.user_name }} <span class="c-time">{{ c.created_at }}</span></div><div class="c-text">{{ c.content }}</div></div>
+          <el-button v-if="user.current?.id === c.user_id || user.isSuperAdmin" text size="small" type="danger" @click="deleteComment(c.id)" style="margin-left:auto">删除</el-button>
         </div>
+        <div v-if="commentsError" class="comment-empty">{{ commentsError }}</div>
+        <div v-else-if="!comments.length && !sendingComment" class="comment-empty">暂无评论，快来抢沙发吧～</div>
       </div>
     </section>
   </div>
@@ -128,6 +163,7 @@ async function submitComment() {
 .c-name { font-weight:600; font-size:14px; }
 .c-time { font-weight:400; font-size:11px; color:var(--zg-text-dim); margin-left:8px; }
 .c-text { font-size:14px; color:var(--zg-text-dim); margin-top:4px; line-height:1.6; }
+.comment-empty { text-align:center; padding:24px; color:var(--zg-text-dim); font-size:14px; }
 @media (max-width:768px){ .ad-body{padding:20px;} .ad-title{font-size:22px;} .ad-content{font-size:15px;} .ad-cover{height:180px;} .ad-gallery{grid-template-columns:1fr;} }
 
 @media (min-width: 1200px) {

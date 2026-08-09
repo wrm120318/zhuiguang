@@ -3,12 +3,23 @@ import { run, all, get } from './db'
 // 经验规则缓存（启动后首次 addExp 时加载；管理员改规则后调用 refreshExpRules）
 let expRulesCache: Record<string, number> | null = null
 
+const DEFAULT_EXP_RULES: Record<string, number> = {
+  login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10,
+  blog: 5, announcement_read: 1, message_reply: 0,
+  comment: 1, like: 1, favorite: 0, practice_pass: 5,
+  article_delete: -15, resource_delete: -15, blog_delete: -5, query_delete: -2,
+  comment_delete: -1, like_cancel: -1, favorite_cancel: 0,
+  quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
+}
+
 export async function getExpRules(): Promise<Record<string, number>> {
   if (expRulesCache) return expRulesCache
   try {
     const r = await get<{ value: string }>("SELECT value FROM settings WHERE key='exp_rules'")
-    expRulesCache = r ? JSON.parse(r.value) : {}
-  } catch { expRulesCache = {} }
+    const saved = r ? JSON.parse(r.value) : {}
+    // 合并默认规则与已保存规则，确保所有场景都有默认值
+    expRulesCache = { ...DEFAULT_EXP_RULES, ...saved }
+  } catch { expRulesCache = { ...DEFAULT_EXP_RULES } }
   return expRulesCache!
 }
 

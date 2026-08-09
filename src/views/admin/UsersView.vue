@@ -95,6 +95,45 @@ async function addUser() {
   } catch { /* */ }
 }
 
+// ===== 编辑用户 =====
+const editVisible = ref(false)
+const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, email: '' })
+const editLoading = ref(false)
+
+async function openEdit(u: any) {
+  // 拉取最新学科列表，确保教师学科可选
+  await data.fetchSubjects()
+  editForm.value = {
+    id: u.id,
+    realName: u.real_name || '',
+    username: u.username || '',
+    role: u.role || 'STUDENT',
+    subjectId: u.subject_id ?? null,
+    email: u.email || '',
+  }
+  editVisible.value = true
+}
+
+async function saveEdit() {
+  if (!editForm.value.realName || !editForm.value.username) { ElMessage.warning('请填写姓名与用户名'); return }
+  if (editForm.value.role === 'TEACHER' && !editForm.value.subjectId) { ElMessage.warning('请为教师选择绑定学科'); return }
+  editLoading.value = true
+  try {
+    await api.updateUser(editForm.value.id, {
+      realName: editForm.value.realName,
+      username: editForm.value.username,
+      role: editForm.value.role,
+      subjectId: editForm.value.subjectId,
+      email: editForm.value.email,
+    })
+    ElMessage.success('用户信息已更新')
+    editVisible.value = false
+    await load()
+  } catch { /* */ } finally {
+    editLoading.value = false
+  }
+}
+
 const expDialogVisible = ref(false)
 const expForm = ref({ userId: 0, exp: 0, level: 1, change: 0, reason: '' })
 
@@ -123,6 +162,24 @@ async function saveExp() {
     expDialogVisible.value = false
     await load()
   } catch { /* */ }
+}
+
+// ===== 查看经验记录 =====
+const expLogsVisible = ref(false)
+const expLogsData = ref<any[]>([])
+const expLogsLoading = ref(false)
+const expLogsUser = ref<any>(null)
+
+async function openExpLogs(u: any) {
+  expLogsUser.value = u
+  expLogsVisible.value = true
+  expLogsData.value = []
+  expLogsLoading.value = true
+  try {
+    expLogsData.value = (await api.expLogs(u.id)) as any
+  } catch { /* */ } finally {
+    expLogsLoading.value = false
+  }
 }
 
 // ===== 批量导入用户 =====
@@ -303,8 +360,10 @@ function openImport() {
         <el-table-column label="状态" width="90">
           <template #default="{ row }"><el-tag size="small" :type="row.status==='active'?'success':'danger'">{{ row.status === 'active' ? '正常' : '禁用' }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
+            <el-button text size="small" type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button text size="small" @click="openExpLogs(row)">查看经验</el-button>
             <el-button text size="small" @click="openExpDialog(row)">调整经验</el-button>
             <el-button text size="small" @click="resetPwd(row)">修改密码</el-button>
             <el-button text size="small" :type="row.status==='active'?'danger':'success'" @click="toggleStatus(row)">{{ row.status === 'active' ? '禁用' : '启用' }}</el-button>
@@ -340,6 +399,26 @@ function openImport() {
       <template #footer><el-button @click="addVisible=false">取消</el-button><el-button type="primary" @click="addUser">创建</el-button></template>
     </el-dialog>
 
+    <!-- 编辑用户 -->
+    <el-dialog v-model="editVisible" title="编辑用户" width="440px">
+      <el-form label-width="80px">
+        <el-form-item label="姓名"><el-input v-model="editForm.realName" /></el-form-item>
+        <el-form-item label="用户名"><el-input v-model="editForm.username" /></el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="editForm.role" style="width:100%">
+            <el-option label="学生" value="STUDENT" /><el-option label="教师" value="TEACHER" /><el-option label="超级管理员" value="SUPER_ADMIN" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="绑定学科" v-if="editForm.role === 'TEACHER'">
+          <el-select v-model="editForm.subjectId" placeholder="请选择教师管理的学科" style="width:100%">
+            <el-option v-for="s in data.subjects" :key="s.id" :label="s.icon + ' ' + s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="邮箱"><el-input v-model="editForm.email" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="editVisible=false">取消</el-button><el-button type="primary" :loading="editLoading" @click="saveEdit">保存</el-button></template>
+    </el-dialog>
+
     <!-- 经验值调整 -->
     <el-dialog v-model="expDialogVisible" title="调整经验值" width="440px">
       <el-form label-width="100px">
@@ -361,6 +440,23 @@ function openImport() {
         <el-button @click="expDialogVisible=false">取消</el-button>
         <el-button type="primary" @click="saveExp">保存</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 查看经验记录 -->
+    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}`" width="520px">
+      <div v-loading="expLogsLoading" style="min-height:120px">
+        <div class="exp-log-list">
+          <div v-for="log in expLogsData" :key="log.id" class="exp-log-item glass">
+            <div class="eli-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
+            <div class="eli-body">
+              <div class="eli-desc">{{ log.description }}</div>
+              <div class="eli-meta">{{ log.action_type }} · {{ log.created_at?.slice(0, 16) }}</div>
+            </div>
+          </div>
+          <el-empty v-if="!expLogsLoading && !expLogsData.length" description="暂无经验记录" :image-size="80" />
+        </div>
+      </div>
+      <template #footer><el-button @click="expLogsVisible=false">关闭</el-button></template>
     </el-dialog>
 
     <!-- 批量导入用户 -->
@@ -452,6 +548,16 @@ function openImport() {
 .error-list { margin-top:16px; max-height:200px; overflow-y:auto; text-align:left; }
 .error-title { font-weight:600; font-size:13px; margin-bottom:6px; }
 .error-item { font-size:12px; color:#e6a23c; padding:2px 0; }
+
+/* 查看经验记录列表 */
+.exp-log-list { display:flex; flex-direction:column; gap:8px; max-height:420px; overflow-y:auto; }
+.exp-log-item { display:flex; align-items:center; gap:14px; padding:12px 16px; }
+.eli-icon { font-weight:800; padding:4px 10px; border-radius:8px; min-width:50px; text-align:center; flex-shrink:0; }
+.eli-icon.pos { background: rgba(52,211,153,.15); color:#059669; }
+.eli-icon.neg { background: rgba(239,68,68,.15); color:#dc2626; }
+.eli-body { flex:1; min-width:0; }
+.eli-desc { font-weight:600; font-size:13px; }
+.eli-meta { font-size:12px; color:var(--zg-text-dim,#999); margin-top:2px; }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }

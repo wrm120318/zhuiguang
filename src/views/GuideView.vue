@@ -30,6 +30,14 @@ onMounted(async () => {
 
 const rules = computed(() => settings.expRules)
 
+// 格式化最后更新时间：'none' / null / 空 均显示「暂无」，有值时截取为 YYYY-MM-DD
+const guideDate = computed(() => {
+  if (!guide.value) return '暂无'
+  const raw = guide.value.updated_at || guide.value.created_at
+  if (!raw || raw === 'none') return '暂无'
+  return String(raw).slice(0, 10)
+})
+
 // 经验值行为说明
 const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> = {
   login: { label: '每日登录', icon: '🔑', desc: '每日首次登录获得经验' },
@@ -39,6 +47,10 @@ const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> =
   query: { label: '完成查询', icon: '🔍', desc: '参与数据查询获得经验' },
   quiz_pass: { label: '题库自测', icon: '📝', desc: '完成题库自测并获得通过' },
   blog: { label: '发布博客', icon: '📔', desc: '在网站博客发布一篇博文' },
+  comment: { label: '收到评论', icon: '💬', desc: '你的内容收到他人评论' },
+  like: { label: '收到点赞', icon: '❤️', desc: '你的内容收到他人点赞' },
+  favorite: { label: '被收藏', icon: '⭐', desc: '你的内容被他人收藏' },
+  practice_pass: { label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
   announcement_read: { label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   message_reply: { label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
 }
@@ -86,8 +98,8 @@ function levelExp(level: number) { return (level - 1) * 60 }
       <div v-show="activeTab === 'guide'" class="tab-panel">
         <template v-if="guide">
           <h1 class="g-title">{{ guide.title }}</h1>
-          <div class="g-meta" v-if="guide.updated_at || guide.author_name">
-            最后更新：{{ guide.updated_at || guide.created_at?.slice(0, 10) }} · 作者：{{ guide.author_name }}
+          <div class="g-meta" v-if="guideDate !== '暂无' || guide.author_name">
+            最后更新：{{ guideDate }} · 作者：{{ guide.author_name }}
           </div>
           <div class="g-content" v-html="md(guide.content)"></div>
           <div class="g-foot">

@@ -17,6 +17,7 @@ const messages = ref<any[]>([])
 const inputText = ref('')
 const sending = ref(false)
 const loading = ref(false)
+const readingAll = ref(false)
 const chatBox = ref<HTMLElement | null>(null)
 
 function attachInfo(m: any) {
@@ -39,12 +40,14 @@ async function loadSessions() {
 }
 
 async function readAllMessages() {
+  readingAll.value = true
   try {
     await api.readAllMessages()
     sessions.value.forEach((s: any) => { s.unread = 0 })
     window.dispatchEvent(new Event('messages-read'))
     ElMessage.success('已全部标记为已读')
   } catch { ElMessage.error('操作失败，请重试') }
+  finally { readingAll.value = false }
 }
 
 async function openPeer(peerId: number) {
@@ -131,7 +134,7 @@ watch(() => route.params.peerId, async (pid) => {
     <div class="msg-layout">
       <!-- 左侧：会话列表 / 联系人 -->
       <aside class="sidebar glass">
-        <div class="sb-title">会话<el-button v-if="sessions.some((s:any)=>s.unread)" size="small" text type="primary" style="margin-left:auto" @click="readAllMessages">全部已读</el-button></div>
+        <div class="sb-title">会话<el-button v-if="sessions.some((s:any)=>s.unread)" size="small" text type="primary" style="margin-left:auto" :loading="readingAll" @click="readAllMessages">全部已读</el-button></div>
         <div class="sb-list">
           <div v-for="s in sessions" :key="s.peer?.id" class="sb-item" :class="{ on: activePeer?.id === s.peer?.id && !adminMode }" @click="openPeer(s.peer.id)">
             <img :src="s.peer?.avatar" class="si-avatar" />

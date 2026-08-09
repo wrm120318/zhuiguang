@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
@@ -40,26 +40,39 @@ async function selfRepair() {
 }
 
 const menus = computed(() => {
-  const list: { name: string; label: string; icon: string; badge?: number; role?: string }[] = [
+  const list: { name: string; label: string; icon: string; badge?: number; role?: string; teacherVisible?: boolean }[] = [
     { name: 'admin-dashboard', label: '数据看板', icon: '📊', role: 'SUPER_ADMIN' },
     { name: 'admin-users', label: '用户管理', icon: '👥', role: 'SUPER_ADMIN' },
     { name: 'admin-subjects', label: '学科管理', icon: '📚', role: 'SUPER_ADMIN' },
     { name: 'admin-classes', label: '班级管理', icon: '🏫', role: 'SUPER_ADMIN' },
-    { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF' },
-    { name: 'admin-query', label: '数据查询', icon: '📈', role: 'STAFF' },
+    { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF', teacherVisible: true },
+    { name: 'admin-query', label: '数据查询', icon: '📈', role: 'STAFF', teacherVisible: true },
     { name: 'admin-guide', label: '网站说明', icon: '📖', role: 'SUPER_ADMIN' },
     { name: 'admin-site-config', label: '网站自定义', icon: '🏠', role: 'SUPER_ADMIN' },
     { name: 'admin-exp-rules', label: '经验设置', icon: '⭐', role: 'SUPER_ADMIN' },
+    { name: 'admin-exp-logs', label: '经验记录', icon: '📋', role: 'SUPER_ADMIN' },
     { name: 'admin-feature-flags', label: '功能开关', icon: '🧩', role: 'SUPER_ADMIN' },
     { name: 'admin-theme', label: '界面风格', icon: '🎨', role: 'SUPER_ADMIN' },
     { name: 'admin-monitor', label: '运行监控', icon: '🖥️', role: 'SUPER_ADMIN' },
   ]
   return list.filter(m => {
-    if (!m.role) return true
-    if (m.role === 'SUPER_ADMIN') return user.isSuperAdmin
-    if (m.role === 'STAFF') return user.isTeacher || user.isSuperAdmin
+    // 超级管理员可见全部菜单
+    if (user.isSuperAdmin) return true
+    // 教师（非超管）仅展示 teacherVisible 菜单（数据查询、内容审核）
+    if (user.isTeacher && !user.isSuperAdmin) return m.teacherVisible === true
     return false
   })
+})
+
+// 教师重定向：路由 /admin 默认重定向到 admin-users（教师无权访问），
+// 这里把非超级管理员的教师从无权限页面引导到 admin-audit（内容审核）
+onMounted(() => {
+  if (user.isTeacher && !user.isSuperAdmin) {
+    const allowed = ['admin-audit', 'admin-query']
+    if (!allowed.includes(route.name as string)) {
+      router.replace({ name: 'admin-audit' })
+    }
+  }
 })
 
 function go(name: string) {

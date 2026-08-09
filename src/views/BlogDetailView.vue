@@ -55,6 +55,14 @@ async function submitComment() {
   } finally { sendingComment.value = false }
 }
 
+async function deleteComment(commentId: number) {
+  try {
+    await api.deletePageComment(blog.value.id, commentId)
+    comments.value = comments.value.filter((c: any) => c.id !== commentId)
+    ElMessage.success('评论已删除')
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '删除失败') }
+}
+
 async function del() {
   try {
     await ElMessageBox.confirm('确定删除这篇博客？', '删除', { type: 'warning' })
@@ -118,6 +126,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
             </div>
             <div class="cm-text" v-html="md(c.content)"></div>
           </div>
+          <el-button v-if="user.current?.id === c.user_id || user.isSuperAdmin" text size="small" type="danger" @click="deleteComment(c.id)" style="margin-left:auto">删除</el-button>
         </div>
         <el-empty v-if="!comments.length" description="还没有评论，来抢沙发～" :image-size="80" />
       </div>

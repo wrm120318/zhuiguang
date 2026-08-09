@@ -15,6 +15,14 @@ const data = useDataStore()
 const theme = useThemeStore()
 const settings = useSettingsStore()
 
+// 站点配置（品牌名称等），未配置或加载失败时回退默认品牌名「追光」
+const siteConfig = computed(() => settings.siteConfig)
+const brandName = computed(() => siteConfig.value?.navTitle || siteConfig.value?.siteName || '追光')
+// 导航按钮可见性：优先使用站点配置，回退功能开关
+const showSearch = computed(() => siteConfig.value?.showNavSearch !== false && settings.isEnabled('search'))
+const showMessage = computed(() => siteConfig.value?.showNavMessage !== false && settings.isEnabled('message'))
+const showNotice = computed(() => siteConfig.value?.showNavNotice !== false)
+
 const messageUnread = ref(0)
 
 async function refreshUnread() {
@@ -74,6 +82,7 @@ async function loadNotices() {
 }
 onMounted(() => {
   applyFontScale(); loadNotices(); refreshUnread()
+  if (!settings.siteConfigLoaded) settings.fetchSiteConfig()
   // 站内信已读后即时刷新未读数
   window.addEventListener('messages-read', refreshUnread)
 })
@@ -96,7 +105,20 @@ const navItems = computed(() => {
 
 function go(to: string) { router.push(to); drawerVisible.value = false }
 function roleLabel(r?: string) { return r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生' }
-async function readAll() { await api.readAllNotices(); await loadNotices(); ElMessage.success('已全部已读') }
+const reading = ref(false)
+async function readAll() {
+  if (reading.value) return
+  reading.value = true
+  try {
+    await api.readAllNotices()
+    await loadNotices()
+    ElMessage.success('已全部已读')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败，请稍后重试')
+  } finally {
+    reading.value = false
+  }
+}
 function logout() { user.logout(); router.push('/login') }
 function typeLabel(t: string) {
   return ({ audit: '审核', query: '查询', system: '系统', teacher: '教师' } as Record<string, string>)[t] || '通知'
@@ -107,8 +129,8 @@ function typeLabel(t: string) {
   <header class="nav glass">
     <div class="nav-inner zg-container">
       <div class="brand" @click="go('/')">
-        <span class="logo">🌟</span>
-        <span class="brand-name zg-grad-text">追光</span>
+        <span class="logo">{{ siteConfig?.navTitleIcon || '🌟' }}</span>
+        <span class="brand-name zg-grad-text">{{ brandName }}</span>
       </div>
 
       <nav class="links">
@@ -116,9 +138,9 @@ function typeLabel(t: string) {
       </nav>
 
       <div class="actions" v-if="user.isLogin">
-        <el-button v-if="settings.isEnabled('search')" text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
+        <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
 
-        <el-badge v-if="settings.isEnabled('message')" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
+        <el-badge v-if="showMessage" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
           <el-button text circle class="action-btn" @click="go('/messages')">✉️</el-button>
         </el-badge>
 
@@ -137,7 +159,7 @@ function typeLabel(t: string) {
           </div>
         </el-popover>
 
-        <el-badge :value="unread" :hidden="unread === 0" class="bell">
+        <el-badge v-if="showNotice" :value="unread" :hidden="unread === 0" class="bell">
           <el-button text circle class="action-btn" @click="noticeVisible = true">🔔</el-button>
         </el-badge>
 
@@ -169,7 +191,7 @@ function typeLabel(t: string) {
   <!-- 移动端抽屉 -->
   <el-drawer v-model="drawerVisible" direction="ltr" size="72%" :show-close="false">
     <div class="drawer">
-      <div class="d-brand"><span class="logo">🌟</span><span class="zg-grad-text">追光</span></div>
+      <div class="d-brand"><span class="logo">{{ siteConfig?.navTitleIcon || '🌟' }}</span><span class="zg-grad-text">{{ brandName }}</span></div>
       <div class="d-search" @click="drawerVisible = false; searchVisible = true">
         <span>🔍</span> 搜索美文 / 资料…
       </div>
@@ -236,7 +258,7 @@ function typeLabel(t: string) {
   <el-drawer v-model="noticeVisible" title="通知中心" direction="rtl" size="380px">
     <div class="notice-head">
       <span>{{ unread }} 条未读</span>
-      <el-button text size="small" @click="readAll">全部已读</el-button>
+      <el-button text size="small" :loading="reading" @click="readAll">全部已读</el-button>
     </div>
     <div class="notice-list">
       <div v-for="n in myNotices" :key="n.id" class="notice-item" :class="{ unread: !n.read }" @click="api.readNotice(n.id); n.read = 1">

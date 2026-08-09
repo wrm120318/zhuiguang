@@ -68,3 +68,9 @@ deploy.zip
 .cloudflared
 *.pem
 cert.pem
+
+# ===== TypeScript build info =====
+*.tsbuildinfo
+
+# ===== Duplicate project dir =====
+zhuiguang/
