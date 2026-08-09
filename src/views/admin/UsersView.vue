@@ -365,7 +365,7 @@ function openImport() {
         <el-table-column label="状态" width="90">
           <template #default="{ row }"><el-tag size="small" :type="row.status==='active'?'success':'danger'">{{ row.status === 'active' ? '正常' : '禁用' }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="420" fixed="right">
+        <el-table-column label="操作" width="420">
           <template #default="{ row }">
             <el-button text size="small" type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button text size="small" @click="openExpLogs(row)">查看经验</el-button>
@@ -607,12 +607,6 @@ function openImport() {
     padding: 8px !important;
     font-size: 12px !important;
   }
-  :deep(.el-table__fixed-right .cell) {
-    padding: 8px 0 !important;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-  }
   :deep(.el-table .cell .el-button) {
     height: 28px;
     padding: 0 6px;
@@ -635,10 +629,7 @@ function openImport() {
   }
 }
 
-/* 防止固定操作列与左侧滚动列重叠 */
-:deep(.el-table__fixed-right) {
-  z-index: 2;
-}
+/* 表格水平滚动，避免列重叠 */
 :deep(.el-table__body-wrapper) {
   overflow-x: auto;
 }
