@@ -25,6 +25,20 @@ const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> =
   blog: { label: '发布博客', icon: '📔', desc: '在网站博客发布一篇博文' },
   announcement_read: { label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   message_reply: { label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
+  comment: { label: '收到评论', icon: '💬', desc: '你的内容收到他人评论' },
+  like: { label: '收到点赞', icon: '❤️', desc: '你的内容收到他人点赞' },
+  favorite: { label: '被收藏', icon: '⭐', desc: '你的内容被他人收藏' },
+  practice_pass: { label: '单题训练', icon: '🎯', desc: '完成单题训练并获得通过' },
+  article_delete: { label: '删除美文', icon: '🗑️', desc: '删除美文回收经验' },
+  resource_delete: { label: '删除资料', icon: '🗑️', desc: '删除资料回收经验' },
+  blog_delete: { label: '删除博客', icon: '🗑️', desc: '删除博客回收经验' },
+  query_delete: { label: '删除查询', icon: '🗑️', desc: '删除查询任务回收经验' },
+  comment_delete: { label: '删除评论', icon: '🗑️', desc: '删除评论回收经验' },
+  like_cancel: { label: '取消点赞', icon: '💔', desc: '点赞被取消回收经验' },
+  favorite_cancel: { label: '取消收藏', icon: '💫', desc: '收藏被取消回收经验' },
+  quiz_fail: { label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
+  practice_fail: { label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
+  admin_adjust: { label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },
 }
 
 const ruleList = computed(() => {
@@ -68,7 +82,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
               <div class="rc-label">{{ r.label }}</div>
               <div class="rc-desc">{{ r.desc }}</div>
             </div>
-            <div class="rc-exp">+{{ r.exp }}</div>
+            <div class="rc-exp" :class="{ 'rc-exp-neg': r.exp < 0 }">{{ r.exp > 0 ? '+' + r.exp : r.exp }}</div>
           </div>
         </div>
       </section>
@@ -118,6 +132,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
 .rc-label { font-weight: 700; font-size: 14px; }
 .rc-desc { font-size: 12px; color: var(--zg-text-dim); margin-top: 2px; }
 .rc-exp { font-size: 20px; font-weight: 800; color: var(--zg-primary); }
+.rc-exp-neg { color: #ef4444; }
 .level-table { margin-top: 14px; max-width: 480px; }
 .lt-head, .lt-row { display: grid; grid-template-columns: 1fr 1fr 1.5fr; padding: 10px 14px; }
 .lt-head { font-weight: 700; font-size: 13px; color: var(--zg-text-dim); border-bottom: 2px solid rgba(245,158,11,.2); }
