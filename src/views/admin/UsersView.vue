@@ -344,7 +344,7 @@ function openImport() {
     </div>
 
     <div class="table-wrap glass">
-      <el-table :data="filtered" style="width:100%">
+      <el-table :data="filtered" style="width:100%;min-width:1400px">
         <el-table-column label="用户" min-width="180">
           <template #default="{ row }">
             <div class="u-cell"><img :src="row.avatar" class="u-avatar" /><div><div class="u-name">{{ row.real_name }}</div><div class="u-id">@{{ row.username }}</div></div></div>
