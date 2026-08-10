@@ -13,6 +13,14 @@ name = "zhuiguang-api"
 main = "worker-api.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+nodejs_compat = true
+
+[alias]
+"hono" = "./node_modules/hono/dist/index.js"
+"jsonwebtoken" = "./node_modules/jsonwebtoken/index.js"
+"bcryptjs" = "./node_modules/bcryptjs/index.js"
+"@supabase/supabase-js" = "./node_modules/@supabase/supabase-js/dist/index.cjs"
+"xlsx" = "./node_modules/xlsx/dist/xlsx.full.min.js"
 
 # ====== D1 数据库 binding ======
 [[d1_databases]]
