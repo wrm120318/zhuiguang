@@ -1975,6 +1975,109 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (req, res) => {
   res.json({ ok: true, score: sc })
 })
 
+// 学生：查看自己的单题训练历史提交记录（分页）
+app.get('/api/practice/my-records', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const page = Number(req.query.page) || 1
+  const perPage = Number(req.query.perPage) || 20
+  const offset = (page - 1) * perPage
+  const total = await get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE user_id=?', uid)
+  const rows = await all<any>(
+    `SELECT ps.*, sq.content AS qcontent, sq.qtype, sq.subject_id, sq.attachments AS qattachments,
+      s.name AS subject_name, s.icon AS subject_icon
+     FROM practice_submissions ps
+     JOIN subject_questions sq ON sq.id = ps.question_id
+     JOIN subjects s ON s.id = sq.subject_id
+     WHERE ps.user_id=? ORDER BY ps.id DESC LIMIT ? OFFSET ?`,
+    uid, perPage, offset
+  )
+  res.json({ list: rows.map(r => ({ ...r, qattachments: j(r.qattachments) })), total: total.cnt, page, perPage })
+})
+
+// 学生：删除自己的单题训练记录
+app.delete('/api/practice/record/:id', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const sub = await get<any>('SELECT * FROM practice_submissions WHERE id=?', req.params.id)
+  if (!sub) return res.status(404).json({ message: '记录不存在' })
+  if (sub.user_id !== uid) return res.status(403).json({ message: '无权删除他人记录' })
+  await run('DELETE FROM practice_submissions WHERE id=?', req.params.id)
+  res.json({ ok: true })
+})
+
+// 教师/超管：查看某学科所有学生的单题训练记录（含统计）
+app.get('/api/practice/stats/:subjectId', auth, requireStaff, async (req, res) => {
+  const sid = Number(req.params.subjectId)
+  const me = (req as any).user
+  if (me.role === 'TEACHER' && me.subject_id !== sid) return res.status(403).json({ message: '无权查看该学科数据' })
+  const subject = await get<any>('SELECT id, name, icon FROM subjects WHERE id=?', sid)
+  if (!subject) return res.status(404).json({ message: '学科不存在' })
+
+  // 总题数、总提交数、待批数、已批数
+  const [qCnt, subCnt, pendingCnt, gradedCnt] = await Promise.all([
+    get<any>('SELECT COUNT(*) AS cnt FROM subject_questions WHERE subject_id=?', sid),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=?', sid),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=? AND ps.status=?', sid, 'pending'),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=? AND ps.status=?', sid, 'graded'),
+  ])
+
+  // 各题型统计
+  const qtypeStats = await all<any>(
+    `SELECT sq.qtype, COUNT(ps.id) AS cnt
+     FROM subject_questions sq
+     LEFT JOIN practice_submissions ps ON ps.question_id = sq.id
+     WHERE sq.subject_id=?
+     GROUP BY sq.qtype`, sid
+  )
+
+  // 各题得分分布（最近30次作答）
+  const scoreDist = await all<any>(
+    `SELECT ps.score, ps.max_score, sq.qtype, sq.content AS qcontent, sq.answer AS qanswer,
+            u.real_name, ps.status, ps.answer AS user_answer, ps.comment,
+            ps.submitted_at, ps.graded_at
+     FROM practice_submissions ps
+     JOIN subject_questions sq ON sq.id = ps.question_id
+     JOIN users u ON u.id = ps.user_id
+     WHERE sq.subject_id=?
+     ORDER BY ps.id DESC
+     LIMIT 200`, sid
+  )
+
+  // 待批提交列表
+  const pendingSubs = await all<any>(
+    `SELECT ps.*, sq.content AS qcontent, sq.qtype, sq.answer AS qanswer,
+            u.real_name, u.username, ps.status
+     FROM practice_submissions ps
+     JOIN subject_questions sq ON sq.id = ps.question_id
+     JOIN users u ON u.id = ps.user_id
+     WHERE sq.subject_id=? AND ps.status='pending'
+     ORDER BY ps.submitted_at ASC
+     LIMIT 50`, sid
+  )
+
+  res.json({
+    subject,
+    stats: {
+      totalQuestions: qCnt.cnt || 0,
+      totalSubmissions: subCnt.cnt || 0,
+      pendingCount: pendingCnt.cnt || 0,
+      gradedCount: gradedCnt.cnt || 0,
+    },
+    qtypeStats,
+    scoreDist: scoreDist.map(r => ({ ...r, qattachments: j(r.qattachments || '[]') })),
+    pendingSubs: pendingSubs.map(r => ({ ...r, qattachments: j(r.qattachments || '[]') })),
+  })
+})
+
+// 教师/超管：删除任意学生的单题训练记录
+app.delete('/api/practice/record/:id', auth, requireStaff, async (req, res) => {
+  const sub = await get<any>('SELECT * FROM practice_submissions WHERE id=?', req.params.id)
+  if (!sub) return res.status(404).json({ message: '记录不存在' })
+  const me = (req as any).user
+  if (me.role === 'TEACHER' && me.subject_id !== sub.subject_id) return res.status(403).json({ message: '无权操作' })
+  await run('DELETE FROM practice_submissions WHERE id=?', req.params.id)
+  res.json({ ok: true })
+})
+
 
 // ============ 通用页面：网站说明 / 博客 / 公告 ============
 app.get('/api/pages', async (req, res) => {

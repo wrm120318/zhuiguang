@@ -425,7 +425,11 @@ async function submitResource() {
       <!-- 单题训练题目池 -->
       <div class="panel-head">
         <div class="section-title">🏋️ 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
-        <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
+        <div class="panel-head-actions">
+          <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')">📝 我的训练记录</el-button>
+          <el-button v-if="user.isStaff" size="small" type="primary" round @click="router.push(`/practice/stats/${subject.value?.id}`)">📊 训练统计</el-button>
+          <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
+        </div>
       </div>
       <div class="practice-list">
         <div v-for="(q, i) in subjectQuestions" :key="q.id" class="practice-card glass">
@@ -576,6 +580,7 @@ async function submitResource() {
 .sub-tab.on { color:var(--zg-text); background:var(--zg-primary); }
 .tab-panel { margin-top:24px; }
 .panel-head { display:flex; justify-content:space-between; align-items:center; }
+.panel-head-actions { display:flex; align-items:center; gap:8px; }
 .announce-box { padding:28px; }
 .ab-tag { font-size:13px; color:var(--zg-accent); font-weight:600; margin-bottom:12px; }
 .ab-text { font-size:16px; line-height:1.9; }
