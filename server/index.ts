@@ -1352,12 +1352,45 @@ app.get('/api/exp/all-logs', auth, requireRole('SUPER_ADMIN'), async (req, res) 
   const pageSize = Number(req.query.pageSize) || 50
   const offset = (page - 1) * pageSize
   const list = await all<any>(
-    `SELECT el.*, u.real_name, u.username, u.avatar, u.role 
-     FROM exp_logs el 
-     JOIN users u ON u.id = el.user_id 
+    `SELECT el.*, u.real_name, u.username, u.avatar, u.role
+     FROM exp_logs el
+     JOIN users u ON u.id = el.user_id
      ORDER BY el.id DESC LIMIT ? OFFSET ?`, pageSize, offset)
   const totalRow = await get<{ n: number }>('SELECT COUNT(*) as n FROM exp_logs')
   res.json({ list, total: totalRow?.n || 0 })
+})
+
+// 超管：删除单条经验记录
+app.delete('/api/exp/logs/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const id = req.params.id
+  const log = await get<any>('SELECT user_id, exp_change FROM exp_logs WHERE id=?', id)
+  if (!log) return res.status(404).json({ message: '记录不存在' })
+  await run('DELETE FROM exp_logs WHERE id=?', id)
+  await run(
+    `UPDATE users SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+                    level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
+     WHERE id=?`,
+    log.user_id, log.user_id, log.user_id
+  )
+  res.json({ ok: true, deleted: 1 })
+})
+
+// 超管：批量删除经验记录
+app.post('/api/exp/logs/batch-delete', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const ids = (req.body?.ids || []).filter((x: any) => Number.isFinite(Number(x))).map((x: any) => Number(x))
+  if (!ids.length) return res.status(400).json({ message: '未提供要删除的记录 id' })
+  const logs = await all<any>('SELECT user_id, exp_change FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
+  await run('DELETE FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
+  const userIds = Array.from(new Set(logs.map((x: any) => x.user_id)))
+  for (const uid of userIds) {
+    await run(
+      `UPDATE users SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+                        level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
+       WHERE id=?`,
+      uid, uid, uid
+    )
+  }
+  res.json({ ok: true, deleted: logs.length, affectedUsers: userIds.length })
 })
 
 app.get('/api/leaderboard', async (req, res) => {

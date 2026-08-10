@@ -272,7 +272,7 @@ zhuiguang/
 │   ├── helpers.ts                # 业务辅助函数
 │   ├── storage.ts                # Supabase 存储辅助
 │   └── local.db                  # 本地 SQLite 数据库（不入库）
-├── worker-api.ts                 # Cloudflare Workers 后端（Hono，生产用，115+ 路由）
+│   ├── worker-api.ts                 # Cloudflare Workers 后端（Hono，生产用，136 路由）
 ├── schema.sql                    # D1 完整建表脚本（23 张表 + 索引）
 ├── wrangler.toml                 # Cloudflare Workers 配置（D1 binding + 环境变量）
 ├── scripts/                      # 运维脚本
