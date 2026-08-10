@@ -2008,6 +2008,34 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (req, res) => {
   res.json({ ok: true, score: sc })
 })
 
+// 教师/学生：取某一条单题提交详情（含学生作答内容、题目内容、学科）
+app.get('/api/practice/submission/:id', auth, async (req, res) => {
+  const id = Number(req.params.id)
+  const me = (req as any).user
+  const row = await get<any>(
+    `SELECT ps.*, sq.content AS qcontent, sq.qtype, sq.score AS qscore, sq.options AS qoptions, sq.answer AS qanswer, sq.attachments AS qattachments,
+            u.real_name, u.username,
+            s.id AS subject_id, s.name AS subject_name, s.icon AS subject_icon
+     FROM practice_submissions ps
+     JOIN subject_questions sq ON sq.id = ps.question_id
+     JOIN users u ON u.id = ps.user_id
+     JOIN subjects s ON s.id = sq.subject_id
+     WHERE ps.id=?`, id)
+  if (!row) return res.status(404).json({ message: '提交不存在' })
+  // 权限：本人、本学科教师、超管
+  const isOwner = row.user_id === me.id
+  const isSuperAdmin = me.role === 'SUPER_ADMIN'
+  const isSubjectTeacher = me.role === 'TEACHER' && me.subject_id === row.subject_id
+  if (!isOwner && !isSuperAdmin && !isSubjectTeacher) {
+    return res.status(403).json({ message: '无权查看该提交' })
+  }
+  res.json({
+    ...row,
+    qoptions: j(row.qoptions),
+    qattachments: j(row.qattachments || '[]'),
+  })
+})
+
 // 学生：查看自己的单题训练历史提交记录（分页）
 app.get('/api/practice/my-records', auth, async (req, res) => {
   const uid = (req as any).user.id
@@ -2027,12 +2055,18 @@ app.get('/api/practice/my-records', auth, async (req, res) => {
   res.json({ list: rows.map(r => ({ ...r, qattachments: j(r.qattachments) })), total: total.cnt, page, perPage })
 })
 
-// 学生：删除自己的单题训练记录
+// 通用：删除单题训练记录（学生本人 OR 教师/超管）
 app.delete('/api/practice/record/:id', auth, async (req, res) => {
   const uid = (req as any).user.id
   const sub = await get<any>('SELECT * FROM practice_submissions WHERE id=?', req.params.id)
   if (!sub) return res.status(404).json({ message: '记录不存在' })
-  if (sub.user_id !== uid) return res.status(403).json({ message: '无权删除他人记录' })
+  const me = (req as any).user
+  const isOwner = sub.user_id === uid
+  const isSuperAdmin = me.role === 'SUPER_ADMIN'
+  const isSubjectTeacher = me.role === 'TEACHER' && me.subject_id === sub.subject_id
+  if (!isOwner && !isSuperAdmin && !isSubjectTeacher) {
+    return res.status(403).json({ message: '无权删除该记录' })
+  }
   await run('DELETE FROM practice_submissions WHERE id=?', req.params.id)
   res.json({ ok: true })
 })
@@ -2103,14 +2137,7 @@ app.get('/api/practice/stats/:questionId', auth, requireStaff, async (req, res) 
 })
 
 // 教师/超管：删除任意学生的单题训练记录
-app.delete('/api/practice/record/:id', auth, requireStaff, async (req, res) => {
-  const sub = await get<any>('SELECT * FROM practice_submissions WHERE id=?', req.params.id)
-  if (!sub) return res.status(404).json({ message: '记录不存在' })
-  const me = (req as any).user
-  if (me.role === 'TEACHER' && me.subject_id !== sub.subject_id) return res.status(403).json({ message: '无权操作' })
-  await run('DELETE FROM practice_submissions WHERE id=?', req.params.id)
-  res.json({ ok: true })
-})
+// 说明：上面已统一处理「本人 OR 教师/超管」的删除逻辑，这里不再重复定义
 
 
 // ============ 通用页面：网站说明 / 博客 / 公告 ============

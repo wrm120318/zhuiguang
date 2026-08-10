@@ -2,7 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/store/user'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
 
 const router = useRouter()
@@ -16,6 +17,19 @@ const multiAns = ref<string[]>([])
 const submitting = ref(false)
 const result = ref<any>(null)
 
+// 批改模式：URL ?grade=subId
+const gradeSubId = computed(() => {
+  const v = route.query.grade
+  return v ? Number(v) : null
+})
+const isGrading = computed(() => gradeSubId.value !== null)
+
+// 批改态状态
+const gradeScore = ref(0)
+const gradeComment = ref('')
+const grading = ref(false)
+const gradingSub = ref<any>(null) // 当前正在批改的提交详情
+
 const qid = Number(route.params.id)
 
 function letter(idx: number) { return String.fromCharCode(65 + idx) }
@@ -25,7 +39,8 @@ const qtypeLabel = computed(() => {
   return t === 'single' ? '单选题' : t === 'multiple' ? '多选题' : t === 'judge' ? '判断题' : '主观题'
 })
 
-async function load() {
+// 学生模式：加载题目 + 已有结果
+async function loadStudent() {
   loading.value = true
   try {
     const r: any = await api.subjectQuestion(qid)
@@ -40,7 +55,32 @@ async function load() {
     router.back()
   } finally { loading.value = false }
 }
-onMounted(load)
+
+// 教师批改模式：加载题目 + 指定提交详情
+async function loadGrade() {
+  loading.value = true
+  try {
+    const r: any = await api.subjectQuestion(qid)
+    q.value = r
+    subject.value = r.subject
+
+    const sub: any = await api.practiceSubmission(gradeSubId.value!)
+    gradingSub.value = sub
+    gradeScore.value = sub.score ?? 0
+    gradeComment.value = sub.comment ?? ''
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '提交记录不存在')
+    router.back()
+  } finally { loading.value = false }
+}
+
+onMounted(() => {
+  if (isGrading.value) {
+    loadGrade()
+  } else {
+    loadStudent()
+  }
+})
 
 function toggleMulti(l: string) {
   const i = multiAns.value.indexOf(l)
@@ -62,7 +102,7 @@ async function submit() {
   try {
     const r: any = await api.submitPractice(qid, ans)
     ElMessage.success(r.status === 'graded' ? '已提交，客观题自动评分完成' : '已提交，等待教师批改')
-    await load()
+    await loadStudent()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '提交失败')
   } finally { submitting.value = false }
@@ -73,13 +113,48 @@ function retry() {
   answer.value = ''
   multiAns.value = []
 }
+
+// 教师：提交批改
+async function submitGrade() {
+  if (!isGrading.value) return
+  if (gradeScore.value < 0 || gradeScore.value > (gradingSub.value?.max_score ?? q.value?.score ?? 0)) {
+    ElMessage.warning('分数超出范围')
+    return
+  }
+  grading.value = true
+  try {
+    await api.gradePractice(gradeSubId.value!, gradeScore.value, gradeComment.value)
+    ElMessage.success('批改完成')
+    // 刷新提交详情，更新分数显示
+    const sub: any = await api.practiceSubmission(gradeSubId.value!)
+    gradingSub.value = sub
+    gradeScore.value = sub.score ?? 0
+    gradeComment.value = sub.comment ?? ''
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '批改失败')
+  } finally { grading.value = false }
+}
+
+// 教师：删除本条提交记录
+async function deleteSubmission() {
+  if (!isGrading.value) return
+  try {
+    await ElMessageBox.confirm('确定要删除这条训练记录吗？删除后不可恢复。', '删除确认', { type: 'warning' })
+    await api.deletePracticeRecord(gradeSubId.value!)
+    ElMessage.success('已删除')
+    router.push(`/practice/stats/${qid}`)
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e?.response?.data?.message || '删除失败')
+  }
+}
 </script>
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回题目池</div>
+    <div class="back" @click="router.back()">← 返回</div>
 
-    <div v-if="q && !result" class="glass-strong practice-box">
+    <!-- ===== 学生模式：作答中 ===== -->
+    <div v-if="q && !result && !isGrading" class="glass-strong practice-box">
       <div class="pb-head">
         <span class="pb-subj">{{ subject?.icon }} {{ subject?.name }}</span>
         <el-tag size="small">{{ qtypeLabel }}</el-tag>
@@ -122,8 +197,8 @@ function retry() {
       </div>
     </div>
 
-    <!-- 结果展示 -->
-    <div v-if="q && result" class="glass-strong result-box">
+    <!-- ===== 学生模式：查看结果 ===== -->
+    <div v-if="q && result && !isGrading" class="glass-strong result-box">
       <h1 class="rb-title">🎯 训练结果</h1>
       <div class="rb-subj">{{ subject?.icon }} {{ subject?.name }} · {{ qtypeLabel }}</div>
 
@@ -162,13 +237,83 @@ function retry() {
         <el-button type="primary" @click="retry">再练一次</el-button>
       </div>
     </div>
+
+    <!-- ===== 教师批改模式 ===== -->
+    <div v-if="q && isGrading && gradingSub" class="glass-strong grade-box">
+      <div class="grade-header">
+        <span class="grade-badge">📝 教师批改</span>
+        <el-tag size="small">{{ qtypeLabel }}</el-tag>
+        <el-tag size="small" type="info">{{ subject?.icon }} {{ subject?.name }}</el-tag>
+        <span class="pb-score">{{ q.score }} 分</span>
+      </div>
+
+      <!-- 学生信息 -->
+      <div class="grade-student">
+        <div class="grade-student-avatar">{{ (gradingSub.real_name || gradingSub.username || '?').charAt(0) }}</div>
+        <div class="grade-student-info">
+          <div class="grade-student-name">{{ gradingSub.real_name || gradingSub.username }}</div>
+          <div class="grade-student-time">
+            作答时间：{{ gradingSub.submitted_at }}
+            <span v-if="gradingSub.graded_at" class="graded-time">· 上次批改：{{ gradingSub.graded_at }}</span>
+          </div>
+        </div>
+        <el-button size="small" type="danger" plain @click="deleteSubmission">删除记录</el-button>
+      </div>
+
+      <!-- 题目内容 -->
+      <div class="grade-content q-content" v-html="md(q.content)"></div>
+
+      <div v-if="q.attachments?.length" class="pb-att">
+        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link">📎 {{ a.name }}</a>
+      </div>
+
+      <!-- 学生作答 -->
+      <div class="grade-answer-section">
+        <div class="grade-label">学生作答：</div>
+        <div class="grade-answer" v-html="md(gradingSub.answer || '（未作答）')"></div>
+      </div>
+
+      <!-- 参考答案（主观题） -->
+      <template v-if="q.qtype === 'subjective' && q.answer">
+        <div class="grade-ref-section">
+          <div class="grade-label">参考答案：</div>
+          <div class="grade-ref" v-html="md(q.answer)"></div>
+        </div>
+      </template>
+
+      <!-- 当前分数（已批改时显示） -->
+      <div v-if="gradingSub.status === 'graded'" class="grade-current-score">
+        <div class="grade-label">当前得分：</div>
+        <div class="grade-score-display">
+          <span class="grade-score-num">{{ gradingSub.score }}</span>
+          <span class="grade-score-max">/ {{ gradingSub.max_score }}</span>
+          <el-tag v-if="gradingSub.comment" size="small" type="info" class="ml-2">有评语</el-tag>
+        </div>
+      </div>
+
+      <!-- 批改表单 -->
+      <div class="grade-form">
+        <div class="grade-form-row">
+          <span class="grade-form-label">打分（0-{{ q.score }}）：</span>
+          <el-input-number v-model="gradeScore" :min="0" :max="q.score" :step="1" size="large" />
+        </div>
+        <div class="grade-form-row">
+          <span class="grade-form-label">评语：</span>
+          <el-input v-model="gradeComment" type="textarea" :rows="3" placeholder="选填，给学生反馈" />
+        </div>
+        <div class="grade-form-actions">
+          <el-button @click="router.back()">返回</el-button>
+          <el-button type="primary" :loading="grading" @click="submitGrade">保存批改</el-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .back { display: inline-block; margin: 16px 0 0; color: var(--zg-text-dim); cursor: pointer; }
 .back:hover { color: var(--zg-primary); }
-.practice-box, .result-box { padding: 28px; margin-top: 16px; }
+.practice-box, .result-box, .grade-box { padding: 28px; margin-top: 16px; }
 .pb-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .pb-subj { font-weight: 700; color: var(--zg-text); }
 .pb-score { color: var(--zg-primary); font-weight: 600; }
@@ -197,4 +342,29 @@ function retry() {
 .rb-line { font-size: 14px; color: var(--zg-text-dim); margin: 10px 0 6px; }
 .rb-answer { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .rb-ref { padding: 12px; background: rgba(16,185,129,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
+
+/* 批改模式样式 */
+.grade-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.grade-badge { font-size: 16px; font-weight: 700; color: var(--zg-primary); }
+.grade-student { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: rgba(59,130,246,.06); border-radius: 10px; margin-bottom: 18px; }
+.grade-student-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--zg-primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; }
+.grade-student-info { flex: 1; }
+.grade-student-name { font-size: 15px; font-weight: 700; color: var(--zg-text); }
+.grade-student-time { font-size: 12px; color: var(--zg-text-dim); margin-top: 2px; }
+.graded-time { color: var(--zg-success); }
+.grade-content { font-size: 15px; line-height: 1.8; margin-bottom: 16px; }
+.grade-answer-section { margin-bottom: 16px; }
+.grade-label { font-size: 13px; color: var(--zg-text-dim); margin-bottom: 6px; font-weight: 600; }
+.grade-answer { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; min-height: 60px; }
+.grade-ref-section { margin-bottom: 16px; }
+.grade-ref { padding: 12px; background: rgba(16,185,129,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
+.grade-current-score { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(16,185,129,.06); border-radius: 8px; margin-bottom: 18px; }
+.grade-score-display { display: flex; align-items: baseline; gap: 4px; }
+.grade-score-num { font-size: 28px; font-weight: 800; color: var(--zg-success); }
+.grade-score-max { font-size: 14px; color: var(--zg-text-dim); }
+.ml-2 { margin-left: 8px; }
+.grade-form { padding: 18px; background: rgba(245,158,11,.04); border-radius: 10px; border: 1px solid rgba(245,158,11,.12); }
+.grade-form-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.grade-form-label { font-size: 14px; color: var(--zg-text); font-weight: 600; min-width: 80px; padding-top: 8px; }
+.grade-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 </style>

@@ -313,6 +313,7 @@ export const api = {
   gradePractice: (id: number, score: number, comment: string) => http.post(`/api/practice/${id}/grade`, { score, comment }),
   practiceMyRecords: (page: number, perPage: number) => http.get('/api/practice/my-records', { params: { page, perPage } }),
   deletePracticeRecord: (id: number) => http.delete(`/api/practice/record/${id}`),
+  practiceSubmission: (id: number) => http.get(`/api/practice/submission/${id}`),
   practiceStats: (questionId: number) => http.get(`/api/practice/stats/${questionId}`),
   // ===== 通用页面：网站说明 / 博客 / 公告 =====
   guide: () => http.get('/api/pages/guide'),
