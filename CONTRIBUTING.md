@@ -236,7 +236,9 @@ SQLite 返回的 lastInsertRowid 为 BigInt，JSON.stringify 报错。
 7. npm run build 确认类型检查通过
 8. 三角色测试 + 大文件上传测试（见第七节）
 9. 提交代码，推送分支，创建 PR
-10. PR 合并后，如改了 worker-api.ts 须手动 wrangler deploy
+10. PR 合并后：
+    - 前端：git push origin main，Cloudflare Pages 自动构建部署
+    - 后端（worker-api.ts）：手动 `cd /workspace && source .env && npx wrangler deploy`
 ```
 
 ### 5.4 发布流程

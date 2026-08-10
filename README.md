@@ -14,7 +14,7 @@
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
 | 默认超管账号 | `admin` / `admin123456` |
 | 开源协议 | MIT |
-| 当前版本 | v2.0.0（Cloudflare Workers + D1 无服务器架构） |
+| 当前版本 | v2.1.0（Cloudflare Workers + D1 无服务器架构，单题训练按题统计） |
 
 ---
 
@@ -39,6 +39,7 @@
 | 资料共享 | 学科资料上传下载，支持分类/标签/收藏/点赞，大文件前端直传 Supabase | 全部角色 |
 | 题库自测 | 教师创建测验（单选/多选/判断），学生答题，自动/手动批改，成绩报告 | 教师建题、学生作答 |
 | 单题训练 | 学科题目池随机抽题练习，即时反馈对错，教师批阅评语 | 全部角色 |
+| 单题训练记录 | 学生查看自己的历史训练记录（含得分/评语/时间），超管/教师按题目查看全班统计（正确率/待批/得分分布） | 学生看自己，教师/超管看全班 |
 | 成绩查询 | 查询任务（教师发布成绩表），学生凭学号/姓名查询，支持导出 Excel | 教师发布、学生查询 |
 | 站内信 | 师生互发私信，支持附件，未读提醒，联系人列表含全部活跃用户 | 全部角色 |
 | 经验值系统 | 登录/发文/答题/审核等行为获得经验，自动升级，排行榜展示 | 全部角色 |
@@ -214,13 +215,16 @@ npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM us
 
 编辑 `wrangler.toml`，填写 Supabase 配置（JWT_SECRET、SUPABASE_URL、SUPABASE_SERVICE_KEY、SUPABASE_BUCKET）。这些值可从本地 `.env` 文件获取。
 
-### 第四步：部署后端 Worker
+### 第四步：部署后端 Worker（需手动执行，Pages 不会自动部署 Worker）
 
 ```bash
-npm install hono
+cd /workspace
+source .env
 npx wrangler deploy
 # 输出 Worker URL：https://zhuiguang-api.<子域名>.workers.dev
 ```
+
+> **注意**：`source .env` 加载 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 后，`wrangler deploy` 才能正常工作。
 
 ### 第五步：部署前端到 Cloudflare Pages
 
@@ -229,6 +233,8 @@ npx wrangler deploy
 3. 输出目录：`dist`
 4. 环境变量：`VITE_API_BASE_URL` = 你的 Worker URL（或绑定的自定义域名）
 5. 绑定自定义域名 `xkzg.dpdns.org`
+
+> Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
 
 ### 第六步：验证
 
@@ -251,9 +257,12 @@ zhuiguang/
 │   ├── styles/                   # 全局样式
 │   ├── types/                    # TypeScript 类型定义
 │   ├── utils/                    # 工具函数（helpers、markdown）
-│   ├── views/                    # 页面视图
+│   ├── src/views/                    # 页面视图
 │   │   ├── admin/                # 管理后台页面（审核、用户、学科、班级等）
 │   │   └── quiz/                 # 题库相关页面
+│   │       ├── PracticeTakeView.vue     # 单题训练作答页
+│   │       ├── PracticeRecordsView.vue  # 我的训练记录页（学生）
+│   │       └── PracticeStatsView.vue    # 单题训练统计页（教师/超管）
 │   ├── App.vue
 │   └── main.ts                   # 前端入口
 ├── server/                       # 本地后端（Express，已迁移至 Worker，保留作本地开发）
@@ -291,6 +300,7 @@ zhuiguang/
 ### 已完成
 
 - 全部核心功能模块上线运行（美文、资料、题库、单题训练、成绩查询、站内信、经验值、班级学科管理）
+  - 单题训练记录管理：学生查看自己的训练记录（含得分/评语/时间），教师/超管按题目查看全班统计（正确率/待批/得分分布/作答详情）
 - 三角色权限体系完整（SUPER_ADMIN / TEACHER / STUDENT）
 - 已迁移至 Cloudflare Workers + D1 + Pages 无服务器架构（v2.0.0）
 - 文件上传前端直传 Supabase presign URL，大文件不走后端
@@ -311,6 +321,7 @@ zhuiguang/
 | v1.1.0 | 同上 + Bug9 修复 | 已废弃 |
 | v1.2.0 | Worker v5 双路兜底 + start-all 依赖加固 | 已废弃 |
 | v2.0.0 | Cloudflare Workers + D1 + Pages + Supabase（当前） | 运行中 |
+| v2.1.0 | 单题训练按题维度统计 + 训练记录管理 | 开发中 |
 
 ---
 
@@ -407,6 +418,7 @@ zhuiguang/
 | 文档 | 说明 |
 |---|---|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范、分支管理、提交标准、测试要求 |
+| [工作日志_追光学科共享平台.md](工作日志_追光学科共享平台.md) | 开发运维工作日志 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本更新日志 |
 | [FAQ.md](FAQ.md) | 高频问题问答库 |
 | 交接文档_追光学科共享平台.md | 完整交接文档（凭证、架构、Bug 清单、运维） |

@@ -5,6 +5,36 @@
 
 ---
 
+## [v2.1.0] - 2026-08-10
+
+### 概述
+
+**单题训练按题维度统计和记录管理。** 每道题目独立展示全班统计（正确率/提交数/待批数），支持查看每位学生的作答详情、教师批阅评语，并可管理记录。
+
+### 新增
+
+- **后端 API（4条）**：
+  - `GET /api/practice/my-records`：学生查看自己的训练历史（分页，含题目、学科、得分、评语、时间）
+  - `DELETE /api/practice/record/:id`：学生删除自己的记录 / 教师/超管删除任意记录
+  - `GET /api/practice/stats/:questionId`：教师/超管查看某道题的全班统计（正确率/提交数/待批/已批）和作答详情
+- **前端页面 2个**：
+  - `src/views/quiz/PracticeRecordsView.vue`：我的训练记录页，学生分页查看历史记录，支持删除
+  - `src/views/quiz/PracticeStatsView.vue`：单题统计页，按题目维度展示：统计卡片+待批列表+全部记录，教师可删除记录
+- **入口**：题库自测 tab 中每道题目卡片增加「📊 统计」按钮（教师/超管可见）；题库自测 tab 头部保留「📝 我的训练记录」按钮（学生可见）
+- **经验值区分修复**：单题训练批改完成改用 `practice_pass`（+5 经验值），题库自测保持 `quiz_pass`（+10 经验值），两种行为经验值不再混淆
+
+### 修复
+
+- 修复单题训练批改完成后经验值错误加 10 而非 +5 的问题（action_type 从 `quiz_pass` 改为 `practice_pass`，同步修改 server/index.ts 和 worker-api.ts）
+- 修复 UsersView.vue 经验记录弹窗列重叠问题（删除 `:deep(.el-dialog){width:440px}` 全局覆盖）
+
+### 变更
+
+- `PracticeStatsView.vue` 路由从 `/practice/stats/:subjectId` 改为 `/practice/stats/:questionId`，按单题维度而非学科维度
+- 新增路由：`/practice/my-records`（PracticeRecordsView）
+
+---
+
 ## [v2.0.0] - 2026-08-08
 
 ### 概述
