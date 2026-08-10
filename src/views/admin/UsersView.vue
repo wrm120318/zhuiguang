@@ -566,7 +566,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 查看经验记录 -->
-    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="900px">
+    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="1000px">
       <div v-loading="expLogsLoading" style="min-height:200px">
         <!-- 顶部筛选 + 操作栏 -->
         <div class="exp-log-toolbar">
@@ -602,26 +602,25 @@ function openImport() {
           max-height="420"
           @selection-change="onExpLogSelectionChange"
           class="exp-log-table"
-          style="overflow-x: auto;"
         >
-          <el-table-column type="selection" width="44" :selectable="() => true" />
-          <el-table-column label="行为" width="120">
+          <el-table-column type="selection" width="40" :selectable="() => true" />
+          <el-table-column label="行为" width="100">
             <template #default="{ row }">
               <el-tag size="small" effect="plain">{{ expLogActionLabel(row.action_type) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="经验变动" width="100" align="center">
+          <el-table-column label="经验变动" width="90" align="center">
             <template #default="{ row }">
               <span :style="{ color: row.exp_change > 0 ? '#16a34a' : row.exp_change < 0 ? '#dc2626' : 'var(--zg-text-dim)', fontWeight: 800 }">
                 {{ row.exp_change > 0 ? '+' : '' }}{{ row.exp_change }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="描述" min-width="220" prop="description" />
-          <el-table-column label="时间" width="160">
+          <el-table-column label="描述" min-width="200" prop="description" show-overflow-tooltip />
+          <el-table-column label="时间" width="150">
             <template #default="{ row }">{{ expLogFmtTime(row.created_at) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="84" fixed="right" align="center">
+          <el-table-column label="操作" width="70" fixed="right" align="center">
             <template #default="{ row }">
               <el-button text size="small" type="danger" :loading="expLogsDeleting" @click="deleteOneExpLog(row)">删除</el-button>
             </template>
