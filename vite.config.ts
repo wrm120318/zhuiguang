@@ -32,6 +32,10 @@ export default defineConfig({
           'element-plus-switch': ['element-plus/es/components/switch/index'],
         }
       }
-    }
+    },
+    // v2.1.1 - 禁用构建缓存，确保每次构建都生成新的 index.html
+    sourcemap: false,
+    emptyOutDir: true,
+    manifest: false
   }
 })
