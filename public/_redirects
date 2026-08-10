@@ -1,1 +1,9 @@
 /*    /index.html   200
+!/assets/*
+!/favicon.ico
+!/*.js
+!/*.css
+!/*.png
+!/*.svg
+!/*.woff
+!/*.woff2
