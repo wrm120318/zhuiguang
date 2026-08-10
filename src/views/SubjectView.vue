@@ -427,7 +427,6 @@ async function submitResource() {
         <div class="section-title">🏋️ 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
         <div class="panel-head-actions">
           <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')">📝 我的训练记录</el-button>
-          <el-button v-if="user.isStaff" size="small" type="primary" round @click="router.push(`/practice/stats/${subject.value?.id}`)">📊 训练统计</el-button>
           <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
         </div>
       </div>
@@ -443,6 +442,7 @@ async function submitResource() {
           <div class="pc-content q-content" v-html="md(q.content)"></div>
           <div class="pc-actions">
             <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/practice/${q.id}`)">开始训练</el-button>
+            <el-button v-if="user.isStaff" size="small" type="success" round @click="router.push(`/practice/stats/${q.id}`)">📊 统计</el-button>
             <span v-if="q.attachments?.length" class="pc-att">📎 {{ q.attachments.length }} 个附件</span>
           </div>
         </div>

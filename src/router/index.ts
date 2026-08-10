@@ -40,7 +40,7 @@ const routes: RouteRecordRaw[] = [
   // 单题训练
   { path: '/practice/:id', name: 'practice-take', component: () => import('@/views/quiz/PracticeTakeView.vue') },
   { path: '/practice/my-records', name: 'practice-records', component: () => import('@/views/quiz/PracticeRecordsView.vue') },
-  { path: '/practice/stats/:id', name: 'practice-stats', component: () => import('@/views/quiz/PracticeStatsView.vue') },
+  { path: '/practice/stats/:questionId', name: 'practice-stats', component: () => import('@/views/quiz/PracticeStatsView.vue') },
   {
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),

@@ -2745,63 +2745,63 @@ app.delete('/api/practice/record/:id', auth, async (c) => {
   return c.json({ ok: true })
 })
 
-// 教师/超管：查看某学科所有学生的单题训练记录（含统计）
-app.get('/api/practice/stats/:subjectId', auth, requireStaff, async (c) => {
-  const sid = Number(c.req.param('subjectId'))
+// 教师/超管：查看某道单题的训练统计和所有学生提交记录
+app.get('/api/practice/stats/:questionId', auth, requireStaff, async (c) => {
+  const qid = Number(c.req.param('questionId'))
   const me = c.get('user')
-  if (me.role === 'TEACHER' && me.subject_id !== sid) return c.json({ message: '无权查看该学科数据' }, 403)
-  const subject = await get<any>('SELECT id, name, icon FROM subjects WHERE id=?', sid)
-  if (!subject) return c.json({ message: '学科不存在' }, 404)
+  const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', qid)
+  if (!q) return c.json({ message: '题目不存在' }, 404)
+  if (me.role === 'TEACHER' && q.subject_id !== me.subject_id) return c.json({ message: '无权查看该题目数据' }, 403)
+  const subject = await get<any>('SELECT id, name, icon FROM subjects WHERE id=?', q.subject_id)
 
-  const [qCnt, subCnt, pendingCnt, gradedCnt] = await Promise.all([
-    get<any>('SELECT COUNT(*) AS cnt FROM subject_questions WHERE subject_id=?', sid),
-    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=?', sid),
-    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=? AND ps.status=?', sid, 'pending'),
-    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id WHERE sq.subject_id=? AND ps.status=?', sid, 'graded'),
+  const [totalSubs, pendingCnt, gradedCnt, passCnt] = await Promise.all([
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE question_id=?', qid),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE question_id=? AND status=?', qid, 'pending'),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE question_id=? AND status=?', qid, 'graded'),
+    get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE question_id=? AND correct=1', qid),
   ])
 
-  const qtypeStats = await all<any>(
-    `SELECT sq.qtype, COUNT(ps.id) AS cnt
-     FROM subject_questions sq
-     LEFT JOIN practice_submissions ps ON ps.question_id = sq.id
-     WHERE sq.subject_id=?
-     GROUP BY sq.qtype`, sid
-  )
-
   const scoreDist = await all<any>(
-    `SELECT ps.score, ps.max_score, sq.qtype, sq.content AS qcontent, sq.answer AS qanswer,
-            u.real_name, ps.status, ps.answer AS user_answer, ps.comment,
-            ps.submitted_at, ps.graded_at
+    `SELECT ps.score, ps.max_score, u.real_name, u.id AS user_id, ps.status,
+            ps.answer AS user_answer, ps.comment, ps.submitted_at, ps.graded_at, ps.id AS sub_id
      FROM practice_submissions ps
-     JOIN subject_questions sq ON sq.id = ps.question_id
      JOIN users u ON u.id = ps.user_id
-     WHERE sq.subject_id=?
+     WHERE ps.question_id=?
      ORDER BY ps.id DESC
-     LIMIT 200`, sid
+     LIMIT 300`, qid
   )
 
   const pendingSubs = await all<any>(
-    `SELECT ps.*, sq.content AS qcontent, sq.qtype, sq.answer AS qanswer,
-            u.real_name, u.username, ps.status
+    `SELECT ps.*, u.real_name, u.username, u.id AS user_id
      FROM practice_submissions ps
-     JOIN subject_questions sq ON sq.id = ps.question_id
      JOIN users u ON u.id = ps.user_id
-     WHERE sq.subject_id=? AND ps.status='pending'
-     ORDER BY ps.submitted_at ASC
-     LIMIT 50`, sid
+     WHERE ps.question_id=? AND ps.status='pending'
+     ORDER BY ps.submitted_at ASC`, qid
+  )
+
+  const detailSubs = await all<any>(
+    `SELECT ps.id AS sub_id, ps.score, ps.max_score, ps.status, ps.correct,
+            ps.answer AS user_answer, ps.comment, ps.submitted_at, ps.graded_at,
+            u.real_name, u.username
+     FROM practice_submissions ps
+     JOIN users u ON u.id = ps.user_id
+     WHERE ps.question_id=?
+     ORDER BY ps.id DESC
+     LIMIT 300`, qid
   )
 
   return c.json({
+    question: { id: q.id, content: q.content, qtype: q.qtype, score: q.score, answer: q.answer, options: j(q.options), attachments: j(q.attachments || '[]') },
     subject,
     stats: {
-      totalQuestions: qCnt.cnt || 0,
-      totalSubmissions: subCnt.cnt || 0,
+      totalSubmissions: totalSubs.cnt || 0,
       pendingCount: pendingCnt.cnt || 0,
       gradedCount: gradedCnt.cnt || 0,
+      passCount: passCnt.cnt || 0,
     },
-    qtypeStats,
-    scoreDist: scoreDist.map(r => ({ ...r, qattachments: j(r.qattachments || '[]') })),
-    pendingSubs: pendingSubs.map(r => ({ ...r, qattachments: j(r.qattachments || '[]') })),
+    scoreDist: scoreDist.map(r => ({ ...r })),
+    pendingSubs: pendingSubs.map(r => ({ ...r })),
+    detailSubs: detailSubs.map(r => ({ ...r })),
   })
 })
 
