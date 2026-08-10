@@ -5,6 +5,32 @@
 
 ---
 
+## [v2.1.1] - 2026-08-10
+
+### 概述
+
+**单题训练教师批改功能补全。** 修复 BUG-22：教师从统计页点"去批改"后无法打分/写评语的严重问题。
+
+### 修复
+
+- **BUG-22a 教师批改UI缺失**：`PracticeTakeView.vue` 新增批改模式（URL `?grade=subId`），教师可：
+  - 查看学生作答内容（Markdown渲染）
+  - 查看题目内容和参考答案（主观题）
+  - 打分（0-题目满分）+ 写评语
+  - 删除该条提交记录
+- **BUG-22b 删除接口重复定义**：`worker-api.ts` 和 `server/index.ts` 中 `DELETE /api/practice/record/:id` 被定义了两次（第一个仅本人，第二个requireStaff版本被忽略），导致教师删学生记录直接403。合并为统一版本：本人 OR 教师本学科 OR 超管
+- **BUG-22c 缺少提交详情接口**：新增 `GET /api/practice/submission/:id`（含权限校验），支持教师批改时获取完整的学生作答和题目信息
+- **BUG-22d subjectName字段映射**：`PracticeRecordsView.vue` 模板用 `rec.subjectName` 但后端返回的是 `subject_name`，已修复
+
+### 变更
+
+- `src/views/quiz/PracticeTakeView.vue`：从纯学生模式改为支持学生作答/学生查看结果/教师批改三种模式
+- `src/api/index.ts`：新增 `practiceSubmission(id)` API方法
+- `worker-api.ts`：删除接口合并 + 新增 submission 接口
+- `server/index.ts`：同步修改，保持本地开发版与生产一致
+
+---
+
 ## [v2.1.0] - 2026-08-10
 
 ### 概述
