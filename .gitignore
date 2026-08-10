@@ -74,3 +74,4 @@ cert.pem
 
 # ===== Duplicate project dir =====
 zhuiguang/
+dist/
