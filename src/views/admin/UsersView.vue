@@ -752,9 +752,6 @@ function openImport() {
   .table-wrap { padding: 12px; }
 }
 
-:deep(.el-dialog) {
-  width: 440px;
-}
 :deep(.el-table .cell) {
   padding: 8px 0;
   font-size: 13px;
