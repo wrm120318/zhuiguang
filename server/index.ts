@@ -948,6 +948,11 @@ app.delete('/api/articles/:id', auth, async (req, res) => {
     if (total) await addExp(expUid, -total, 'article', `删除美文《${a.title}》回收经验`)
   }
   await run('DELETE FROM article_comments WHERE article_id=?', req.params.id)
+  // 统计并修正点赞数
+  const likeCount = await get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM likes_map WHERE target_type='article' AND target_id=?", req.params.id)
+  if (likeCount && likeCount.cnt > 0) {
+    await run('UPDATE articles SET likes = MAX(0, likes - ?) WHERE id=?', likeCount.cnt, req.params.id)
+  }
   await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'article', req.params.id)
   await run('DELETE FROM articles WHERE id=?', req.params.id)
   res.json({ ok: true })
