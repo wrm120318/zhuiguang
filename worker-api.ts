@@ -2708,8 +2708,9 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   if (!sub) return c.json({ message: '提交不存在' }, 404)
   const { score, comment } = await c.req.json()
   const sc = Math.max(0, Math.min(sub.max_score, Number(score) || 0))
-  await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'+8 hours\'), graded_by=? WHERE id=?',
-    sc, 'graded', comment || '', reviewerId, id)
+  const isCorrect = sc >= sub.max_score
+  await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'+8 hours\'), graded_by=?, correct=? WHERE id=?',
+    sc, 'graded', comment || '', reviewerId, isCorrect ? 1 : 0, id)
   await addExp(sub.user_id, undefined, 'practice_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')
