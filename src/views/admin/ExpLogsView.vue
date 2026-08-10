@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 
@@ -128,6 +128,68 @@ function onAvatarError(e: Event) {
   img.style.visibility = 'hidden'
 }
 
+// ===== 删除功能 =====
+const selected = ref<any[]>([])
+const deleting = ref(false)
+
+// 选中行合计经验变动（删除这些记录会从 users.exp 回退的总和）
+const selectedNetExp = computed(() =>
+  selected.value.reduce((s: number, it: any) => s + Number(it.exp_change || 0), 0)
+)
+
+function onSelectionChange(rows: any[]) {
+  selected.value = rows || []
+}
+
+async function deleteOneLog(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除该条经验记录吗？将回退 ${row.exp_change > 0 ? '+' : ''}${row.exp_change} 经验值。`,
+      '删除经验记录',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  deleting.value = true
+  try {
+    await api.deleteExpLog(row.id)
+    ElMessage.success('已删除')
+    // 从列表移除，避免刷新
+    list.value = list.value.filter((x: any) => x.id !== row.id)
+    total.value = Math.max(0, total.value - 1)
+    selected.value = selected.value.filter((x: any) => x.id !== row.id)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function batchDeleteLogs() {
+  if (!selected.value.length) { ElMessage.warning('请先勾选要删除的记录'); return }
+  const ids = selected.value.map((x: any) => x.id)
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 条经验记录吗？将回退 ${selectedNetExp.value > 0 ? '+' : ''}${selectedNetExp.value} 经验值。`,
+      '批量删除经验记录',
+      { type: 'warning', confirmButtonText: '批量删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  deleting.value = true
+  try {
+    const r: any = await api.batchDeleteExpLogs(ids)
+    ElMessage.success(`已删除 ${r.deleted} 条记录${r.affectedUsers ? `，影响 ${r.affectedUsers} 个用户` : ''}`)
+    // 从列表移除已删除的记录
+    const idSet = new Set(ids)
+    list.value = list.value.filter((x: any) => !idSet.has(x.id))
+    total.value = Math.max(0, total.value - r.deleted)
+    selected.value = []
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '批量删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -166,10 +228,22 @@ onMounted(load)
         <span class="fb-stat-label">本页净变动</span>
         <span class="fb-stat-val" :style="{ color: expColor(pageNetExp) }">{{ expText(pageNetExp) }}</span>
       </div>
+      <div class="fb-stat">
+        <span class="fb-stat-label">已选</span>
+        <span class="fb-stat-val">{{ selected.length }}</span>
+        <span class="fb-stat-sep">·</span>
+        <span class="fb-stat-label">合计回退</span>
+        <span class="fb-stat-val" :style="{ color: selectedNetExp > 0 ? '#16a34a' : selectedNetExp < 0 ? '#dc2626' : 'var(--zg-text-dim)' }">{{ selectedNetExp > 0 ? '+' : '' }}{{ selectedNetExp }}</span>
+      </div>
+      <el-button type="danger" :disabled="!selected.length || deleting" :loading="deleting" @click="batchDeleteLogs">
+        批量删除
+      </el-button>
     </div>
 
     <div class="table-wrap glass">
-      <el-table :data="filtered" style="width:100%" row-key="id" empty-text="暂无经验记录">
+      <el-table :data="filtered" style="width:100%" row-key="id" empty-text="暂无经验记录"
+        @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="50" :selectable="() => true" />
         <el-table-column label="用户" min-width="190">
           <template #default="{ row }">
             <div class="u-cell">
@@ -212,6 +286,11 @@ onMounted(load)
             <span class="time">{{ fmtTime(row.created_at) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="84" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button text size="small" type="danger" :loading="deleting" @click="deleteOneLog(row)">删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </div>
 
@@ -242,6 +321,7 @@ onMounted(load)
 .fb-stat { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--zg-fs-sm); }
 .fb-stat-label { color:var(--zg-text-dim); }
 .fb-stat-val { font-weight:800; font-size:16px; }
+.fb-stat-sep { color:var(--zg-text-dim); opacity:.5; }
 
 .table-wrap { padding:8px; overflow-x:auto; }
 
