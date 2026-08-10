@@ -1967,7 +1967,7 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (req, res) => {
   const sc = Math.max(0, Math.min(sub.max_score, Number(score) || 0))
   await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'localtime\'), graded_by=? WHERE id=?',
     sc, 'graded', comment || '', (req as any).user.id, req.params.id)
-  await addExp(sub.user_id, undefined, 'quiz_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
+  await addExp(sub.user_id, undefined, 'practice_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
   // 站内信通知学生
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', (req as any).user.id))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')

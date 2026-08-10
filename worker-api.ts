@@ -2709,7 +2709,7 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   const sc = Math.max(0, Math.min(sub.max_score, Number(score) || 0))
   await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'+8 hours\'), graded_by=? WHERE id=?',
     sc, 'graded', comment || '', reviewerId, id)
-  await addExp(sub.user_id, undefined, 'quiz_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
+  await addExp(sub.user_id, undefined, 'practice_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')
   await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, reviewerId, sub.user_id, msg, '[]')
