@@ -1,8 +1,9 @@
 # ============================================================
-# 🚀 追光学科共享平台 · Cloudflare Workers 配置（D1 + Pages）
+# 🚀 追光学科共享平台 · Cloudflare Workers + Pages 配置（D1 + Pages）
 # ============================================================
 # 部署命令:
-#   npx wrangler deploy
+#   后端 Worker:  npx wrangler deploy
+#   Pages:       通过 GitHub 自动部署（git push → Cloudflare Pages 自动构建）
 #
 # D1数据库创建:
 #   npx wrangler d1 create zhuiguang-db
@@ -35,6 +36,10 @@ JWT_EXPIRES = "7d"
 SUPABASE_URL = "https://njwkkinzgmwzyfifagwl.supabase.co"
 SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qd2traW56Z213enlmaWZhZ3dsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTY2NTc2NSwiZXhwIjoyMTAxMjQxNzY1fQ.MKN5pktqXQJFmya3elBmb6PTynnjR-j70mhSHg13Y08"
 SUPABASE_BUCKET = "zhuiguang"
+
+# ====== Pages 配置 ======
+# Pages 通过 GitHub 自动部署，无需手动构建
+# Pages Functions 位于 pages/ 目录，自动生效
 
 # ====== 自定义路由（绑定xkzg.dpdns.org用） ======
 # 方式1: Workers自定义域名 (推荐)
