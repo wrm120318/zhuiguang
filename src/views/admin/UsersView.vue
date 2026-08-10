@@ -171,17 +171,130 @@ const expLogsVisible = ref(false)
 const expLogsData = ref<any[]>([])
 const expLogsLoading = ref(false)
 const expLogsUser = ref<any>(null)
+const expLogsSelected = ref<any[]>([])
+const expLogsDeleting = ref(false)
+const expLogSearch = ref('')
+const expLogActionFilter = ref('')
+
+// 经验记录可选的行为类型（与 ExpLogsView 保持一致）
+const EXP_LOG_ACTIONS = [
+  { value: '', label: '全部行为' },
+  { value: 'login', label: '每日登录' },
+  { value: 'register', label: '注册奖励' },
+  { value: 'article', label: '发布美文' },
+  { value: 'resource', label: '上传资料' },
+  { value: 'query', label: '完成查询' },
+  { value: 'quiz_pass', label: '题库自测' },
+  { value: 'blog', label: '发布博客' },
+  { value: 'comment', label: '收到评论' },
+  { value: 'like', label: '收到点赞' },
+  { value: 'favorite', label: '被收藏' },
+  { value: 'practice_pass', label: '单题训练' },
+  { value: 'announcement_read', label: '阅读公告' },
+  { value: 'message_reply', label: '回复站内信' },
+  { value: 'article_delete', label: '删除美文' },
+  { value: 'resource_delete', label: '删除资料' },
+  { value: 'blog_delete', label: '删除博客' },
+  { value: 'query_delete', label: '删除查询' },
+  { value: 'comment_delete', label: '删除评论' },
+  { value: 'like_cancel', label: '取消点赞' },
+  { value: 'favorite_cancel', label: '取消收藏' },
+  { value: 'quiz_fail', label: '自测未通过' },
+  { value: 'practice_fail', label: '训练未通过' },
+  { value: 'admin_adjust', label: '管理员调整' },
+]
+const EXP_LOG_LABELS: Record<string, string> = Object.fromEntries(
+  EXP_LOG_ACTIONS.filter(o => o.value).map(o => [o.value, o.label])
+)
+function expLogActionLabel(t: string) { return EXP_LOG_LABELS[t] || t }
+
+// 过滤后的经验记录（支持关键词 + 行为类型）
+const filteredExpLogs = computed(() => {
+  const q = expLogSearch.value.trim().toLowerCase()
+  const a = expLogActionFilter.value
+  return expLogsData.value.filter((it: any) => {
+    if (a && it.action_type !== a) return false
+    if (q && !(it.description || '').toLowerCase().includes(q)) return false
+    return true
+  })
+})
+
+// 当前选中记录的净经验变动（删除这些记录会从 users.exp 回退的总和）
+const selectedExpNet = computed(() =>
+  expLogsSelected.value.reduce((s: number, it: any) => s + Number(it.exp_change || 0), 0)
+)
 
 async function openExpLogs(u: any) {
   expLogsUser.value = u
   expLogsVisible.value = true
   expLogsData.value = []
+  expLogsSelected.value = []
+  expLogSearch.value = ''
+  expLogActionFilter.value = ''
   expLogsLoading.value = true
   try {
     expLogsData.value = (await api.expLogs(u.id)) as any
   } catch { /* */ } finally {
     expLogsLoading.value = false
   }
+}
+
+async function deleteOneExpLog(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除该条经验记录吗？将回退 ${row.exp_change > 0 ? '+' : ''}${row.exp_change} 经验值。`,
+      '删除经验记录',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  expLogsDeleting.value = true
+  try {
+    await api.deleteExpLog(row.id)
+    ElMessage.success('已删除')
+    // 从本地列表里移除，避免重新拉取
+    expLogsData.value = expLogsData.value.filter((x: any) => x.id !== row.id)
+    expLogsSelected.value = expLogsSelected.value.filter((x: any) => x.id !== row.id)
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  } finally {
+    expLogsDeleting.value = false
+  }
+}
+
+async function batchDeleteExpLogs() {
+  if (!expLogsSelected.value.length) { ElMessage.warning('请先勾选要删除的记录'); return }
+  const ids = expLogsSelected.value.map((x: any) => x.id)
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 条经验记录吗？将回退 ${selectedExpNet.value > 0 ? '+' : ''}${selectedExpNet.value} 经验值。`,
+      '批量删除经验记录',
+      { type: 'warning', confirmButtonText: '批量删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  expLogsDeleting.value = true
+  try {
+    const r: any = await api.batchDeleteExpLogs(ids)
+    ElMessage.success(`已删除 ${r.deleted} 条记录${r.affectedUsers ? `，影响 ${r.affectedUsers} 个用户` : ''}`)
+    // 从本地列表里移除已删除的 id
+    const idSet = new Set(ids)
+    expLogsData.value = expLogsData.value.filter((x: any) => !idSet.has(x.id))
+    expLogsSelected.value = []
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '批量删除失败')
+  } finally {
+    expLogsDeleting.value = false
+  }
+}
+
+function onExpLogSelectionChange(rows: any[]) {
+  expLogsSelected.value = rows || []
+}
+
+function expLogFmtTime(t: string) {
+  if (!t) return '-'
+  return String(t).replace('T', ' ').slice(0, 19)
 }
 
 // ===== 批量导入用户 =====
@@ -453,20 +566,70 @@ function openImport() {
     </el-dialog>
 
     <!-- 查看经验记录 -->
-    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}`" width="520px">
-      <div v-loading="expLogsLoading" style="min-height:120px">
-        <div class="exp-log-list">
-          <div v-for="log in expLogsData" :key="log.id" class="exp-log-item glass">
-            <div class="eli-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
-            <div class="eli-body">
-              <div class="eli-desc">{{ log.description }}</div>
-              <div class="eli-meta">{{ log.action_type }} · {{ log.created_at?.slice(0, 16) }}</div>
-            </div>
+    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="780px">
+      <div v-loading="expLogsLoading" style="min-height:200px">
+        <!-- 顶部筛选 + 操作栏 -->
+        <div class="exp-log-toolbar">
+          <el-input
+            v-model="expLogSearch"
+            placeholder="搜索描述关键词"
+            clearable
+            size="default"
+            class="exp-log-search"
+          >
+            <template #prefix><span>🔍</span></template>
+          </el-input>
+          <el-select v-model="expLogActionFilter" placeholder="行为类型" clearable size="default" class="exp-log-action">
+            <el-option v-for="o in EXP_LOG_ACTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+          <div class="exp-log-stat">
+            <span class="exp-log-stat-label">已选</span>
+            <span class="exp-log-stat-val">{{ expLogsSelected.length }}</span>
+            <span class="exp-log-stat-sep">·</span>
+            <span class="exp-log-stat-label">合计回退</span>
+            <span class="exp-log-stat-val" :style="{ color: selectedExpNet > 0 ? '#16a34a' : selectedExpNet < 0 ? '#dc2626' : 'var(--zg-text-dim)' }">{{ selectedExpNet > 0 ? '+' : '' }}{{ selectedExpNet }}</span>
           </div>
-          <el-empty v-if="!expLogsLoading && !expLogsData.length" description="暂无经验记录" :image-size="80" />
+          <el-button type="danger" :disabled="!expLogsSelected.length || expLogsDeleting" :loading="expLogsDeleting" @click="batchDeleteExpLogs">
+            批量删除
+          </el-button>
         </div>
+
+        <el-table
+          :data="filteredExpLogs"
+          row-key="id"
+          empty-text="暂无经验记录"
+          size="small"
+          max-height="420"
+          @selection-change="onExpLogSelectionChange"
+          class="exp-log-table"
+        >
+          <el-table-column type="selection" width="44" :selectable="() => true" />
+          <el-table-column label="行为" width="120">
+            <template #default="{ row }">
+              <el-tag size="small" effect="plain">{{ expLogActionLabel(row.action_type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="经验变动" width="100" align="center">
+            <template #default="{ row }">
+              <span :style="{ color: row.exp_change > 0 ? '#16a34a' : row.exp_change < 0 ? '#dc2626' : 'var(--zg-text-dim)', fontWeight: 800 }">
+                {{ row.exp_change > 0 ? '+' : '' }}{{ row.exp_change }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="描述" min-width="220" prop="description" />
+          <el-table-column label="时间" width="160">
+            <template #default="{ row }">{{ expLogFmtTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="84" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button text size="small" type="danger" :loading="expLogsDeleting" @click="deleteOneExpLog(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
-      <template #footer><el-button @click="expLogsVisible=false">关闭</el-button></template>
+      <template #footer>
+        <el-button @click="expLogsVisible=false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <!-- 批量导入用户 -->
@@ -559,15 +722,16 @@ function openImport() {
 .error-title { font-weight:600; font-size:13px; margin-bottom:6px; }
 .error-item { font-size:12px; color:#e6a23c; padding:2px 0; }
 
-/* 查看经验记录列表 */
-.exp-log-list { display:flex; flex-direction:column; gap:8px; max-height:420px; overflow-y:auto; }
-.exp-log-item { display:flex; align-items:center; gap:14px; padding:12px 16px; }
-.eli-icon { font-weight:800; padding:4px 10px; border-radius:8px; min-width:50px; text-align:center; flex-shrink:0; }
-.eli-icon.pos { background: rgba(52,211,153,.15); color:#059669; }
-.eli-icon.neg { background: rgba(239,68,68,.15); color:#dc2626; }
-.eli-body { flex:1; min-width:0; }
-.eli-desc { font-weight:600; font-size:13px; }
-.eli-meta { font-size:12px; color:var(--zg-text-dim,#999); margin-top:2px; }
+/* 经验记录弹窗工具栏 + 表格 */
+.exp-log-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.exp-log-search { width:220px; }
+.exp-log-action { width:160px; }
+.exp-log-stat { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:13px; }
+.exp-log-stat-label { color:var(--zg-text-dim); }
+.exp-log-stat-val { font-weight:800; font-size:15px; padding:0 6px; }
+.exp-log-stat-sep { color:var(--zg-text-dim); opacity:.5; }
+.exp-log-table { border-radius:10px; overflow:hidden; }
+:deep(.exp-log-table .cell) { padding:6px 0; }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }

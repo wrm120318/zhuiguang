@@ -984,8 +984,25 @@ app.get('/api/auth/me', auth, async (c) => {
 // ============ 用户管理 ============
 // ==============================================================================
 app.get('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const list = await all<any>('SELECT u.*, cm.class_id FROM users u LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE role_in_class=?) cm ON u.id=cm.user_id ORDER BY u.id', 'STUDENT')
-  return c.json(list.map(pub))
+  // 以 exp_logs 聚合的真实经验值（SUM(exp_change)）为准，
+  // 避免「管理员界面显示 0、排行榜显示 232」这种 users.exp 与 logs 不同步的问题
+  const list = await all<any>(
+    `SELECT u.*, cm.class_id,
+            COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=u.id), 0) AS exp_total,
+            (SELECT MAX(id) FROM exp_logs WHERE user_id=u.id) AS last_log_id
+     FROM users u
+     LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE role_in_class=?) cm ON u.id=cm.user_id
+     ORDER BY u.id`,
+    'STUDENT'
+  )
+  return c.json(list.map((u: any) => {
+    const base = pub(u)
+    // 用真实经验值覆盖 users.exp，保证管理员界面与排行榜数据源一致
+    base.exp = Number(u.exp_total || 0)
+    base.level = Math.floor(base.exp / 60) + 1
+    base.last_log_id = u.last_log_id || null
+    return base
+  }))
 })
 
 app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
@@ -1984,6 +2001,46 @@ app.post('/api/exp/logs', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { userId, change, actionType, description } = await c.req.json()
   await addExp(userId, change, actionType, description)
   return c.json({ ok: true })
+})
+
+// 超管：删除单条经验记录
+// 删除时会同步把 users.exp 回退并重算 level，确保排行榜与 users.exp 不脱钩
+app.delete('/api/exp/logs/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const id = c.req.param('id')
+  const log = await get<any>('SELECT user_id, exp_change FROM exp_logs WHERE id=?', id)
+  if (!log) return c.json({ message: '记录不存在' }, 404)
+  await run('DELETE FROM exp_logs WHERE id=?', id)
+  // 回退 users.exp（不允许出现负数）
+  await run(
+    `UPDATE users
+        SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+            level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
+      WHERE id=?`,
+    log.user_id, log.user_id, log.user_id
+  )
+  return c.json({ ok: true, deleted: 1 })
+})
+
+// 超管：批量删除经验记录
+app.post('/api/exp/logs/batch-delete', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const body = await c.req.json() as { ids?: number[] }
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((x: any) => Number.isFinite(Number(x))).map((x: any) => Number(x)) : []
+  if (!ids.length) return c.json({ message: '未提供要删除的记录 id' }, 400)
+  // 先取出所有要删除的日志所属用户，后续按用户聚合回退 users.exp
+  const logs = await all<any>('SELECT user_id, exp_change FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
+  await run('DELETE FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
+  // 去重用户，重新按 SUM(exp_logs.exp_change) 同步 users.exp
+  const userIds = Array.from(new Set(logs.map((x: any) => x.user_id)))
+  for (const uid of userIds) {
+    await run(
+      `UPDATE users
+          SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+              level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
+        WHERE id=?`,
+      uid, uid, uid
+    )
+  }
+  return c.json({ ok: true, deleted: logs.length, affectedUsers: userIds.length })
 })
 
 app.get('/api/leaderboard', async (c) => {

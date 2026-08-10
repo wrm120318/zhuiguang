@@ -259,6 +259,8 @@ export const api = {
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),
   allExpLogs: (page?: number, pageSize?: number) => http.get('/api/exp/all-logs', { params: { page, pageSize } }),
+  deleteExpLog: (id: number) => http.delete(`/api/exp/logs/${id}`),
+  batchDeleteExpLogs: (ids: number[]) => http.post('/api/exp/logs/batch-delete', { ids }),
   leaderboard: (params: any) => http.get('/api/leaderboard', { params }),
   // 通知
   notices: () => http.get('/api/notices'),
