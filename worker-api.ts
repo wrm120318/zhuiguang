@@ -2669,6 +2669,7 @@ app.post('/api/subject-questions/:id/submit', auth, async (c) => {
     const teachers = await all<any>("SELECT id FROM users WHERE role IN ('SUPER_ADMIN','TEACHER') AND (role='SUPER_ADMIN' OR subject_id=?)", q.subject_id)
     for (const t of teachers) {
       if (t.id !== uid) await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, uid, t.id, msg, '[]')
+      await addNotice(t.id, '单题训练待批', `${stu?.real_name || '学生'}在「${subj?.name || '学科'}」提交了主观题，请及时批改。`, 'teacher')
     }
   }
   return c.json({ id: subId, status, score, max, correct })
@@ -2713,6 +2714,8 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')
   await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, reviewerId, sub.user_id, msg, '[]')
+  const subjInfo = await get<any>('SELECT name FROM subjects WHERE id=?', sub.subject_id)
+  await addNotice(sub.user_id, '单题训练批改完成', `${teacherName}老师批改了你的「${subjInfo?.name || '学科'}」单题训练，得分 ${sc} / ${sub.max_score}` + (comment ? `，评语：${comment}` : ''), 'teacher')
   return c.json({ ok: true, score: sc })
 })
 
