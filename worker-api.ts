@@ -123,11 +123,11 @@ export async function getExpRules(): Promise<Record<string, number>> {
     const saved = r ? JSON.parse(r.value) : {}
     // 合并默认规则与已保存规则，确保所有场景都有默认值
     const merged = { ...DEFAULT_EXP_RULES, ...saved }
-    // 自动修复：如果关键正向规则（login/register/article/resource/quiz_pass）全为0，
-    // 说明是前端BUG导致的错误数据，自动重置为默认规则
+    // 自动修复：如果任何关键正向规则（login/register/article/resource/quiz_pass）
+    // 在数据库中被设为0但默认值不为0，说明是前端BUG导致的错误数据，自动重置为默认规则
     const positiveKeys = ['login', 'register', 'article', 'resource', 'quiz_pass']
-    const allPositiveZero = positiveKeys.every(k => !merged[k])
-    if (allPositiveZero && saved && Object.keys(saved).length > 0) {
+    const needsFix = positiveKeys.some(k => saved && k in saved && saved[k] === 0 && DEFAULT_EXP_RULES[k] !== 0)
+    if (needsFix) {
       await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'exp_rules', JSON.stringify(DEFAULT_EXP_RULES))
       expRulesCache = { ...DEFAULT_EXP_RULES }
     } else {
@@ -924,7 +924,8 @@ app.post('/api/auth/login', async (c) => {
   if (u.status !== 'active') return c.json({ message: '账号状态异常' }, 400)
   if (!bcrypt.compareSync(password, u.password_hash)) return c.json({ message: '密码错误' }, 400)
   const today = dateNowBeijing()
-  const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? LIMIT 1', u.id, 'login', today)
+  // 检查今天是否已发放过登录经验（exp_change>0 才算有效发放，防止bug导致的0值记录 blocking）
+  const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? AND exp_change > 0 LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
   return c.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
 })
@@ -2009,8 +2010,13 @@ app.get('/api/leaderboard', async (c) => {
   }
 
   if (period === 'total') {
-    // 总榜：直接使用 users.exp
-    list = list.map(u => ({ ...u, pe: u.exp })).sort((a, b) => b.pe - a.pe)
+    // 总榜：从 exp_logs 聚合全部经验值（与周榜/月榜数据源一致，确保不会出现月榜>总榜）
+    const allExps = await all<{ user_id: number; total: number }>(
+      'SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs GROUP BY user_id'
+    )
+    const expMap = new Map<number, number>()
+    for (const r of allExps) expMap.set(r.user_id, r.total)
+    list = list.map(u => ({ ...u, pe: expMap.get(u.id) || 0 })).sort((a, b) => b.pe - a.pe)
   } else {
     // 周榜/月榜：从 exp_logs 按时间段聚合真实经验值
     // 计算起始日期（北京时间）
@@ -2761,7 +2767,7 @@ app.put('/api/pages/guide', auth, requireRole('SUPER_ADMIN'), async (c) => {
     clearAllCache()
     return c.json({ id: exist.id })
   } else {
-    const r = await run("INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status,updated_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'))", 'guide', 'site', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), '超级管理员', 'published')
+    const r = await run("INSERT INTO pages (ptype,scope,title,content,images,attachments,author_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))", 'guide', 'site', title, content, JSON.stringify(images || []), JSON.stringify(attachments || []), '超级管理员', 'published')
     clearAllCache()
     return c.json({ id: Number(r.lastInsertRowid) })
   }
@@ -2782,7 +2788,7 @@ app.post('/api/pages', auth, async (c) => {
   const pinned = b.pinned ? 1 : 0
   const pinnedScope = pinned ? (b.pinnedScope || b.scope || 'site') : 'none'
   const r = await run(
-    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
     b.ptype, b.scope || 'site', b.classId || null, b.title, b.content, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.attachments || []), uid, me?.real_name || '', 'published', pinned, pinnedScope
   )
   if (b.ptype === 'blog') {
