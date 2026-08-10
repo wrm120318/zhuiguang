@@ -14,7 +14,6 @@ const loading = ref(true)
 const question = ref<any>(null)
 const subject = ref<any>(null)
 const stats = ref<any>(null)
-const scoreDist = ref<any[]>([])
 const pendingSubs = ref<any[]>([])
 const detailSubs = ref<any[]>([])
 const deletingId = ref<number | null>(null)
@@ -36,7 +35,6 @@ async function load() {
     question.value = r.question
     subject.value = r.subject
     stats.value = r.stats
-    scoreDist.value = r.scoreDist || []
     pendingSubs.value = r.pendingSubs || []
     detailSubs.value = r.detailSubs || []
   } catch (e: any) {

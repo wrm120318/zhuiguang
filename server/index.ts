@@ -2089,17 +2089,6 @@ app.get('/api/practice/stats/:questionId', auth, requireStaff, async (req, res) 
     get<any>('SELECT COUNT(*) AS cnt FROM practice_submissions WHERE question_id=? AND correct=1', qid),
   ])
 
-  // 得分分布（按分数段）
-  const scoreDist = await all<any>(
-    `SELECT ps.score, ps.max_score, u.real_name, u.id AS user_id, ps.status,
-            ps.answer AS user_answer, ps.comment, ps.submitted_at, ps.graded_at, ps.id AS sub_id
-     FROM practice_submissions ps
-     JOIN users u ON u.id = ps.user_id
-     WHERE ps.question_id=?
-     ORDER BY ps.id DESC
-     LIMIT 300`, qid
-  )
-
   // 待批提交（含学生信息，方便教师批改）
   const pendingSubs = await all<any>(
     `SELECT ps.*, u.real_name, u.username, u.id AS user_id
@@ -2130,7 +2119,6 @@ app.get('/api/practice/stats/:questionId', auth, requireStaff, async (req, res) 
       gradedCount: gradedCnt.cnt || 0,
       passCount: passCnt.cnt || 0,
     },
-    scoreDist: scoreDist.map(r => ({ ...r })),
     pendingSubs: pendingSubs.map(r => ({ ...r })),
     detailSubs: detailSubs.map(r => ({ ...r })),
   })
