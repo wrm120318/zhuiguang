@@ -5,6 +5,22 @@
 
 ---
 
+## [v2.1.5] - 2026-08-10
+
+### 概述
+
+**修复前端 Admin 经验设置页默认值为正数导致删除/取消操作反向加经验。**
+
+### 修复
+
+- **BUG-27 Admin 经验设置默认值符号错误**：`ExpRulesView.vue` 中 `DEFAULT_RULES` 的删除类行为（article_delete/resource_delete/blog_delete/query_delete/comment_delete/like_cancel）均为正数，与后端 `DEFAULT_EXP_RULES` 的负数不一致。若管理员从该页保存设置，会将正数写入数据库，导致删除内容时反而增加经验值。修复为全部改为负数
+
+### 变更
+
+- `src/views/admin/ExpRulesView.vue`：6 个删除/取消规则的默认值改为负数
+
+---
+
 ## [v2.1.4] - 2026-08-10
 
 ### 概述
