@@ -122,7 +122,17 @@ export async function getExpRules(): Promise<Record<string, number>> {
     const r = await get<{ value: string }>("SELECT value FROM settings WHERE key='exp_rules'")
     const saved = r ? JSON.parse(r.value) : {}
     // 合并默认规则与已保存规则，确保所有场景都有默认值
-    expRulesCache = { ...DEFAULT_EXP_RULES, ...saved }
+    const merged = { ...DEFAULT_EXP_RULES, ...saved }
+    // 自动修复：如果关键正向规则（login/register/article/resource/quiz_pass）全为0，
+    // 说明是前端BUG导致的错误数据，自动重置为默认规则
+    const positiveKeys = ['login', 'register', 'article', 'resource', 'quiz_pass']
+    const allPositiveZero = positiveKeys.every(k => !merged[k])
+    if (allPositiveZero && saved && Object.keys(saved).length > 0) {
+      await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'exp_rules', JSON.stringify(DEFAULT_EXP_RULES))
+      expRulesCache = { ...DEFAULT_EXP_RULES }
+    } else {
+      expRulesCache = merged
+    }
   } catch { expRulesCache = { ...DEFAULT_EXP_RULES } }
   return expRulesCache!
 }
@@ -135,8 +145,11 @@ export async function addExp(userId: number, change: number | undefined, actionT
     const rules = await getExpRules()
     delta = rules[actionType] ?? 0
   }
-  if (!delta) return
-  await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
+  if (delta === undefined || delta === null || isNaN(delta as number)) return
+  // 即使 delta=0 也要写 exp_logs 记录（用于每日登录防重复检查）
+  if (delta !== 0) {
+    await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
+  }
   await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc)
 }
 
@@ -1977,7 +1990,11 @@ app.get('/api/leaderboard', async (c) => {
   const classId = c.req.query('classId')
   const subjectId = c.req.query('subjectId')
   const period = c.req.query('period') || 'total'
+
+  // 获取所有活跃用户基础信息
   let list = await all<any>('SELECT id,real_name,role,avatar,exp,level FROM users WHERE status=? ORDER BY exp DESC', 'active')
+
+  // 范围过滤
   if (scope === 'class' && classId) {
     const rows = await all<{ user_id: number }>('SELECT user_id FROM class_members WHERE class_id=?', classId)
     const ids = rows.map(r => r.user_id)
@@ -1990,8 +2007,48 @@ app.get('/api/leaderboard', async (c) => {
     const cIds = new Set<number>([...tRows.map(r => r.user_id), ...rRows.map(r => r.user_id), ...aRows.map(r => r.user_id)])
     list = list.filter(u => cIds.has(u.id))
   }
-  const factor = period === 'week' ? 0.3 : period === 'month' ? 0.7 : 1
-  list = list.map(u => ({ ...u, pe: Math.round(u.exp * factor + (period !== 'total' ? 20 : 0)) })).sort((a, b) => b.pe - a.pe)
+
+  if (period === 'total') {
+    // 总榜：直接使用 users.exp
+    list = list.map(u => ({ ...u, pe: u.exp })).sort((a, b) => b.pe - a.pe)
+  } else {
+    // 周榜/月榜：从 exp_logs 按时间段聚合真实经验值
+    // 计算起始日期（北京时间）
+    const now = new Date()
+    let startDate: string
+    if (period === 'week') {
+      // 本周一 00:00（北京时间）
+      const beijingNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+      const dayOfWeek = beijingNow.getDay() // 0=周日, 1=周一
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1 // 距周一的天数
+      const monday = new Date(beijingNow)
+      monday.setDate(beijingNow.getDate() - diff)
+      monday.setHours(0, 0, 0, 0)
+      startDate = monday.getFullYear() + '-' +
+        String(monday.getMonth() + 1).padStart(2, '0') + '-' +
+        String(monday.getDate()).padStart(2, '0')
+    } else {
+      // 月榜：本月1日
+      const beijingNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+      startDate = beijingNow.getFullYear() + '-' +
+        String(beijingNow.getMonth() + 1).padStart(2, '0') + '-01'
+    }
+
+    // 查询时间段内各用户的经验值增量
+    const periodExps = await all<{ user_id: number; total: number }>(
+      'SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE substr(created_at,1,10) >= ? GROUP BY user_id',
+      startDate
+    )
+    const expMap = new Map<number, number>()
+    for (const r of periodExps) expMap.set(r.user_id, r.total)
+
+    // 合并：用户在该时间段内获得的经验值
+    list = list.map(u => ({
+      ...u,
+      pe: expMap.get(u.id) || 0,
+    })).sort((a, b) => b.pe - a.pe)
+  }
+
   return c.json(list)
 })
 
@@ -2045,7 +2102,7 @@ app.patch('/api/themes/:id/active', auth, requireRole('SUPER_ADMIN'), async (c) 
 app.put('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const id = c.req.param('id')
   const { config, name, isActive } = await c.req.json()
-  await run('UPDATE themes SET config=?, name=?, updated_at=datetime(\'now\',\'localtime\') WHERE id=?', JSON.stringify(config), name, id)
+  await run('UPDATE themes SET config=?, name=?, updated_at=datetime(\'now\',\'+8 hours\') WHERE id=?', JSON.stringify(config), name, id)
   if (isActive) {
     await run('UPDATE themes SET is_active=0')
     await run('UPDATE themes SET is_active=1 WHERE id=?', id)
@@ -2587,7 +2644,7 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   if (!sub) return c.json({ message: '提交不存在' }, 404)
   const { score, comment } = await c.req.json()
   const sc = Math.max(0, Math.min(sub.max_score, Number(score) || 0))
-  await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'localtime\'), graded_by=? WHERE id=?',
+  await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'+8 hours\'), graded_by=? WHERE id=?',
     sc, 'graded', comment || '', reviewerId, id)
   await addExp(sub.user_id, undefined, 'quiz_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'

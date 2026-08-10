@@ -8,6 +8,16 @@ const local = ref<Record<string, number>>({})
 const saving = ref(false)
 const loading = ref(true)
 
+// 默认经验值规则（与后端 DEFAULT_EXP_RULES 保持一致）
+const DEFAULT_RULES: Record<string, number> = {
+  login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
+  comment: 1, like: 1, favorite: 0, practice_pass: 5,
+  announcement_read: 1, message_reply: 0,
+  article_delete: 15, resource_delete: 15, blog_delete: 5, query_delete: 2,
+  comment_delete: 1, like_cancel: 1, favorite_cancel: 0,
+  quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
+}
+
 const RULE_META: { key: string; label: string; icon: string; desc: string }[] = [
   { key: 'login', label: '每日登录', icon: '🔑', desc: '每日首次登录' },
   { key: 'register', label: '注册奖励', icon: '🎁', desc: '新用户注册' },
@@ -47,10 +57,11 @@ const ruleList = computed(() => {
 
 onMounted(async () => {
   try {
-    if (!settings.loaded) await settings.fetchAll()
+    // 总是重新获取规则数据，确保数据最新
+    await settings.fetchAll()
     const next: Record<string, number> = {}
-    // 确保所有已知规则都有值
-    for (const m of RULE_META) next[m.key] = settings.expRules[m.key] ?? 0
+    // 确保所有已知规则都有值，使用默认规则作为后备（避免空对象时全部变0）
+    for (const m of RULE_META) next[m.key] = settings.expRules[m.key] ?? DEFAULT_RULES[m.key] ?? 0
     // 保留数据库中的自定义规则
     for (const [k, v] of Object.entries(settings.expRules)) if (!(k in next)) next[k] = v
     local.value = next
@@ -66,15 +77,7 @@ async function save() {
 }
 
 function reset() {
-  local.value = {
-    login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
-    comment: 1, like: 1, favorite: 0, practice_pass: 5,
-    announcement_read: 1, message_reply: 0,
-    // 回收类规则：默认回收与获得等量的经验
-    article_delete: 15, resource_delete: 15, blog_delete: 5, query_delete: 2,
-    comment_delete: 1, like_cancel: 1, favorite_cancel: 0,
-    quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
-  }
+  local.value = { ...DEFAULT_RULES }
 }
 </script>
 

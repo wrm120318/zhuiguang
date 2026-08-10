@@ -39,11 +39,10 @@ export const useSettingsStore = defineStore('settings', () => {
       expRules.value = r || {}
       loaded.value = true
     } catch (e) {
-      // 未登录或加载失败时，默认全部开启
+      // 未登录或加载失败时，默认全部开启；但不标记 loaded=true，以便后续重新加载
       console.warn('[settings] 加载失败，默认全部开启', e)
       flags.value = {}
       expRules.value = {}
-      loaded.value = true
     }
     // 站点配置独立加载，不依赖登录状态
     fetchSiteConfig()
