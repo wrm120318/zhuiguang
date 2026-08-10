@@ -13,8 +13,8 @@ const DEFAULT_RULES: Record<string, number> = {
   login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
   comment: 1, like: 1, favorite: 0, practice_pass: 5,
   announcement_read: 1, message_reply: 0,
-  article_delete: 15, resource_delete: 15, blog_delete: 5, query_delete: 2,
-  comment_delete: 1, like_cancel: 1, favorite_cancel: 0,
+  article_delete: -15, resource_delete: -15, blog_delete: -5, query_delete: -2,
+  comment_delete: -1, like_cancel: -1, favorite_cancel: 0,
   quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
 }
 
