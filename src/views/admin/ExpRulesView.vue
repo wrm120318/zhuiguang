@@ -9,12 +9,14 @@ const saving = ref(false)
 const loading = ref(true)
 
 // 默认经验值规则（与后端 DEFAULT_EXP_RULES 保持一致）
+// 删除/取消类规则不展示在设置页，删除时直接按实际获得值回收，无需配置
 const DEFAULT_RULES: Record<string, number> = {
   login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
   comment: 1, like: 1, favorite: 0, practice_pass: 5,
   announcement_read: 1, message_reply: 0,
-  article_delete: -15, resource_delete: -15, blog_delete: -5, query_delete: -2,
-  comment_delete: -1, like_cancel: -1, favorite_cancel: 0,
+  // 以下删除/取消类规则不在设置页显示，删除内容时按实际获得的经验值自动回收
+  // article_delete / resource_delete / blog_delete / query_delete /
+  // comment_delete / like_cancel / favorite_cancel
   quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
 }
 
@@ -32,13 +34,7 @@ const RULE_META: { key: string; label: string; icon: string; desc: string }[] = 
   { key: 'practice_pass', label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
   { key: 'announcement_read', label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   { key: 'message_reply', label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
-  { key: 'article_delete', label: '删除美文', icon: '🗑️', desc: '删除美文回收经验' },
-  { key: 'resource_delete', label: '删除资料', icon: '🗑️', desc: '删除资料回收经验' },
-  { key: 'blog_delete', label: '删除博客', icon: '🗑️', desc: '删除博客回收经验' },
-  { key: 'query_delete', label: '删除查询', icon: '🗑️', desc: '删除查询任务回收经验' },
-  { key: 'comment_delete', label: '删除评论', icon: '🗑️', desc: '删除评论回收经验' },
-  { key: 'like_cancel', label: '取消点赞', icon: '💔', desc: '点赞被取消回收经验' },
-  { key: 'favorite_cancel', label: '取消收藏', icon: '💫', desc: '收藏被取消' },
+  // 删除/取消类不再展示：删除内容时自动按实际获得值回收经验，无需配置
   { key: 'quiz_fail', label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
   { key: 'practice_fail', label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
   { key: 'admin_adjust', label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },

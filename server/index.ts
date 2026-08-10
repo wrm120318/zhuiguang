@@ -956,7 +956,16 @@ app.delete('/api/articles/:id', auth, async (req, res) => {
 app.post('/api/articles/:id/like', auth, async (req, res) => {
   const uid = (req as any).user.id
   const exist = await get('SELECT id FROM likes_map WHERE user_id=? AND target_type=? AND target_id=?', uid, 'article', req.params.id)
-  if (exist) return res.json({ liked: false })
+  if (exist) {
+    await run('DELETE FROM likes_map WHERE id=?', exist.id)
+    await run('UPDATE articles SET likes = MAX(0, likes - 1) WHERE id=?', req.params.id)
+    const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', req.params.id)
+    if (a) {
+      const owner = Number(a.actual_user_id) || Number(a.user_id)
+      await addExp(owner, -1, 'like_cancel', `美文《${a.title}》失去点赞`)
+    }
+    return res.json({ liked: false })
+  }
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'article', req.params.id)
   await run('UPDATE articles SET likes = likes + 1 WHERE id=?', req.params.id)
   const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', req.params.id)

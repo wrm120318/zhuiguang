@@ -1457,7 +1457,17 @@ app.post('/api/articles/:id/like', auth, async (c) => {
   const uid = c.get('user').id
   const id = c.req.param('id')
   const exist = await get('SELECT id FROM likes_map WHERE user_id=? AND target_type=? AND target_id=?', uid, 'article', id)
-  if (exist) return c.json({ liked: false })
+  if (exist) {
+    // 取消点赞：删除记录，回扣点赞经验
+    await run('DELETE FROM likes_map WHERE id=?', exist.id)
+    await run('UPDATE articles SET likes = MAX(0, likes - 1) WHERE id=?', id)
+    const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
+    if (a) {
+      const owner = Number(a.actual_user_id) || Number(a.user_id)
+      await addExp(owner, -1, 'like_cancel', `美文《${a.title}》失去点赞`)
+    }
+    return c.json({ liked: false })
+  }
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'article', id)
   await run('UPDATE articles SET likes = likes + 1 WHERE id=?', id)
   const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
@@ -1716,7 +1726,11 @@ app.post('/api/resources/:id/like', auth, async (c) => {
   const uid = c.get('user').id
   const id = c.req.param('id')
   const exist = await get('SELECT id FROM likes_map WHERE user_id=? AND target_type=? AND target_id=?', uid, 'resource', id)
-  if (exist) return c.json({ liked: false })
+  if (exist) {
+    await run('DELETE FROM likes_map WHERE id=?', exist.id)
+    await run('UPDATE resources SET likes = MAX(0, likes - 1) WHERE id=?', id)
+    return c.json({ liked: false })
+  }
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'resource', id)
   await run('UPDATE resources SET likes = likes + 1 WHERE id=?', id)
   return c.json({ liked: true })
@@ -2875,7 +2889,11 @@ app.post('/api/pages/:id/like', auth, async (c) => {
   const uid = c.get('user').id
   const id = c.req.param('id')
   const exist = await get('SELECT id FROM likes_map WHERE user_id=? AND target_type=? AND target_id=?', uid, 'page', id)
-  if (exist) return c.json({ liked: false })
+  if (exist) {
+    await run('DELETE FROM likes_map WHERE id=?', exist.id)
+    await run('UPDATE pages SET likes = MAX(0, likes - 1) WHERE id=?', id)
+    return c.json({ liked: false })
+  }
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'page', id)
   await run('UPDATE pages SET likes = likes + 1 WHERE id=?', id)
   return c.json({ liked: true })
