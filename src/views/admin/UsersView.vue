@@ -566,7 +566,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 查看经验记录 -->
-    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="780px">
+    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="900px">
       <div v-loading="expLogsLoading" style="min-height:200px">
         <!-- 顶部筛选 + 操作栏 -->
         <div class="exp-log-toolbar">
@@ -602,6 +602,7 @@ function openImport() {
           max-height="420"
           @selection-change="onExpLogSelectionChange"
           class="exp-log-table"
+          style="overflow-x: auto;"
         >
           <el-table-column type="selection" width="44" :selectable="() => true" />
           <el-table-column label="行为" width="120">
