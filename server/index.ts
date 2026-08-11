@@ -940,12 +940,16 @@ app.delete('/api/articles/:id', auth, async (req, res) => {
   const isOwner = a.user_id === (req as any).user.id
   const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number((req as any).user.id)
   if (!isOwner && !isActualUser && !canManageSubject(u, a.subject_id)) return res.status(403).json({ message: '无权限删除' })
-  // 删除前回收已发放的经验
+  // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
+    // 计算要回收的经验值（用于更新用户exp）
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like') AND description LIKE ?", expUid, `%${a.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    if (total) await addExp(expUid, -total, 'article', `删除美文《${a.title}》回收经验`)
+    // 删除相关经验值记录
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like') AND description LIKE ?", expUid, `%${a.title}%`)
+    // 更新用户经验值
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, expUid)
   }
   await run('DELETE FROM article_comments WHERE article_id=?', req.params.id)
   // 统计并修正点赞数
