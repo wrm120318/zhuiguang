@@ -5,6 +5,25 @@
 
 ---
 
+## [v2.1.9] - 2026-08-11
+
+### 概述
+
+**删除经验值说明界面和管理员设置界面中的回收规则显示。** 回收规则是"原来给多少，现在收多少"，无需单独显示和配置。
+
+### 变更
+
+- **经验值说明界面**（ExpDocView.vue）：删除删除/取消类规则（article_delete、like_cancel等），只显示获取经验的规则
+- **管理员设置界面**（ExpRulesView.vue）：删除删除/取消类规则，只显示获取经验的规则
+- **回收规则**：删除内容时直接删除相关经验值记录，无需单独配置回收规则
+
+### 代码修改
+
+- `src/views/ExpDocView.vue`：删除 `article_delete`、`resource_delete`、`blog_delete`、`query_delete`、`comment_delete`、`like_cancel`、`favorite_cancel` 规则
+- `src/views/admin/ExpRulesView.vue`：删除上述规则
+
+---
+
 ## [v2.1.8] - 2026-08-11
 
 ### 概述
