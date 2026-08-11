@@ -8,13 +8,13 @@ const local = ref<Record<string, number>>({})
 const saving = ref(false)
 const loading = ref(true)
 
-// 默认经验值规则（与后端 DEFAULT_EXP_RULES 保持一致）
-// 删除/取消类规则不展示在设置页，删除时直接按实际获得值回收，无需配置
+// 默认经验值规则（只显示获取经验的规则，删除/取消类规则不显示）
+// 删除/取消类规则不在设置页显示，删除时直接按实际获得值回收，无需配置
 const DEFAULT_RULES: Record<string, number> = {
   login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
   comment: 1, like: 1, favorite: 0, practice_pass: 5,
   announcement_read: 1, message_reply: 0,
-  // 以下删除/取消类规则不在设置页显示，删除内容时按实际获得的经验值自动回收
+  // 以下删除/取消类规则不在设置页显示，删除内容时直接删除相关经验值记录
   // article_delete / resource_delete / blog_delete / query_delete /
   // comment_delete / like_cancel / favorite_cancel
   quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
@@ -34,7 +34,7 @@ const RULE_META: { key: string; label: string; icon: string; desc: string }[] = 
   { key: 'practice_pass', label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
   { key: 'announcement_read', label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   { key: 'message_reply', label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
-  // 删除/取消类不再展示：删除内容时自动按实际获得值回收经验，无需配置
+  // 删除/取消类不再展示：删除内容时直接删除相关经验值记录，无需配置
   { key: 'quiz_fail', label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
   { key: 'practice_fail', label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
   { key: 'admin_adjust', label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },
@@ -82,7 +82,7 @@ function reset() {
     <div class="head">
       <div>
         <h1 class="dh-title">⭐ 经验值规则设置</h1>
-        <p class="dh-sub">设置每个用户行为可获得的经验值，保存后立即生效。</p>
+        <p class="dh-sub">设置每个用户行为可获得的经验值，保存后立即生效。删除/取消类规则（如删除美文）不在设置页显示，删除时直接按实际获得值回收，无需配置。</p>
       </div>
       <div class="head-actions">
         <el-button @click="reset">恢复默认</el-button>
