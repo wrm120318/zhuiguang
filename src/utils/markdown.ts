@@ -28,18 +28,15 @@ export function renderMarkdown(src: string): string {
  */
 export function renderMarkdownPreserveSpaces(src: string): string {
   if (!src) return ''
-  const html = marked.parse(src, { async: false, breaks: true }) as string
+  // 先替换换行符为 <br>，避免 marked 把段落包成 <p>
+  const lines = src.split('\n')
+  const result = lines.map(line => line.trim() ? line : '').filter(line => line !== '').join('<br>')
   // 移除脚本与事件处理，防止 XSS
-  let result = html
+  return result
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/\son\w+="[^"]*"/gi, '')
     .replace(/\son\w+='[^']*'/gi, '')
     .replace(/javascript:/gi, '')
-  // 将 <p> 标签替换为 <br> 以保留空格和换行
-  result = result
-    .replace(/<p>/g, '<br>')
-    .replace(/<\/p>/g, '')
-  return result
 }
 
 /** 截取 markdown 纯文本摘要 */
