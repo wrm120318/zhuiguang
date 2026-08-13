@@ -28,9 +28,11 @@ export function renderMarkdown(src: string): string {
  */
 export function renderMarkdownPreserveSpaces(src: string): string {
   if (!src) return ''
-  // 先替换换行符为 <br>，避免 marked 把段落包成 <p>
-  const lines = src.split('\n')
-  const result = lines.map(line => line.trim() ? line : '').filter(line => line !== '').join('<br>')
+  // 直接替换换行符为 <br>，保留所有行（包括空行）
+  const result = src
+    .replace(/\r\n/g, '<br>')  // Windows 换行
+    .replace(/\n/g, '<br>')    // Mac/Linux 换行
+    .replace(/\r/g, '<br>')    // 旧 Mac 换行
   // 移除脚本与事件处理，防止 XSS
   return result
     .replace(/<script[\s\S]*?<\/script>/gi, '')
