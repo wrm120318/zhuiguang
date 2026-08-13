@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
+import { renderMarkdown } from '@/utils/markdown'
 
 const router = useRouter()
 const user = useUserStore()
@@ -100,7 +101,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <!-- 公告栏：配置加载完成后才渲染，避免闪烁 -->
     <div v-if="showAnnouncement" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
       <span class="ab-icon">📢</span>
-      <span class="ab-text">{{ siteConfig.announcementBar }}</span>
+      <span class="ab-text" v-html="renderMarkdownPreserveSpaces(siteConfig.announcementBar)"></span>
     </div>
 
     <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
@@ -147,7 +148,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
     <!-- 页脚文字 -->
     <footer class="zg-footer" v-if="configLoaded && siteConfig?.footerText">
-      {{ siteConfig.footerText }}
+      <span v-html="renderMarkdownPreserveSpaces(siteConfig.footerText)"></span>
     </footer>
   </div>
 </template>
@@ -189,7 +190,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .ac-meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); }
 .ac-dot { opacity: .5; }
 
-.zg-footer { text-align: center; padding: 32px 0 8px; margin-top: 40px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); opacity: 0.7; border-top: 1px dashed rgba(245,158,11,.12); }
+.zg-footer { text-align: center; padding: 32px 0 8px; margin-top: 40px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); opacity: 0.7; border-top: 1px dashed rgba(245,158,11,.12); white-space: pre-wrap; word-wrap: break-word; }
+.zg-footer :deep(br) { display: block; content: ""; margin: 4px 0; }
+.zg-footer :deep(*) { white-space: pre-wrap; }
 
 @media (max-width: 768px) {
   .hero { padding: 24px 20px; border-radius: 18px; margin-top: 12px; }

@@ -22,6 +22,26 @@ export function renderMarkdown(src: string): string {
     .replace(/javascript:/gi, '')
 }
 
+/**
+ * 将 Markdown 文本渲染为 HTML，保留空格和换行。
+ * 用于公告栏和页脚等需要保留格式的场景。
+ */
+export function renderMarkdownPreserveSpaces(src: string): string {
+  if (!src) return ''
+  const html = marked.parse(src, { async: false, breaks: true }) as string
+  // 移除脚本与事件处理，防止 XSS
+  let result = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/\son\w+="[^"]*"/gi, '')
+    .replace(/\son\w+='[^']*'/gi, '')
+    .replace(/javascript:/gi, '')
+  // 将 <p> 标签替换为 <br> 以保留空格和换行
+  result = result
+    .replace(/<p>/g, '<br>')
+    .replace(/<\/p>/g, '')
+  return result
+}
+
 /** 截取 markdown 纯文本摘要 */
 export function mdExcerpt(src: string, len = 120): string {
   if (!src) return ''

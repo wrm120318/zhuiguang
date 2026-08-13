@@ -88,66 +88,6 @@ const ruleList = computed(() => {
         </div>
       </section>
 
-      <!-- 删除时的经验值回收 -->
-      <section class="section">
-        <h2 class="sec-title">
-          <span class="sec-icon">🗑️</span>
-          删除时的经验值回收
-        </h2>
-        <div class="rule-list">
-          <div class="rule-item">
-            <div class="ri-icon">📝</div>
-            <div class="ri-body">
-              <div class="ri-label">删除美文</div>
-              <div class="ri-desc">删除美文时，将直接删除该美文相关的经验值记录（如审核通过、点赞等），经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">📦</div>
-            <div class="ri-body">
-              <div class="ri-label">删除资料</div>
-              <div class="ri-desc">删除资料时，将直接删除该资料相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">📔</div>
-            <div class="ri-body">
-              <div class="ri-label">删除博客</div>
-              <div class="ri-desc">删除博客时，将直接删除该博客相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">🔍</div>
-            <div class="ri-body">
-              <div class="ri-label">删除查询任务</div>
-              <div class="ri-desc">删除查询任务时，将直接删除该任务相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">💬</div>
-            <div class="ri-body">
-              <div class="ri-label">删除评论</div>
-              <div class="ri-desc">删除评论时，将直接删除该评论相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">❤️</div>
-            <div class="ri-body">
-              <div class="ri-label">取消点赞</div>
-              <div class="ri-desc">取消点赞时，将直接删除点赞相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-          <div class="rule-item">
-            <div class="ri-icon">⭐</div>
-            <div class="ri-body">
-              <div class="ri-label">取消收藏</div>
-              <div class="ri-desc">取消收藏时，将直接删除收藏相关的经验值记录，经验值会相应减少</div>
-            </div>
-          </div>
-        </div>
-        <div class="tip note">💡 回收规则说明：删除内容时，系统将自动删除相关的经验值记录，经验值按实际获得值等额回收。无需单独配置回收规则。</div>
-      </section>
-
       <!-- 经验值作用 -->
       <section class="section">
         <h2 class="sec-title">

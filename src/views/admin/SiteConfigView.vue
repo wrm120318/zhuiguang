@@ -185,7 +185,16 @@ function resetConfig() {
               <el-input v-model="form.heroSubtitle" placeholder="首页 Hero 区域的副标题文字" maxlength="80" show-word-limit />
             </el-form-item>
             <el-form-item label="页脚文字">
-              <el-input v-model="form.footerText" placeholder="如：© 追光学科共享平台" maxlength="80" show-word-limit />
+              <el-input
+                v-model="form.footerText"
+                type="textarea"
+                :rows="5"
+                placeholder="网站底部页脚文字，支持 Markdown 格式。"
+                maxlength="500"
+                show-word-limit
+                resize="vertical"
+              />
+              <div class="item-tip">支持 Markdown 语法：段落换行、**加粗**、*斜体*、[链接](url) 等</div>
             </el-form-item>
           </div>
         </div>
@@ -273,12 +282,13 @@ function resetConfig() {
               <el-input
                 v-model="form.announcementBar"
                 type="textarea"
-                :rows="3"
-                placeholder="首页顶部公告栏显示的文字，支持纯文本。"
-                maxlength="200"
+                :rows="5"
+                placeholder="首页顶部公告栏显示的文字，支持 Markdown 格式（如 **加粗**、*斜体*、[链接](url) 等）。"
+                maxlength="500"
                 show-word-limit
                 resize="vertical"
               />
+              <div class="item-tip">支持 Markdown 语法：段落换行、**加粗**、*斜体*、[链接](url)、- 列表等</div>
             </el-form-item>
           </div>
         </div>

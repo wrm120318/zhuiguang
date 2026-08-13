@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "@supabase/supabase-js": "^2.112.2",
+    "@supabase/supabase-js": "^2.112.3",
     "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",

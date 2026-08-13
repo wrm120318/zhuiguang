@@ -123,6 +123,9 @@ export async function getExpRules(): Promise<Record<string, number>> {
     const saved = r ? JSON.parse(r.value) : {}
     // 合并默认规则与已保存规则，确保所有场景都有默认值
     const merged = { ...DEFAULT_EXP_RULES, ...saved }
+    // 过滤掉删除/取消类规则
+    const excludeKeys = ['article_delete', 'resource_delete', 'blog_delete', 'query_delete', 'comment_delete', 'like_cancel', 'favorite_cancel']
+    for (const k of excludeKeys) { delete merged[k] }
     // 自动修复：如果任何关键正向规则（login/register/article/resource/quiz_pass）
     // 在数据库中被设为0但默认值不为0，说明是前端BUG导致的错误数据，自动重置为默认规则
     const positiveKeys = ['login', 'register', 'article', 'resource', 'quiz_pass']
@@ -1439,14 +1442,14 @@ app.delete('/api/articles/:id', auth, async (c) => {
   const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number(c.get('user').id)
   // 允许：发布者、实际作者（代发美文的学生）、超管、对应学科教师删除
   if (!isOwner && !isActualUser && !canManageSubject(u, a.subject_id)) return c.json({ message: '无权限删除' }, 403)
-  // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关）
+  // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关/评论相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
     // 计算要回收的经验值（用于更新用户exp）
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like') AND description LIKE ?", expUid, `%${a.title}%`)
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND description LIKE ?", expUid, `%${a.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     // 删除相关经验值记录
-    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like') AND description LIKE ?", expUid, `%${a.title}%`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND description LIKE ?", expUid, `%${a.title}%`)
     // 更新用户经验值
     if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, expUid)
   }
@@ -1467,13 +1470,14 @@ app.post('/api/articles/:id/like', auth, async (c) => {
   const id = c.req.param('id')
   const exist = await get('SELECT id FROM likes_map WHERE user_id=? AND target_type=? AND target_id=?', uid, 'article', id)
   if (exist) {
-    // 取消点赞：删除记录，回扣点赞经验
+    // 取消点赞：直接删除点赞时的经验值记录，不添加负值
     await run('DELETE FROM likes_map WHERE id=?', exist.id)
     await run('UPDATE articles SET likes = MAX(0, likes - 1) WHERE id=?', id)
     const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
     if (a) {
       const owner = Number(a.actual_user_id) || Number(a.user_id)
-      await addExp(owner, -1, 'like_cancel', `美文《${a.title}》失去点赞`)
+      // 删除点赞时的 +1 记录
+      await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='like' AND description LIKE ?", owner, `%${a.title}%获得点赞%`)
     }
     return c.json({ liked: false })
   }
@@ -1651,11 +1655,12 @@ app.delete('/api/resources/:id', auth, async (c) => {
   const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
   const isOwner = r.user_id === c.get('user').id
   if (!isOwner && !canManageSubject(u, r.subject_id)) return c.json({ message: '无权限删除' }, 403)
-  // 删除前回收已发放的经验（资料审核通过/点赞相关）
+  // 删除前直接删除相关的经验值记录
   if (r.user_id && r.title) {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    if (total) await addExp(r.user_id, -total, 'resource', `删除资料《${r.title}》回收经验`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, r.user_id)
   }
   if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
   await run('DELETE FROM likes_map WHERE target_type IN (?,?) AND target_id=?', 'resource', 'fav_resource', id)
@@ -1913,7 +1918,10 @@ app.delete('/api/query/tasks/:id', auth, requireStaff, async (c) => {
     const byUser = new Map<number, number>()
     for (const l of logs) { byUser.set(l.user_id, (byUser.get(l.user_id) || 0) + (l.exp_change || 0)) }
     for (const [userId, total] of byUser) {
-      if (total) await addExp(userId, -total, 'query', `删除查询任务「${t.title}」回收经验`)
+      if (total) {
+        await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND description LIKE ?", userId, `%${t.title}%`)
+        await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, userId)
+      }
     }
   }
   await run('DELETE FROM query_rows WHERE task_id=?', id)
@@ -3021,11 +3029,12 @@ app.delete('/api/pages/:id', auth, async (c) => {
   const u = await get<any>('SELECT role FROM users WHERE id=?', c.get('user').id)
   const isOwner = p.author_id === c.get('user').id
   if (!isOwner && u?.role !== 'SUPER_ADMIN') return c.json({ message: '无权限删除' }, 403)
-  // 删除前回收已发放的经验（博客发布相关）
+  // 删除前直接删除相关的经验值记录
   if (p.author_id && p.title && p.ptype === 'blog') {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    if (total) await addExp(p.author_id, -total, 'blog', `删除博客《${p.title}》回收经验`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, p.author_id)
   }
   await run('DELETE FROM page_comments WHERE page_id=?', id)
   await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'page', id)

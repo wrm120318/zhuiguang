@@ -38,7 +38,7 @@ const guideDate = computed(() => {
   return String(raw).slice(0, 10)
 })
 
-// 经验值行为说明
+// 经验值行为说明（只显示获取经验的规则，删除/取消类规则不显示）
 const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> = {
   login: { label: '每日登录', icon: '🔑', desc: '每日首次登录获得经验' },
   register: { label: '注册奖励', icon: '🎁', desc: '新用户注册一次性奖励' },
@@ -53,28 +53,26 @@ const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> =
   practice_pass: { label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
   announcement_read: { label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   message_reply: { label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
-  article_delete: { label: '删除美文', icon: '🗑️', desc: '删除美文回收经验' },
-  resource_delete: { label: '删除资料', icon: '🗑️', desc: '删除资料回收经验' },
-  blog_delete: { label: '删除博客', icon: '🗑️', desc: '删除博客回收经验' },
-  query_delete: { label: '删除查询', icon: '🗑️', desc: '删除查询任务回收经验' },
-  comment_delete: { label: '删除评论', icon: '🗑️', desc: '删除评论回收经验' },
-  like_cancel: { label: '取消点赞', icon: '💔', desc: '点赞被取消回收经验' },
-  favorite_cancel: { label: '取消收藏', icon: '💫', desc: '收藏被取消回收经验' },
   quiz_fail: { label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
   practice_fail: { label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
   admin_adjust: { label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },
 }
 
+// 过滤掉删除/取消类规则
+const excludeKeys = new Set(['article_delete', 'resource_delete', 'blog_delete', 'query_delete', 'comment_delete', 'like_cancel', 'favorite_cancel'])
+
 const ruleList = computed(() => {
   const seen = new Set<string>()
   const out: { key: string; label: string; icon: string; desc: string; exp: number }[] = []
   for (const [k, v] of Object.entries(rules.value)) {
+    if (excludeKeys.has(k)) continue  // 跳过删除/取消类规则
     const meta = RULE_DESC[k] || { label: k, icon: '⭐', desc: '' }
     out.push({ key: k, label: meta.label, icon: meta.icon, desc: meta.desc, exp: v })
     seen.add(k)
   }
   // 补全未配置但已知的规则
   for (const [k, meta] of Object.entries(RULE_DESC)) {
+    if (excludeKeys.has(k)) continue  // 跳过删除/取消类规则
     if (!seen.has(k)) out.push({ key: k, label: meta.label, icon: meta.icon, desc: meta.desc, exp: 0 })
   }
   return out
@@ -132,7 +130,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
 
         <section class="sec">
           <h2>📊 经验值获取规则</h2>
-          <p class="muted">下表为当前生效的经验值规则，超级管理员可在「管理后台 → 经验设置」中调整。</p>
+          <p class="muted">下表为当前生效的经验值规则，超级管理员可在「管理后台 → 经验设置」中调整。删除/取消类操作将直接删除相关经验值记录，无需单独配置回收规则。</p>
           <div class="rule-grid">
             <div v-for="r in ruleList" :key="r.key" class="rule-card glass">
               <div class="rc-icon">{{ r.icon }}</div>
