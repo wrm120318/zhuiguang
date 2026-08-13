@@ -5,7 +5,7 @@ import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdownPreserveSpaces } from '@/utils/markdown'
 
 const router = useRouter()
 const user = useUserStore()
