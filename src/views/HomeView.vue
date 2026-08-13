@@ -168,8 +168,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
 .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 20px; }
 
-.announce-bar { display: flex; align-items: flex-start; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(245,158,11,.25); }
-.ab-icon { font-size: 18px; flex-shrink: 0; margin-top: 2px; }
+.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(245,158,11,.25); }
+.ab-icon { font-size: 18px; }
 .ab-text { font-size: var(--zg-fs-sm); color: var(--zg-text); line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; }
 .qg-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; cursor: pointer; }
 .qg-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 14px rgba(245,158,11,.2); }
