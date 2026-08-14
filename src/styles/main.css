@@ -130,70 +130,70 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px var(--zg-primary) inset !important; }
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
 .el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
-/* ===== Element Plus 弹窗样式 - 居中 + 毛玻璃 + 圆角跟随界面风格 =====
-   关键修正：EP 2.x 真实居中容器类名为 .el-overlay-dialog / .el-overlay-message-box
-   （旧版 .el-dialog__wrapper / .el-message-box__wrapper 已废弃，写了不生效） */
+/* ===== Element Plus 弹窗样式 - macOS 风格：实色暖背景 + 柔和大阴影 + 正中居中 =====
+   EP 2.x 真实居中容器类名为 .el-overlay-dialog / .el-overlay-message-box
+   设计参考：实色背景保证可读性，遮罩层负责模糊暗化，大柔和阴影营造悬浮感 */
 :root {
   --el-dialog-margin-top: 0 !important;
   --el-dialog-bg-color: transparent !important;
   --el-dialog-border-radius: var(--zg-radius, 18px) !important;
-  --el-box-shadow: 0 24px 64px rgba(245,158,11,0.18), 0 8px 24px rgba(0,0,0,0.1) !important;
+  --el-box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08) !important;
 }
-/* 遮罩层：中性黑半透明 + 高斯模糊，不污染暖色调 */
+/* 遮罩层：中性黑半透明 + 高斯模糊，弹窗浮出明暗对比 */
 .el-overlay {
-  background: rgba(0, 0, 0, 0.25) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
   backdrop-filter: blur(8px) saturate(140%) !important;
   -webkit-backdrop-filter: blur(8px) saturate(140%) !important;
 }
-/* 弹窗居中容器（EP 2.x 真实类名）- flex 居中
-   margin:auto 让弹窗水平+垂直居中；内容超高时 auto 边距归零、顶部可见可滚动 */
+/* 弹窗居中容器（EP 2.x 真实类名）- flex 横向纵向正中 */
 .el-overlay-dialog {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 24px !important;
 }
-/* 弹窗本体：高斯毛玻璃 + 圆角跟随主题变量；不强制 width 以尊重各弹窗自带的 width prop */
+/* 弹窗本体：实色暖渐变背景 + 圆角跟随主题 + 多层柔和阴影 + 高光边框（参考 macOS） */
 .el-dialog {
   margin: auto !important;
-  background: rgba(255, 251, 235, 0.55) !important;
-  backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
-  border: 1px solid rgba(245, 158, 11, 0.2) !important;
+  background: linear-gradient(145deg, #FFFBEB 0%, #FEF3C7 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
   border-radius: var(--zg-radius, 18px) !important;
-  box-shadow: 0 24px 64px rgba(245, 158, 11, 0.18), 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5) !important;
   overflow: hidden !important;
   max-width: 92vw !important;
 }
 .el-dialog__header {
-  padding: 20px 24px 16px !important;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.12) !important;
-  background: rgba(255, 251, 235, 0.45) !important;
+  padding: 22px 24px 16px !important;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.1) !important;
+  background: linear-gradient(180deg, rgba(255,251,235,0.8) 0%, transparent 100%) !important;
 }
 .el-dialog__title {
   color: var(--zg-text) !important;
   font-size: var(--zg-fs-lg) !important;
   font-weight: 600 !important;
 }
+/* 关闭按钮：绝对定位右上角，圆形，悬停高亮（参考 macOS 关闭按钮交互） */
 .el-dialog__headerbtn {
-  width: 36px !important;
-  height: 36px !important;
+  position: absolute !important;
+  top: 20px !important;
+  right: 20px !important;
+  z-index: 10 !important;
+  width: 32px !important;
+  height: 32px !important;
   border-radius: 50% !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  top: 16px !important;
-  right: 16px !important;
-  transition: background .2s, color .2s !important;
+  line-height: 32px !important;
+  text-align: center !important;
+  padding: 0 !important;
+  transition: background .2s !important;
 }
 .el-dialog__headerbtn .el-dialog__close {
   color: var(--zg-text-dim) !important;
-  font-size: 22px !important;
+  font-size: 20px !important;
   font-weight: 300 !important;
   transition: color .2s !important;
 }
 .el-dialog__headerbtn:hover {
-  background: rgba(245, 158, 11, 0.15) !important;
+  background: rgba(245, 158, 11, 0.12) !important;
 }
 .el-dialog__headerbtn:hover .el-dialog__close {
   color: var(--zg-primary) !important;
@@ -205,10 +205,10 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 }
 .el-dialog__footer {
   padding: 16px 24px 20px !important;
-  border-top: 1px solid rgba(245, 158, 11, 0.12) !important;
-  background: rgba(255, 251, 235, 0.45) !important;
+  border-top: 1px solid rgba(245, 158, 11, 0.1) !important;
+  background: linear-gradient(0deg, rgba(255,251,235,0.8) 0%, transparent 100%) !important;
 }
-/* MessageBox 居中容器（EP 2.x 真实类名） */
+/* MessageBox 居中容器（EP 2.x 真实类名）- flex 横向纵向正中 */
 .el-overlay-message-box {
   display: flex !important;
   align-items: center !important;
@@ -217,18 +217,16 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 }
 .el-message-box {
   margin: auto !important;
-  background: rgba(255, 251, 235, 0.55) !important;
-  backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
-  border: 1px solid rgba(245, 158, 11, 0.2) !important;
+  background: linear-gradient(145deg, #FFFBEB 0%, #FEF3C7 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
   border-radius: var(--zg-radius, 18px) !important;
-  box-shadow: 0 24px 64px rgba(245, 158, 11, 0.18), 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5) !important;
   overflow: hidden !important;
   max-width: 92vw !important;
 }
 .el-message-box__header {
   padding: 24px 24px 16px !important;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.12) !important;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.1) !important;
 }
 .el-message-box__title {
   color: var(--zg-text) !important;
@@ -243,8 +241,8 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 }
 .el-message-box__btns {
   padding: 16px 24px 24px !important;
-  border-top: 1px solid rgba(245, 158, 11, 0.12) !important;
-  background: rgba(255, 251, 235, 0.45) !important;
+  border-top: 1px solid rgba(245, 158, 11, 0.1) !important;
+  background: linear-gradient(0deg, rgba(255,251,235,0.8) 0%, transparent 100%) !important;
 }
 .el-message-box__btns .el-button {
   border-radius: 12px !important;

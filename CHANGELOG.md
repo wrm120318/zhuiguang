@@ -5,6 +5,21 @@
 
 ---
 
+## [v2.1.16] - 2026-08-14
+
+### 重构
+- **弹窗样式全面重构为 macOS 风格**：放弃半透明毛玻璃路线（alpha 0.55 导致全透明异常），改回实色暖渐变背景保证可读性。
+- **遮罩层**：暗化至 `rgba(0,0,0,0.4)` + `blur(8px)`，建立明暗对比让弹窗浮出。
+- **弹窗本体**：实色 `linear-gradient(145deg,#FFFBEB,#FEF3C7)` 暖渐变背景 + 白色高光边框 + 多层柔和阴影（`0 12px 40px` + `inset 0 1px 0`），参考 macOS 悬浮质感。
+- **关闭按钮修正**：`position:absolute; top:20px; right:20px; z-index:10` 确保正确定位到右上角；32px 圆形、`line-height` 居中（去掉导致定位异常的 `display:flex`）；悬停半透明主色背景高亮。
+- **所有弹窗正中居中**：`.el-overlay-dialog` / `.el-overlay-message-box` flex 居中 + `margin:auto` 双保险。
+- **header/footer 微渐变分层**：上下渐变过渡，增强层次感。
+
+### 修改文件
+- `src/styles/main.css`
+
+---
+
 ## [v2.1.15] - 2026-08-14
 
 ### 优化
