@@ -5,6 +5,25 @@
 
 ---
 
+## [v2.1.14] - 2026-08-14
+
+### 修复
+- **Element Plus 弹窗样式彻底修复**：此前多次修改"毫无改观"的根因是使用了 Element UI 1.x 的旧类名 `.el-dialog__wrapper` / `.el-message-box__wrapper`，而 Element Plus 2.x 真实居中容器类名为 `.el-overlay-dialog` / `.el-overlay-message-box`，旧类名在 DOM 中不存在，故 flex 居中规则完全不生效。
+
+### 变更
+- **居中**：对真实容器 `.el-overlay-dialog` / `.el-overlay-message-box` 使用 flex 居中；`.el-dialog` / `.el-message-box` 用 `margin:auto` 覆盖默认 `15vh auto 50px`，内容超高时 auto 边距归零、顶部可见可滚动。
+- **毛玻璃**：`backdrop-filter: blur(var(--zg-blur)) saturate(180%)`，模糊强度跟随「界面风格」滑块（由 `store/theme.ts` 的 `applyTheme` 动态注入 `--zg-blur`）。
+- **圆角**：`border-radius: var(--zg-radius)`，圆角大小跟随「界面风格」滑块。
+- **遮罩层**：`.el-overlay` 增加轻微模糊 + 暗色半透明背景，增强毛玻璃观感。
+- **设计美感**：header/footer 分层半透明背景、分割线、关闭按钮悬停高亮、统一阴影圆角。
+- **宽度适配（不再弄坏其他弹窗）**：删除此前强制 `width:min(600px,92vw)` 的写法，尊重每个弹窗自带的 `width` prop，仅设 `max-width:92vw` 防溢出；移动端收窄为 92%/88%。
+- **移动端**：移除错误的 `.el-dialog__wrapper` 和 `transform: translate(-50%,-50%)` hack，居中统一由全局 flex 处理。
+
+### 修改文件
+- `src/styles/main.css`
+
+---
+
 ## [v2.1.13] - 2026-08-13
 
 ### 新功能
