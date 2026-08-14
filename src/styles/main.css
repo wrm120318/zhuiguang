@@ -281,7 +281,20 @@ img { -webkit-user-drag: none; }
   .zg-container { padding: 0 14px; }
   .page { padding: 14px 0 90px; }
   .section-title { font-size: var(--zg-fs-md); margin-bottom: 12px; }
-  .el-dialog { width: 92% !important; margin: 12px auto !important; border-radius: 16px !important; }
+  .el-dialog {
+    width: 92% !important;
+    margin: 0 !important;
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    border-radius: 16px !important;
+  }
+  .el-dialog__wrapper {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
   .el-drawer { width: 88% !important; }
   /* 移动端表单优化 */
   .el-form-item__label { font-size: var(--zg-fs-sm) !important; }
