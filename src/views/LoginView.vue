@@ -94,12 +94,8 @@ async function clickFixLoginPage() {
       </div>
 
       <div class="lc-form">
-        <el-input v-model="form.username" placeholder="用户名" size="large" @keyup.enter="submit">
-          <template #prefix><span style="font-size: 16px;">👤</span></template>
-        </el-input>
-        <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password @keyup.enter="submit">
-          <template #prefix><span style="font-size: 16px;">🔒</span></template>
-        </el-input>
+        <el-input v-model="form.username" placeholder="用户名" size="large" @keyup.enter="submit" />
+        <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password @keyup.enter="submit" />
         <template v-if="mode === 'register'">
           <el-input v-model="form.realName" placeholder="真实姓名" size="large" :disabled="!regEnabled">
             <template #prefix><span style="font-size: 16px;">✏️</span></template>
