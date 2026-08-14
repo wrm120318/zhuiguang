@@ -13,12 +13,25 @@ const features = [
   { name: '数据查询', icon: '📈', desc: '创建成绩查询任务，支持姓名匹配、导出', color: '#60A5FA', to: () => router.push('/admin/query') },
   { name: '界面风格', icon: '🎨', desc: '主题色、背景、动画配置，一键切换风格', color: '#A78BFA', to: () => router.push('/admin/theme') },
   { name: '群发通知', icon: '📢', desc: '向全站活跃用户推送系统通知', color: '#F87171', to: async () => {
-    const t = prompt('请输入通知标题（取消=默认：系统公告）') || '系统公告'
-    if (t === null) return
-    const c = prompt('请输入通知内容')
-    if (!c) return
-    try { await api.broadcastNotice({ title: t, content: c }); alert(`✓ 已发送：${t}`) }
-    catch (e: any) { alert('发送失败：' + (e?.response?.data?.message || e.message)) }
+    try {
+      const { value: t } = await ElMessageBox.prompt('请输入通知标题（取消=默认：系统公告）', '群发通知', {
+        confirmButtonText: '发送',
+        cancelButtonText: '取消',
+        inputPlaceholder: '系统公告',
+        inputValidator: v => !!v || '请输入通知标题'
+      })
+      if (!t) return
+      const { value: c } = await ElMessageBox.prompt('请输入通知内容', '群发通知', {
+        confirmButtonText: '发送',
+        cancelButtonText: '取消',
+        inputValidator: v => !!v || '请输入通知内容'
+      })
+      if (!c) return
+      await api.broadcastNotice({ title: t, content: c })
+      ElMessage.success(`✓ 已发送：${t}`)
+    } catch (e: any) {
+      if (e !== 'cancel') ElMessage.error('发送失败：' + (e?.response?.data?.message || e.message))
+    }
   } },
   { name: '前台首页', icon: '🏠', desc: '返回前台查看各学科美文与资料', color: '#34D399', to: () => router.push('/') },
 ]
