@@ -137,6 +137,20 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   --el-dialog-border-radius: var(--zg-radius, 18px) !important;
   --el-box-shadow: 0 20px 60px rgba(245,158,11,0.15), 0 8px 24px rgba(0,0,0,0.08) !important;
 }
+.el-dialog__wrapper {
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  margin: 0 !important;
+  overflow: auto !important;
+  z-index: 2000 !important;
+}
 .el-dialog {
   background: rgba(255,251,235,0.95) !important;
   backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
@@ -147,17 +161,10 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   overflow: hidden !important;
   /* 强制居中 - 覆盖 Element Plus 默认样式 */
   margin: 0 !important;
-  position: fixed !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
+  position: relative !important;
+  transform: none !important;
   width: min(600px, 92vw) !important;
-}
-.el-dialog__wrapper {
-  padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  max-width: 92vw !important;
 }
 .el-dialog__header {
   padding: 20px 24px 16px !important;
