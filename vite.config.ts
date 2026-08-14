@@ -36,6 +36,8 @@ export default defineConfig({
     // v2.1.1 - 禁用构建缓存，确保每次构建都生成新的 index.html
     sourcemap: false,
     emptyOutDir: true,
-    manifest: false
+    manifest: false,
+    // v2.1.14 - 添加 rollup 配置，避免 prompt() 问题
+    chunkSizeWarningLimit: 1000,
   }
 })
