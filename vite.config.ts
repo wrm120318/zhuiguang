@@ -1,9 +1,11 @@
+// @ts-ignore
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import path from 'path'
+import { writeFileSync, existsSync } from 'fs'
 
 export default defineConfig({
   plugins: [
@@ -39,5 +41,11 @@ export default defineConfig({
     manifest: false,
     // v2.1.14 - 添加 rollup 配置，避免 prompt() 问题
     chunkSizeWarningLimit: 1000,
+  },
+  // v2.1.15 - 强制 CSS 文件名带时间戳，避免缓存问题
+  css: {
+    modules: {
+      localsConvention: 'camelCase'
+    }
   }
 })
