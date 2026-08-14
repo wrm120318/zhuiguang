@@ -185,19 +185,24 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   border: none !important;
   background: transparent !important;
   cursor: pointer !important;
-  transition: opacity .2s !important;
+  opacity: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 .el-dialog__headerbtn .el-dialog__close,
 .el-message-box__headerbtn .el-message-box__close {
   color: var(--zg-text-dim) !important;
-  font-size: 18px !important;
+  font-size: 20px !important;
   font-weight: 400 !important;
+  opacity: 1 !important;
+  display: inline-block !important;
   transition: color .2s !important;
 }
 .el-dialog__headerbtn:hover,
 .el-message-box__headerbtn:hover {
   background: transparent !important;
-  opacity: .6 !important;
+  opacity: 1 !important;
 }
 .el-dialog__headerbtn:hover .el-dialog__close,
 .el-message-box__headerbtn:hover .el-message-box__close {
@@ -253,6 +258,30 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   border-radius: 12px !important;
   font-weight: 500 !important;
   padding: 10px 24px !important;
+}
+/* ===== el-drawer（通知中心等侧边抽屉）：实色暖背景，无圆角，避免遮罩层叠加发黄 ===== */
+.el-drawer {
+  background: #FFFBEB !important;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.12) !important;
+}
+.el-drawer__header {
+  color: var(--zg-text) !important;
+  font-size: var(--zg-fs-lg) !important;
+  font-weight: 600 !important;
+  margin-bottom: 0 !important;
+  padding: 20px 24px 16px !important;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.1) !important;
+}
+.el-drawer__close {
+  color: var(--zg-text-dim) !important;
+  font-size: 20px !important;
+}
+.el-drawer__close:hover {
+  color: var(--zg-primary) !important;
+}
+.el-drawer__body {
+  background: #FFFBEB !important;
+  padding: 16px 24px !important;
 }
 .el-notification { 
   background: rgba(255,251,235,0.98) !important; 

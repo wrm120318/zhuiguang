@@ -5,6 +5,17 @@
 
 ---
 
+## [v2.1.18] - 2026-08-14
+
+### 修复
+- **× 关闭按钮消失问题**：此前 `transition: opacity .2s` + 悬停 `opacity: .6` 导致 MessageBox 的 × 默认不可见。改为 `opacity: 1` 强制可见、`display: flex` 居中、字号 18→20px。
+- **通知中心（el-drawer）发黄诡异**：此前 drawer 无自定义背景，遮罩层 `rgba(0,0,0,0.4)` + `backdrop-filter` 叠加导致发黄脏色。给 `.el-drawer` / `.el-drawer__body` 加实色 `#FFFBEB` 暖背景 + 左侧柔和阴影；header 加分层+分割线；关闭按钮统一风格。无圆角（按用户要求）。
+
+### 修改文件
+- `src/styles/main.css`
+
+---
+
 ## [v2.1.17] - 2026-08-14
 
 ### 修复
