@@ -132,6 +132,14 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
 .el-dialog, .el-drawer { background: rgba(255,251,235,0.97) !important; backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(245,158,11,0.2); border-radius: var(--zg-radius) !important; }
 .el-dialog__title, .el-drawer__title { color: var(--zg-text) !important; font-size: var(--zg-fs-md) !important; }
+.el-message-box { background: rgba(255,251,235,0.97) !important; backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(245,158,11,0.2) !important; border-radius: var(--zg-radius) !important; }
+.el-message-box__title { color: var(--zg-text) !important; font-size: var(--zg-fs-md) !important; }
+.el-message-box__message { color: var(--zg-text) !important; }
+.el-message-box__btns { padding: 12px 20px 20px !important; }
+.el-message-box__btns .el-button { border-radius: 10px !important; }
+.el-notification { background: rgba(255,251,235,0.97) !important; backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 14px !important; }
+.el-notification__title { color: var(--zg-text) !important; }
+.el-notification__content { color: var(--zg-text) !important; }
 .el-table { background: transparent !important; color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
 .el-table tr, .el-table td.el-table__cell, .el-table th.el-table__cell.is-leaf { background: transparent !important; border-color: rgba(245,158,11,0.12) !important; color: var(--zg-text) !important; }
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: rgba(245,158,11,0.08) !important; }
@@ -148,7 +156,7 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-switch.is-checked .el-switch__core { background-color: var(--zg-primary) !important; border-color: var(--zg-primary) !important; }
 .el-color-picker__trigger { border-color: rgba(245,158,11,0.3) !important; }
 .el-form-item__label { color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
-.el-message { top: auto !important; bottom: 24px !important; left: 24px !important; background: rgba(255,251,235,0.82) !important; backdrop-filter: blur(16px) saturate(180%) !important; -webkit-backdrop-filter: blur(16px) saturate(180%) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.14) !important; z-index: 99999 !important; animation: zgMsgIn 0.35s cubic-bezier(0.2,0.8,0.2,1) !important; }
+.el-message { top: auto !important; bottom: 24px !important; left: 24px !important; background: rgba(255,251,235,0.82) !important; backdrop-filter: blur(16px) saturate(180%) !important; -webkit-backdrop-filter: blur(16px) saturate(180%) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.14) !important; z-index: 99999 !important; animation: zgMsgIn 0.35s cubic-bezier(0.2,0.8,0.2,1) !important; max-width: 360px !important; }
 .el-message--error { border-color: #f87171 !important; }
 .el-message--success { border-color: #34d399 !important; }
 .el-message-fade-leave-active { transition: all 0.3s ease !important; }
