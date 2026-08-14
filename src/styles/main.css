@@ -139,11 +139,11 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   --el-dialog-border-radius: var(--zg-radius, 18px) !important;
   --el-box-shadow: 0 24px 64px rgba(245,158,11,0.18), 0 8px 24px rgba(0,0,0,0.1) !important;
 }
-/* 遮罩层：轻微模糊，增强毛玻璃观感 */
+/* 遮罩层：中性黑半透明 + 高斯模糊，不污染暖色调 */
 .el-overlay {
-  background: rgba(40, 25, 0, 0.35) !important;
-  backdrop-filter: blur(3px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(3px) saturate(140%) !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+  backdrop-filter: blur(8px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(140%) !important;
 }
 /* 弹窗居中容器（EP 2.x 真实类名）- flex 居中
    margin:auto 让弹窗水平+垂直居中；内容超高时 auto 边距归零、顶部可见可滚动 */
@@ -153,10 +153,10 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   justify-content: center !important;
   padding: 24px !important;
 }
-/* 弹窗本体：毛玻璃 + 圆角跟随主题变量；不强制 width 以尊重各弹窗自带的 width prop */
+/* 弹窗本体：高斯毛玻璃 + 圆角跟随主题变量；不强制 width 以尊重各弹窗自带的 width prop */
 .el-dialog {
   margin: auto !important;
-  background: rgba(255, 251, 235, 0.82) !important;
+  background: rgba(255, 251, 235, 0.55) !important;
   backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
   -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
   border: 1px solid rgba(245, 158, 11, 0.2) !important;
@@ -176,13 +176,24 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   font-weight: 600 !important;
 }
 .el-dialog__headerbtn {
-  width: 44px !important;
-  height: 44px !important;
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  top: 16px !important;
+  right: 16px !important;
+  transition: background .2s, color .2s !important;
 }
 .el-dialog__headerbtn .el-dialog__close {
   color: var(--zg-text-dim) !important;
-  font-size: 18px !important;
+  font-size: 22px !important;
+  font-weight: 300 !important;
   transition: color .2s !important;
+}
+.el-dialog__headerbtn:hover {
+  background: rgba(245, 158, 11, 0.15) !important;
 }
 .el-dialog__headerbtn:hover .el-dialog__close {
   color: var(--zg-primary) !important;
@@ -206,7 +217,7 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 }
 .el-message-box {
   margin: auto !important;
-  background: rgba(255, 251, 235, 0.9) !important;
+  background: rgba(255, 251, 235, 0.55) !important;
   backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
   -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
   border: 1px solid rgba(245, 158, 11, 0.2) !important;
