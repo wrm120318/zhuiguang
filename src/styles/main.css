@@ -137,9 +137,25 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-message-box__message { color: var(--zg-text) !important; }
 .el-message-box__btns { padding: 12px 20px 20px !important; }
 .el-message-box__btns .el-button { border-radius: 10px !important; }
-.el-notification { background: rgba(255,251,235,0.97) !important; backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 14px !important; }
-.el-notification__title { color: var(--zg-text) !important; }
-.el-notification__content { color: var(--zg-text) !important; }
+.el-notification { 
+  background: rgba(255,251,235,0.98) !important; 
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(245,158,11,0.25) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(245,158,11,0.2), 0 4px 12px rgba(0,0,0,0.08) !important;
+  overflow: hidden;
+}
+.el-notification__title { 
+  color: var(--zg-text) !important; 
+  font-weight: 600 !important;
+  font-size: var(--zg-fs-base) !important;
+}
+.el-notification__content { 
+  color: var(--zg-text) !important; 
+  font-size: var(--zg-fs-sm) !important;
+  padding: 4px 0 0 !important;
+}
 .el-table { background: transparent !important; color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
 .el-table tr, .el-table td.el-table__cell, .el-table th.el-table__cell.is-leaf { background: transparent !important; border-color: rgba(245,158,11,0.12) !important; color: var(--zg-text) !important; }
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: rgba(245,158,11,0.08) !important; }
