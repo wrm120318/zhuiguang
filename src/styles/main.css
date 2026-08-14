@@ -131,6 +131,12 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
 .el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
 /* Element Plus 弹窗样式 - 跟随主题变量 */
+:root {
+  --el-dialog-margin-top: 0 !important;
+  --el-dialog-bg-color: rgba(255,251,235,0.95) !important;
+  --el-dialog-border-radius: var(--zg-radius, 18px) !important;
+  --el-box-shadow: 0 20px 60px rgba(245,158,11,0.15), 0 8px 24px rgba(0,0,0,0.08) !important;
+}
 .el-dialog {
   background: rgba(255,251,235,0.95) !important;
   backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
@@ -139,13 +145,13 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   border-radius: var(--zg-radius, 18px) !important;
   box-shadow: 0 20px 60px rgba(245,158,11,0.15), 0 8px 24px rgba(0,0,0,0.08) !important;
   overflow: hidden !important;
-  /* 覆盖 Element Plus 默认样式，确保居中 */
+  /* 强制居中 - 覆盖 Element Plus 默认样式 */
   margin: 0 !important;
   position: fixed !important;
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
-  width: min(600px, 90vw) !important;
+  width: min(600px, 92vw) !important;
 }
 .el-dialog__wrapper {
   padding: 0 !important;
