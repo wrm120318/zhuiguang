@@ -8,6 +8,7 @@
 ## [v2.1.14] - 2026-08-14
 
 ### 修复
+- **Cloudflare 构建失败修复**：移除冗余依赖 `@vitejs/plugin-legacy@8.2.3`，该包要求 `vite@^8.0.0` 与项目 `vite@^5` 产生 peer 冲突，导致 Cloudflare 环境下 `npm ci` 直接 ERESOLVE 报错。该依赖在 `vite.config.ts` 及全项目源码中均无引用，移除不影响任何功能。
 - **Element Plus 弹窗样式彻底修复**：此前多次修改"毫无改观"的根因是使用了 Element UI 1.x 的旧类名 `.el-dialog__wrapper` / `.el-message-box__wrapper`，而 Element Plus 2.x 真实居中容器类名为 `.el-overlay-dialog` / `.el-overlay-message-box`，旧类名在 DOM 中不存在，故 flex 居中规则完全不生效。
 
 ### 变更
