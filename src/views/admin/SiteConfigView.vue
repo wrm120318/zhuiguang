@@ -260,9 +260,9 @@ function resetConfig() {
               </div>
 
               <div class="ql-ops">
-                <el-button :icon="'↑'" circle size="small" :disabled="idx === 0" @click="moveLink(idx, -1)" title="上移" />
-                <el-button :icon="'↓'" circle size="small" :disabled="idx === form.quickLinks.length - 1" @click="moveLink(idx, 1)" title="下移" />
-                <el-button type="danger" :icon="'✕'" circle size="small" @click="removeLink(idx)" title="删除" />
+                <el-button circle size="small" :disabled="idx === 0" @click="moveLink(idx, -1)" title="上移">↑</el-button>
+                <el-button circle size="small" :disabled="idx === form.quickLinks.length - 1" @click="moveLink(idx, 1)" title="下移">↓</el-button>
+                <el-button type="danger" circle size="small" @click="removeLink(idx)" title="删除">✕</el-button>
               </div>
             </div>
 
