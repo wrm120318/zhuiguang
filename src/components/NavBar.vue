@@ -224,7 +224,9 @@ function typeLabel(t: string) {
   <!-- 搜索弹窗 -->
   <el-dialog v-model="searchVisible" title="🔍 搜索" width="600px" class="search-dialog">
     <div class="search-bar">
-      <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch" :prefix-icon="'🔍'" />
+      <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch">
+        <template #prefix><span style="font-size: 16px;">🔍</span></template>
+      </el-input>
       <el-button type="primary" size="large" @click="goSearch">搜索</el-button>
     </div>
     <div class="search-quick" v-if="!searchQuery">

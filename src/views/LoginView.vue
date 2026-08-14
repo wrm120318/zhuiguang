@@ -94,12 +94,22 @@ async function clickFixLoginPage() {
       </div>
 
       <div class="lc-form">
-        <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="👤" @keyup.enter="submit" />
-        <el-input v-model="form.password" type="password" placeholder="密码" size="large" prefix-icon="🔒" show-password @keyup.enter="submit" />
+        <el-input v-model="form.username" placeholder="用户名" size="large" @keyup.enter="submit">
+          <template #prefix><span style="font-size: 16px;">👤</span></template>
+        </el-input>
+        <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password @keyup.enter="submit">
+          <template #prefix><span style="font-size: 16px;">🔒</span></template>
+        </el-input>
         <template v-if="mode === 'register'">
-          <el-input v-model="form.realName" placeholder="真实姓名" size="large" prefix-icon="✏️" :disabled="!regEnabled" />
-          <el-input v-model="form.email" placeholder="邮箱（选填）" size="large" prefix-icon="📧" :disabled="!regEnabled" />
-          <el-input v-model="form.phone" placeholder="手机号（选填）" size="large" prefix-icon="📱" :disabled="!regEnabled" />
+          <el-input v-model="form.realName" placeholder="真实姓名" size="large" :disabled="!regEnabled">
+            <template #prefix><span style="font-size: 16px;">✏️</span></template>
+          </el-input>
+          <el-input v-model="form.email" placeholder="邮箱（选填）" size="large" :disabled="!regEnabled">
+            <template #prefix><span style="font-size: 16px;">📧</span></template>
+          </el-input>
+          <el-input v-model="form.phone" placeholder="手机号（选填）" size="large" :disabled="!regEnabled">
+            <template #prefix><span style="font-size: 16px;">📱</span></template>
+          </el-input>
           <div v-if="!regEnabled" class="reg-disabled-tip">管理员已关闭自助注册，请联系老师</div>
         </template>
         <el-button type="primary" size="large" round :loading="loading" @click="submit" style="width:100%; height:48px; font-size:16px; font-weight:600;" :disabled="mode === 'register' && !regEnabled">
