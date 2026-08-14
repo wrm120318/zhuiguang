@@ -130,22 +130,22 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px var(--zg-primary) inset !important; }
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
 .el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
+/* Element Plus 弹窗样式 - 跟随主题变量 */
 .el-dialog {
-  background: rgba(255,251,235,0.98) !important;
-  backdrop-filter: blur(32px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(220%) !important;
-  border: 1px solid rgba(245,158,11,0.3) !important;
-  border-radius: 24px !important;
-  box-shadow:
-    0 24px 80px rgba(245,158,11,0.25),
-    0 12px 32px rgba(0,0,0,0.12),
-    inset 0 1px 0 rgba(255,255,255,0.6) !important;
+  background: rgba(255,251,235,0.95) !important;
+  backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
+  border: 1px solid rgba(245,158,11,0.2) !important;
+  border-radius: var(--zg-radius, 18px) !important;
+  box-shadow: 0 20px 60px rgba(245,158,11,0.15), 0 8px 24px rgba(0,0,0,0.08) !important;
   overflow: hidden !important;
+  /* 覆盖 Element Plus 默认样式，确保居中 */
   margin: 0 !important;
   position: fixed !important;
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
+  width: min(600px, 90vw) !important;
 }
 .el-dialog__wrapper {
   padding: 0 !important;
@@ -154,35 +154,32 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   justify-content: center !important;
 }
 .el-dialog__header {
-  padding: 24px 28px 20px !important;
-  border-bottom: 1px solid rgba(245,158,11,0.15) !important;
+  padding: 20px 24px 16px !important;
+  border-bottom: 1px solid rgba(245,158,11,0.12) !important;
   background: rgba(255,251,235,0.6) !important;
 }
 .el-dialog__title {
   color: var(--zg-text) !important;
-  font-size: var(--zg-fs-xl) !important;
-  font-weight: 700 !important;
+  font-size: var(--zg-fs-lg) !important;
+  font-weight: 600 !important;
 }
 .el-dialog__body {
-  padding: 28px !important;
+  padding: 24px !important;
   color: var(--zg-text) !important;
   background: transparent !important;
 }
 .el-dialog__footer {
-  padding: 20px 28px 28px !important;
-  border-top: 1px solid rgba(245,158,11,0.15) !important;
+  padding: 16px 24px 24px !important;
+  border-top: 1px solid rgba(245,158,11,0.12) !important;
   background: rgba(255,251,235,0.6) !important;
 }
 .el-message-box {
-  background: rgba(255,251,235,0.98) !important;
-  backdrop-filter: blur(32px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(220%) !important;
-  border: 1px solid rgba(245,158,11,0.3) !important;
-  border-radius: 24px !important;
-  box-shadow:
-    0 24px 80px rgba(245,158,11,0.25),
-    0 12px 32px rgba(0,0,0,0.12),
-    inset 0 1px 0 rgba(255,255,255,0.6) !important;
+  background: rgba(255,251,235,0.95) !important;
+  backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-blur, 16px)) saturate(180%) !important;
+  border: 1px solid rgba(245,158,11,0.2) !important;
+  border-radius: var(--zg-radius, 18px) !important;
+  box-shadow: 0 20px 60px rgba(245,158,11,0.15), 0 8px 24px rgba(0,0,0,0.08) !important;
 }
 .el-message-box__wrapper {
   display: flex !important;
@@ -190,30 +187,29 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   justify-content: center !important;
 }
 .el-message-box__header {
-  padding: 28px 28px 20px !important;
-  border-bottom: 1px solid rgba(245,158,11,0.15) !important;
+  padding: 24px 24px 16px !important;
+  border-bottom: 1px solid rgba(245,158,11,0.12) !important;
 }
 .el-message-box__title {
   color: var(--zg-text) !important;
-  font-size: var(--zg-fs-xl) !important;
-  font-weight: 700 !important;
+  font-size: var(--zg-fs-lg) !important;
+  font-weight: 600 !important;
 }
 .el-message-box__content {
-  padding: 24px 28px !important;
+  padding: 20px 24px !important;
   color: var(--zg-text) !important;
   font-size: var(--zg-fs-base) !important;
   line-height: 1.7 !important;
 }
 .el-message-box__btns {
-  padding: 20px 28px 28px !important;
-  border-top: 1px solid rgba(245,158,11,0.15) !important;
+  padding: 16px 24px 24px !important;
+  border-top: 1px solid rgba(245,158,11,0.12) !important;
   background: rgba(255,251,235,0.6) !important;
 }
 .el-message-box__btns .el-button {
-  border-radius: 14px !important;
-  font-weight: 600 !important;
-  padding: 12px 32px !important;
-  font-size: var(--zg-fs-base) !important;
+  border-radius: 12px !important;
+  font-weight: 500 !important;
+  padding: 10px 24px !important;
 }
 .el-notification { 
   background: rgba(255,251,235,0.98) !important; 
