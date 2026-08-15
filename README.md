@@ -8,13 +8,14 @@
 |---|---|
 | 项目中文名 | 追光 · 学科共享平台 |
 | 项目英文名 | zhuiguang |
-| 用户访问域名 | https://xkzg.dpdns.org |
+| 用户访问域名 | https://xkzg.de5.net |
+| 后端 API 域名 | https://api.xkzg.dpdns.org |
 | GitHub 仓库 | https://github.com/wrm120318/zhuiguang |
 | 项目类型 | 中学校园师生学科学习共享站 |
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
 | 默认超管账号 | `admin` / `admin123456` |
 | 开源协议 | MIT |
-| 当前版本 | v2.1.1（Cloudflare Workers + D1 无服务器架构，单题训练教师批改模式） |
+| 当前版本 | v2.1.18（Cloudflare Workers + D1 无服务器架构，单题训练教师批改模式） |
 
 ---
 
@@ -63,12 +64,12 @@
 
 ## 技术架构总览
 
-项目从早期的「Pinggy SSH 隧道 + 本地 Node.js Express」架构，已迁移至 Cloudflare 无服务器架构，彻底告别隧道、零绑卡、全球 CDN 秒开、永不休眠。
+项目已从早期的「Pinggy SSH 隧道 + 本地 Node.js Express」架构迁移至 Cloudflare 无服务器架构，彻底告别隧道、零绑卡、全球 CDN 秒开、永不休眠。
 
 ### 架构图
 
 ```
-用户浏览器访问: https://xkzg.dpdns.org
+用户浏览器访问: https://xkzg.de5.net
         |
         v
 +---------------------------+     前端静态资源（Vue 3 SPA）
@@ -76,9 +77,9 @@
 |   (Vue 3 + Element Plus)  |     SPA fallback，刷新不 404
 +---------------------------+
         |
-        | API 请求（VITE_API_BASE_URL 指向 Worker 地址）
+        | API 请求（同源模式：/api/xxx → Worker）
         v
-+---------------------------+     后端 API（Hono 框架，115+ 路由）
++---------------------------+     后端 API（Hono 框架，136+ 路由）
 |   Cloudflare Workers      |     worker-api.ts 部署
 |   (Hono + JWT Auth)       |     全球边缘运行，10 万请求/天免费
 +---------------------------+
@@ -180,6 +181,7 @@ npm run dev
 | `npm run build` | 构建前端生产包到 dist/（vue-tsc 类型检查 + vite build） |
 | `npm run preview` | 构建后以生产模式启动 |
 | `npm start` | 以生产模式启动后端（server/index.ts） |
+| `npm run deploy` | 构建 + 部署到 Cloudflare Workers |
 
 ### 本地数据库
 
@@ -189,7 +191,7 @@ npm run dev
 
 ## 部署步骤概要
 
-云端部署分前端（Cloudflare Pages）和后端（Cloudflare Workers + D1）两部分，全程零绑卡。详细步骤见 `Workers-D1上云指南.md`。
+云端部署分前端（Cloudflare Pages）和后端（Cloudflare Workers + D1）两部分，全程零绑卡。
 
 ### 第一步：创建 D1 数据库
 
@@ -231,14 +233,13 @@ npx wrangler deploy
 1. 在 Cloudflare Pages 创建项目，连接 GitHub 仓库 `wrm120318/zhuiguang`
 2. 构建命令：`npm run build`
 3. 输出目录：`dist`
-4. 环境变量：`VITE_API_BASE_URL` = 你的 Worker URL（或绑定的自定义域名）
-5. 绑定自定义域名 `xkzg.dpdns.org`
+4. 绑定自定义域名 `xkzg.de5.net`
 
 > Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
 
 ### 第六步：验证
 
-访问 https://xkzg.dpdns.org，使用 `admin / admin123456` 登录，确认各功能正常。
+访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常。
 
 ---
 
@@ -248,7 +249,7 @@ npx wrangler deploy
 zhuiguang/
 ├── src/                          # 前端源码（Vue 3）
 │   ├── api/                      # API 请求封装
-│   │   ├── http.ts               # axios 实例，动态 API BaseURL
+│   │   ├── http.ts               # axios 实例，同源模式（/api/xxx）
 │   │   └── index.ts              # API 接口定义
 │   ├── components/               # 公共组件（NavBar、MobileTabBar）
 │   ├── layouts/                  # 布局组件（AdminLayout）
@@ -257,22 +258,17 @@ zhuiguang/
 │   ├── styles/                   # 全局样式
 │   ├── types/                    # TypeScript 类型定义
 │   ├── utils/                    # 工具函数（helpers、markdown）
-│   ├── src/views/                    # 页面视图
+│   ├── views/                    # 页面视图
 │   │   ├── admin/                # 管理后台页面（审核、用户、学科、班级等）
-│   │   └── quiz/                 # 题库相关页面
-│   │       ├── PracticeTakeView.vue     # 单题训练作答/结果/教师批改三合一页（支持?grade=subId批改模式）
-│   │       ├── PracticeRecordsView.vue  # 我的训练记录页（学生）
-│   │       └── PracticeStatsView.vue    # 单题训练统计页（教师/超管）
+│   │   ├── quiz/                 # 题库相关页面
+│   │   └── ...                   # 其他页面（首页、登录、个人资料等）
 │   ├── App.vue
 │   └── main.ts                   # 前端入口
-├── server/                       # 本地后端（Express，已迁移至 Worker，保留作本地开发）
-│   ├── index.ts                  # Express 服务入口（本地开发用）
-│   ├── auth.ts                   # 认证中间件
-│   ├── db.ts                     # 数据库连接
-│   ├── helpers.ts                # 业务辅助函数
-│   ├── storage.ts                # Supabase 存储辅助
+├── server/                       # 本地后端（Express，仅本地开发用）
+│   ├── index.ts                  # Express 服务入口
+│   ├── auth.ts / db.ts / helpers.ts / storage.ts
 │   └── local.db                  # 本地 SQLite 数据库（不入库）
-│   ├── worker-api.ts                 # Cloudflare Workers 后端（Hono，生产用，136 路由）
+├── worker-api.ts                 # Cloudflare Workers 后端（Hono，生产用，136 路由）
 ├── schema.sql                    # D1 完整建表脚本（23 张表 + 索引）
 ├── wrangler.toml                 # Cloudflare Workers 配置（D1 binding + 环境变量）
 ├── scripts/                      # 运维脚本
@@ -290,6 +286,7 @@ zhuiguang/
 ├── CONTRIBUTING.md               # 开发规范
 ├── CHANGELOG.md                  # 版本日志
 ├── FAQ.md                        # 常见问题
+├── DEPLOY_CHECKLIST.md           # 部署检查清单
 └── LICENSE                       # MIT 协议
 ```
 
@@ -312,6 +309,10 @@ zhuiguang/
 - Bug9 大修复全部完成并回归验证（详见 CHANGELOG v1.1.0）
 - 本地 → D1 数据迁移脚本
 - 全套交接文档与运维脚本
+- 主题发布全局生效修复（v2.1.7+）
+- Markdown 编辑器支持（v2.1.12+）
+- Markdown 空格保留修复（v2.1.13+）
+- 弹窗关闭按钮统一为极简线条样式（v2.1.14-v2.1.18）
 
 ### 架构演进
 
@@ -320,9 +321,13 @@ zhuiguang/
 | v1.0.0 | Pinggy SSH 隧道 + 本地 Node.js Express + SQLite | 已废弃 |
 | v1.1.0 | 同上 + Bug9 修复 | 已废弃 |
 | v1.2.0 | Worker v5 双路兜底 + start-all 依赖加固 | 已废弃 |
-| v2.0.0 | Cloudflare Workers + D1 + Pages + Supabase（当前） | 运行中 |
+| v2.0.0 | Cloudflare Workers + D1 + Pages + Supabase | 已上线 |
 | v2.1.0 | 单题训练按题维度统计 + 训练记录管理 | 已上线 |
-| v2.1.1 | 单题训练教师批改模式补全（BUG-22修复） | 运行中 |
+| v2.1.1 | 单题训练教师批改模式补全（BUG-22修复） | 已上线 |
+| v2.1.7 | 主题发布全局生效修复 | 已上线 |
+| v2.1.12 | Markdown 编辑器支持 | 已上线 |
+| v2.1.13 | Markdown 空格保留修复 | 已上线 |
+| v2.1.14-v2.1.18 | 弹窗关闭按钮统一修复 | 已上线（当前） |
 
 ---
 
@@ -378,7 +383,7 @@ zhuiguang/
 
 ### 10. 已修复 Bug 不得改回
 
-详见 `交接文档_追光学科共享平台 v2.1.md` 第 10 章和 `CHANGELOG.md`。新维护者改代码前务必先读交接文档，避免把已修好的 Bug 改回去。
+详见 `交接文档.md` 第 10 章和 `CHANGELOG.md`。新维护者改代码前务必先读交接文档，避免把已修好的 Bug 改回去。
 
 ---
 
@@ -387,7 +392,7 @@ zhuiguang/
 | 本地路径 | 云端服务 | 部署方式 | 说明 |
 |---|---|---|---|
 | `dist/` | Cloudflare Pages | Git 连接仓库自动构建 | 前端生产包，构建命令 `npm run build`，输出目录 `dist` |
-| `worker-api.ts` | Cloudflare Workers | `npx wrangler deploy` | 后端 API（Hono，115+ 路由） |
+| `worker-api.ts` | Cloudflare Workers | `npx wrangler deploy` | 后端 API（Hono，136+ 路由） |
 | `schema.sql` | Cloudflare D1 | `npx wrangler d1 execute --file=schema.sql` | 建表脚本（23 张表 + 索引） |
 | `wrangler.toml` | Cloudflare Workers | 配置文件（不单独部署） | D1 binding + 环境变量 |
 | `public/_headers` `public/_redirects` | Cloudflare Pages | 随构建部署 | CDN 头部与 SPA fallback 重定向 |
@@ -401,9 +406,9 @@ zhuiguang/
 
 | 用途 | 地址 |
 |---|---|
-| 用户访问 | https://xkzg.dpdns.org |
-| 前端 | Cloudflare Pages 绑定 `xkzg.dpdns.org` |
-| 后端 API | Cloudflare Workers（`zhuiguang-api`），通过 `VITE_API_BASE_URL` 注入前端 |
+| 用户访问 | https://xkzg.de5.net |
+| 前端 | Cloudflare Pages 绑定 `xkzg.de5.net` |
+| 后端 API | Cloudflare Workers（`zhuiguang-api`），同源模式（`/api/xxx`） |
 | Supabase | https://njwkkinzgmwzyfifagwl.supabase.co（Bucket: `zhuiguang`） |
 
 ---
@@ -419,9 +424,9 @@ zhuiguang/
 | 文档 | 说明 |
 |---|---|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范、分支管理、提交标准、测试要求 |
-| [工作日志_追光学科共享平台 v2.1.md](工作日志_追光学科共享平台.md) | 开发运维工作日志 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本更新日志 |
 | [FAQ.md](FAQ.md) | 高频问题问答库 |
-| 交接文档_追光学科共享平台 v2.1.md | 完整交接文档（凭证、架构、Bug 清单、运维） |
-| 开发工作日志_追光平台.md | 逐条开发操作记录 |
-| Workers-D1上云指南.md | Cloudflare Workers + D1 + Pages 部署详细指南 |
+| [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) | 部署检查清单 |
+| [工作日志_追光学科共享平台.md](工作日志_追光学科共享平台.md) | 开发运维工作日志 |
+| [开发工作日志_追光平台.md](开发工作日志_追光平台.md) | 逐条开发操作记录 |
+| [交接文档.md](交接文档.md) | 完整交接文档（凭证、架构、Bug 清单、运维） |
