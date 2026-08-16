@@ -91,7 +91,7 @@ npx wrangler deploy
 | 用途 | 地址 |
 |---|---|
 | 用户访问 | https://xkzg.de5.net |
-| 后端 API | https://api.xkzg.de5.net（同源模式 `/api/xxx`） |
+| 后端 API | https://api.xkzg.dpdns.org（同源模式 `/api/xxx`） |
 | Supabase | https://njwkkinzgmwzyfifagwl.supabase.co（Bucket: `zhuiguang`） |
 
 ---

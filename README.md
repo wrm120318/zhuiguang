@@ -9,7 +9,7 @@
 | 项目中文名 | 追光 · 学科共享平台 |
 | 项目英文名 | zhuiguang |
 | 用户访问域名 | https://xkzg.de5.net |
-| 后端 API 域名 | https://api.xkzg.de5.net |
+| 后端 API 域名 | https://api.xkzg.dpdns.org |
 | GitHub 仓库 | https://github.com/wrm120318/zhuiguang |
 | 项目类型 | 中学校园师生学科学习共享站 |
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
