@@ -1,14 +1,31 @@
 <script setup lang="ts">
-import { reactive, watch, onMounted } from 'vue'
+import { reactive, watch, onMounted, ref } from 'vue'
 import { useThemeStore } from '@/store/theme'
 import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
 const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, name: '我的主题', isActive: false, id: null })
 
+// v3.1：从数据库活跃主题读取当前全局界面风格
+const glassMode = ref<'liquid' | 'classic'>('liquid')
 onMounted(() => {
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
+  // 从数据库活跃主题读取当前全局界面风格
+  glassMode.value = (theme.activeTheme?.config?.visualMode as any) || glassMode.value
 })
+
+// v3.1：界面风格改为全站生效——写入数据库 activeTheme，所有用户/浏览器统一
+async function setGlassMode(m: 'liquid' | 'classic') {
+  glassMode.value = m
+  try {
+    await theme.setGlobalVisualMode(m)
+    ElMessage.success(m === 'classic'
+      ? '已切换为经典实色模式，已对全站所有用户/浏览器生效'
+      : '已切换为液态玻璃模式，已对全站所有用户/浏览器生效')
+  } catch (e: any) {
+    ElMessage.error('切换失败：' + (e?.message || '未知错误'))
+  }
+}
 
 watch(d, () => { theme.preview({ ...d }) }, { deep: true })
 
@@ -21,12 +38,15 @@ function pickTheme(id: number) {
 }
 
 async function publish() {
-  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius }, isActive: true })
+  // v3.1：发布时包含 visualMode，确保全站生效
+  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, visualMode: glassMode.value }, isActive: true })
   ElMessage.success('主题已发布，全站即时生效')
 }
 function reset() {
   theme.reset()
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
+  // 同步界面风格
+  glassMode.value = (theme.activeTheme?.config?.visualMode as any) || 'liquid'
   ElMessage.info('已恢复为当前线上主题')
 }
 </script>
@@ -35,6 +55,21 @@ function reset() {
   <div class="theme-page">
     <h1 class="dh-title">🎨 界面风格编辑器</h1>
     <p class="tip">实时调整全局配色、毛玻璃强度、圆角，发布后全站生效。</p>
+
+    <!-- v3.1：双模式切换（全站生效） -->
+    <div class="mode-switch glass-mini">
+      <span class="mode-label">界面风格：</span>
+      <button class="mode-btn" :class="{ active: glassMode === 'liquid' }" @click="setGlassMode('liquid')">
+        <span class="mode-icon">✨</span>
+        <span class="mode-text">液态玻璃</span>
+        <span class="mode-tag">推荐</span>
+      </button>
+      <button class="mode-btn" :class="{ active: glassMode === 'classic' }" @click="setGlassMode('classic')">
+        <span class="mode-icon">🟡</span>
+        <span class="mode-text">经典实色</span>
+        <span class="mode-tag alt">省电</span>
+      </button>
+    </div>
 
     <div class="theme-row">
       <div class="edit-panel glass">
@@ -151,6 +186,18 @@ function reset() {
 .bg-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .bg-row span { font-size:12px; color:var(--zg-text-dim); }
 .ep-actions { display:flex; gap:12px; margin-top:24px; }
+
+/* v3.1：界面风格切换样式 */
+.mode-switch { display:flex; align-items:center; gap:12px; padding:16px 24px; margin-bottom:24px; }
+.mode-label { font-size:14px; color:var(--zg-text-dim); font-weight:600; }
+.mode-btn { display:flex; align-items:center; gap:8px; padding:10px 20px; border-radius:12px; border:1px solid var(--zg-glass-border); background:var(--zg-glass-bg); cursor:pointer; font-size:14px; color:var(--zg-text); transition:all .2s ease; }
+.mode-btn.active { border-color:var(--zg-primary); background:rgba(245,158,11,.12); }
+.mode-btn:hover { background:rgba(245,158,11,.08); }
+.mode-icon { font-size:16px; }
+.mode-text { font-weight:600; }
+.mode-tag { font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(245,158,11,.15); color:var(--zg-primary); }
+.mode-tag.alt { background:rgba(100,100,100,.1); color:var(--zg-text-dim); }
+
 .pp-label { font-size:13px; color:var(--zg-text-dim); margin-bottom:10px; font-weight:600; }
 .pp-demo { padding:24px; }
 .pp-nav { display:flex; align-items:center; gap:16px; padding:12px 20px; border-radius:14px; margin-bottom:20px; flex-wrap:wrap; }
@@ -163,7 +210,7 @@ function reset() {
 .pp-card-title { font-weight:700; }
 .pp-card-desc { font-size:12px; color:var(--zg-text-dim); margin-top:2px; }
 .pp-grad { font-size:12px; color:var(--zg-text-dim); text-align:center; padding-top:16px; border-top:1px dashed rgba(245,158,11,.15); }
-@media (max-width:980px){ .theme-row{grid-template-columns:1fr;} }
+@media (max-width:980px){ .theme-row{grid-template-columns:1fr;} .mode-switch{flex-wrap:wrap;} }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }
@@ -194,6 +241,8 @@ function reset() {
   .pp-card-title { font-size: 14px; }
   .pp-card-desc { font-size: 11px; }
   .pp-grad { font-size: 11px; padding-top: 12px; }
+  .mode-switch { padding: 12px 16px; }
+  .mode-btn { padding: 8px 14px; font-size: 13px; }
 }
 
 @media (min-width: 1200px) {
@@ -227,5 +276,7 @@ function reset() {
   .pp-card-title { font-size: 16px; }
   .pp-card-desc { font-size: 13px; }
   .pp-grad { font-size: 13px; padding-top: 20px; }
+  .mode-switch { padding: 20px 32px; }
+  .mode-btn { padding: 12px 24px; font-size: 15px; }
 }
 </style>
