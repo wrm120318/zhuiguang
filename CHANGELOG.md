@@ -5,6 +5,28 @@
 
 ---
 
+## [v2.1.19] - 2026-08-16
+
+### 文档完善
+- **全量文档更新**：所有 md 文件和 txt 提示词同步更新，版本号统一为 v2.1.19
+- **域名统一**：FAQ.md、CONTRIBUTING.md、提示词文件中混用的 `xkzg.dpdns.org` 统一为 `xkzg.de5.net`
+- **DEPLOY_CHECKLIST.md 重写**：从已废弃的 Render 部署方案重写为 Cloudflare Workers + D1 + Pages 部署清单
+- **交接文档更新**：版本号、架构演进表、文档更新记录同步
+- **提示词更新**：域名统一、版本号同步
+
+### 修复
+- **Cloudflare Pages 构建失败**：移除 `@vitejs/plugin-legacy@8.2.3`（要求 vite@^8 与项目 vite@5 冲突）
+- **清理液态玻璃残留代码**：删除 `theme.ts` 中 `visualMode`/`setGlobalVisualMode`、`ThemeView.vue` 中界面风格切换 UI、`App.vue` 中 localStorage 兜底逻辑
+
+### 修改文件
+- `README.md`、`CHANGELOG.md`、`FAQ.md`、`CONTRIBUTING.md`、`DEPLOY_CHECKLIST.md`
+- `交接文档.md`、`给新AI维护者的提示词_首条消息必贴.txt`
+- `工作日志_追光学科共享平台.md`、`开发工作日志_追光平台.md`
+- `src/store/theme.ts`、`src/views/admin/ThemeView.vue`、`src/App.vue`
+- `package.json`、`package-lock.json`
+
+---
+
 ## [v2.1.18] - 2026-08-14
 
 ### 修复

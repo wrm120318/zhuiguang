@@ -1,52 +1,119 @@
-# 追光部署清单（你只要做 7 件事，其它我都弄好了）
+# 追光部署清单（Cloudflare Workers + D1 + Pages）
 
-> 所有自动化已配好：构建脚本、render.yaml、GitHub Actions、SPA fallback、数据库自动初始化、种子数据。
-> 本地验证已通过：`npm run build` ✅、生产模式 HTTP 200 ✅、API 返回正常 ✅
-
----
-
-## 📋 7 步完成部署（每步点链接 → 复制粘贴 → 下一步）
-
-| # | 步骤 | 链接 / 操作 | 需要你填到 Render 的值 |
-|---|---|---|---|
-| 1 | **推代码到 GitHub** | 在 GitHub 创建空仓库（不要加 README），然后在项目目录跑：<br>`git remote add origin https://github.com/<你的用户名>/zhuiguang.git`<br>`git push -u origin main` | — |
-| 2 | **注册 Turso（数据库，免费 9GB）** | 👉 [https://turso.tech](https://turso.tech)（GitHub 一键登录）<br>→ Create Database → 名字随便 → Create<br>→ 点 **Create Token** 复制 token<br>→ 复制数据库 URL（`libsql://...turso.io`） | `TURSO_DATABASE_URL` = 数据库 URL<br>`TURSO_AUTH_TOKEN` = token |
-| 3 | **注册 Supabase（文件存储，免费 1GB）** | 👉 [https://supabase.com](https://supabase.com)（GitHub 一键登录）<br>→ New Project → 名字随便选新加坡 → Create new project<br>→ 等 2 分钟 → **Storage** → **New bucket**<br>&nbsp;&nbsp;Bucket name: `zhuiguang-files` → 勾选 **Public** → Create bucket<br>→ **Settings → API**：复制 Project URL 和 service_role key | `SUPABASE_URL` = Project URL<br>`SUPABASE_SERVICE_KEY` = service_role key<br>`SUPABASE_BUCKET` = `zhuiguang-files` |
-| 4 | **Render 新建服务** | 👉 [https://dashboard.render.com](https://dashboard.render.com)<br>→ **New → Web Service**<br>→ 连接你第 1 步创建的 `zhuiguang` 仓库<br>→ Render 会自动读取 render.yaml，点 **Create Web Service** | — |
-| 5 | **填环境变量** | 在 Render 服务页 → **Environment → Environment Variables**<br>把上面 2、3 步拿到的值一条条 Add：<br>Key 填左边列，Value 填右边列 → Add | `TURSO_DATABASE_URL` = …<br>`TURSO_AUTH_TOKEN` = …<br>`SUPABASE_URL` = …<br>`SUPABASE_SERVICE_KEY` = …<br>`SUPABASE_BUCKET` = `zhuiguang-files`<br>(JWT_SECRET 已经让 Render 自动生成，不用管) |
-| 6 | **等部署** | 看 Logs 里出现：<br>`[server] 追光后端运行于 http://localhost:xxxx` + 绿色 Live = 成功 | — |
-| 7 | **登录用** | 访问你分配的 `https://zhuiguang.onrender.com`（或你自定义的域名） | 超管：`admin` / `admin123456` |
+> 全免费、零绑卡、无服务器架构。GitHub push 自动构建前端，wrangler CLI 部署后端。
+> 本地验证已通过：`npm run build` 通过、线上 HTTP 200 正常。
 
 ---
 
-## ⚠️ 3 个小坑（提前避开，少走半小时弯路）
+## 前提条件
 
-1. **Supabase bucket 必须是 Public 的**：创建 bucket 时勾选 Public，不然上传的图片/文件前端打不开
-2. **SUPABASE_SERVICE_KEY 别填成 anon key**：在 Settings → API 里有两个 key，service_role 那个才是，长的
-3. **Render 免费实例 15 分钟没访问会休眠**：首次打开要等 10-30 秒冷启动，不影响使用。介意就把 plan 改成 Starter($7/月)
+| 服务 | 用途 | 状态 |
+|---|---|---|
+| Cloudflare 账号 | Pages 前端 + Workers 后端 + D1 数据库 | 已有 |
+| Supabase 账号 | 文件存储（Bucket: `zhuiguang`，Public） | 已有 |
+| GitHub 账号 | 代码仓库 + Pages 自动部署触发 | 已有 |
 
 ---
 
-## 🔧 后续维护（自动的，不用管）
+## 部署步骤
 
-| 功能 | 已配好 |
+### 第一步：创建 D1 数据库（首次部署）
+
+```bash
+npx wrangler d1 create zhuiguang-db
+# 将返回的 database_id 填入 wrangler.toml
+```
+
+### 第二步：建表 + 写入种子数据
+
+```bash
+# 建表（23 张表 + 索引）
+npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql
+
+# 验证
+npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM users"
+```
+
+### 第三步：配置环境变量
+
+编辑 `wrangler.toml`，填写以下配置：
+
+| 变量名 | 说明 | 获取位置 |
+|---|---|---|
+| `JWT_SECRET` | JWT 签名密钥 | 自行生成随机字符串（32 位以上） |
+| `SUPABASE_URL` | Supabase 项目 URL | Supabase Dashboard → Settings → API → Project URL |
+| `SUPABASE_SERVICE_KEY` | Supabase service_role key | Supabase Dashboard → Settings → API → service_role（**不是** anon key） |
+| `SUPABASE_BUCKET` | Supabase 存储桶名 | 固定值 `zhuiguang` |
+
+### 第四步：部署后端 Worker
+
+```bash
+cd /workspace
+source .env
+npx wrangler deploy
+# 输出 Worker URL：https://zhuiguang-api.<子域名>.workers.dev
+```
+
+> **注意**：`source .env` 加载 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 后，`wrangler deploy` 才能正常工作。Pages 不会自动部署 Worker，改了 `worker-api.ts` 必须手动执行此步。
+
+### 第五步：部署前端到 Cloudflare Pages
+
+1. Cloudflare Dashboard → Pages → Create project → Connect to Git
+2. 选择 GitHub 仓库 `wrm120318/zhuiguang`
+3. 构建命令：`npm run build`
+4. 输出目录：`dist`
+5. 绑定自定义域名 `xkzg.de5.net`
+
+> Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
+
+### 第六步：验证
+
+访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常。
+
+---
+
+## 日常维护命令速查
+
+| 操作 | 命令 |
 |---|---|
-| GitHub push → Render 自动重部署 | ✅ autoDeploy: yes |
-| 数据库自动建表 + 超管/学科/主题种子数据 | ✅ initDB() 启动时跑 |
-| SPA 路由刷新不 404 | ✅ dist/index.html fallback |
-| 文件上传走 Supabase 云端，不丢 | ✅ Supabase Storage |
-| HTTPS + 自定义域名 | ✅ Render 自带，加条 CNAME 就行 |
+| 部署后端 | `cd /workspace && source .env && npx wrangler deploy` |
+| 部署前端 | `git push origin main`（Pages 自动构建） |
+| 构建前端 | `cd /workspace && npm run build` |
+| 查询 D1 | `npx wrangler d1 execute zhuiguang-db --remote --command="SQL"` |
+| 执行建表脚本 | `npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql` |
+| Workers 实时日志 | `cd /workspace && npx wrangler tail` |
+| 本地开发 | `npm run dev`（前端 5173 + 后端 3001） |
 
 ---
 
-## ❌ 不部署 Turso+Supabase 会怎样？
+## 域名与访问
 
-Render 没有持久盘，每次部署数据库和上传文件都会清空。
-如果不配 Turso，程序可以跑（用本地临时 SQLite），但 **每重启一次管理员账号就没了，数据全丢**。所以 Turso 和 Supabase 一定要配。
+| 用途 | 地址 |
+|---|---|
+| 用户访问 | https://xkzg.de5.net |
+| 后端 API | https://api.xkzg.de5.net（同源模式 `/api/xxx`） |
+| Supabase | https://njwkkinzgmwzyfifagwl.supabase.co（Bucket: `zhuiguang`） |
 
 ---
 
-### 完成后告诉我：
-- 部署成功了没？
-- Render 日志有没报错？
-- 登录后各页面能正常打开吗？
+## 注意事项
+
+1. **Supabase Bucket 必须是 Public**：否则上传的图片/文件前端打不开
+2. **SUPABASE_SERVICE_KEY 是 service_role key**：不是 anon key，在 Settings → API 中选较长的那个
+3. **改了 `worker-api.ts` 须手动 `npx wrangler deploy`**：Pages 不会自动部署 Worker
+4. **改了 `schema.sql` 须手动执行**：`npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql`
+5. **密钥不入库**：`.env` 和 `server/local.db` 在 `.gitignore` 中排除
+6. **Cloudflare 免费额度充足**：Workers 10 万请求/天、D1 5GB、Pages 无限请求
+
+---
+
+## 故障排查
+
+| 现象 | 可能原因 | 解决方法 |
+|---|---|---|
+| 前端白屏 | Pages 构建未完成 / CDN 缓存旧版本 | 等 1-2 分钟构建完成，强刷浏览器 Ctrl+Shift+R |
+| 接口返回 401 | JWT Token 过期（7 天有效） | 重新登录 |
+| 接口返回 500 | Worker 未部署 / 代码报错 | `npx wrangler tail` 查看日志，确认 `wrangler deploy` 已执行 |
+| 大文件上传失败 | Supabase 配置错误 | 检查 `wrangler.toml` 中 Supabase 三项配置 |
+| 图片打不开 | Supabase Bucket 不是 Public | Supabase 后台将 Bucket `zhuiguang` 设为 Public |
+| 改了代码用户看不到 | 浏览器缓存旧 JS | 强刷浏览器，版本戳机制会自动更新 |

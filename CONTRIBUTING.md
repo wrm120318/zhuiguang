@@ -247,7 +247,7 @@ SQLite 返回的 lastInsertRowid 为 BigInt，JSON.stringify 报错。
 1. git push origin main（推送到 GitHub）
 2. Cloudflare Pages 自动构建部署前端
 3. 如改了 worker-api.ts → npx wrangler deploy（手动部署后端）
-4. 访问 https://xkzg.dpdns.org 验证
+4. 访问 https://xkzg.de5.net 验证
 5. 如改了 schema.sql → npx wrangler d1 execute（手动执行建表/迁移）
 ```
 
@@ -348,7 +348,7 @@ npm run build
 
 #### （5）生产验证
 
-发布后**必须**自己打开 https://xkzg.dpdns.org 验证，不要直接说"改好了"。
+发布后**必须**自己打开 https://xkzg.de5.net 验证，不要直接说"改好了"。
 
 ### 7.2 回归测试脚本
 

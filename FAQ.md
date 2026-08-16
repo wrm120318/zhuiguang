@@ -1,7 +1,7 @@
 # 常见问题（FAQ）
 
 > 本文件收集「追光 · 学科共享平台」使用与运维中的高频问题。
-> 用户访问地址：https://xkzg.dpdns.org ｜ 默认超管账号：`admin` / `admin123456`
+> 用户访问地址：https://xkzg.de5.net ｜ 默认超管账号：`admin` / `admin123456`
 
 ---
 
@@ -174,7 +174,7 @@ Body: { "password": "新密码" }
 
 ### 前提条件
 
-- Cloudflare 账号（已有，绑定 `xkzg.dpdns.org`）
+- Cloudflare 账号（已有，绑定 `xkzg.de5.net`）
 - Supabase 账号（已有，Project: `njwkkinzgmwzyfifagwl`）
 - 全程零绑卡
 
@@ -216,11 +216,11 @@ npx wrangler deploy
 3. 构建命令：`npm run build`
 4. 输出目录：`dist`
 5. 环境变量：`VITE_API_BASE_URL` = Worker URL
-6. 绑定自定义域名 `xkzg.dpdns.org`
+6. 绑定自定义域名 `xkzg.de5.net`
 
 **第六步：验证**
 
-访问 https://xkzg.dpdns.org，用 `admin / admin123456` 登录。
+访问 https://xkzg.de5.net，用 `admin / admin123456` 登录。
 
 ### 注意事项
 
@@ -338,7 +338,7 @@ npx wrangler d1 execute zhuiguang-db --remote --file=backup.sql
 
 ### 预防
 
-- 发布后自己先打开 https://xkzg.dpdns.org 验证（铁律，见 CONTRIBUTING.md）。
+- 发布后自己先打开 https://xkzg.de5.net 验证（铁律，见 CONTRIBUTING.md）。
 - 告诉用户强刷浏览器或清除缓存。
 
 ---
