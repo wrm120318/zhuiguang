@@ -429,3 +429,144 @@ img { -webkit-user-drag: none; }
 .d-content :deep(table), .g-content :deep(table), .q-content :deep(table) { border-collapse: collapse; margin: 10px 0; width: 100%; }
 .d-content :deep(th), .d-content :deep(td), .g-content :deep(th), .q-content :deep(td) { border: 1px solid rgba(245,158,11,.2); padding: 8px 10px; }
 
+/* ============================================================
+   墨金学术皮肤（Ink & Gold）
+   仅当 <html> 带 class="zg-inkgold"（designMode==='inkgold'）时生效。
+   经典模式（无此类）完全不加载以下样式 → 与现状像素级一致。
+   ============================================================ */
+html.zg-inkgold {
+  --zg-text: #1F2430;
+  --zg-text-dim: #5F5E5A;
+  --zg-radius: 22px;
+}
+
+/* 背景安静化：静止渐变 + 单光斑极淡 */
+.zg-inkgold .zg-bg {
+  animation: none !important;
+  background: linear-gradient(160deg, #FAF8F4, #F5F1E8 50%, #EFE9DC) !important;
+}
+.zg-inkgold .zg-orb { opacity: 0.04 !important; animation: none !important; }
+.zg-inkgold .zg-orb.b, .zg-inkgold .zg-orb.c { display: none !important; }
+
+/* 内容卡转近实色 + 发丝边框，提升对比度 */
+.zg-inkgold .glass,
+.zg-inkgold .glass-strong,
+.zg-inkgold .el-card {
+  background: rgba(255,255,255,0.92) !important;
+  border: 1px solid rgba(31,36,48,0.08) !important;
+}
+.zg-inkgold .zg-card:hover { transform: translateY(-2px); }
+
+/* 液态玻璃浮层：弹窗/抽屉 加高光描边 */
+.zg-inkgold .el-dialog,
+.zg-inkgold .el-message-box {
+  background: rgba(250,248,244,0.82) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  box-shadow: 0 20px 60px rgba(31,36,48,0.18), inset 0 1px 0 rgba(255,255,255,0.6) !important;
+}
+.zg-inkgold .el-drawer { background: rgba(250,248,244,0.96) !important; }
+
+/* 胶囊：按钮 / 输入 / 标签 */
+.zg-inkgold .el-button,
+.zg-inkgold .el-input__wrapper,
+.zg-inkgold .el-textarea__inner,
+.zg-inkgold .el-select__wrapper,
+.zg-inkgold .el-tag,
+.zg-inkgold .sq-tag,
+.zg-inkgold .nav-link { border-radius: 999px !important; }
+.zg-inkgold .el-button--primary {
+  background: linear-gradient(135deg, #BA7517, #854F0B) !important;
+  border-color: #BA7517 !important; color: #fff !important;
+}
+
+/* 衬线标题（组件 scoped 仅设 weight 不设 family，故此处生效） */
+.zg-inkgold h1, .zg-inkgold h2, .zg-inkgold h3,
+.zg-inkgold .dh-title, .zg-inkgold .section-title, .zg-inkgold .brand-name {
+  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif !important;
+}
+
+/* ===== 导航栏胶囊化（仅墨金）===== */
+.zg-inkgold .nav {
+  max-width: 1240px !important;
+  margin: 14px auto 0 !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(255,255,255,0.5) !important;
+  background: rgba(250,248,244,0.7) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow: 0 10px 40px rgba(31,36,48,0.12) !important;
+}
+.zg-inkgold .nav-inner { height: 60px !important; padding: 0 18px !important; }
+.zg-inkgold .nav-link { border-radius: 999px !important; }
+
+/* ===== 手机化过渡（仅墨金）===== */
+.zg-inkgold .zg-page-enter-active,
+.zg-inkgold .zg-page-leave-active {
+  transition: transform .38s cubic-bezier(.22,1,.36,1), opacity .38s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold .zg-page-enter-from { opacity: 0; transform: translateX(28px) scale(.985); }
+.zg-inkgold .zg-page-leave-to   { opacity: 0; transform: translateX(-20px) scale(.99); }
+
+/* 微交互：按钮按压回弹 */
+.zg-inkgold .el-button { transition: transform .18s cubic-bezier(.22,1,.36,1), box-shadow .25s, background .25s; }
+.zg-inkgold .el-button:active { transform: scale(.96); }
+
+/* 微交互：卡片 hover 高光扫过 */
+.zg-inkgold .zg-card { position: relative; overflow: hidden; }
+.zg-inkgold .zg-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  transform: translateX(-120%); transition: transform .6s ease;
+}
+.zg-inkgold .zg-card:hover::after { transform: translateX(120%); }
+
+/* 微交互：链接下划线展开 */
+.zg-inkgold .nav-link { position: relative; }
+.zg-inkgold .nav-link::after {
+  content: ''; position: absolute; left: 14px; right: 14px; bottom: 4px; height: 2px;
+  background: var(--zg-primary); transform: scaleX(0); transform-origin: left;
+  transition: transform .25s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold .nav-link:hover::after,
+.zg-inkgold .nav-link.active::after { transform: scaleX(1); }
+
+/* 微交互：输入框聚焦光环 */
+.zg-inkgold .el-input__wrapper.is-focus,
+.zg-inkgold .el-textarea__inner:focus {
+  box-shadow: 0 0 0 3px rgba(186,117,23,0.18), 0 0 0 1px var(--zg-primary) inset !important;
+}
+
+/* 图标 / logo 极淡呼吸 */
+.zg-inkgold .logo { animation: zgBreath 6s ease-in-out infinite; }
+@keyframes zgBreath {
+  0%,100% { transform: scale(1);    filter: drop-shadow(0 0 6px rgba(186,117,23,0.3)); }
+  50%     { transform: scale(1.06); filter: drop-shadow(0 0 12px rgba(186,117,23,0.5)); }
+}
+
+/* 错落入场（仅墨金生效；元素需加 .zg-reveal，并由 useReveal 触发） */
+.zg-inkgold .zg-reveal {
+  opacity: 0; transform: translateY(18px);
+  transition: opacity .5s cubic-bezier(.22,1,.36,1), transform .5s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold .zg-reveal-in { opacity: 1; transform: none; }
+
+/* 移动端底部上滑 sheet（仅墨金） */
+@media (max-width: 768px) {
+  .zg-inkgold .nav { margin: 10px auto 0 !important; max-width: calc(100% - 24px) !important; }
+  .zg-inkgold .el-drawer { border-radius: 20px 20px 0 0; }
+  .zg-inkgold .el-drawer.rtl, .zg-inkgold .el-drawer.ltr { animation: zgSheetUp .4s cubic-bezier(.22,1,.36,1); }
+}
+@keyframes zgSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* 尊重 reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .zg-inkgold .zg-bg, .zg-inkgold .zg-orb,
+  .zg-inkgold .zg-page-enter-active, .zg-inkgold .zg-page-leave-active,
+  .zg-inkgold .zg-card::after, .zg-inkgold .logo, .zg-inkgold .zg-reveal,
+  .zg-inkgold .el-drawer.rtl, .zg-inkgold .el-drawer.ltr {
+    animation: none !important; transition: opacity .2s !important; transform: none !important;
+  }
+}
+
