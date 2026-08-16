@@ -19,6 +19,7 @@ const settings = useSettingsStore()
 const ready = ref(false)
 const isPublicPage = computed(() => route.meta.public === true)
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+const designMode = computed(() => theme.activeTheme?.config?.designMode)
 
 watchEffect(() => {
   document.body.classList.toggle('is-admin-route', isAdminRoute.value)
@@ -69,7 +70,7 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
       <main class="app-main" :class="{ 'has-tabbar': ready && user.isLogin && !isAdminRoute }">
         <div v-if="!ready" class="boot">✨ 追光加载中…</div>
         <router-view v-else v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
+          <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
           </transition>
         </router-view>
@@ -82,7 +83,7 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
       <main class="app-main public-page">
         <div v-if="!ready" class="boot">✨ 追光加载中…</div>
         <router-view v-else v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
+          <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
           </transition>
         </router-view>
