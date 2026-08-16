@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
+import { useReveal } from '@/composables/useReveal'
 
 const router = useRouter()
 const data = useDataStore()
+const root = ref<HTMLElement | null>(null)
+useReveal(root)
 onMounted(() => { if (!data.subjects.length) data.fetchSubjects() })
 </script>
 
 <template>
-  <div class="page zg-container">
+  <div class="page zg-container" ref="root">
     <div class="head">
       <h1 class="zg-grad-text">📚 全部学科</h1>
       <p class="desc">选择学科进入子站，探索资料、美文与数据查询。</p>
     </div>
     <div class="grid">
-      <div v-for="s in data.subjects" :key="s.id" class="card glass zg-card" @click="router.push(`/subject/${s.slug}`)">
+      <div v-for="s in data.subjects" :key="s.id" class="card glass zg-card zg-reveal" @click="router.push(`/subject/${s.slug}`)">
         <div class="icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}88)` }">{{ s.icon }}</div>
         <div class="name">{{ s.name }}</div>
         <div class="d">{{ s.description }}</div>
