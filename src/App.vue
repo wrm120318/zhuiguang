@@ -38,11 +38,6 @@ async function checkDisabledAndHandle() {
 }
 
 onMounted(async () => {
-  // v3.1：主题未加载前，从 localStorage 读取兜底界面风格（防止闪烁）
-  const savedMode = localStorage.getItem('zg-glass-mode')
-  if (savedMode) {
-    document.body.classList.toggle('zg-mode-classic', savedMode === 'classic')
-  }
   try {
     await theme.load()
     if (user.isLogin) {

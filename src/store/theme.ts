@@ -5,16 +5,6 @@ import { api } from '@/api'
 
 interface ThemeRow { id: number; name: string; config: any; is_active: number }
 
-// 全局界面风格（液态玻璃 / 经典实色）—— v3.1 起以数据库 activeTheme.config.visualMode 为准，全站所有浏览器统一生效
-export type VisualMode = 'liquid' | 'classic'
-
-function applyVisualMode(mode?: string) {
-  const classic = mode === 'classic'
-  document.body.classList.toggle('zg-mode-classic', classic)
-  // localStorage 仅作「主题未加载完成前」的兜底占位，最终以数据库 activeTheme 为准
-  localStorage.setItem('zg-glass-mode', classic ? 'classic' : 'liquid')
-}
-
 function applyTheme(c: any) {
   if (!c) return
   const root = document.documentElement
@@ -26,8 +16,6 @@ function applyTheme(c: any) {
   root.style.setProperty('--zg-bg-to', c.bgTo)
   root.style.setProperty('--zg-blur', c.blur + 'px')
   root.style.setProperty('--zg-radius', c.radius + 'px')
-  // v3.1：界面风格跟随主题，全站统一。主题未声明时默认液态玻璃（不依赖浏览器 localStorage）
-  applyVisualMode(c.visualMode || 'liquid')
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -51,19 +39,6 @@ export const useThemeStore = defineStore('theme', () => {
     await load()
   }
 
-  // v3.1：超级管理员切换「界面风格」，立即全站生效（写入 activeTheme 并保存到数据库）
-  async function setGlobalVisualMode(mode: VisualMode) {
-    applyVisualMode(mode)
-    const active = activeTheme.value
-    if (!active) return
-    const newConfig = { ...active.config, visualMode: mode }
-    // 保存到数据库（isActive=true），所有浏览器/用户下次加载都读到
-    await api.updateTheme(active.id, { config: newConfig, isActive: true })
-    activeTheme.value = { ...active, config: newConfig }
-    applyTheme(newConfig)
-    if (draft.value) draft.value = { ...draft.value, visualMode: mode }
-  }
-
   async function saveDraft(data: { id?: number; name: string; config: any; isActive: boolean }) {
     if (data.id) await api.updateTheme(data.id, { name: data.name, config: data.config, isActive: data.isActive })
     else await api.createTheme({ name: data.name, config: data.config, isActive: data.isActive })
@@ -74,5 +49,5 @@ export const useThemeStore = defineStore('theme', () => {
     if (activeTheme.value) { applyTheme(activeTheme.value.config); draft.value = { ...activeTheme.value.config, id: activeTheme.value.id, name: activeTheme.value.name } }
   }
 
-  return { themes, activeTheme, draft, loaded, load, preview, apply, setGlobalVisualMode, saveDraft, reset, applyTheme }
+  return { themes, activeTheme, draft, loaded, load, preview, apply, saveDraft, reset, applyTheme }
 })
