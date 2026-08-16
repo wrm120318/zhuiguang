@@ -16,6 +16,8 @@ function applyTheme(c: any) {
   root.style.setProperty('--zg-bg-to', c.bgTo)
   root.style.setProperty('--zg-blur', c.blur + 'px')
   root.style.setProperty('--zg-radius', c.radius + 'px')
+  // 设计模式（皮肤开关）：墨金加 zg-inkgold 类，经典移除 → 基础样式完全不变
+  root.classList.toggle('zg-inkgold', c.designMode === 'inkgold')
 }
 
 export const useThemeStore = defineStore('theme', () => {
