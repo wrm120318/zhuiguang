@@ -3,8 +3,10 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useThemeStore } from '@/store/theme'
 
 const loading = ref(false)
+const theme = useThemeStore()
 const data = ref<any>(null)
 const storageData = ref<any>(null)
 const storageLoading = ref(false)
@@ -70,6 +72,16 @@ function scheduleRender(attempt: number) {
   }
 }
 
+// 墨金 / 经典 双调色板：经典保持原暖橙；墨金切换为更深金（#BA7517）
+const isInkgold = computed(() => theme.activeTheme?.config?.designMode === 'inkgold')
+const palette = computed(() => isInkgold.value
+  ? { bar1: '#BA7517', axis: '#1F2430', soft: 'rgba(186,117,23,.35)', split: 'rgba(186,117,23,.12)', border: 'rgba(186,117,23,.35)' }
+  : { bar1: '#f59e0b', axis: '#78350F', soft: 'rgba(245,158,11,.3)', split: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.3)' }
+)
+
+// 切换设计模式时重绘图表，套用对应调色板
+watch(() => theme.activeTheme?.config?.designMode, () => { if (data.value) renderCharts() })
+
 function renderCharts() {
   if (!data.value) return
   const dom1 = chart1.value || document.querySelector<HTMLElement>('[data-chart="c1"]')
@@ -79,20 +91,20 @@ function renderCharts() {
     else c1.resize()
     c1.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { textStyle: { color: '#78350F' }, top: 0 },
+      legend: { textStyle: { color: palette.value.axis }, top: 0 },
       grid: { left: 40, right: 20, top: 40, bottom: 30 },
       xAxis: {
         type: 'category',
         data: data.value.dailyActive.map((d: any) => d.date),
-        axisLabel: { color: '#78350F' },
-        axisLine: { lineStyle: { color: 'rgba(245,158,11,.3)' } }
+        axisLabel: { color: palette.value.axis },
+        axisLine: { lineStyle: { color: palette.value.soft } }
       },
       yAxis: [
-        { type: 'value', name: '活跃用户', axisLabel: { color: '#78350F' }, splitLine: { lineStyle: { color: 'rgba(245,158,11,.12)' } } },
-        { type: 'value', name: '美文数', axisLabel: { color: '#78350F' }, splitLine: { show: false } }
+        { type: 'value', name: '活跃用户', axisLabel: { color: palette.value.axis }, splitLine: { lineStyle: { color: palette.value.split } } },
+        { type: 'value', name: '美文数', axisLabel: { color: palette.value.axis }, splitLine: { show: false } }
       ],
       series: [
-        { name: '活跃用户', type: 'bar', data: data.value.dailyActive.map((d: any) => d.users), itemStyle: { color: '#f59e0b', borderRadius: [6, 6, 0, 0] } },
+        { name: '活跃用户', type: 'bar', data: data.value.dailyActive.map((d: any) => d.users), itemStyle: { color: palette.value.bar1, borderRadius: [6, 6, 0, 0] } },
         { name: '美文数', type: 'line', yAxisIndex: 1, smooth: true, data: data.value.dailyActive.map((d: any) => d.articles), itemStyle: { color: '#ef4444' }, lineStyle: { width: 3 }, areaStyle: { color: 'rgba(239,68,68,.12)' } }
       ]
     }, true)
@@ -106,12 +118,12 @@ function renderCharts() {
     }))
     c2.setOption({
       tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { textStyle: { color: '#78350F' }, bottom: 0, type: 'scroll' },
+      legend: { textStyle: { color: palette.value.axis }, bottom: 0, type: 'scroll' },
       series: [{
         type: 'pie', radius: ['45%', '70%'], center: ['50%', '45%'],
-        label: { color: '#78350F', formatter: '{b}\n{d}%' },
+        label: { color: palette.value.axis, formatter: '{b}\n{d}%' },
         data: pieData.length > 0 ? pieData : [{ name: '暂无数据', value: 1, itemStyle: { color: '#e5e7eb' } }],
-        itemStyle: { borderColor: 'rgba(245,158,11,.3)', borderWidth: 2 }
+        itemStyle: { borderColor: palette.value.border, borderWidth: 2 }
       }]
     }, true)
     requestAnimationFrame(() => c2?.resize())

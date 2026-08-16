@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
+import LogoMark from '@/components/LogoMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,19 +42,19 @@ async function selfRepair() {
 
 const menus = computed(() => {
   const list: { name: string; label: string; icon: string; badge?: number; role?: string; teacherVisible?: boolean }[] = [
-    { name: 'admin-dashboard', label: '数据看板', icon: '📊', role: 'SUPER_ADMIN' },
-    { name: 'admin-users', label: '用户管理', icon: '👥', role: 'SUPER_ADMIN' },
-    { name: 'admin-subjects', label: '学科管理', icon: '📚', role: 'SUPER_ADMIN' },
-    { name: 'admin-classes', label: '班级管理', icon: '🏫', role: 'SUPER_ADMIN' },
-    { name: 'admin-audit', label: '内容审核', icon: '✅', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF', teacherVisible: true },
-    { name: 'admin-query', label: '数据查询', icon: '📈', role: 'STAFF', teacherVisible: true },
-    { name: 'admin-guide', label: '网站说明', icon: '📖', role: 'SUPER_ADMIN' },
-    { name: 'admin-site-config', label: '网站自定义', icon: '🏠', role: 'SUPER_ADMIN' },
-    { name: 'admin-exp-rules', label: '经验设置', icon: '⭐', role: 'SUPER_ADMIN' },
-    { name: 'admin-exp-logs', label: '经验记录', icon: '📋', role: 'SUPER_ADMIN' },
-    { name: 'admin-feature-flags', label: '功能开关', icon: '🧩', role: 'SUPER_ADMIN' },
-    { name: 'admin-theme', label: '界面风格', icon: '🎨', role: 'SUPER_ADMIN' },
-    { name: 'admin-monitor', label: '运行监控', icon: '🖥️', role: 'SUPER_ADMIN' },
+    { name: 'admin-dashboard', label: '数据看板', icon: 'DataLine', role: 'SUPER_ADMIN' },
+    { name: 'admin-users', label: '用户管理', icon: 'UserFilled', role: 'SUPER_ADMIN' },
+    { name: 'admin-subjects', label: '学科管理', icon: 'Reading', role: 'SUPER_ADMIN' },
+    { name: 'admin-classes', label: '班级管理', icon: 'School', role: 'SUPER_ADMIN' },
+    { name: 'admin-audit', label: '内容审核', icon: 'CircleCheck', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF', teacherVisible: true },
+    { name: 'admin-query', label: '数据查询', icon: 'TrendCharts', role: 'STAFF', teacherVisible: true },
+    { name: 'admin-guide', label: '网站说明', icon: 'Notebook', role: 'SUPER_ADMIN' },
+    { name: 'admin-site-config', label: '网站自定义', icon: 'HomeFilled', role: 'SUPER_ADMIN' },
+    { name: 'admin-exp-rules', label: '经验设置', icon: 'Star', role: 'SUPER_ADMIN' },
+    { name: 'admin-exp-logs', label: '经验记录', icon: 'Tickets', role: 'SUPER_ADMIN' },
+    { name: 'admin-feature-flags', label: '功能开关', icon: 'Grid', role: 'SUPER_ADMIN' },
+    { name: 'admin-theme', label: '界面风格', icon: 'Brush', role: 'SUPER_ADMIN' },
+    { name: 'admin-monitor', label: '运行监控', icon: 'Monitor', role: 'SUPER_ADMIN' },
   ]
   return list.filter(m => {
     // 超级管理员可见全部菜单
@@ -85,23 +86,23 @@ function go(name: string) {
   <div class="admin-layout">
     <!-- 手机端顶部栏 -->
     <div class="admin-topbar glass">
-      <el-button text circle @click="mobileOpen = !mobileOpen" class="at-btn">{{ mobileOpen ? '✕' : '☰' }}</el-button>
-      <div class="at-brand zg-grad-text">🎨 管理后台</div>
-      <el-button text class="at-back" @click="router.push('/')">← 前台</el-button>
+      <el-button text circle @click="mobileOpen = !mobileOpen" class="at-btn"><el-icon><component :is="mobileOpen ? 'Close' : 'Menu'" /></el-icon></el-button>
+      <div class="at-brand zg-grad-text"><LogoMark class="logo" />管理后台</div>
+      <el-button text class="at-back" @click="router.push('/')"><el-icon><ArrowLeft /></el-icon>前台</el-button>
     </div>
 
     <!-- 侧边栏 PC 端固定 -->
     <aside class="sidebar glass" :class="{ open: mobileOpen }">
-      <div class="sb-brand zg-grad-text">🎨 管理后台</div>
+      <div class="sb-brand zg-grad-text"><LogoMark class="logo" />管理后台</div>
       <div class="sb-role">{{ user.isSuperAdmin ? '超级管理员' : '学科教师' }} · {{ user.current?.realName ?? '' }}</div>
       <nav class="sb-nav">
         <div v-for="m in menus" :key="m.name" class="sb-item" :class="{ on: route.name === m.name }" @click="go(m.name)">
-          <span class="sb-icon">{{ m.icon }}</span>
+          <span class="sb-icon"><el-icon><component :is="m.icon" /></el-icon></span>
           <span class="sb-label">{{ m.label }}</span>
           <span v-if="m.badge" class="sb-badge">{{ m.badge }}</span>
         </div>
       </nav>
-      <div class="sb-back" @click="router.push('/')">← 返回前台首页</div>
+      <div class="sb-back" @click="router.push('/')"><el-icon><ArrowLeft /></el-icon>返回前台首页</div>
     </aside>
 
     <!-- 手机端遮罩 -->
@@ -122,7 +123,7 @@ function go(name: string) {
       :disabled="repairing"
       title="🔧 小白一键修复：如果网站出问题（1016/530、点不动、白屏），点这里1~2分钟自动修好！"
     >
-      <span class="zg-sr-icon">{{ repairing ? '⏳' : '🔧' }}</span>
+      <span class="zg-sr-icon"><el-icon><component :is="repairing ? 'Loading' : 'Tools'" /></el-icon></span>
       <span class="zg-sr-text">{{ repairing ? '修复中...' : '一键修复' }}</span>
     </button>
   </div>
@@ -143,6 +144,9 @@ function go(name: string) {
 .sb-item:hover { background:rgba(245,158,11,.06); color:var(--zg-text); transform: translateX(2px); }
 .sb-item.on { background: linear-gradient(135deg, rgba(245,158,11,.3), rgba(251,146,60,.22)); color: var(--zg-text); font-weight: 700; }
 .sb-icon { font-size:17px; }
+.sb-icon :deep(.el-icon) { font-size:17px; }
+.at-brand .logo { font-size:20px; }
+.sb-brand .logo { font-size:22px; }
 .sb-label { flex:1; }
 .sb-badge { background:#ef4444; color:#fff; font-size:11px; padding:1px 7px; border-radius:10px; }
 .sb-back { padding:12px; color:var(--zg-text-dim); cursor:pointer; font-size:13px; border-top: 1px dashed rgba(245,158,11,.12); margin-top: 8px; }

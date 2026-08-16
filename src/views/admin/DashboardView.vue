@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { useThemeStore } from '@/store/theme'
 
 const router = useRouter()
+const theme = useThemeStore()
 const features = [
   { name: '用户管理', icon: '👥', desc: '添加/删除/禁用用户、调整经验等级、重置密码', color: '#F59E0B', to: () => router.push('/admin/users') },
   { name: '学科管理', icon: '📚', desc: '创建/编辑/删除学科，配置模块，发布公告', color: '#FBBF24', to: () => router.push('/admin/subjects') },
@@ -58,35 +60,47 @@ const stats = computed(() => [
   { label: '待审核', value: pendingCount.value, icon: '⏳', color: '#d97706' },
 ])
 
+// 墨金 / 经典 双调色板：经典保持原暖橙；墨金切换为更深金（#BA7517 / #854F0B）
+const isInkgold = computed(() => theme.activeTheme?.config?.designMode === 'inkgold')
+const palette = computed(() => isInkgold.value
+  ? { bar1: '#BA7517', bar2: '#854F0B', axis: '#1F2430', soft: 'rgba(186,117,23,.35)', split: 'rgba(186,117,23,.12)', border: 'rgba(186,117,23,.35)' }
+  : { bar1: '#f59e0b', bar2: '#fbbf24', axis: '#78350F', soft: 'rgba(245,158,11,.3)', split: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.3)' }
+)
+
 function renderCharts() {
   if (chart1.value) {
-    c1 = echarts.init(chart1.value)
+    if (!c1) c1 = echarts.init(chart1.value)
     c1.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
       grid: { left: 40, right: 20, top: 30, bottom: 30 },
-      xAxis: { type: 'category', data: subjects.value.map(s => s.name), axisLabel: { color: '#78350F' }, axisLine: { lineStyle: { color: 'rgba(245,158,11,.3)' } } },
-      yAxis: { type: 'value', axisLabel: { color: '#78350F' }, splitLine: { lineStyle: { color: 'rgba(245,158,11,.12)' } } },
+      xAxis: { type: 'category', data: subjects.value.map(s => s.name), axisLabel: { color: palette.value.axis }, axisLine: { lineStyle: { color: palette.value.soft } } },
+      yAxis: { type: 'value', axisLabel: { color: palette.value.axis }, splitLine: { lineStyle: { color: palette.value.split } } },
       series: [
-        { name: '资料', type: 'bar', stack: 'a', data: subjects.value.map(s => resources.value.filter(r => r.subject_id === s.id).length), itemStyle: { color: '#f59e0b', borderRadius: [4, 4, 0, 0] } },
-        { name: '美文', type: 'bar', stack: 'a', data: subjects.value.map(s => articles.value.filter(a => a.subject_id === s.id).length), itemStyle: { color: '#fbbf24', borderRadius: [4, 4, 0, 0] } },
+        { name: '资料', type: 'bar', stack: 'a', data: subjects.value.map(s => resources.value.filter(r => r.subject_id === s.id).length), itemStyle: { color: palette.value.bar1, borderRadius: [4, 4, 0, 0] } },
+        { name: '美文', type: 'bar', stack: 'a', data: subjects.value.map(s => articles.value.filter(a => a.subject_id === s.id).length), itemStyle: { color: palette.value.bar2, borderRadius: [4, 4, 0, 0] } },
       ],
-      legend: { textStyle: { color: '#78350F' }, top: 0 },
+      legend: { textStyle: { color: palette.value.axis }, top: 0 },
     })
   }
   if (chart2.value) {
-    c2 = echarts.init(chart2.value)
+    if (!c2) c2 = echarts.init(chart2.value)
     c2.setOption({
       tooltip: { trigger: 'item' },
-      legend: { textStyle: { color: '#78350F' }, bottom: 0, type: 'scroll' },
+      legend: { textStyle: { color: palette.value.axis }, bottom: 0, type: 'scroll' },
       series: [{
         type: 'pie', radius: ['45%', '70%'], center: ['50%', '45%'],
-        label: { color: '#78350F' },
+        label: { color: palette.value.axis },
         data: users.value.map(u => ({ name: u.real_name, value: u.exp })),
-        itemStyle: { borderColor: 'rgba(245,158,11,.3)', borderWidth: 2 },
+        itemStyle: { borderColor: palette.value.border, borderWidth: 2 },
       }]
     })
   }
 }
+
+// 切换设计模式（经典 / 墨金）时重绘图表，套用对应调色板
+watch(() => theme.activeTheme?.config?.designMode, () => {
+  if (chart1.value || chart2.value) renderCharts()
+})
 
 onMounted(async () => {
   const [us, ss, arts, ress, qs] = await Promise.all([

@@ -9,12 +9,12 @@ const user = useUserStore()
 
 const items = computed(() => {
   const arr = [
-    { key: 'home', label: '首页', icon: '🏠', to: '/' },
-    { key: 'subjects', label: '学科', icon: '📚', to: '/subjects' },
-    { key: 'leaderboard', label: '排行', icon: '🏆', to: '/leaderboard' },
+    { key: 'home', label: '首页', icon: 'HomeFilled', to: '/' },
+    { key: 'subjects', label: '学科', icon: 'Reading', to: '/subjects' },
+    { key: 'leaderboard', label: '排行', icon: 'Trophy', to: '/leaderboard' },
   ]
-  if (user.isStaff) arr.push({ key: 'admin', label: '管理', icon: '⚙️', to: '/admin/users' })
-  arr.push({ key: 'profile', label: '我的', icon: '👤', to: '/profile' })
+  if (user.isStaff) arr.push({ key: 'admin', label: '管理', icon: 'Setting', to: '/admin/users' })
+  arr.push({ key: 'profile', label: '我的', icon: 'User', to: '/profile' })
   return arr
 })
 
@@ -29,7 +29,7 @@ function active(key: string) {
 <template>
   <nav class="tabbar">
     <div v-for="it in items" :key="it.key" class="tab" :class="{ on: active(it.key) }" @click="router.push(it.to)">
-      <span class="t-icon">{{ it.icon }}</span>
+      <span class="t-icon"><el-icon><component :is="it.icon" /></el-icon></span>
       <span class="t-label">{{ it.label }}</span>
       <span class="t-dot" v-if="active(it.key)"></span>
     </div>

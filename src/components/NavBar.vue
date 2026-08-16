@@ -7,6 +7,7 @@ import { useThemeStore } from '@/store/theme'
 import { useSettingsStore } from '@/store/settings'
 import { ElMessage } from 'element-plus'
 import { api } from '@/api'
+import LogoMark from '@/components/LogoMark.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -129,7 +130,7 @@ function typeLabel(t: string) {
   <header class="nav glass">
     <div class="nav-inner zg-container">
       <div class="brand" @click="go('/')">
-        <span class="logo">{{ siteConfig?.navTitleIcon || '🌟' }}</span>
+        <LogoMark class="logo" />
         <span class="brand-name zg-grad-text">{{ brandName }}</span>
       </div>
 
@@ -138,15 +139,15 @@ function typeLabel(t: string) {
       </nav>
 
       <div class="actions" v-if="user.isLogin">
-        <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true">🔍</el-button>
+        <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true"><el-icon><Search /></el-icon></el-button>
 
         <el-badge v-if="showMessage" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
-          <el-button text circle class="action-btn" @click="go('/messages')">✉️</el-button>
+          <el-button text circle class="action-btn" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon></el-button>
         </el-badge>
 
         <el-popover trigger="click" width="240" placement="bottom-end" :visible="settingsVisible" @update:visible="settingsVisible = $event">
           <template #reference>
-            <el-button text circle class="action-btn" @click="settingsVisible = !settingsVisible">⚙️</el-button>
+            <el-button text circle class="action-btn" @click="settingsVisible = !settingsVisible"><el-icon><Setting /></el-icon></el-button>
           </template>
           <div class="settings-panel">
             <div class="sp-title">字体大小</div>
@@ -160,7 +161,7 @@ function typeLabel(t: string) {
         </el-popover>
 
         <el-badge v-if="showNotice" :value="unread" :hidden="unread === 0" class="bell">
-          <el-button text circle class="action-btn" @click="noticeVisible = true">🔔</el-button>
+          <el-button text circle class="action-btn" @click="noticeVisible = true"><el-icon><Bell /></el-icon></el-button>
         </el-badge>
 
         <el-dropdown trigger="click">
@@ -173,10 +174,10 @@ function typeLabel(t: string) {
           </div>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="go('/profile')">👤 个人中心</el-dropdown-item>
-              <el-dropdown-item @click="go('/leaderboard')">🏆 经验榜</el-dropdown-item>
-              <el-dropdown-item @click="go('/favorites')">⭐ 我的收藏</el-dropdown-item>
-              <el-dropdown-item divided @click="logout">🚪 退出登录</el-dropdown-item>
+              <el-dropdown-item @click="go('/profile')"><el-icon><User /></el-icon>个人中心</el-dropdown-item>
+              <el-dropdown-item @click="go('/leaderboard')"><el-icon><Trophy /></el-icon>经验榜</el-dropdown-item>
+              <el-dropdown-item @click="go('/favorites')"><el-icon><Star /></el-icon>我的收藏</el-dropdown-item>
+              <el-dropdown-item divided @click="logout"><el-icon><SwitchButton /></el-icon>退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -184,35 +185,35 @@ function typeLabel(t: string) {
 
       <el-button v-else type="primary" round size="small" @click="go('/login')">登录</el-button>
 
-      <el-button class="menu-btn" text circle @click="drawerVisible = true">☰</el-button>
+      <el-button class="menu-btn" text circle @click="drawerVisible = true"><el-icon><Menu /></el-icon></el-button>
     </div>
   </header>
 
   <!-- 移动端抽屉 -->
   <el-drawer v-model="drawerVisible" direction="ltr" size="72%" :show-close="false">
     <div class="drawer">
-      <div class="d-brand"><span class="logo">{{ siteConfig?.navTitleIcon || '🌟' }}</span><span class="zg-grad-text">{{ brandName }}</span></div>
+      <div class="d-brand"><LogoMark class="logo" /><span class="zg-grad-text">{{ brandName }}</span></div>
       <div class="d-search" @click="drawerVisible = false; searchVisible = true">
-        <span>🔍</span> 搜索美文 / 资料…
+        <el-icon><Search /></el-icon> 搜索美文 / 资料…
       </div>
       <div class="d-user" v-if="user.isLogin">
         <img :src="user.current?.avatar" />
         <div><div class="du-name">{{ user.current?.realName }}</div><div class="du-role">{{ roleLabel(user.current?.role) }} · Lv.{{ user.current?.level }}</div></div>
       </div>
       <div class="d-list">
-        <div class="d-item" @click="go('/')">🏠 首页</div>
-        <div class="d-item" v-if="settings.isEnabled('subjects')" @click="go('/subjects')">📚 全部学科</div>
-        <div class="d-item" v-if="settings.isEnabled('guide')" @click="go('/guide')">📖 网站说明</div>
-        <div class="d-item" v-if="settings.isEnabled('blog')" @click="go('/blog')">✍️ 网站博客</div>
-        <div class="d-item" v-if="settings.isEnabled('announcement')" @click="go('/announcements')">📢 网站公告</div>
-        <div class="d-item" v-if="settings.isEnabled('quiz')" @click="go('/quizzes')">📝 题库自测</div>
-        <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')">🏆 经验榜</div>
-        <div class="d-item" @click="go('/profile')">👤 个人中心</div>
-        <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')">⭐ 我的收藏</div>
-        <div class="d-item" v-if="user.isStaff" @click="go('/admin')">⚙️ 管理后台</div>
-        <div class="d-item" @click="drawerVisible = false; settingsVisible = true">🔤 字体设置</div>
-        <div class="d-item" v-if="user.isLogin" @click="logout">🚪 退出登录</div>
-        <div class="d-item" v-else @click="go('/login')">🔑 登录</div>
+        <div class="d-item" @click="go('/')"><el-icon><HomeFilled /></el-icon><span>首页</span></div>
+        <div class="d-item" v-if="settings.isEnabled('subjects')" @click="go('/subjects')"><el-icon><Reading /></el-icon><span>全部学科</span></div>
+        <div class="d-item" v-if="settings.isEnabled('guide')" @click="go('/guide')"><el-icon><Notebook /></el-icon><span>网站说明</span></div>
+        <div class="d-item" v-if="settings.isEnabled('blog')" @click="go('/blog')"><el-icon><EditPen /></el-icon><span>网站博客</span></div>
+        <div class="d-item" v-if="settings.isEnabled('announcement')" @click="go('/announcements')"><el-icon><Promotion /></el-icon><span>网站公告</span></div>
+        <div class="d-item" v-if="settings.isEnabled('quiz')" @click="go('/quizzes')"><el-icon><Edit /></el-icon><span>题库自测</span></div>
+        <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')"><el-icon><Trophy /></el-icon><span>经验榜</span></div>
+        <div class="d-item" @click="go('/profile')"><el-icon><User /></el-icon><span>个人中心</span></div>
+        <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')"><el-icon><Star /></el-icon><span>我的收藏</span></div>
+        <div class="d-item" v-if="user.isStaff" @click="go('/admin')"><el-icon><Setting /></el-icon><span>管理后台</span></div>
+        <div class="d-item" @click="drawerVisible = false; settingsVisible = true"><el-icon><ZoomIn /></el-icon><span>字体设置</span></div>
+        <div class="d-item" v-if="user.isLogin" @click="logout"><el-icon><SwitchButton /></el-icon><span>退出登录</span></div>
+        <div class="d-item" v-else @click="go('/login')"><el-icon><Key /></el-icon><span>登录</span></div>
       </div>
       <div class="d-subj-title">学科子站</div>
       <div class="d-subj-grid">
@@ -225,7 +226,7 @@ function typeLabel(t: string) {
   <el-dialog v-model="searchVisible" title="🔍 搜索" width="600px" class="search-dialog">
     <div class="search-bar">
       <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch">
-        <template #prefix><span style="font-size: 16px;">🔍</span></template>
+        <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
       <el-button type="primary" size="large" @click="goSearch">搜索</el-button>
     </div>
@@ -332,7 +333,8 @@ function typeLabel(t: string) {
 .du-name { font-weight:700; font-size: var(--zg-fs-md); }
 .du-role { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); }
 .d-list { display:flex; flex-direction:column; gap:4px; }
-.d-item { padding:14px 16px; border-radius:12px; cursor:pointer; color:var(--zg-text); font-size: var(--zg-fs-base); transition:background .2s; }
+.d-item { display:flex; align-items:center; gap:10px; padding:14px 16px; border-radius:12px; cursor:pointer; color:var(--zg-text); font-size: var(--zg-fs-base); transition:background .2s; }
+.d-item :deep(.el-icon) { font-size: 18px; }
 .d-item:hover { background:rgba(245,158,11,.06); }
 .d-subj-title { margin:20px 0 10px; font-size:var(--zg-fs-sm); color:var(--zg-text-dim); font-weight:600; }
 .d-subj-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }

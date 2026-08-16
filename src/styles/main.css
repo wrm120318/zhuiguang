@@ -126,6 +126,8 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-button--primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(245,158,11,.4); }
 .el-button { color: var(--zg-text) !important; transition: all .25s; }
 .el-button:hover { background: rgba(245,158,11,.1) !important; color: var(--zg-primary) !important; border-color: var(--zg-primary) !important; }
+/* 图标基线对齐（全局 SVG 图标，决策 A 启用） */
+.el-icon { vertical-align: -2px; }
 .el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.2) inset !important; border-radius: 12px !important; }
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px var(--zg-primary) inset !important; }
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
@@ -327,6 +329,7 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-card { background: rgba(255,255,255,0.72) !important; border: 1px solid rgba(245,158,11,0.18) !important; color: var(--zg-text) !important; border-radius: var(--zg-radius) !important; }
 .el-dropdown-menu { background: rgba(255,251,235,0.97) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 14px !important; }
 .el-dropdown-menu__item { color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
+.el-dropdown-menu__item .el-icon { font-size: 16px; margin-right: 6px; vertical-align: -2px; }
 .el-dropdown-menu__item:hover { background: rgba(245,158,11,0.1) !important; color: var(--zg-primary) !important; }
 .el-popover { background: rgba(255,251,235,0.97) !important; border: 1px solid rgba(245,158,11,0.2) !important; color: var(--zg-text) !important; border-radius: 14px !important; }
 .el-picker-panel { background: rgba(255,251,235,0.97) !important; color: var(--zg-text) !important; }
@@ -468,6 +471,66 @@ html.zg-inkgold {
 }
 .zg-inkgold .el-drawer { background: rgba(250,248,244,0.96) !important; }
 
+/* ===== 后台侧边栏：悬浮胶囊玻璃面板（仅墨金，桌面端） ===== */
+@media (min-width: 961px) {
+  .zg-inkgold .admin-layout { gap: 16px; padding: 16px; }
+  .zg-inkgold .sidebar {
+    border-radius: 22px !important;
+    background: rgba(250,248,244,0.92) !important;
+    border: 1px solid rgba(245,158,11,0.18) !important;
+    box-shadow: 0 10px 36px rgba(245,158,11,0.12);
+  }
+  .zg-inkgold .sb-brand { font-family: 'Noto Serif SC','Songti SC','SimSun',serif; }
+}
+.zg-inkgold .sb-item.on { border-radius: 12px; }
+
+/* 通知中心卡片升级（仅墨金） */
+.zg-inkgold .notice-item { border-radius: 14px; }
+.zg-inkgold .notice-item.unread { box-shadow: 0 0 0 1px rgba(245,158,11,0.35) inset; }
+
+/* ===== 弹窗标题衬线 + 头/底分隔（仅墨金） ===== */
+.zg-inkgold .el-dialog__title,
+.zg-inkgold .el-message-box__title {
+  font-family: 'Noto Serif SC','Songti SC','SimSun',serif !important; font-weight: 800;
+}
+.zg-inkgold .el-dialog__header { border-bottom: 1px solid rgba(245,158,11,0.12) !important; }
+.zg-inkgold .el-dialog__footer,
+.zg-inkgold .el-message-box__btns { border-top: 1px solid rgba(245,158,11,0.12) !important; }
+.zg-inkgold .el-dropdown-menu__item:hover { border-radius: 10px; }
+/* 下拉 / 字体面板玻璃化（仅墨金，覆盖默认暖色实底） */
+.zg-inkgold .el-dropdown-menu,
+.zg-inkgold .el-popover { background: rgba(250,248,244,0.96) !important; border: 1px solid rgba(245,158,11,0.18) !important; }
+
+/* ===== 表格（仅墨金） ===== */
+.zg-inkgold .el-table { border-radius: 16px; border: 1px solid rgba(245,158,11,0.1); overflow: hidden; }
+.zg-inkgold .el-table th.el-table__cell { background: rgba(245,158,11,0.08) !important; color: var(--zg-text-dim) !important; font-weight: 700; }
+.zg-inkgold .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: rgba(245,158,11,0.05) !important; }
+.zg-inkgold .el-table__empty-block { color: var(--zg-text-dim); }
+
+/* ===== 细窄滚动条（仅墨金） ===== */
+html.zg-inkgold ::-webkit-scrollbar { width: 8px; height: 8px; }
+html.zg-inkgold ::-webkit-scrollbar-thumb { background: rgba(245,158,11,0.35); border-radius: 8px; }
+html.zg-inkgold ::-webkit-scrollbar-thumb:hover { background: rgba(245,158,11,0.55); }
+html.zg-inkgold { scrollbar-color: rgba(245,158,11,0.35) transparent; scrollbar-width: thin; }
+
+/* ===== 加载 / 空状态（仅墨金） ===== */
+.zg-inkgold .el-loading-spinner .path { stroke: var(--zg-primary) !important; }
+.zg-inkgold .el-empty__description { color: var(--zg-text-dim) !important; }
+
+/* ===== 消息提示（仅墨金） ===== */
+.zg-inkgold .el-message { background: rgba(250,248,244,0.9) !important; border-left: 3px solid var(--zg-primary) !important; border-radius: 14px !important; }
+.zg-inkgold .el-notification { border-left: 3px solid var(--zg-primary) !important; }
+
+/* ===== 分页（仅墨金） ===== */
+.zg-inkgold .el-pagination .btn-prev,
+.zg-inkgold .el-pagination .btn-next,
+.zg-inkgold .el-pagination .el-pager li { border-radius: 10px !important; }
+.zg-inkgold .el-pagination .el-pager li.is-active { background: linear-gradient(135deg,#BA7517,#854F0B) !important; color: #fff !important; }
+.zg-inkgold .el-pagination .el-pager li:hover { background: rgba(245,158,11,0.12) !important; }
+
+/* ===== 焦点态 / 可达性（仅墨金） ===== */
+.zg-inkgold :focus-visible { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold .el-button,
 .zg-inkgold .el-input__wrapper,
@@ -552,13 +615,14 @@ html.zg-inkgold {
 }
 .zg-inkgold .zg-reveal-in { opacity: 1; transform: none; }
 
-/* 移动端底部上滑 sheet（仅墨金） */
+/* 移动端抽屉：恢复 Element Plus 原生侧滑动画（仅墨金，不再从底部上滑） */
 @media (max-width: 768px) {
   .zg-inkgold .nav { margin: 10px auto 0 !important; max-width: calc(100% - 24px) !important; }
-  .zg-inkgold .el-drawer { border-radius: 20px 20px 0 0; }
-  .zg-inkgold .el-drawer.rtl, .zg-inkgold .el-drawer.ltr { animation: zgSheetUp .4s cubic-bezier(.22,1,.36,1); }
 }
-@keyframes zgSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* 侧边抽屉圆角（仅墨金）：rtl 从右滑入 → 圆左侧；ltr 从左滑入 → 圆右侧 */
+.zg-inkgold .el-drawer.rtl { border-radius: 22px 0 0 22px !important; }
+.zg-inkgold .el-drawer.ltr { border-radius: 0 22px 22px 0 !important; }
 
 /* 尊重 reduced-motion */
 @media (prefers-reduced-motion: reduce) {
