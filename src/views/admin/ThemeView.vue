@@ -4,7 +4,7 @@ import { useThemeStore } from '@/store/theme'
 import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
-const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, name: '我的主题', isActive: false, id: null })
+const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', name: '我的主题', isActive: false, id: null })
 
 onMounted(() => {
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
@@ -21,7 +21,7 @@ function pickTheme(id: number) {
 }
 
 async function publish() {
-  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius }, isActive: true })
+  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, designMode: d.designMode }, isActive: true })
   ElMessage.success('主题已发布，全站即时生效')
 }
 function reset() {
@@ -51,6 +51,15 @@ function reset() {
         <div class="ep-section">
           <div class="ep-label">主题名称</div>
           <el-input v-model="d.name" placeholder="如：追光金辉" />
+        </div>
+
+        <div class="ep-section">
+          <div class="ep-label">设计模式（全站皮肤，发布后即时生效）</div>
+          <el-radio-group v-model="d.designMode">
+            <el-radio-button label="classic">经典暖橘</el-radio-button>
+            <el-radio-button label="inkgold">墨金学术</el-radio-button>
+          </el-radio-group>
+          <p class="tip" style="margin-top:8px">墨金学术 = 胶囊导航 + 沉稳金 + 液态玻璃 + 衬线标题 + 手机化过渡；经典 = 当前外观，切回后完全一致。</p>
         </div>
 
         <div class="ep-section">
