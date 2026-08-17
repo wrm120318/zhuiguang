@@ -71,7 +71,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <div class="hero glass-strong zg-slide-up">
       <div class="hero-bg"></div>
       <div class="hero-content">
-        <div class="hero-tag">🌟 {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
+        <div class="hero-tag"><ZgGlyph :emoji="'🌟'" /> {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
         <h1 class="hero-title">{{ greeting }}，<span class="zg-grad-text">{{ user.current?.realName || '追光者' }}</span>！</h1>
         <p class="hero-sub">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
         <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
@@ -100,14 +100,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
     <!-- 公告栏：配置加载完成后才渲染，避免闪烁 -->
     <div v-if="showAnnouncement" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
-      <span class="ab-icon">📢</span>
+      <span class="ab-icon"><ZgGlyph :emoji="'📢'" /></span>
       <span class="ab-text" v-html="renderMarkdownPreserveSpaces(siteConfig.announcementBar)"></span>
     </div>
 
     <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
     <div class="quick-grid" v-if="displayQuickLinks && displayQuickLinks.length">
       <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
-        <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }">{{ ql.icon }}</div>
+        <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }"><ZgGlyph :emoji="ql.icon" /></div>
         <div class="qg-text">{{ ql.label }}</div>
       </div>
     </div>
@@ -117,7 +117,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       <div class="section-title">学科子站</div>
       <div class="subj-row">
         <div v-for="s in data.subjects" :key="s.id" class="subj-chip glass zg-card" @click="router.push(`/subject/${s.slug}`)">
-          <span class="sc-icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}aa)` }">{{ s.icon }}</span>
+          <span class="sc-icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}aa)` }"><ZgGlyph :emoji="s.icon" /></span>
           <span class="sc-name">{{ s.name }}</span>
         </div>
       </div>
@@ -139,7 +139,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
               <span class="ac-dot">·</span>
               <span>{{ a.created_at?.slice(5, 10) }}</span>
               <span class="ac-dot">·</span>
-              <span>❤ {{ a.likes || 0 }}</span>
+              <span><ZgGlyph :emoji="'❤'" /> {{ a.likes || 0 }}</span>
             </div>
           </div>
         </div>

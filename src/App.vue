@@ -9,6 +9,7 @@ import { api } from '@/api'
 import { ElMessageBox } from 'element-plus'
 import NavBar from '@/components/NavBar.vue'
 import MobileTabBar from '@/components/MobileTabBar.vue'
+import LogoMark from '@/components/LogoMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,7 +69,11 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
     <template v-if="!isPublicPage">
       <NavBar v-if="ready" />
       <main class="app-main" :class="{ 'has-tabbar': ready && user.isLogin && !isAdminRoute }">
-        <div v-if="!ready" class="boot">✨ 追光加载中…</div>
+        <div v-if="!ready" class="zg-splash">
+          <LogoMark class="zg-splash-logo" />
+          <div class="zg-splash-name zg-grad-text">追光</div>
+          <div class="zg-splash-bar"><span></span></div>
+        </div>
         <router-view v-else v-slot="{ Component }">
           <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
@@ -81,7 +86,11 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
     <!-- 公开页面 -->
     <template v-else>
       <main class="app-main public-page">
-        <div v-if="!ready" class="boot">✨ 追光加载中…</div>
+        <div v-if="!ready" class="zg-splash">
+          <LogoMark class="zg-splash-logo" />
+          <div class="zg-splash-name zg-grad-text">追光</div>
+          <div class="zg-splash-bar"><span></span></div>
+        </div>
         <router-view v-else v-slot="{ Component }">
           <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
@@ -97,8 +106,13 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 .app-main { min-height: calc(100vh - 64px); }
 .app-main.public-page { min-height: 100vh; }
 .has-tabbar { padding-bottom: 64px; }
-.boot { display:flex; align-items:center; justify-content:center; height:80vh; color:var(--zg-text-dim); font-size:16px; }
-.public-page .boot { height: 100vh; }
+.zg-splash { display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh; gap:14px; }
+.public-page .zg-splash { height:100vh; }
+.zg-splash-logo { font-size:56px; filter: drop-shadow(0 0 16px rgba(245,158,11,0.4)); animation: zgBreath 3.2s ease-in-out infinite; }
+.zg-splash-name { font-size:26px; font-weight:800; letter-spacing:3px; }
+.zg-splash-bar { width:140px; height:3px; border-radius:3px; background: rgba(245,158,11,0.18); overflow:hidden; }
+.zg-splash-bar span { display:block; height:100%; width:40%; border-radius:3px; background: linear-gradient(90deg, transparent, var(--zg-primary), transparent); animation: zgSplashMove 1.3s ease-in-out infinite; }
+@keyframes zgSplashMove { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
 @media (max-width: 768px) {
   .app-main:not(.public-page) { min-height: calc(100vh - 56px); }
 }

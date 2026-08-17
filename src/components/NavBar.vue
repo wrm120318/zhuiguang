@@ -209,6 +209,7 @@ function typeLabel(t: string) {
         <div class="d-item" v-if="settings.isEnabled('quiz')" @click="go('/quizzes')"><el-icon><Edit /></el-icon><span>题库自测</span></div>
         <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')"><el-icon><Trophy /></el-icon><span>经验榜</span></div>
         <div class="d-item" @click="go('/profile')"><el-icon><User /></el-icon><span>个人中心</span></div>
+        <div class="d-item" v-if="showNotice" @click="noticeVisible = true"><el-icon><Bell /></el-icon><span>通知中心</span><span v-if="unread" class="d-badge">{{ unread }}</span></div>
         <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')"><el-icon><Star /></el-icon><span>我的收藏</span></div>
         <div class="d-item" v-if="user.isStaff" @click="go('/admin')"><el-icon><Setting /></el-icon><span>管理后台</span></div>
         <div class="d-item" @click="drawerVisible = false; settingsVisible = true"><el-icon><ZoomIn /></el-icon><span>字体设置</span></div>
@@ -217,13 +218,14 @@ function typeLabel(t: string) {
       </div>
       <div class="d-subj-title">学科子站</div>
       <div class="d-subj-grid">
-        <div v-for="s in data.subjects" :key="s.id" class="d-subj" @click="go(`/subject/${s.slug}`)">{{ s.icon }} {{ s.name }}</div>
+        <div v-for="s in data.subjects" :key="s.id" class="d-subj" @click="go(`/subject/${s.slug}`)"><ZgGlyph :emoji="s.icon" /> {{ s.name }}</div>
       </div>
     </div>
   </el-drawer>
 
   <!-- 搜索弹窗 -->
-  <el-dialog v-model="searchVisible" title="🔍 搜索" width="600px" class="search-dialog">
+  <el-dialog v-model="searchVisible" width="600px" class="search-dialog">
+    <template #title><span class="sd-title"><el-icon><Search /></el-icon> 搜索</span></template>
     <div class="search-bar">
       <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch">
         <template #prefix><el-icon><Search /></el-icon></template>
@@ -241,17 +243,17 @@ function typeLabel(t: string) {
     </div>
     <div class="search-results" v-if="searchQuery" v-loading="searching">
       <div v-if="searchResults.articles?.length" class="sr-group">
-        <div class="sr-title">✍️ 美文 ({{ searchResults.articles.length }})</div>
+        <div class="sr-title"><ZgGlyph :emoji="'✍️'" /> 美文 ({{ searchResults.articles.length }})</div>
         <div v-for="a in searchResults.articles" :key="a.id" class="sr-item" @click="searchVisible = false; router.push(`/article/${a.id}`)">
           <div class="sr-item-title">{{ a.title }}</div>
           <div class="sr-item-meta">{{ a.author }} · {{ a.category }}</div>
         </div>
       </div>
       <div v-if="searchResults.resources?.length" class="sr-group">
-        <div class="sr-title">📦 资料 ({{ searchResults.resources.length }})</div>
+        <div class="sr-title"><ZgGlyph :emoji="'📦'" /> 资料 ({{ searchResults.resources.length }})</div>
         <div v-for="r in searchResults.resources" :key="r.id" class="sr-item" @click="searchVisible = false; router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
           <div class="sr-item-title">{{ r.title }}</div>
-          <div class="sr-item-meta">{{ r.category }} · ⬇ {{ r.downloads }}</div>
+          <div class="sr-item-meta">{{ r.category }} · <ZgGlyph :emoji="'⬇'" /> {{ r.downloads }}</div>
         </div>
       </div>
       <el-empty v-if="searchQuery && !searchResults.articles?.length && !searchResults.resources?.length && !searching" description="未找到结果" />
@@ -340,6 +342,8 @@ function typeLabel(t: string) {
 .d-subj-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .d-subj { padding:12px; border-radius:10px; background:rgba(245,158,11,.06); text-align:center; cursor:pointer; font-size: var(--zg-fs-sm); }
 .d-subj:hover { background:rgba(245,158,11,.15); }
+.d-badge { margin-left:auto; background:#ef4444; color:#fff; font-size:11px; padding:1px 7px; border-radius:10px; }
+.sd-title { display:flex; align-items:center; gap:8px; font-weight:700; }
 
 /* 通知 */
 .notice-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color: var(--zg-text-dim); font-size:var(--zg-fs-sm);}

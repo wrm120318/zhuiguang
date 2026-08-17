@@ -23,4 +23,8 @@ for (const name of ZG_ICONS) {
   app.component(name, (ElementPlusIconsVue as Record<string, any>)[name])
 }
 
+// 全局注册 ZgGlyph：emoji → 金色 SVG 双渲染（墨金模式显示 SVG，经典模式显示原 emoji）
+import ZgGlyph from './components/ZgGlyph.vue'
+app.component('ZgGlyph', ZgGlyph)
+
 app.mount('#app')

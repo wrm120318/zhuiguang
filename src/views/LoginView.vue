@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
+import LogoMark from '@/components/LogoMark.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
@@ -83,7 +84,7 @@ async function clickFixLoginPage() {
     >{{ fixing ? '⏳' : '🔧' }}</button>
     <div class="login-card glass-strong zg-scale-in">
       <div class="lc-logo">
-        <span class="lc-emoji">🌟</span>
+        <LogoMark class="lc-logo-mark" />
         <h1 class="zg-grad-text">追光</h1>
       </div>
       <p class="lc-subtitle">追光的人，终会身披万丈光芒</p>
@@ -119,7 +120,13 @@ async function clickFixLoginPage() {
 .lb-orb.c { width: 250px; height: 250px; background: radial-gradient(circle, #FDE68A, transparent 70%); top: 50%; left: 60%; animation-delay: -12s; opacity: 0.3; }
 .login-card { position: relative; z-index: 1; width: 400px; max-width: 92vw; padding: 36px 32px; border-radius: 24px; }
 .lc-logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 6px; }
-.lc-emoji { font-size: 36px; filter: drop-shadow(0 0 12px var(--zg-primary)); }
+.lc-logo-mark { font-size: 40px; filter: drop-shadow(0 0 14px rgba(245,158,11,0.45)); }
+.zg-inkgold .lc-logo-mark { filter: drop-shadow(0 0 16px rgba(212,175,55,0.5)); }
+.zg-inkgold .lb-orb { opacity: 0.12 !important; filter: blur(90px) !important; }
+.zg-inkgold .lb-orb.a { background: radial-gradient(circle, rgba(212,175,55,0.5), transparent 70%) !important; }
+.zg-inkgold .lb-orb.b { background: radial-gradient(circle, rgba(230,198,110,0.42), transparent 70%) !important; }
+.zg-inkgold .lb-orb.c { background: radial-gradient(circle, rgba(212,175,55,0.32), transparent 70%) !important; opacity: 0.08 !important; }
+.zg-inkgold .login-card { border: 1px solid rgba(212,175,55,0.22) !important; box-shadow: 0 28px 80px rgba(0,0,0,0.55) !important; }
 .lc-logo h1 { font-size: 32px; font-weight: 800; }
 .lc-subtitle { text-align: center; color: var(--zg-text-dim); font-size: var(--zg-fs-sm); margin-bottom: 28px; }
 .lc-tabs { display:flex; gap:8px; margin-bottom: 20px; background: rgba(245,158,11,.08); padding: 4px; border-radius: 12px; }
