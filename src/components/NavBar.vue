@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
-import { useThemeStore } from '@/store/theme'
 import { useSettingsStore } from '@/store/settings'
 import { ElMessage } from 'element-plus'
 import { api } from '@/api'
@@ -13,7 +12,6 @@ const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
 const data = useDataStore()
-const theme = useThemeStore()
 const settings = useSettingsStore()
 
 // 站点配置（品牌名称等），未配置或加载失败时回退默认品牌名「追光」
@@ -35,15 +33,6 @@ const noticeVisible = ref(false)
 const drawerVisible = ref(false)
 const settingsVisible = ref(false)
 
-// 用户端主题切换（个人偏好，localStorage 记忆）
-const userMode = computed(() => {
-  const saved = localStorage.getItem('zg_design_mode')
-  if (saved === 'classic' || saved === 'inkgold') return saved
-  return theme.activeTheme?.config?.designMode || 'classic'
-})
-function toggleMode() {
-  theme.setUserMode(userMode.value === 'inkgold' ? 'classic' : 'inkgold')
-}
 const myNotices = ref<any[]>([])
 const unread = ref(0)
 
@@ -153,8 +142,6 @@ function typeLabel(t: string) {
 
       <div class="actions" v-if="user.isLogin">
         <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true"><el-icon><Search /></el-icon></el-button>
-
-        <el-button text circle class="action-btn" :title="userMode==='inkgold' ? '切换到经典暖橘' : '切换到墨金学术'" @click="toggleMode"><el-icon><component :is="userMode==='inkgold' ? 'Sunny' : 'Moon'" /></el-icon></el-button>
 
         <el-badge v-if="showMessage" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
           <el-button text circle class="action-btn" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon></el-button>

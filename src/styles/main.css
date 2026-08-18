@@ -720,10 +720,12 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .hs-divider { background: rgba(186,117,23,0.18) !important; }
 .zg-inkgold .zg-footer { border-top-color: rgba(186,117,23,0.14) !important; }
 
-/* 墨金·明显提亮档（后台界面风格可切换，全站全用户生效） */
+/* 墨金·明显提亮档（后台界面风格可切换，全站全用户生效）
+   注意：applyTheme 会把 --zg-bg-* 写成 documentElement 内联样式，内联优先于样式表类选择器，
+   故此处必须 !important，否则"明显提亮"会被后台背景色内联值压住而失效。 */
 .zg-inkgold.zg-inkgold-bright {
-  --zg-bg-from: #FDFBF7; --zg-bg-via: #FAF6EE; --zg-bg-to: #F5F0E4;
-  --zg-card-bg: rgba(255,255,255,0.94); --zg-card-border: rgba(186,117,23,0.16);
+  --zg-bg-from: #FDFBF7 !important; --zg-bg-via: #FAF6EE !important; --zg-bg-to: #F5F0E4 !important;
+  --zg-card-bg: rgba(255,255,255,0.94) !important; --zg-card-border: rgba(186,117,23,0.16) !important;
 }
 
 /* ============================================================
@@ -1025,10 +1027,10 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .hs-divider { background: rgba(212,175,55,0.18) !important; }
 .zg-inkgold-dark .zg-footer { border-top-color: rgba(212,175,55,0.14) !important; }
 
-/* 墨金深色·明显提亮档（后台可切换） */
+/* 墨金深色·明显提亮档（后台可切换，!important 同理覆盖内联背景变量） */
 .zg-inkgold-dark.zg-inkgold-bright {
-  --zg-bg-from: #241F16; --zg-bg-via: #1C1810; --zg-bg-to: #15110B;
-  --zg-card-bg: rgba(255,255,255,0.08);
+  --zg-bg-from: #241F16 !important; --zg-bg-via: #1C1810 !important; --zg-bg-to: #15110B !important;
+  --zg-card-bg: rgba(255,255,255,0.08) !important;
 }
 
 /* ============================================================
@@ -1072,10 +1074,21 @@ html.zg-inkgold-dark {
   --zg-space-9:56px; --zg-space-10:80px;
 }
 
-/* B2 排版：标题紧致 + 正文衬线对比（heading 已衬线，此处加字距/行高/数字等宽） */
-.zg-inkgold h1, .zg-inkgold h2, .zg-inkgold h3,
-.zg-inkgold-dark h1, .zg-inkgold-dark h2, .zg-inkgold-dark h3 { letter-spacing: -0.01em; line-height: 1.3; }
-.zg-inkgold h4, .zg-inkgold h5, .zg-inkgold-dark h4, .zg-inkgold-dark h5 { line-height: 1.4; }
+/* B2 排版：标题套 Noto Serif SC 衬线（已 index.html 引入）+ 5 级字号阶梯（仅墨金，守铁律经典不变） */
+.zg-inkgold h1, .zg-inkgold h2, .zg-inkgold h3, .zg-inkgold h4, .zg-inkgold h5,
+.zg-inkgold-dark h1, .zg-inkgold-dark h2, .zg-inkgold-dark h3, .zg-inkgold-dark h4, .zg-inkgold-dark h5 {
+  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  letter-spacing: -0.01em;
+}
+.zg-inkgold h1, .zg-inkgold-dark h1 { font-size: var(--zg-fs-2xl); line-height: 1.3; }
+.zg-inkgold h2, .zg-inkgold-dark h2 { font-size: var(--zg-fs-xl); line-height: 1.3; }
+.zg-inkgold h3, .zg-inkgold-dark h3 { font-size: var(--zg-fs-lg); line-height: 1.35; }
+.zg-inkgold h4, .zg-inkgold-dark h4 { font-size: var(--zg-fs-md); line-height: 1.4; }
+.zg-inkgold h5, .zg-inkgold-dark h5 { font-size: var(--zg-fs-sm); line-height: 1.4; }
+/* 正文行高 1.7（松）；按钮字距 0.02em；全大写徽章字距 0.08em */
+.zg-inkgold, .zg-inkgold-dark { line-height: 1.7; }
+.zg-inkgold .el-button, .zg-inkgold-dark .el-button { letter-spacing: 0.02em; }
+.zg-inkgold .zg-badge, .zg-inkgold-dark .zg-badge { letter-spacing: 0.08em; text-transform: uppercase; }
 .zg-inkgold .zg-num, .zg-inkgold-dark .zg-num,
 .zg-inkgold .stat-value, .zg-inkgold-dark .stat-value { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
 
@@ -1101,6 +1114,25 @@ html.zg-inkgold-dark {
 
 /* B1 卡片内图片 hover 轻微放大（仅当卡片内有 img） */
 .zg-inkgold .zg-card:hover img, .zg-inkgold-dark .zg-card:hover img { transform: scale(1.03); transition: transform .5s cubic-bezier(.22,1,.36,1); }
+
+/* B1 按钮：active 下沉 + primary 点击涟漪 */
+.zg-inkgold .el-button, .zg-inkgold-dark .el-button { transition: transform .12s ease, background .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.zg-inkgold .el-button:active, .zg-inkgold-dark .el-button:active { transform: translateY(1px) scale(.98); }
+.zg-inkgold .el-button--primary, .zg-inkgold-dark .el-button--primary { position: relative; overflow: hidden; }
+.zg-inkgold .el-button--primary::after, .zg-inkgold-dark .el-button--primary::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(circle at center, rgba(255,255,255,.55) 0%, transparent 60%);
+  opacity: 0; transform: scale(0);
+}
+.zg-inkgold .el-button--primary:active::after, .zg-inkgold-dark .el-button--primary:active::after {
+  opacity: .5; transform: scale(2.6); transition: transform .45s ease, opacity .45s ease;
+}
+
+/* B1 卡片 hover 抬升 4px + 暖金描边淡入 */
+.zg-inkgold .zg-card, .zg-inkgold-dark .zg-card { transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s ease, border-color .28s ease; }
+.zg-inkgold .zg-card:hover, .zg-inkgold-dark .zg-card:hover { transform: translateY(-4px); box-shadow: var(--zg-shadow-lg); }
+.zg-inkgold .zg-card:hover { border-color: rgba(186,117,23,.35); }
+.zg-inkgold-dark .zg-card:hover { border-color: rgba(212,175,55,.42); }
 
 /* B1 Toast / 通知：右上角卡片滑入（el-notification 已是右上，强化描边与滑入） */
 .zg-inkgold .el-notification, .zg-inkgold-dark .el-notification {
