@@ -20,9 +20,9 @@ const EMOJI_MAP: Record<string, string> = {
   '✓': 'Check', '✕': 'Close', '✗': 'Close', '❌': 'CircleClose', '❤': 'Medal',
   '⬇': 'Bottom', '⭐': 'Star',
   // 学科 / 通用
-  '🌍': 'Compass', '🌐': 'Connection', '🌟': 'Star',
+  '🌍': 'Globe', '🌐': 'Connection', '🌟': 'Star',
   '🎁': 'Present', '🎉': 'Trophy', '🎓': 'School', '🎨': 'Brush', '🎬': 'Film',
-  '🎭': 'Tickets', '🎯': 'Aim', '🏆': 'Trophy', '🏋': 'Basketball', '🏛': 'OfficeBuilding',
+  '🎭': 'Star', '🎯': 'Aim', '🏆': 'Trophy', '🏋': 'Basketball', '🏛': 'OfficeBuilding',
   '🏠': 'HomeFilled', '🏫': 'School', '🏷': 'PriceTag',
   '👁': 'View', '👍': 'Pointer', '👤': 'User', '👥': 'UserFilled',
   '💡': 'LightBulb', '💬': 'ChatLineRound', '💰': 'Coin', '💻': 'Monitor', '💾': 'Document',
@@ -42,6 +42,17 @@ const EMOJI_MAP: Record<string, string> = {
   '🧑': 'User', '🧩': 'Grid', '🧬': 'Connection', '🧹': 'Brush',
 }
 
+// 奖牌：EP 图标库无"带数字金银铜奖牌"，自绘 SVG（墨金模式渲染，经典保留 emoji）
+const MEDALS: Record<string, { color: string; num: string }> = {
+  '🥇': { color: '#FFD700', num: '1' },
+  '🥈': { color: '#C0C0C0', num: '2' },
+  '🥉': { color: '#CD7F32', num: '3' },
+}
+const medal = computed(() => {
+  const key = norm(props.emoji)
+  return MEDALS[key] || MEDALS[props.emoji] || null
+})
+
 // 归一化：去掉变体选择符(U+FE0x)后再查表，兼容 "✍️"(基+VS16) 与 "✍"(基) 两种写法
 const norm = (s: string) => s.replace(/[️︎︯]/g, '').replace(/[\uFE00-\uFE0F]/g, '')
 
@@ -54,11 +65,17 @@ const iconComp = computed(() => (iconName.value ? (ElementPlusIconsVue as Record
 </script>
 
 <template>
-  <el-icon v-if="isGold && iconComp" class="zg-glyph"><component :is="iconComp" /></el-icon>
+  <svg v-if="isGold && medal" class="zg-medal" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="10.5" :fill="medal.color" stroke="rgba(0,0,0,0.14)" stroke-width="1" />
+    <circle cx="12" cy="12" r="7.5" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="1" />
+    <text x="12" y="16.5" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">{{ medal.num }}</text>
+  </svg>
+  <el-icon v-else-if="isGold && iconComp" class="zg-glyph"><component :is="iconComp" /></el-icon>
   <span v-else class="zg-glyph-emoji">{{ emoji }}</span>
 </template>
 
 <style scoped>
 .zg-glyph { vertical-align: -2px; }
 .zg-glyph-emoji { line-height: 1; }
+.zg-medal { width: 1em; height: 1em; vertical-align: -0.18em; display: inline-block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18)); }
 </style>

@@ -20,6 +20,8 @@ function applyTheme(c: any) {
   root.classList.toggle('zg-inkgold', c.designMode === 'inkgold')
   // 墨金学术深浅档：designMode==='inkgold' 且 inkgoldTone==='dark' 时叠加 zg-inkgold-dark
   root.classList.toggle('zg-inkgold-dark', c.designMode === 'inkgold' && (c.inkgoldTone || 'light') === 'dark')
+  // 墨金·背景亮度档（后台界面风格可切换；soft 温和 / bright 明显）
+  root.classList.toggle('zg-inkgold-bright', c.designMode === 'inkgold' && (c.bright || 'soft') === 'bright')
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -33,6 +35,12 @@ export const useThemeStore = defineStore('theme', () => {
     themes.value = list
     activeTheme.value = active
     if (active) { applyTheme(active.config); draft.value = { ...active.config, id: active.id, name: active.name } }
+    // 用户端个人主题偏好（localStorage 记忆，覆盖后台默认设计模式）
+    const savedMode = localStorage.getItem('zg_design_mode')
+    if (savedMode && savedMode !== 'auto' && active) {
+      const cfg = { ...active.config, designMode: savedMode, inkgoldTone: savedMode === 'inkgold' ? (active.config.inkgoldTone || 'light') : active.config.inkgoldTone }
+      applyTheme(cfg)
+    }
     loaded.value = true
   }
 
@@ -53,5 +61,14 @@ export const useThemeStore = defineStore('theme', () => {
     if (activeTheme.value) { applyTheme(activeTheme.value.config); draft.value = { ...activeTheme.value.config, id: activeTheme.value.id, name: activeTheme.value.name } }
   }
 
-  return { themes, activeTheme, draft, loaded, load, preview, apply, saveDraft, reset, applyTheme }
+  // 用户端主题切换（个人偏好，localStorage 记忆，不写后台）
+  function setUserMode(mode: 'classic' | 'inkgold') {
+    localStorage.setItem('zg_design_mode', mode)
+    const cfg = activeTheme.value?.config ? { ...activeTheme.value.config } : {}
+    cfg.designMode = mode
+    if (mode === 'inkgold' && !cfg.inkgoldTone) cfg.inkgoldTone = 'light'
+    applyTheme(cfg)
+  }
+
+  return { themes, activeTheme, draft, loaded, load, preview, apply, saveDraft, reset, applyTheme, setUserMode }
 })

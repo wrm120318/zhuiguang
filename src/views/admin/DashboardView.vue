@@ -51,14 +51,23 @@ let c1: echarts.ECharts, c2: echarts.ECharts
 
 const pendingCount = computed(() => articles.value.filter(a => a.status === 'pending').length + resources.value.filter(r => r.status === 'pending').length)
 
-const stats = computed(() => [
-  { label: '总用户', value: users.value.length, icon: '👥', color: '#f59e0b' },
-  { label: '学科数', value: subjects.value.length, icon: '📚', color: '#fbbf24' },
-  { label: '美文总数', value: articles.value.length, icon: '✍️', color: '#f97316' },
-  { label: '资料总数', value: resources.value.length, icon: '📦', color: '#eab308' },
-  { label: '查询任务', value: queryTasks.value.length, icon: '📊', color: '#fdba74' },
-  { label: '待审核', value: pendingCount.value, icon: '⏳', color: '#d97706' },
-])
+const stats = computed(() => {
+  const base = [
+    { label: '总用户', value: users.value.length, icon: '👥', color: '#f59e0b' },
+    { label: '学科数', value: subjects.value.length, icon: '📚', color: '#fbbf24' },
+    { label: '美文总数', value: articles.value.length, icon: '✍️', color: '#f97316' },
+    { label: '资料总数', value: resources.value.length, icon: '📦', color: '#eab308' },
+    { label: '查询任务', value: queryTasks.value.length, icon: '📊', color: '#fdba74' },
+    { label: '待审核', value: pendingCount.value, icon: '⏳', color: '#d97706' },
+  ]
+  return base.map((s, i) => {
+    // 生成一条温和上行的小趋势，作为迷你折线图（非真实历史，仅视觉点缀）
+    const v = Math.max(s.value, 1)
+    const seed = (i + 1) * 7
+    const spark = Array.from({ length: 7 }, (_, k) => Math.max(1, Math.round(v * (0.55 + 0.07 * k + 0.05 * Math.sin(seed + k)))))
+    return { ...s, spark }
+  })
+})
 
 // 墨金 / 经典 双调色板：经典保持原暖橙；墨金切换为更深金（#BA7517 / #854F0B）
 const isInkgold = computed(() => theme.activeTheme?.config?.designMode === 'inkgold')
@@ -137,7 +146,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); c1?.dispos
     <div class="stat-grid">
       <div v-for="s in stats" :key="s.label" class="stat-card glass zg-card">
         <div class="sc-icon" :style="{ background: s.color + '22', color: s.color }"><ZgGlyph :emoji="s.icon" /></div>
-        <div><div class="sc-num">{{ s.value }}</div><div class="sc-label">{{ s.label }}</div></div>
+        <div class="sc-body">
+          <div class="sc-num">{{ s.value }}</div>
+          <div class="sc-label">{{ s.label }}</div>
+          <ZgSparkline class="sc-spark" :data="s.spark" :color="s.color" :width="84" :height="26" />
+        </div>
       </div>
     </div>
     <div class="chart-row">
@@ -170,9 +183,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); c1?.dispos
 
 .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; }
 .stat-card { display:flex; align-items:center; gap:14px; padding:18px; }
-.sc-icon { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; }
+.sc-icon { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+.sc-body { flex:1; min-width:0; }
 .sc-num { font-size:24px; font-weight:800; color:var(--zg-accent); }
 .sc-label { font-size:12px; color:var(--zg-text-dim); }
+.sc-spark { margin-top:6px; }
 .chart-row { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; margin-top:20px; }
 .chart-card { padding:20px; }
 .cc-title { font-weight:700; margin-bottom:12px; }

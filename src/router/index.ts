@@ -41,6 +41,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/practice/:id', name: 'practice-take', component: () => import('@/views/quiz/PracticeTakeView.vue') },
   { path: '/practice/my-records', name: 'practice-records', component: () => import('@/views/quiz/PracticeRecordsView.vue') },
   { path: '/practice/stats/:questionId', name: 'practice-stats', component: () => import('@/views/quiz/PracticeStatsView.vue') },
+  // 品牌 404（B5 / B10）：未匹配路由统一落地
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
   {
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),

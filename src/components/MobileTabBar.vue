@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { api } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
 
+const unread = ref(0)
+async function loadNotices() {
+  if (!user.isLogin) { unread.value = 0; return }
+  try { const list: any = await api.notices(); unread.value = (list || []).filter((n: any) => !n.read).length } catch { /* */ }
+}
+onMounted(() => { loadNotices(); window.addEventListener('zg-notice-read', loadNotices) })
+
 const items = computed(() => {
-  const arr = [
+  const arr: ({ key: string; label: string; icon: string; to?: string; action?: string })[] = [
     { key: 'home', label: '首页', icon: 'HomeFilled', to: '/' },
     { key: 'subjects', label: '学科', icon: 'Reading', to: '/subjects' },
     { key: 'leaderboard', label: '排行', icon: 'Trophy', to: '/leaderboard' },
   ]
   if (user.isStaff) arr.push({ key: 'admin', label: '管理', icon: 'Setting', to: '/admin/users' })
+  if (user.isLogin) arr.push({ key: 'notice', label: '通知', icon: 'Bell', action: 'notice' })
   arr.push({ key: 'profile', label: '我的', icon: 'User', to: '/profile' })
   return arr
 })
@@ -24,15 +33,20 @@ function active(key: string) {
   if (key === 'admin') return route.path.startsWith('/admin')
   return route.path.startsWith('/' + key) || (key === 'profile' && route.path === '/profile')
 }
+function onTab(it: any) {
+  if (it.action === 'notice') { window.dispatchEvent(new CustomEvent('zg-open-notice')); loadNotices(); return }
+  router.push(it.to)
+}
 </script>
 
 <template>
   <nav class="tabbar">
-    <div v-for="it in items" :key="it.key" class="tab" :class="{ on: active(it.key) }" @click="router.push(it.to)">
-      <span class="t-icon"><el-icon><component :is="it.icon" /></el-icon></span>
-      <span class="t-label">{{ it.label }}</span>
-      <span class="t-dot" v-if="active(it.key)"></span>
-    </div>
+      <div v-for="it in items" :key="it.key" class="tab" :class="{ on: active(it.key) }" @click="onTab(it)">
+        <span class="t-icon"><el-icon><component :is="it.icon" /></el-icon></span>
+        <span class="t-label">{{ it.label }}</span>
+        <span class="t-dot" v-if="active(it.key)"></span>
+        <span class="t-badge" v-if="it.key === 'notice' && unread">{{ unread > 99 ? '99+' : unread }}</span>
+      </div>
   </nav>
 </template>
 
@@ -68,6 +82,12 @@ function active(key: string) {
     width: 4px; height: 4px; border-radius: 50%;
     background: var(--zg-primary);
     animation: zgDotPulse 1.5s ease infinite;
+  }
+  .t-badge {
+    position: absolute; top: 4px; right: 20px;
+    min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9px;
+    background: #ef4444; color: #fff; font-size: 10px; line-height: 16px; text-align: center;
+    box-shadow: 0 2px 6px rgba(239,68,68,.4);
   }
   @keyframes zgDotPulse { 0%,100% { opacity: .5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.3); } }
 }

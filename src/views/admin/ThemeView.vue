@@ -4,7 +4,7 @@ import { useThemeStore } from '@/store/theme'
 import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
-const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', inkgoldTone: 'light', name: '我的主题', isActive: false, id: null })
+const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', inkgoldTone: 'light', bright: 'soft', name: '我的主题', isActive: false, id: null })
 
 onMounted(() => {
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
@@ -21,7 +21,7 @@ function pickTheme(id: number) {
 }
 
 async function publish() {
-  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, designMode: d.designMode, inkgoldTone: d.inkgoldTone }, isActive: true })
+  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, designMode: d.designMode, inkgoldTone: d.inkgoldTone, bright: d.bright }, isActive: true })
   ElMessage.success('主题已发布，全站即时生效')
 }
 function reset() {
@@ -67,6 +67,12 @@ function reset() {
               <el-radio-button label="dark">深色 · 温润暖黑</el-radio-button>
             </el-radio-group>
             <p class="tip" style="margin-top:8px">浅色为默认学术风（暖米白 + 沉稳金，1.0–2.0 原貌）；深色为温润暖黑。两者均去表情 emoji、改用金色 SVG 图标。</p>
+            <div class="ep-label" style="margin-top:18px">背景亮度（发布后全站生效）</div>
+            <el-radio-group v-model="d.bright">
+              <el-radio-button label="soft">温和提亮</el-radio-button>
+              <el-radio-button label="bright">明显提亮</el-radio-button>
+            </el-radio-group>
+            <p class="tip" style="margin-top:8px">温和＝保留暖调、仅提升卡片通透度；明显＝背景整体更亮更净，高级感更强。全站全用户即时生效。</p>
           </div>
         </div>
 

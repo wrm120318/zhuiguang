@@ -27,4 +27,14 @@ for (const name of ZG_ICONS) {
 import ZgGlyph from './components/ZgGlyph.vue'
 app.component('ZgGlyph', ZgGlyph)
 
+// 全局注册 B5 品牌状态组件（空/搜索/错误/404 插画）与 B6 迷你折线图
+import ZgState from './components/ZgState.vue'
+import ZgSparkline from './components/ZgSparkline.vue'
+app.component('ZgState', ZgState)
+app.component('ZgSparkline', ZgSparkline)
+
+// 全局注册 B8 移动端抽屉右滑关闭手势指令
+import { swipeClose } from './directives/swipeClose'
+app.directive('swipe-close', swipeClose)
+
 app.mount('#app')

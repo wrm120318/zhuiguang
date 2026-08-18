@@ -449,7 +449,7 @@ html.zg-inkgold {
   --zg-card-border: rgba(186,117,23,0.22);
   --zg-radius: 20px;
   --zg-blur: 18px;
-  --zg-shadow: 0 10px 40px rgba(186,117,23,0.12);
+  --zg-shadow: 0 2px 8px rgba(120,90,30,0.06), 0 16px 44px rgba(120,90,30,0.14);
   --zg-bg-from: #FAF8F4;
   --zg-bg-via: #F5F1E8;
   --zg-bg-to: #EFE9DC;
@@ -642,11 +642,31 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
   background: linear-gradient(90deg, transparent, var(--zg-primary), transparent); transform: scaleX(0); transform-origin: center;
   transition: transform .25s cubic-bezier(.22,1,.36,1);
 }
-.zg-inkgold .nav-link:hover::after,
-.zg-inkgold .nav-link.active::after,
-.zg-inkgold .nav-link.on::after { transform: scaleX(1); }
+  .zg-inkgold .nav-link:hover::after,
+  .zg-inkgold .nav-link.active::after,
+  .zg-inkgold .nav-link.on::after { transform: scaleX(1); }
 
-/* 微交互：输入框聚焦光环（金，非橘黄） */
+/* 学科子站导航：底部金线（对齐全站导航，仅墨金） */
+.zg-inkgold .sub-tab { position: relative; background: transparent !important; border-radius: 10px; }
+.zg-inkgold .sub-tab::after {
+  content: ''; position: absolute; left: 14px; right: 14px; bottom: 4px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--zg-primary), transparent);
+  transform: scaleX(0); transform-origin: center; transition: transform .25s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold .sub-tab.on,
+.zg-inkgold .sub-tab:hover { color: var(--zg-primary) !important; background: transparent !important; }
+.zg-inkgold .sub-tab.on::after,
+.zg-inkgold .sub-tab:hover::after { transform: scaleX(1); }
+
+/* 微交互：输入框三态（消全局 L131/L132 经典橘框，改墨金棕金） */
+.zg-inkgold .el-input__wrapper,
+.zg-inkgold .el-textarea__inner,
+.zg-inkgold .el-select__wrapper {
+  background: rgba(255,255,255,0.92) !important;
+  box-shadow: 0 0 0 1px rgba(186,117,23,0.18) inset !important;
+}
+.zg-inkgold .el-input__wrapper:hover,
+.zg-inkgold .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(186,117,23,0.40) inset !important; }
 .zg-inkgold .el-input__wrapper.is-focus,
 .zg-inkgold .el-textarea__inner:focus,
 .zg-inkgold .el-select__wrapper.is-focus {
@@ -696,8 +716,15 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .hero-tag { background: rgba(186,117,23,0.14) !important; border-color: rgba(186,117,23,0.3) !important; color: #9c6112; }
 .zg-inkgold .announce-bar { border-color: rgba(186,117,23,0.28) !important; }
 .zg-inkgold .qg-icon { box-shadow: 0 4px 14px rgba(186,117,23,0.2) !important; }
+.zg-inkgold .qg-icon, .zg-inkgold .sc-icon, .zg-inkgold-dark .qg-icon, .zg-inkgold-dark .sc-icon { color: var(--zg-primary); }
 .zg-inkgold .hs-divider { background: rgba(186,117,23,0.18) !important; }
 .zg-inkgold .zg-footer { border-top-color: rgba(186,117,23,0.14) !important; }
+
+/* 墨金·明显提亮档（后台界面风格可切换，全站全用户生效） */
+.zg-inkgold.zg-inkgold-bright {
+  --zg-bg-from: #FDFBF7; --zg-bg-via: #FAF6EE; --zg-bg-to: #F5F0E4;
+  --zg-card-bg: rgba(255,255,255,0.94); --zg-card-border: rgba(186,117,23,0.16);
+}
 
 /* ============================================================
    墨金学术 · 深色档（温润暖黑）
@@ -722,7 +749,7 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
   --zg-accent: #F1D99B;
   --zg-radius: 22px;
   --zg-blur: 22px;
-  --zg-shadow: 0 20px 56px rgba(0,0,0,0.45), 0 2px 10px rgba(212,175,55,0.06);
+  --zg-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 22px 56px rgba(0,0,0,0.40);
   /* Element Plus 强调色跟随墨金：消输入框橘黄 + 全站 EP 组件转沉稳金 */
   --el-color-primary: #D4AF37;
   --el-color-primary-light-3: #b9962f;
@@ -921,11 +948,31 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
   background: linear-gradient(90deg, transparent, var(--zg-primary), transparent); transform: scaleX(0); transform-origin: center;
   transition: transform .25s cubic-bezier(.22,1,.36,1);
 }
-.zg-inkgold-dark .nav-link:hover::after,
-.zg-inkgold-dark .nav-link.active::after,
-.zg-inkgold-dark .nav-link.on::after { transform: scaleX(1); }
+  .zg-inkgold-dark .nav-link:hover::after,
+  .zg-inkgold-dark .nav-link.active::after,
+  .zg-inkgold-dark .nav-link.on::after { transform: scaleX(1); }
 
-/* 微交互：输入框聚焦光环（金，非橘黄） */
+/* 学科子站导航：底部金线（对齐全站导航，仅墨金深色） */
+.zg-inkgold-dark .sub-tab { position: relative; background: transparent !important; border-radius: 10px; }
+.zg-inkgold-dark .sub-tab::after {
+  content: ''; position: absolute; left: 14px; right: 14px; bottom: 4px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--zg-primary), transparent);
+  transform: scaleX(0); transform-origin: center; transition: transform .25s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold-dark .sub-tab.on,
+.zg-inkgold-dark .sub-tab:hover { color: var(--zg-primary) !important; background: transparent !important; }
+.zg-inkgold-dark .sub-tab.on::after,
+.zg-inkgold-dark .sub-tab:hover::after { transform: scaleX(1); }
+
+/* 微交互：输入框三态（消橘框 + 深色档修白块，改暖黑面板金描边） */
+.zg-inkgold-dark .el-input__wrapper,
+.zg-inkgold-dark .el-textarea__inner,
+.zg-inkgold-dark .el-select__wrapper {
+  background: rgba(255,255,255,0.06) !important;
+  box-shadow: 0 0 0 1px rgba(212,175,55,0.22) inset !important;
+}
+.zg-inkgold-dark .el-input__wrapper:hover,
+.zg-inkgold-dark .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(212,175,55,0.45) inset !important; }
 .zg-inkgold-dark .el-input__wrapper.is-focus,
 .zg-inkgold-dark .el-textarea__inner:focus,
 .zg-inkgold-dark .el-select__wrapper.is-focus {
@@ -977,4 +1024,145 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .qg-icon { box-shadow: 0 4px 14px rgba(212,175,55,0.2) !important; }
 .zg-inkgold-dark .hs-divider { background: rgba(212,175,55,0.18) !important; }
 .zg-inkgold-dark .zg-footer { border-top-color: rgba(212,175,55,0.14) !important; }
+
+/* 墨金深色·明显提亮档（后台可切换） */
+.zg-inkgold-dark.zg-inkgold-bright {
+  --zg-bg-from: #241F16; --zg-bg-via: #1C1810; --zg-bg-to: #15110B;
+  --zg-card-bg: rgba(255,255,255,0.08);
+}
+
+/* ============================================================
+   B 类 · 深度现代化系统（仅墨金作用域，守铁律：经典 :root 一律不动）
+   B2 排版阶梯 / B3 色彩·阴影令牌 / B4 间距基线 / B1 微交互 / B6 表格 / B7 表单 / B8 移动端 / B9 可达性
+   ============================================================ */
+
+/* —— 设计令牌：暖灰阶 / 语义色 / 4 级双层阴影 / 字号阶梯 / 4px 间距基线（浅色档） —— */
+html.zg-inkgold {
+  --zg-gray-50:#FAF8F4; --zg-gray-100:#F2EEE6; --zg-gray-200:#E8E1D4;
+  --zg-gray-300:#D9D0BF; --zg-gray-400:#C0B49B; --zg-gray-500:#9C8E73;
+  --zg-gray-600:#7A6E54; --zg-gray-700:#5E543E; --zg-gray-800:#423A2A; --zg-gray-900:#2B2620;
+  --zg-success:#10B981; --zg-success-bg:rgba(16,185,129,.12);
+  --zg-warning:#F59E0B; --zg-warning-bg:rgba(245,158,11,.12);
+  --zg-error:#EF4444;   --zg-error-bg:rgba(239,68,68,.12);
+  --zg-info:#3B82F6;    --zg-info-bg:rgba(59,130,246,.12);
+  --zg-shadow-sm:0 1px 2px rgba(120,90,30,.06), 0 2px 6px rgba(120,90,30,.08);
+  --zg-shadow-md:0 2px 8px rgba(120,90,30,.06), 0 16px 44px rgba(120,90,30,.14);
+  --zg-shadow-lg:0 4px 12px rgba(120,90,30,.08), 0 24px 60px rgba(120,90,30,.18);
+  --zg-shadow-xl:0 8px 20px rgba(120,90,30,.10), 0 40px 90px rgba(120,90,30,.22);
+  --zg-fs-2xl:32px; --zg-fs-xl:24px; --zg-fs-lg:20px; --zg-fs-md:17px; --zg-fs-sm:15px;
+  --zg-space-1:4px; --zg-space-2:8px; --zg-space-3:12px; --zg-space-4:16px;
+  --zg-space-5:20px; --zg-space-6:24px; --zg-space-7:32px; --zg-space-8:40px;
+  --zg-space-9:56px; --zg-space-10:80px;
+}
+html.zg-inkgold-dark {
+  --zg-gray-50:#2B2620; --zg-gray-100:#322C22; --zg-gray-200:#3D362A;
+  --zg-gray-300:#4A4233; --zg-gray-400:#5E543E; --zg-gray-500:#7A6E54;
+  --zg-gray-600:#9C8E73; --zg-gray-700:#B8A37A; --zg-gray-800:#D8CFBE; --zg-gray-900:#F3EBD9;
+  --zg-success:#34D399; --zg-success-bg:rgba(16,185,129,.18);
+  --zg-warning:#FBBF24; --zg-warning-bg:rgba(245,158,11,.18);
+  --zg-error:#F87171;   --zg-error-bg:rgba(239,68,68,.18);
+  --zg-info:#60A5FA;    --zg-info-bg:rgba(59,130,246,.18);
+  --zg-shadow-sm:0 1px 2px rgba(0,0,0,.30), 0 2px 6px rgba(0,0,0,.35);
+  --zg-shadow-md:0 2px 8px rgba(0,0,0,.30), 0 16px 44px rgba(0,0,0,.45);
+  --zg-shadow-lg:0 4px 12px rgba(0,0,0,.35), 0 24px 60px rgba(0,0,0,.50);
+  --zg-shadow-xl:0 8px 20px rgba(0,0,0,.40), 0 40px 90px rgba(0,0,0,.55);
+  --zg-fs-2xl:32px; --zg-fs-xl:24px; --zg-fs-lg:20px; --zg-fs-md:17px; --zg-fs-sm:15px;
+  --zg-space-1:4px; --zg-space-2:8px; --zg-space-3:12px; --zg-space-4:16px;
+  --zg-space-5:20px; --zg-space-6:24px; --zg-space-7:32px; --zg-space-8:40px;
+  --zg-space-9:56px; --zg-space-10:80px;
+}
+
+/* B2 排版：标题紧致 + 正文衬线对比（heading 已衬线，此处加字距/行高/数字等宽） */
+.zg-inkgold h1, .zg-inkgold h2, .zg-inkgold h3,
+.zg-inkgold-dark h1, .zg-inkgold-dark h2, .zg-inkgold-dark h3 { letter-spacing: -0.01em; line-height: 1.3; }
+.zg-inkgold h4, .zg-inkgold h5, .zg-inkgold-dark h4, .zg-inkgold-dark h5 { line-height: 1.4; }
+.zg-inkgold .zg-num, .zg-inkgold-dark .zg-num,
+.zg-inkgold .stat-value, .zg-inkgold-dark .stat-value { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+/* B1 列表项 hover：暖金左条滑入 + 极淡金底 */
+.zg-inkgold .row-hover, .zg-inkgold .list-item, .zg-inkgold .item-row,
+.zg-inkgold-dark .row-hover, .zg-inkgold-dark .list-item, .zg-inkgold-dark .item-row {
+  position: relative; transition: background .2s ease;
+}
+.zg-inkgold .row-hover::before, .zg-inkgold .list-item::before, .zg-inkgold .item-row::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 3px;
+  background: linear-gradient(var(--zg-accent), var(--zg-primary));
+  transform: scaleY(0); transform-origin: center; transition: transform .22s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold .row-hover:hover, .zg-inkgold .list-item:hover, .zg-inkgold .item-row:hover { background: rgba(186,117,23,.05); }
+.zg-inkgold .row-hover:hover::before, .zg-inkgold .list-item:hover::before, .zg-inkgold .item-row:hover::before { transform: scaleY(1); }
+.zg-inkgold-dark .row-hover::before, .zg-inkgold-dark .list-item::before, .zg-inkgold-dark .item-row::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 3px;
+  background: linear-gradient(var(--zg-accent), var(--zg-primary));
+  transform: scaleY(0); transform-origin: center; transition: transform .22s cubic-bezier(.22,1,.36,1);
+}
+.zg-inkgold-dark .row-hover:hover, .zg-inkgold-dark .list-item:hover, .zg-inkgold-dark .item-row:hover { background: rgba(212,175,55,.06); }
+.zg-inkgold-dark .row-hover:hover::before, .zg-inkgold-dark .list-item:hover::before, .zg-inkgold-dark .item-row:hover::before { transform: scaleY(1); }
+
+/* B1 卡片内图片 hover 轻微放大（仅当卡片内有 img） */
+.zg-inkgold .zg-card:hover img, .zg-inkgold-dark .zg-card:hover img { transform: scale(1.03); transition: transform .5s cubic-bezier(.22,1,.36,1); }
+
+/* B1 Toast / 通知：右上角卡片滑入（el-notification 已是右上，强化描边与滑入） */
+.zg-inkgold .el-notification, .zg-inkgold-dark .el-notification {
+  border-radius: 16px !important; box-shadow: var(--zg-shadow-lg) !important;
+}
+
+/* B6 表格：sticky 表头（滚动容器内吸顶） + 斑马纹更淡 + 首列 hover 金条 */
+.zg-inkgold .el-table__header-wrapper, .zg-inkgold-dark .el-table__header-wrapper {
+  position: sticky; top: 0; z-index: 3;
+}
+.zg-inkgold .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: rgba(186,117,23,.035) !important; }
+.zg-inkgold-dark .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: rgba(212,175,55,.04) !important; }
+.zg-inkgold .el-table__body tr:hover > td.el-table__cell:first-child { box-shadow: inset 3px 0 0 var(--zg-primary); }
+.zg-inkgold-dark .el-table__body tr:hover > td.el-table__cell:first-child { box-shadow: inset 3px 0 0 var(--zg-primary); }
+
+/* B7 表单：实时校验错误态——红描边 + 左右抖动 3 次 */
+.zg-inkgold .el-form-item.is-error .el-input__wrapper,
+.zg-inkgold .el-form-item.is-error .el-textarea__inner,
+.zg-inkgold .el-form-item.is-error .el-select__wrapper { box-shadow: 0 0 0 1px var(--zg-error) inset !important; }
+.zg-inkgold-dark .el-form-item.is-error .el-input__wrapper,
+.zg-inkgold-dark .el-form-item.is-error .el-textarea__inner,
+.zg-inkgold-dark .el-form-item.is-error .el-select__wrapper { box-shadow: 0 0 0 1px var(--zg-error) inset !important; }
+@keyframes zgShake {
+  0%,100% { transform: translateX(0); } 18% { transform: translateX(-5px); }
+  38% { transform: translateX(5px); } 58% { transform: translateX(-4px); } 80% { transform: translateX(4px); }
+}
+.zg-inkgold .el-form-item.is-error, .zg-inkgold-dark .el-form-item.is-error { animation: zgShake .42s ease; }
+
+/* B8 移动端：安全区（刘海/底部 Home 条） */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .zg-inkgold .tabbar, .zg-inkgold-dark .tabbar { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .zg-inkgold .nav, .zg-inkgold-dark .nav { padding-top: env(safe-area-inset-top); }
+  .zg-inkgold .zg-root, .zg-inkgold-dark .zg-root { padding-top: env(safe-area-inset-top); }
+}
+
+/* B8 移动端：弹窗改底部 sheet（上滑出现，顶部圆角 22px，遮罩模糊） */
+@media (max-width: 768px) {
+  .zg-inkgold .el-overlay, .zg-inkgold-dark .el-overlay { display: flex; align-items: flex-end; }
+  .zg-inkgold .el-dialog, .zg-inkgold-dark .el-dialog {
+    width: 100% !important; max-width: 100% !important; margin: 0 !important;
+    border-radius: 22px 22px 0 0 !important; border-bottom: none !important;
+    position: absolute; left: 0; right: 0; bottom: 0; top: auto !important;
+    transform: translateY(0) !important;
+    animation: zgSheetUp .32s cubic-bezier(.22,1,.36,1);
+  }
+  @keyframes zgSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  /* 移动端抽屉下拉关闭手势提示：给抽屉体指针反馈 */
+  .zg-inkgold .el-drawer__body, .zg-inkgold-dark .el-drawer__body { -webkit-overflow-scrolling: touch; }
+}
+
+/* B8 移动端：下拉刷新指示（元素加 .zg-ptr，配合组件 touch 逻辑） */
+.zg-inkgold .zg-ptr, .zg-inkgold-dark .zg-ptr {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 0; overflow: hidden; color: var(--zg-text-dim); font-size: 13px;
+  transition: height .25s ease;
+}
+.zg-inkgold .zg-ptr.show, .zg-inkgold-dark .zg-ptr.show { height: 48px; }
+
+/* B5 空状态（仅墨金）：el-empty 套品牌暖金光环 + 居中呼吸 */
+.zg-inkgold .el-empty, .zg-inkgold-dark .el-empty { padding: 28px 0; }
+.zg-inkgold .el-empty__image, .zg-inkgold-dark .el-empty__image {
+  filter: drop-shadow(0 6px 16px rgba(186,117,23,.22));
+}
+.zg-inkgold .el-empty__description, .zg-inkgold-dark .el-empty__description { color: var(--zg-text-dim) !important; font-size: var(--zg-fs-sm); }
 

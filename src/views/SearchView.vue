@@ -62,7 +62,7 @@ onMounted(() => { if (query.value) search() })
         </div>
       </div>
 
-      <el-empty v-if="query && !loading && !results.articles?.length && !results.resources?.length" description="未找到相关内容" />
+      <ZgState v-if="query && !loading && !results.articles?.length && !results.resources?.length" type="search" />
     </div>
   </div>
 </template>

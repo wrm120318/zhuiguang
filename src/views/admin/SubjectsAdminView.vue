@@ -71,6 +71,14 @@ async function deleteSubject(s: any) {
 
 const iconPresets = ['📚', '📖', '📐', '🌍', '🔬', '⚗️', '🧬', '🏛️', '💻', '🎨', '🎭', '📊', '📝', '🔢', '💡', '🎯']
 const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#fde047', '#a16207', '#fdba74', '#fb923c', '#fcd34d']
+const moduleDefs = [
+  { key: 'announcement', label: '公告栏', desc: '学科动态发布', icon: 'Promotion' },
+  { key: 'resources', label: '资料共享', desc: '课件与素材', icon: 'Files' },
+  { key: 'articles', label: '美文共赏', desc: '优秀文章', icon: 'Notebook' },
+  { key: 'query', label: '数据查询', desc: '成绩与统计', icon: 'Search' },
+  { key: 'quiz', label: '题库自测', desc: '练习与测验', icon: 'EditPen' },
+  { key: 'leaderboard', label: '学科榜', desc: '贡献排行', icon: 'Trophy' },
+]
 </script>
 
 <template>
@@ -109,13 +117,16 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
     </div>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑学科' : '新建学科'" width="560px">
-      <el-form label-width="100px">
+    <el-dialog v-model="editVisible" width="560px">
+      <template #header>
+        <div class="dlg-head"><span class="dlg-bar"></span><ZgGlyph emoji="📚" /><span>{{ editForm.id ? '编辑学科' : '新建学科' }}</span></div>
+      </template>
+      <el-form label-position="top">
         <el-form-item label="学科名称"><el-input v-model="editForm.name" placeholder="如：物理" /></el-form-item>
         <el-form-item label="标识 slug"><el-input v-model="editForm.slug" placeholder="英文标识，如：physics" :disabled="!!editForm.id" /></el-form-item>
         <el-form-item label="图标">
           <div class="preset-row">
-            <span v-for="i in iconPresets" :key="i" class="preset" :class="{on: editForm.icon === i}" @click="editForm.icon = i">{{ i }}</span>
+            <span v-for="i in iconPresets" :key="i" class="preset" :class="{on: editForm.icon === i}" @click="editForm.icon = i"><ZgGlyph :emoji="i" /></span>
           </div>
         </el-form-item>
         <el-form-item label="主色调">
@@ -133,9 +144,13 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
         </el-form-item>
         <el-form-item label="模块开关">
           <div class="mod-grid">
-            <div v-for="(label, key) in {announcement:'公告栏',resources:'资料共享',articles:'美文共赏',query:'数据查询',quiz:'题库自测',leaderboard:'学科榜'}" :key="key" class="mod-item">
-              <span>{{ label }}</span>
-              <el-switch :model-value="editForm.modules?.[key]" @change="(v:boolean) => { editForm.modules[key] = v }" />
+            <div v-for="m in moduleDefs" :key="m.key" class="mod-card" :class="{on: editForm.modules?.[m.key]}" @click="editForm.modules[m.key] = !editForm.modules?.[m.key]">
+              <el-icon class="mc-ico"><component :is="m.icon" /></el-icon>
+              <div class="mc-body">
+                <div class="mc-title">{{ m.label }}</div>
+                <div class="mc-desc">{{ m.desc }}</div>
+              </div>
+              <el-switch :model-value="editForm.modules?.[m.key]" @change="(v:boolean) => { editForm.modules[m.key] = v }" @click.stop />
             </div>
           </div>
         </el-form-item>
@@ -151,6 +166,8 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
 <style scoped>
 .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
 .dh-title { font-size:24px; font-weight:800; }
+.dlg-head { display:flex; align-items:center; gap:10px; font-size:var(--zg-fs-lg); font-weight:800; }
+.dlg-bar { width:4px; height:20px; border-radius:4px; background:linear-gradient(var(--zg-accent), var(--zg-primary)); }
 .table-wrap { padding:8px; overflow-x:auto; }
 .slug { font-size:12px; color:var(--zg-text-dim); margin-left:6px; }
 .color-dot { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:6px; vertical-align:middle; }
@@ -160,8 +177,14 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
 .preset.on { border-color:var(--zg-primary); background:rgba(245,158,11,.2); }
 .color-row { display:flex; align-items:center; }
 .sw { width:24px; height:24px; border-radius:6px; cursor:pointer; border:1px solid rgba(245,158,11,.3); }
-.mod-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; width:100%; }
-.mod-item { display:flex; justify-content:space-between; align-items:center; padding:6px 12px; border-radius:8px; background:rgba(245,158,11,.06); }
+.mod-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; width:100%; }
+.mod-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:12px; background:rgba(245,158,11,.06); border:1px solid transparent; transition:all .2s cubic-bezier(.2,.8,.2,1); cursor:pointer; }
+.mod-card:hover { transform:translateY(-2px); border-color:rgba(245,158,11,.3); box-shadow:0 6px 18px rgba(245,158,11,.12); }
+.mod-card.on { border-color:var(--zg-primary); background:rgba(245,158,11,.12); }
+.mc-ico { font-size:22px; color:var(--zg-primary); }
+.mc-body { flex:1; }
+.mc-title { font-weight:600; font-size:var(--zg-fs-sm); }
+.mc-desc { font-size:var(--zg-fs-xs); color:var(--zg-text-dim); }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }

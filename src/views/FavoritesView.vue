@@ -78,7 +78,7 @@ async function removeFav(type: string, id: number) {
       </div>
     </div>
 
-    <el-empty v-if="!loading && !articles.length && !resources.length" description="还没有收藏内容" />
+    <ZgState v-if="!loading && !articles.length && !resources.length" type="empty" action-text="去首页逛逛" action-to="/" />
   </div>
 </template>
 

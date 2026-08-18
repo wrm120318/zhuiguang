@@ -34,6 +34,16 @@ async function refreshUnread() {
 const noticeVisible = ref(false)
 const drawerVisible = ref(false)
 const settingsVisible = ref(false)
+
+// 用户端主题切换（个人偏好，localStorage 记忆）
+const userMode = computed(() => {
+  const saved = localStorage.getItem('zg_design_mode')
+  if (saved === 'classic' || saved === 'inkgold') return saved
+  return theme.activeTheme?.config?.designMode || 'classic'
+})
+function toggleMode() {
+  theme.setUserMode(userMode.value === 'inkgold' ? 'classic' : 'inkgold')
+}
 const myNotices = ref<any[]>([])
 const unread = ref(0)
 
@@ -86,8 +96,11 @@ onMounted(() => {
   if (!settings.siteConfigLoaded) settings.fetchSiteConfig()
   // 站内信已读后即时刷新未读数
   window.addEventListener('messages-read', refreshUnread)
+  // 手机端底栏「通知中心」按钮 → 打开通知抽屉
+  window.addEventListener('zg-open-notice', openNoticeFromBar)
 })
-onUnmounted(() => { window.removeEventListener('messages-read', refreshUnread) })
+function openNoticeFromBar() { noticeVisible.value = true }
+onUnmounted(() => { window.removeEventListener('messages-read', refreshUnread); window.removeEventListener('zg-open-notice', openNoticeFromBar) })
 
 // 路由变化时刷新未读信件数（站内信已读后红色徽标即时消失）
 watch(() => route.fullPath, () => { refreshUnread() })
@@ -140,6 +153,8 @@ function typeLabel(t: string) {
 
       <div class="actions" v-if="user.isLogin">
         <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true"><el-icon><Search /></el-icon></el-button>
+
+        <el-button text circle class="action-btn" :title="userMode==='inkgold' ? '切换到经典暖橘' : '切换到墨金学术'" @click="toggleMode"><el-icon><component :is="userMode==='inkgold' ? 'Sunny' : 'Moon'" /></el-icon></el-button>
 
         <el-badge v-if="showMessage" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
           <el-button text circle class="action-btn" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon></el-button>
@@ -260,7 +275,7 @@ function typeLabel(t: string) {
     </div>
   </el-dialog>
 
-  <el-drawer v-model="noticeVisible" title="通知中心" direction="rtl" size="380px">
+  <el-drawer v-model="noticeVisible" title="通知中心" direction="rtl" size="380px" v-swipe-close>
     <div class="notice-head">
       <span>{{ unread }} 条未读</span>
       <el-button text size="small" :loading="reading" @click="readAll">全部已读</el-button>

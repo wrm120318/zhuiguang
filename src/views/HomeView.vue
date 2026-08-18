@@ -5,12 +5,14 @@ import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
+import { useThemeStore } from '@/store/theme'
 import { renderMarkdownPreserveSpaces } from '@/utils/markdown'
 
 const router = useRouter()
 const user = useUserStore()
 const data = useDataStore()
 const settings = useSettingsStore()
+const theme = useThemeStore()
 const articles = ref<any[]>([])
 const stats = ref<any>({})
 
@@ -42,6 +44,16 @@ const displayQuickLinks = computed(() => {
   if (siteConfig.value?.quickLinks?.length) return siteConfig.value.quickLinks
   return defaultQuickLinks
 })
+
+// 图标底色：后台自定义 color 照常生效；无 color 时按皮肤回退默认暖金（铁律4：自定义优先）
+function iconBg(color?: string) {
+  const cfg: any = theme.activeTheme?.config
+  const def = cfg?.designMode === 'inkgold'
+    ? (cfg.inkgoldTone === 'dark' ? '#D4AF37' : '#BA7517')
+    : '#F59E0B'
+  const c = color || def
+  return `linear-gradient(135deg, ${c}, ${c}aa)`
+}
 
 // 公告栏：配置加载完成前不渲染，避免闪烁
 const showAnnouncement = computed(() => {
@@ -107,7 +119,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
     <div class="quick-grid" v-if="displayQuickLinks && displayQuickLinks.length">
       <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
-        <div class="qg-icon" :style="{ background: `linear-gradient(135deg, ${ql.color || '#F59E0B'}, ${(ql.color || '#F59E0B')}aa)` }"><ZgGlyph :emoji="ql.icon" /></div>
+        <div class="qg-icon" :style="{ background: iconBg(ql.color) }"><ZgGlyph :emoji="ql.icon" /></div>
         <div class="qg-text">{{ ql.label }}</div>
       </div>
     </div>
@@ -117,7 +129,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       <div class="section-title">学科子站</div>
       <div class="subj-row">
         <div v-for="s in data.subjects" :key="s.id" class="subj-chip glass zg-card" @click="router.push(`/subject/${s.slug}`)">
-          <span class="sc-icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}aa)` }"><ZgGlyph :emoji="s.icon" /></span>
+          <span class="sc-icon" :style="{ background: iconBg(s.color) }"><ZgGlyph :emoji="s.icon" /></span>
           <span class="sc-name">{{ s.name }}</span>
         </div>
       </div>
