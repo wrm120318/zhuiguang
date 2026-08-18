@@ -61,26 +61,39 @@ const showAnnouncement = computed(() => {
   return siteConfig.value?.showAnnouncementBar && siteConfig.value?.announcementBar
 })
 
-onMounted(async () => {
-  // 确保站点配置已加载（App.vue 也会触发，这里做兜底）
-  if (!settings.siteConfigLoaded) await settings.fetchSiteConfig()
-  if (!data.subjects.length) await data.fetchSubjects()
-  // 并行加载文章和统计数据（站点配置已由 settings store 管理）
-  const [artsRes, statsRes] = await Promise.allSettled([
-    api.articles({ limit: 6 }),
-    api.stats(),
-  ])
-  if (artsRes.status === 'fulfilled') articles.value = artsRes.value as any
-  if (statsRes.status === 'fulfilled') stats.value = statsRes.value as any
-})
+const error = ref(false)
+
+async function load() {
+  error.value = false
+  try {
+    // 确保站点配置已加载（App.vue 也会触发，这里做兜底）
+    if (!settings.siteConfigLoaded) await settings.fetchSiteConfig()
+    if (!data.subjects.length) await data.fetchSubjects()
+    // 并行加载文章和统计数据（站点配置已由 settings store 管理）
+    const [artsRes, statsRes] = await Promise.allSettled([
+      api.articles({ limit: 6 }),
+      api.stats(),
+    ])
+    if (artsRes.status === 'fulfilled') articles.value = artsRes.value as any
+    if (statsRes.status === 'fulfilled') stats.value = statsRes.value as any
+  } catch { error.value = true }
+}
+onMounted(load)
+
+async function onRefresh(done: () => void) {
+  await load()
+  done()
+}
 
 function goArticle(id: number) { router.push(`/article/${id}`) }
 </script>
 
 <template>
-  <div class="page zg-container">
-    <!-- Hero -->
-    <div class="hero glass-strong zg-slide-up">
+  <ZgPullRefresh class="page zg-container" @refresh="onRefresh">
+    <ZgNetworkError v-if="error" @retry="load" />
+    <template v-else>
+      <!-- Hero -->
+      <div class="hero glass-strong zg-slide-up">
       <div class="hero-bg"></div>
       <div class="hero-content">
         <div class="hero-tag"><ZgGlyph :emoji="'🌟'" /> {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
@@ -88,22 +101,22 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         <p class="hero-sub">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
         <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
           <div class="hs-item">
-            <div class="hs-num">{{ user.current?.exp || 0 }}</div>
+            <div class="hs-num"><ZgCountUp :value="user.current?.exp || 0" /></div>
             <div class="hs-label">经验值</div>
           </div>
           <div class="hs-divider"></div>
           <div class="hs-item">
-            <div class="hs-num">Lv.{{ user.current?.level || 1 }}</div>
+            <div class="hs-num">Lv.<ZgCountUp :value="user.current?.level || 1" /></div>
             <div class="hs-label">等级</div>
           </div>
           <div class="hs-divider"></div>
           <div class="hs-item">
-            <div class="hs-num">{{ stats.articles || 0 }}</div>
+            <div class="hs-num"><ZgCountUp :value="stats.articles || 0" /></div>
             <div class="hs-label">美文</div>
           </div>
           <div class="hs-divider"></div>
           <div class="hs-item">
-            <div class="hs-num">{{ stats.resources || 0 }}</div>
+            <div class="hs-num"><ZgCountUp :value="stats.resources || 0" /></div>
             <div class="hs-label">资料</div>
           </div>
         </div>
@@ -162,7 +175,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <footer class="zg-footer" v-if="configLoaded && siteConfig?.footerText">
       <span v-html="renderMarkdownPreserveSpaces(siteConfig.footerText)"></span>
     </footer>
-  </div>
+    </template>
+  </ZgPullRefresh>
 </template>
 
 <style scoped>

@@ -141,15 +141,15 @@ function typeLabel(t: string) {
       </nav>
 
       <div class="actions" v-if="user.isLogin">
-        <el-button v-if="showSearch" text circle class="action-btn" @click="searchVisible = true"><el-icon><Search /></el-icon></el-button>
+        <el-button v-if="showSearch" text circle class="action-btn" aria-label="搜索" @click="searchVisible = true"><el-icon><Search /></el-icon></el-button>
 
         <el-badge v-if="showMessage" :value="messageUnread" :hidden="messageUnread === 0" class="msg-bell">
-          <el-button text circle class="action-btn" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon></el-button>
+          <el-button text circle class="action-btn" aria-label="站内信" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon></el-button>
         </el-badge>
 
         <el-popover trigger="click" width="240" placement="bottom-end" :visible="settingsVisible" @update:visible="settingsVisible = $event">
           <template #reference>
-            <el-button text circle class="action-btn" @click="settingsVisible = !settingsVisible"><el-icon><Setting /></el-icon></el-button>
+            <el-button text circle class="action-btn" aria-label="界面设置" @click="settingsVisible = !settingsVisible"><el-icon><Setting /></el-icon></el-button>
           </template>
           <div class="settings-panel">
             <div class="sp-title">字体大小</div>
@@ -163,12 +163,12 @@ function typeLabel(t: string) {
         </el-popover>
 
         <el-badge v-if="showNotice" :value="unread" :hidden="unread === 0" class="bell">
-          <el-button text circle class="action-btn" @click="noticeVisible = true"><el-icon><Bell /></el-icon></el-button>
+          <el-button text circle class="action-btn" aria-label="通知中心" @click="noticeVisible = true"><el-icon><Bell /></el-icon></el-button>
         </el-badge>
 
-        <el-dropdown trigger="click">
+        <el-dropdown trigger="click" aria-label="个人菜单">
           <div class="me">
-            <img :src="user.current?.avatar" class="avatar" />
+            <ZgAvatar :src="user.current?.avatar" :size="36" :fallback="user.current?.realName" />
             <div class="me-meta">
               <div class="me-name">{{ user.current?.realName }}</div>
               <div class="me-role">{{ roleLabel(user.current?.role) }} · Lv.{{ user.current?.level }}</div>
@@ -187,7 +187,7 @@ function typeLabel(t: string) {
 
       <el-button v-else type="primary" round size="small" @click="go('/login')">登录</el-button>
 
-      <el-button class="menu-btn" text circle @click="drawerVisible = true"><el-icon><Menu /></el-icon></el-button>
+      <el-button class="menu-btn" text circle aria-label="打开菜单" @click="drawerVisible = true"><el-icon><Menu /></el-icon></el-button>
     </div>
   </header>
 
@@ -199,7 +199,7 @@ function typeLabel(t: string) {
         <el-icon><Search /></el-icon> 搜索美文 / 资料…
       </div>
       <div class="d-user" v-if="user.isLogin">
-        <img :src="user.current?.avatar" />
+        <ZgAvatar :src="user.current?.avatar" :size="48" :fallback="user.current?.realName" />
         <div><div class="du-name">{{ user.current?.realName }}</div><div class="du-role">{{ roleLabel(user.current?.role) }} · Lv.{{ user.current?.level }}</div></div>
       </div>
       <div class="d-list">

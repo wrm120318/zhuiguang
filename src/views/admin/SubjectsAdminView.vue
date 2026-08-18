@@ -132,7 +132,7 @@ const moduleDefs = [
     </div>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" width="560px">
+    <el-dialog v-model="editVisible" width="720px">
       <template #header>
         <div class="dlg-head"><span class="dlg-bar"></span><ZgGlyph emoji="📚" /><span>{{ editForm.id ? '编辑学科' : '新建学科' }}</span></div>
       </template>
@@ -236,14 +236,14 @@ const moduleDefs = [
 .preset.on { border-color:var(--zg-primary); background:rgba(245,158,11,.2); }
 .color-row { display:flex; align-items:center; }
 .sw { width:24px; height:24px; border-radius:6px; cursor:pointer; border:1px solid rgba(245,158,11,.3); }
-.mod-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; width:100%; }
-.mod-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:12px; background:rgba(245,158,11,.06); border:1px solid transparent; transition:all .2s cubic-bezier(.2,.8,.2,1); cursor:pointer; }
+.mod-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; width:100%; }
+.mod-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:12px; background:rgba(245,158,11,.06); border:1px solid transparent; transition:all .2s cubic-bezier(.2,.8,.2,1); cursor:pointer; min-width:0; }
 .mod-card:hover { transform:translateY(-2px); border-color:rgba(245,158,11,.3); box-shadow:0 6px 18px rgba(245,158,11,.12); }
 .mod-card.on { border-color:var(--zg-primary); background:rgba(245,158,11,.12); }
-.mc-ico { font-size:22px; color:var(--zg-primary); }
-.mc-body { flex:1; }
-.mc-title { font-weight:600; font-size:var(--zg-fs-sm); }
-.mc-desc { font-size:var(--zg-fs-xs); color:var(--zg-text-dim); }
+.mc-ico { font-size:22px; color:var(--zg-primary); flex:none; }
+.mc-body { flex:1; min-width:0; }
+.mc-title { font-weight:600; font-size:var(--zg-fs-sm); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mc-desc { font-size:var(--zg-fs-xs); color:var(--zg-text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .confirm-box { padding:16px 18px; border-radius:12px; margin-bottom:6px; }
 .cb-row { display:flex; align-items:center; gap:14px; padding:7px 0; border-bottom:1px dashed rgba(186,117,23,.14); }
 .cb-row:last-child { border-bottom:none; }
@@ -256,7 +256,8 @@ const moduleDefs = [
   .head .el-button { min-width: auto; padding: 8px 14px; height: 34px; font-size: 13px; }
   .table-wrap { padding: 6px; overflow-x: auto; }
   .mod-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .mod-item { padding: 6px 10px; }
+  .mod-card { padding: 12px 14px; gap: 10px; }
+  .mc-ico { font-size: 20px; }
   .preset { width: 32px; height: 32px; font-size: 18px; }
   .sw { width: 20px; height: 20px; }
 }
@@ -265,16 +266,15 @@ const moduleDefs = [
   .dh-title { font-size: 28px; }
   .head { margin-bottom: 28px; }
   .table-wrap { padding: 14px; }
-  .mod-grid { grid-template-columns: repeat(4, 1fr); gap: 16px; }
-  .mod-item { padding: 12px 16px; border-radius: 12px; transition: all .2s ease; }
-  .mod-item:hover { background: rgba(245,158,11,.12); transform: translateY(-2px); }
+  .mod-grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .mod-card { padding: 16px 18px; }
   .preset-row { gap: 10px; }
   .preset { width: 40px; height: 40px; font-size: 22px; transition: all .2s ease; }
   .preset:hover { transform: scale(1.1); background: rgba(245,158,11,.12); }
 }
 
 :deep(.el-dialog) {
-  width: 560px;
+  width: 720px;
 }
 @media (max-width: 768px) {
   :deep(.el-dialog) {

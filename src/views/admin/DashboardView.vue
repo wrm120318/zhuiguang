@@ -147,7 +147,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); c1?.dispos
       <div v-for="s in stats" :key="s.label" class="stat-card glass zg-card">
         <div class="sc-icon" :style="{ background: s.color + '22', color: s.color }"><ZgGlyph :emoji="s.icon" /></div>
         <div class="sc-body">
-          <div class="sc-num">{{ s.value }}</div>
+          <div class="sc-num"><ZgCountUp :value="s.value" /></div>
           <div class="sc-label">{{ s.label }}</div>
           <ZgSparkline class="sc-spark" :data="s.spark" :color="s.color" :width="84" :height="26" />
         </div>

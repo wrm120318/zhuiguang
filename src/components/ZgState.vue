@@ -112,6 +112,7 @@ function onAction() {
     <h3 class="zg-state-title">{{ t }}</h3>
     <p class="zg-state-desc">{{ d }}</p>
     <button v-if="actionText" class="zg-state-btn" type="button" @click="onAction">{{ actionText }}</button>
+    <div v-else class="zg-state-actions"><slot name="actions" /></div>
   </div>
 </template>
 

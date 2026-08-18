@@ -33,6 +33,20 @@ import ZgSparkline from './components/ZgSparkline.vue'
 app.component('ZgState', ZgState)
 app.component('ZgSparkline', ZgSparkline)
 
+// 全局注册 B 类通用组件：骨架屏 / 数字动画 / 三层头像 / 时间线 / 网络错误 / 下拉刷新
+import ZgSkeleton from './components/ZgSkeleton.vue'
+import ZgCountUp from './components/ZgCountUp.vue'
+import ZgAvatar from './components/ZgAvatar.vue'
+import ZgTimeline from './components/ZgTimeline.vue'
+import ZgNetworkError from './components/ZgNetworkError.vue'
+import ZgPullRefresh from './components/ZgPullRefresh.vue'
+app.component('ZgSkeleton', ZgSkeleton)
+app.component('ZgCountUp', ZgCountUp)
+app.component('ZgAvatar', ZgAvatar)
+app.component('ZgTimeline', ZgTimeline)
+app.component('ZgNetworkError', ZgNetworkError)
+app.component('ZgPullRefresh', ZgPullRefresh)
+
 // 全局注册 B8 移动端抽屉右滑关闭手势指令
 import { swipeClose } from './directives/swipeClose'
 app.directive('swipe-close', swipeClose)
