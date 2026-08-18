@@ -325,19 +325,19 @@ async function submitResource() {
 <template>
   <div class="page zg-container" v-if="subject">
     <div class="subj-hero glass-strong" :style="{ '--c': subject.color }">
-      <div class="sh-icon" :style="{ background: `linear-gradient(135deg, ${subject.color}, ${subject.color}88)` }">{{ subject.icon }}</div>
+      <div class="sh-icon" :style="{ background: `linear-gradient(135deg, ${subject.color}, ${subject.color}88)` }"><ZgGlyph :emoji="subject.icon" /></div>
       <div class="sh-info">
         <h1 class="sh-name">{{ subject.name }} <span class="sh-sub">/ {{ subject.slug }}</span></h1>
         <p class="sh-desc">{{ subject.description }}</p>
         <div class="sh-stats">
-          <span>📚 资料 {{ subjectResources.length }}</span>
-          <span v-if="subject.modules.articles">✍️ 美文 {{ subjectArticles.length }}</span>
-          <span>📊 查询 {{ subjectQueries.length }}</span>
+          <span><ZgGlyph emoji="📚" /> 资料 {{ subjectResources.length }}</span>
+          <span v-if="subject.modules.articles"><ZgGlyph emoji="✍️" /> 美文 {{ subjectArticles.length }}</span>
+          <span><ZgGlyph emoji="📊" /> 查询 {{ subjectQueries.length }}</span>
         </div>
       </div>
       <div class="sh-manage" v-if="canManage">
         <el-popover trigger="click" width="240" placement="bottom-end">
-          <template #reference><el-button circle>⚙️</el-button></template>
+          <template #reference><el-button circle><ZgGlyph emoji="⚙️" /></el-button></template>
           <div class="mod-toggle">
             <div class="mt-title">模块显隐</div>
             <div v-for="(label, key) in moduleLabels" :key="key" class="mt-row">
@@ -355,7 +355,7 @@ async function submitResource() {
 
     <section v-if="activeTab === 'announcement'" class="tab-panel">
       <div class="glass announce-box">
-        <div class="ab-tag">📌 教师置顶公告</div>
+        <div class="ab-tag"><ZgGlyph emoji="📌" /> 教师置顶公告</div>
         <p class="ab-text" v-if="!announceEditing">{{ subject.announcement || '暂无公告' }}</p>
         <el-input v-else v-model="announceDraft" type="textarea" :rows="4" />
         <div class="ab-actions" v-if="canManage">
@@ -377,13 +377,13 @@ async function submitResource() {
       </div>
       <div class="res-grid">
         <div v-for="r in subjectResources" :key="r.id" class="res-card glass zg-card">
-          <div class="rc-top"><div class="rc-icon">{{ fileIcon(r.file_type) }}</div><div class="rc-tags-top"><el-tag v-if="r.status === 'pending'" size="small" type="warning">待审核</el-tag><el-tag size="small" effect="dark">{{ r.category }}</el-tag></div></div>
+          <div class="rc-top"><div class="rc-icon"><ZgGlyph :emoji="fileIcon(r.file_type)" /></div><div class="rc-tags-top"><el-tag v-if="r.status === 'pending'" size="small" type="warning">待审核</el-tag><el-tag size="small" effect="dark">{{ r.category }}</el-tag></div></div>
           <div class="rc-title">{{ r.title }}</div>
           <div class="rc-desc">{{ r.description }}</div>
           <div class="rc-tags"><span v-for="t in r.tags" :key="t" class="rc-tag">#{{ t }}</span></div>
           <div class="rc-foot">
             <span class="rc-meta">{{ formatSize(r.file_size) }}</span>
-            <div class="rc-acts"><span @click="downloadResource(r)">⬇ {{ r.downloads }}</span><span @click="likeResource(r.id)">👍 {{ r.likes }}</span></div>
+            <div class="rc-acts"><span @click="downloadResource(r)"><ZgGlyph emoji="⬇" /> {{ r.downloads }}</span><span @click="likeResource(r.id)"><ZgGlyph emoji="👍" /> {{ r.likes }}</span></div>
           </div>
         </div>
       </div>
@@ -402,7 +402,7 @@ async function submitResource() {
             <el-tag v-if="a.status === 'pending'" size="small" type="warning" style="margin-left:6px">待审核</el-tag>
             <el-tag v-else-if="a.status === 'pending_student'" size="small" type="info" style="margin-left:6px">待学生确认</el-tag>
             <el-tag v-else-if="a.status === 'rejected'" size="small" type="danger" style="margin-left:6px">未通过</el-tag>
-          </div><div class="ac-author">{{ a.author }}</div><div class="ac-meta"><span>❤ {{ a.likes }}</span><span>👁 {{ a.views }}</span></div></div>
+          </div><div class="ac-author">{{ a.author }}</div><div class="ac-meta"><span><ZgGlyph emoji="❤" /> {{ a.likes }}</span><span><ZgGlyph emoji="👁" /> {{ a.views }}</span></div></div>
         </div>
       </div>
       <el-empty v-if="!subjectArticles.length" description="暂无美文" />
@@ -424,9 +424,9 @@ async function submitResource() {
     <section v-if="activeTab === 'quiz'" class="tab-panel">
       <!-- 单题训练题目池 -->
       <div class="panel-head">
-        <div class="section-title">🏋️ 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
+        <div class="section-title"><ZgGlyph emoji="🏋️" /> 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
         <div class="panel-head-actions">
-          <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')">📝 我的训练记录</el-button>
+          <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')"><ZgGlyph emoji="📝" /> 我的训练记录</el-button>
           <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
         </div>
       </div>
@@ -436,14 +436,14 @@ async function submitResource() {
             <span class="pc-no">第 {{ i + 1 }} 题</span>
             <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
             <span class="pc-score">{{ q.score }} 分</span>
-            <span class="pc-author" v-if="q.creator_name">👤 {{ q.creator_name }}</span>
+            <span class="pc-author" v-if="q.creator_name"><ZgGlyph emoji="👤" /> {{ q.creator_name }}</span>
             <el-button v-if="user.isStaff" text type="danger" size="small" @click="deleteQuestion(q.id)">删除</el-button>
           </div>
           <div class="pc-content q-content" v-html="md(q.content)"></div>
           <div class="pc-actions">
             <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/practice/${q.id}`)">开始训练</el-button>
-            <el-button v-if="user.isStaff" size="small" type="success" round @click="router.push(`/practice/stats/${q.id}`)">📊 统计</el-button>
-            <span v-if="q.attachments?.length" class="pc-att">📎 {{ q.attachments.length }} 个附件</span>
+            <el-button v-if="user.isStaff" size="small" type="success" round @click="router.push(`/practice/stats/${q.id}`)"><ZgGlyph emoji="📊" /> 统计</el-button>
+            <span v-if="q.attachments?.length" class="pc-att"><ZgGlyph emoji="📎" /> {{ q.attachments.length }} 个附件</span>
           </div>
         </div>
       </div>
@@ -451,7 +451,7 @@ async function submitResource() {
 
       <!-- 考试列表 -->
       <div class="panel-head" style="margin-top:32px">
-        <div class="section-title">📝 考试列表（{{ subjectQuizzes.length }} 场）</div>
+        <div class="section-title"><ZgGlyph emoji="📝" /> 考试列表（{{ subjectQuizzes.length }} 场）</div>
         <el-button v-if="user.isStaff" type="primary" round size="small" @click="goQuizNew">+ 组织考试</el-button>
       </div>
       <div class="quiz-grid">
@@ -463,8 +463,8 @@ async function submitResource() {
           <div class="qz-title">{{ q.title }}</div>
           <div class="qz-desc">{{ q.description || '暂无描述' }}</div>
           <div class="qz-meta">
-            <span v-if="q.duration">⏱ {{ q.duration }} 分钟</span>
-            <span v-if="q.valid_until">📅 截止 {{ q.valid_until }}</span>
+            <span v-if="q.duration"><ZgGlyph emoji="⏱" /> {{ q.duration }} 分钟</span>
+            <span v-if="q.valid_until"><ZgGlyph emoji="📅" /> 截止 {{ q.valid_until }}</span>
           </div>
           <div class="qz-actions">
             <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/quiz/${q.id}`)">开始作答</el-button>
@@ -506,10 +506,10 @@ async function submitResource() {
         </el-form-item>
         <el-form-item label="附件">
           <el-upload :http-request="handleQAttach" :show-file-list="false" multiple>
-            <el-button size="small">📎 添加附件（图片/文件）</el-button>
+            <el-button size="small"><ZgGlyph emoji="📎" /> 添加附件（图片/文件）</el-button>
           </el-upload>
           <div v-for="(a, idx) in qForm.attachments" :key="idx" class="qa-item-row">
-            <span>📎 {{ a.name }}</span>
+            <span><ZgGlyph emoji="📎" /> {{ a.name }}</span>
             <el-button text type="danger" size="small" @click="removeQAttach(idx)">×</el-button>
           </div>
         </el-form-item>
@@ -542,10 +542,10 @@ async function submitResource() {
             :show-file-list="false"
             :http-request="handleResUpload"
           >
-            <el-button type="primary" :loading="resUploading">📤 选择文件</el-button>
+            <el-button type="primary" :loading="resUploading"><ZgGlyph emoji="📤" /> 选择文件</el-button>
           </el-upload>
-          <span v-if="resFileMeta.fileName" class="file-name">✅ {{ resFileMeta.fileName }} ({{ formatSize(resFileMeta.fileSize) }})</span>
-          <span v-if="resUploading" class="file-name">⏳ 正在上传...</span>
+          <span v-if="resFileMeta.fileName" class="file-name"><ZgGlyph emoji="✅" /> {{ resFileMeta.fileName }} ({{ formatSize(resFileMeta.fileSize) }})</span>
+          <span v-if="resUploading" class="file-name"><ZgGlyph emoji="⏳" /> 正在上传...</span>
         </el-form-item>
         <el-form-item label="标题"><el-input v-model="resForm.title" placeholder="资料标题" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="resForm.description" type="textarea" :rows="2" /></el-form-item>

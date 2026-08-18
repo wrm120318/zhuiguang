@@ -151,12 +151,12 @@ async function deleteSubmission() {
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
 
     <!-- ===== 学生模式：作答中 ===== -->
     <div v-if="q && !result && !isGrading" class="glass-strong practice-box">
       <div class="pb-head">
-        <span class="pb-subj">{{ subject?.icon }} {{ subject?.name }}</span>
+        <span class="pb-subj"><ZgGlyph :emoji="subject?.icon" /> {{ subject?.name }}</span>
         <el-tag size="small">{{ qtypeLabel }}</el-tag>
         <span class="pb-score">{{ q.score }} 分</span>
         <span class="pb-author" v-if="q.creator_name">出题：{{ q.creator_name }}</span>
@@ -165,7 +165,7 @@ async function deleteSubmission() {
       <div class="pb-content q-content" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
-        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link">📎 {{ a.name }}</a>
+        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 客观题选项 -->
@@ -199,8 +199,8 @@ async function deleteSubmission() {
 
     <!-- ===== 学生模式：查看结果 ===== -->
     <div v-if="q && result && !isGrading" class="glass-strong result-box">
-      <h1 class="rb-title">🎯 训练结果</h1>
-      <div class="rb-subj">{{ subject?.icon }} {{ subject?.name }} · {{ qtypeLabel }}</div>
+      <h1 class="rb-title"><ZgGlyph emoji="🎯" /> 训练结果</h1>
+      <div class="rb-subj"><ZgGlyph :emoji="subject?.icon" /> {{ subject?.name }} · {{ qtypeLabel }}</div>
 
       <div class="rb-content q-content" v-html="md(q.content)"></div>
 
@@ -211,11 +211,11 @@ async function deleteSubmission() {
             <span class="rb-max">/ {{ result.max_score }}</span>
           </div>
           <el-tag :type="result.correct === 1 || result.correct === true ? 'success' : 'danger'" size="large">
-            {{ result.correct === 1 || result.correct === true ? '✓ 正确' : '✗ 错误' }}
+            <template v-if="result.correct === 1 || result.correct === true"><ZgGlyph emoji="✓" /> 正确</template><template v-else><ZgGlyph emoji="✗" /> 错误</template>
           </el-tag>
         </template>
         <template v-else>
-          <el-tag type="warning" size="large">⏳ 等待教师批改</el-tag>
+          <el-tag type="warning" size="large"><ZgGlyph emoji="⏳" /> 等待教师批改</el-tag>
           <span class="rb-tip">主观题已提交，批改完成后将通过站内信通知你。</span>
         </template>
       </div>
@@ -241,9 +241,9 @@ async function deleteSubmission() {
     <!-- ===== 教师批改模式 ===== -->
     <div v-if="q && isGrading && gradingSub" class="glass-strong grade-box">
       <div class="grade-header">
-        <span class="grade-badge">📝 教师批改</span>
+        <span class="grade-badge"><ZgGlyph emoji="📝" /> 教师批改</span>
         <el-tag size="small">{{ qtypeLabel }}</el-tag>
-        <el-tag size="small" type="info">{{ subject?.icon }} {{ subject?.name }}</el-tag>
+        <el-tag size="small" type="info"><ZgGlyph :emoji="subject?.icon" /> {{ subject?.name }}</el-tag>
         <span class="pb-score">{{ q.score }} 分</span>
       </div>
 
@@ -264,7 +264,7 @@ async function deleteSubmission() {
       <div class="grade-content q-content" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
-        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link">📎 {{ a.name }}</a>
+        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 学生作答 -->

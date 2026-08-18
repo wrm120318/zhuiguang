@@ -81,7 +81,7 @@ function reset() {
   <div v-loading="loading">
     <div class="head">
       <div>
-        <h1 class="dh-title">⭐ 经验值规则设置</h1>
+        <h1 class="dh-title"><ZgGlyph emoji="⭐" /> 经验值规则设置</h1>
         <p class="dh-sub">设置每个用户行为可获得的经验值，保存后立即生效。删除/取消类规则（如删除美文）不在设置页显示，删除时直接按实际获得值回收，无需配置。</p>
       </div>
       <div class="head-actions">
@@ -91,11 +91,11 @@ function reset() {
     </div>
 
     <div class="glass rule-page">
-      <div class="tip">💡 提示：设为 0 表示该行为不获得经验值。学生可在「经验值说明」页面查看当前规则。</div>
+      <div class="tip"><ZgGlyph emoji="💡" /> 提示：设为 0 表示该行为不获得经验值。学生可在「经验值说明」页面查看当前规则。</div>
 
       <div class="rule-list">
         <div v-for="r in ruleList" :key="r.key" class="rule-item">
-          <div class="ri-icon">{{ r.icon }}</div>
+          <div class="ri-icon"><ZgGlyph :emoji="r.icon" /></div>
           <div class="ri-body">
             <div class="ri-label">{{ r.label }}</div>
             <div class="ri-desc">{{ r.desc }} · <code>{{ r.key }}</code></div>

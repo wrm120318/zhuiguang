@@ -37,7 +37,7 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
 <template>
   <div class="page zg-container">
     <div class="lb-head glass-strong">
-      <h1 class="lb-title">🏆 经验排行榜</h1>
+      <h1 class="lb-title"><ZgGlyph emoji="🏆" /> 经验排行榜</h1>
       <p class="lb-desc">追光的人，终会身披万丈光芒。榜单缓存定时更新，鼓励持续贡献。</p>
     </div>
 
@@ -70,7 +70,7 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
     <!-- 前三名 -->
     <div class="podium" v-if="ranked.length >= 3">
       <div v-for="(u, i) in ranked.slice(0,3)" :key="u.id" class="podium-item" :class="`p${i+1}`">
-        <div class="pm-medal">{{ medal(i) }}</div>
+        <div class="pm-medal"><ZgGlyph :emoji="medal(i)" /></div>
         <img :src="u.avatar" class="pm-avatar" />
         <div class="pm-name">{{ u.real_name }}</div>
         <div class="pm-exp">{{ u.pe }} EXP</div>

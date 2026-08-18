@@ -73,7 +73,7 @@ async function submitGrade() {
 <template>
   <div class="page zg-container">
     <div class="head">
-      <h1 class="zg-page-title">📝 题库自测</h1>
+      <h1 class="zg-page-title"><ZgGlyph emoji="📝" /> 题库自测</h1>
       <el-button v-if="user.isStaff" type="primary" round @click="router.push('/quiz/new')">+ 组织考试</el-button>
     </div>
 
@@ -81,13 +81,13 @@ async function submitGrade() {
     <template v-if="user.isStaff">
       <div class="section">
         <div class="sec-title">
-          🖐 单题训练待批题目
+          <ZgGlyph emoji="🖐" /> 单题训练待批题目
           <el-badge v-if="pendingPractice.length" :value="pendingPractice.length" class="sec-badge" />
         </div>
         <div v-loading="practiceLoading" class="pp-list">
           <div v-for="p in pendingPractice" :key="p.id" class="pp-card glass">
             <div class="pp-head">
-              <span class="pp-stu">👤 {{ p.real_name }}</span>
+              <span class="pp-stu"><ZgGlyph emoji="👤" /> {{ p.real_name }}</span>
               <el-tag size="small">{{ qTypeLabel(p.qtype) }}</el-tag>
               <span class="pp-subj">{{ p.subject_name }}</span>
               <span class="pp-time">{{ p.submitted_at?.slice(0, 16) }}</span>
@@ -104,7 +104,7 @@ async function submitGrade() {
 
       <!-- 教师视图：底部考试列表 -->
       <div class="section">
-        <div class="sec-title">📋 考试列表（{{ teacherExams.length }} 场）</div>
+        <div class="sec-title"><ZgGlyph emoji="📋" /> 考试列表（{{ teacherExams.length }} 场）</div>
         <div v-loading="loading" class="grid">
           <div v-for="q in teacherExams" :key="q.id" class="q-card glass zg-card">
             <div class="qc-head">
@@ -114,9 +114,9 @@ async function submitGrade() {
             <div class="qc-title">{{ q.title }}</div>
             <div class="qc-desc">{{ q.description || '暂无描述' }}</div>
             <div class="qc-meta">
-              <span>👤 {{ q.creator_name || '老师' }}</span>
-              <span v-if="q.duration">⏱ {{ q.duration }} 分钟</span>
-              <span v-if="q.valid_until">📅 截止 {{ q.valid_until }}</span>
+              <span><ZgGlyph emoji="👤" /> {{ q.creator_name || '老师' }}</span>
+              <span v-if="q.duration"><ZgGlyph emoji="⏱" /> {{ q.duration }} 分钟</span>
+              <span v-if="q.valid_until"><ZgGlyph emoji="📅" /> 截止 {{ q.valid_until }}</span>
             </div>
             <div class="qc-actions">
               <el-button type="primary" size="small" round @click="router.push(`/quiz/${q.id}/submissions`)">批改 / 报告</el-button>
@@ -141,9 +141,9 @@ async function submitGrade() {
           <div class="qc-title">{{ q.title }}</div>
           <div class="qc-desc">{{ q.description || '暂无描述' }}</div>
           <div class="qc-meta">
-            <span>👤 {{ q.creator_name || '老师' }}</span>
-            <span v-if="q.duration">⏱ {{ q.duration }} 分钟</span>
-            <span v-if="q.valid_until">📅 截止 {{ q.valid_until }}</span>
+            <span><ZgGlyph emoji="👤" /> {{ q.creator_name || '老师' }}</span>
+            <span v-if="q.duration"><ZgGlyph emoji="⏱" /> {{ q.duration }} 分钟</span>
+            <span v-if="q.valid_until"><ZgGlyph emoji="📅" /> 截止 {{ q.valid_until }}</span>
           </div>
           <div class="qc-actions">
             <el-button type="primary" size="small" round @click="router.push(`/quiz/${q.id}`)">开始作答</el-button>
@@ -157,7 +157,7 @@ async function submitGrade() {
     <!-- 单题训练批改弹窗 -->
     <el-dialog v-model="gradeVisible" title="批改单题训练" width="640px">
       <template v-if="gradeItem">
-        <div class="gd-stu">👤 {{ gradeItem.real_name }} · {{ gradeItem.subject_name }}</div>
+        <div class="gd-stu"><ZgGlyph emoji="👤" /> {{ gradeItem.real_name }} · {{ gradeItem.subject_name }}</div>
         <div class="gd-q q-content" v-html="md(gradeItem.qcontent)"></div>
         <div class="gd-label">学生作答：</div>
         <div class="gd-ans" v-html="md(gradeItem.answer || '未作答')"></div>

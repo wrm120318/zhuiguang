@@ -84,15 +84,15 @@ async function submit() {
 
 <template>
   <div class="page zg-container">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="glass-strong editor">
-      <h1 class="ep-title">📢 发布公告</h1>
+      <h1 class="ep-title"><ZgGlyph emoji="📢" /> 发布公告</h1>
 
       <div class="scope-row">
         <span class="sr-label">公告类型：</span>
         <el-radio-group v-model="form.scope" @change="onScopeChange">
-          <el-radio v-if="canSite" value="site">🌐 全站公告（所有人可见）</el-radio>
-          <el-radio v-if="canClass" value="class">🏫 班级公告（仅本班学生可见）</el-radio>
+          <el-radio v-if="canSite" value="site"><ZgGlyph emoji="🌐" /> 全站公告（所有人可见）</el-radio>
+          <el-radio v-if="canClass" value="class"><ZgGlyph emoji="🏫" /> 班级公告（仅本班学生可见）</el-radio>
         </el-radio-group>
       </div>
 
@@ -106,10 +106,10 @@ async function submit() {
       <!-- 需求2：置顶选项（仅超管可用） -->
       <div v-if="user.isSuperAdmin" class="pin-row">
         <span class="sr-label">置顶设置：</span>
-        <el-checkbox v-model="form.pinned">📌 置顶此公告</el-checkbox>
+        <el-checkbox v-model="form.pinned"><ZgGlyph emoji="📌" /> 置顶此公告</el-checkbox>
         <el-select v-if="form.pinned" v-model="form.pinnedScope" size="small" style="width:180px; margin-left:12px">
-          <el-option value="site" label="🌐 全站置顶（所有人顶部）" />
-          <el-option value="class" label="🏫 班级置顶（仅对应班级）" />
+          <el-option value="site"><ZgGlyph emoji="🌐" /> 全站置顶（所有人顶部）</el-option>
+          <el-option value="class"><ZgGlyph emoji="🏫" /> 班级置顶（仅对应班级）</el-option>
         </el-select>
       </div>
 
@@ -123,18 +123,18 @@ async function submit() {
         <button @click="insertTag(TAGS.quote)">引用</button>
         <button @click="insertTag(TAGS.link)">链接</button>
         <el-upload :http-request="onUploadImage" :show-file-list="false" accept="image/*" class="tb-upload">
-          <button>🖼 插入图片</button>
+          <button><ZgGlyph emoji="🖼" /> 插入图片</button>
         </el-upload>
         <el-upload :http-request="onUploadFile" :show-file-list="false" multiple class="tb-upload">
-          <button>📎 添加附件</button>
+          <button><ZgGlyph emoji="📎" /> 添加附件</button>
         </el-upload>
       </div>
       <el-input v-model="form.content" type="textarea" :rows="14" placeholder="支持 Markdown：## 标题、**加粗**、- 列表、> 引用、![图片](url)、[链接](url)" />
 
       <div v-if="attachments.length" class="att-list">
-        <div class="att-title">📎 附件（{{ attachments.length }}）</div>
+        <div class="att-title"><ZgGlyph emoji="📎" /> 附件（{{ attachments.length }}）</div>
         <div v-for="(a, i) in attachments" :key="i" class="att-item">
-          <span>📄 {{ a.name }} ({{ fmtSize(a.size) }})</span>
+          <span><ZgGlyph emoji="📄" /> {{ a.name }} ({{ fmtSize(a.size) }})</span>
           <el-button text type="danger" size="small" @click="removeAttach(i)">移除</el-button>
         </div>
       </div>

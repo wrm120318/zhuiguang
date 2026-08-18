@@ -80,8 +80,8 @@ async function clickFixLoginPage() {
       :class="{ on: fixing }"
       @click="clickFixLoginPage"
       :disabled="fixing"
-      title="🔧 一键修复：网站出问题（1016/530/白屏/点不动）点这里，不用登录！"
-    >{{ fixing ? '⏳' : '🔧' }}</button>
+      title="一键修复：网站出问题（1016/530/白屏/点不动）点这里，不用登录！"
+    ><ZgGlyph v-if="fixing" emoji="⏳" /><ZgGlyph v-else emoji="🔧" /></button>
     <div class="login-card glass-strong zg-scale-in">
       <div class="lc-logo">
         <LogoMark class="lc-logo-mark" />

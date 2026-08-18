@@ -38,24 +38,24 @@ function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回公告列表</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回公告列表</div>
     <article v-if="ann" class="glass-strong detail">
       <div class="d-head">
         <el-tag :type="scopeType(ann)" size="large">{{ scopeLabel(ann) }}</el-tag>
-        <el-button v-if="user.isSuperAdmin || ann.author_id === user.current?.id" text type="danger" size="small" @click="del">🗑 删除</el-button>
+        <el-button v-if="user.isSuperAdmin || ann.author_id === user.current?.id" text type="danger" size="small" @click="del"><ZgGlyph emoji="🗑" /> 删除</el-button>
       </div>
       <h1 class="d-title">{{ ann.title }}</h1>
       <div class="d-meta">
-        <span>👤 {{ ann.author_name }}</span>
-        <span>👁 {{ ann.views }} 次阅读</span>
-        <span>📅 {{ ann.created_at?.slice(0, 16) }}</span>
+        <span><ZgGlyph emoji="👤" /> {{ ann.author_name }}</span>
+        <span><ZgGlyph emoji="👁" /> {{ ann.views }} 次阅读</span>
+        <span><ZgGlyph emoji="📅" /> {{ ann.created_at?.slice(0, 16) }}</span>
       </div>
       <div class="d-content" v-html="md(ann.content)"></div>
 
       <div v-if="ann.attachments?.length" class="d-attachments">
-        <div class="da-title">📎 附件下载（{{ ann.attachments.length }}）</div>
+        <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ ann.attachments.length }}）</div>
         <a v-for="(a, i) in ann.attachments" :key="i" :href="a.url" target="_blank" class="da-item">
-          📄 {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> ⬇
+          <ZgGlyph emoji="📄" /> {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> <ZgGlyph emoji="⬇" />
         </a>
       </div>
     </article>

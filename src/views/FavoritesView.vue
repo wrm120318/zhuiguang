@@ -48,32 +48,32 @@ async function removeFav(type: string, id: number) {
 <template>
   <div class="page zg-container" v-loading="loading">
     <div class="fav-head glass-strong zg-slide-up">
-      <h1 class="zg-grad-text">⭐ 我的收藏</h1>
+      <h1 class="zg-grad-text"><ZgGlyph emoji="⭐" /> 我的收藏</h1>
       <p class="fav-desc">收藏的美文与资料，随时回看。</p>
     </div>
 
     <div v-if="articles.length" class="fav-section">
-      <div class="section-title">✍️ 美文 ({{ articles.length }})</div>
+      <div class="section-title"><ZgGlyph emoji="✍️" /> 美文 ({{ articles.length }})</div>
       <div class="fav-grid">
         <div v-for="a in articles" :key="a.id" class="fav-card glass zg-card">
           <div class="fc-body" @click="router.push(`/article/${a.id}`)">
             <div class="fc-title">{{ a.title }}</div>
             <div class="fc-meta">{{ a.author }} · {{ a.created_at?.slice(0,10) }}</div>
           </div>
-          <el-button text size="small" @click="removeFav('article', a.id)">✕</el-button>
+          <el-button text size="small" @click="removeFav('article', a.id)"><ZgGlyph emoji="✕" /></el-button>
         </div>
       </div>
     </div>
 
     <div v-if="resources.length" class="fav-section">
-      <div class="section-title">📦 资料 ({{ resources.length }})</div>
+      <div class="section-title"><ZgGlyph emoji="📦" /> 资料 ({{ resources.length }})</div>
       <div class="fav-grid">
         <div v-for="r in resources" :key="r.id" class="fav-card glass zg-card">
           <div class="fc-body" @click="router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
             <div class="fc-title">{{ r.title }}</div>
-            <div class="fc-meta">{{ r.category }} · ⬇ {{ r.downloads }}</div>
+            <div class="fc-meta">{{ r.category }} · <ZgGlyph emoji="⬇" /> {{ r.downloads }}</div>
           </div>
-          <el-button text size="small" @click="removeFav('resource', r.id)">✕</el-button>
+          <el-button text size="small" @click="removeFav('resource', r.id)"><ZgGlyph emoji="✕" /></el-button>
         </div>
       </div>
     </div>

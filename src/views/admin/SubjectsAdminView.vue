@@ -76,7 +76,7 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
 <template>
   <div>
     <div class="head">
-      <h1 class="dh-title">📚 学科管理</h1>
+      <h1 class="dh-title"><ZgGlyph emoji="📚" /> 学科管理</h1>
       <el-button type="primary" @click="openCreate">+ 新建学科</el-button>
     </div>
 
@@ -84,7 +84,7 @@ const colorPresets = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#f
       <el-table :data="subjects" style="width:100%" v-loading="loading">
         <el-table-column label="ID" width="60" prop="id" />
         <el-table-column label="图标" width="80">
-          <template #default="{ row }"><span style="font-size:24px">{{ row.icon }}</span></template>
+          <template #default="{ row }"><span style="font-size:24px"><ZgGlyph :emoji="row.icon" /></span></template>
         </el-table-column>
         <el-table-column label="名称" width="120">
           <template #default="{ row }">{{ row.name }} <span class="slug">{{ row.slug }}</span></template>

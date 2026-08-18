@@ -14,15 +14,15 @@ onMounted(() => { if (!data.subjects.length) data.fetchSubjects() })
 <template>
   <div class="page zg-container" ref="root">
     <div class="head">
-      <h1 class="zg-grad-text">📚 全部学科</h1>
+      <h1 class="zg-grad-text"><ZgGlyph emoji="📚" /> 全部学科</h1>
       <p class="desc">选择学科进入子站，探索资料、美文与数据查询。</p>
     </div>
     <div class="grid">
       <div v-for="s in data.subjects" :key="s.id" class="card glass zg-card zg-reveal" @click="router.push(`/subject/${s.slug}`)">
-        <div class="icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}88)` }">{{ s.icon }}</div>
+        <div class="icon" :style="{ background: `linear-gradient(135deg, ${s.color}, ${s.color}88)` }"><ZgGlyph :emoji="s.icon" /></div>
         <div class="name">{{ s.name }}</div>
         <div class="d">{{ s.description }}</div>
-        <div class="go">进入 →</div>
+        <div class="go">进入 <ZgGlyph emoji="→" /></div>
       </div>
     </div>
   </div>

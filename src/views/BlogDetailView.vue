@@ -78,29 +78,29 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回博客列表</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回博客列表</div>
     <article v-if="blog" class="glass-strong detail">
       <div v-if="blog.cover" class="cover" :style="{ backgroundImage: `url(${blog.cover})` }"></div>
       <h1 class="d-title">{{ blog.title }}</h1>
       <div class="d-meta">
-        <span>👤 {{ blog.author_name }}</span>
-        <span>👁 {{ blog.views }} 次阅读</span>
-        <span>📅 {{ blog.created_at?.slice(0, 16) }}</span>
-        <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="danger" size="small" @click="del">🗑 删除</el-button>
+        <span><ZgGlyph emoji="👤" /> {{ blog.author_name }}</span>
+        <span><ZgGlyph emoji="👁" /> {{ blog.views }} 次阅读</span>
+        <span><ZgGlyph emoji="📅" /> {{ blog.created_at?.slice(0, 16) }}</span>
+        <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="danger" size="small" @click="del"><ZgGlyph emoji="🗑" /> 删除</el-button>
       </div>
       <div class="d-content" v-html="md(blog.content)"></div>
 
       <div v-if="blog.attachments?.length" class="d-attachments">
-        <div class="da-title">📎 附件下载（{{ blog.attachments.length }}）</div>
+        <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ blog.attachments.length }}）</div>
         <a v-for="(a, i) in blog.attachments" :key="i" :href="a.url" target="_blank" class="da-item">
-          📄 {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> ⬇
+          <ZgGlyph emoji="📄" /> {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> <ZgGlyph emoji="⬇" />
         </a>
       </div>
 
       <!-- 点赞 -->
       <div class="like-bar">
         <div class="like-btn" :class="{ on: liked }" @click="like">
-          <span class="lb-icon">{{ liked ? '❤️' : '🤍' }}</span>
+          <span class="lb-icon"><ZgGlyph v-if="liked" emoji="❤️" /><ZgGlyph v-else emoji="🤍" /></span>
           <span class="lb-text">{{ liked ? '已赞' : '点赞' }}</span>
           <span class="lb-count">{{ blog.likes || 0 }}</span>
         </div>
@@ -110,7 +110,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 
     <!-- 评论区 -->
     <section v-if="blog" class="glass comment-box">
-      <div class="section-title">💬 评论 ({{ comments.length }}) · 实名</div>
+      <div class="section-title"><ZgGlyph emoji="💬" /> 评论 ({{ comments.length }}) · 实名</div>
       <div class="comment-input">
         <img v-if="user.current?.avatar" :src="user.current.avatar" class="ci-avatar" />
         <el-input v-model="commentText" placeholder="写下你的感想…" @keydown.enter="submitComment" />

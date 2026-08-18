@@ -29,7 +29,7 @@ onMounted(() => { if (query.value) search() })
     <div class="search-head glass-strong zg-slide-up">
       <div class="sh-bar">
         <el-input v-model="query" placeholder="搜索美文、资料…" size="large" @keyup.enter="search" clearable>
-          <template #prefix>🔍</template>
+          <template #prefix><ZgGlyph emoji="🔍" /></template>
         </el-input>
         <el-button type="primary" size="large" @click="search">搜索</el-button>
       </div>
@@ -37,10 +37,10 @@ onMounted(() => { if (query.value) search() })
 
     <div v-loading="loading" class="results-wrap">
       <div v-if="results.articles?.length" class="result-section">
-        <div class="section-title">✍️ 美文 ({{ results.articles.length }})</div>
+        <div class="section-title"><ZgGlyph emoji="✍️" /> 美文 ({{ results.articles.length }})</div>
         <div class="result-list">
           <div v-for="a in results.articles" :key="a.id" class="result-card glass zg-card" @click="router.push(`/article/${a.id}`)">
-            <div class="rc-icon">📝</div>
+            <div class="rc-icon"><ZgGlyph emoji="📝" /></div>
             <div class="rc-body">
               <div class="rc-title">{{ a.title }}</div>
               <div class="rc-meta">{{ a.author }} · {{ a.category }} · {{ a.created_at?.slice(0,10) }}</div>
@@ -50,13 +50,13 @@ onMounted(() => { if (query.value) search() })
       </div>
 
       <div v-if="results.resources?.length" class="result-section">
-        <div class="section-title">📦 资料 ({{ results.resources.length }})</div>
+        <div class="section-title"><ZgGlyph emoji="📦" /> 资料 ({{ results.resources.length }})</div>
         <div class="result-list">
           <div v-for="r in results.resources" :key="r.id" class="result-card glass zg-card" @click="router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
-            <div class="rc-icon">📎</div>
+            <div class="rc-icon"><ZgGlyph emoji="📎" /></div>
             <div class="rc-body">
               <div class="rc-title">{{ r.title }}</div>
-              <div class="rc-meta">{{ r.category }} · ⬇ {{ r.downloads }} 次下载</div>
+              <div class="rc-meta">{{ r.category }} · <ZgGlyph emoji="⬇" /> {{ r.downloads }} 次下载</div>
             </div>
           </div>
         </div>

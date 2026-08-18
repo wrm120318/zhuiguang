@@ -71,16 +71,16 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回题库自测</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回题库自测</div>
 
     <!-- 顶部信息条 -->
     <div class="top-bar glass-strong" v-if="quiz">
       <div class="tb-info">
-        <h1 class="tb-title">📋 {{ quiz.title }}</h1>
+        <h1 class="tb-title"><ZgGlyph emoji="📋" /> {{ quiz.title }}</h1>
         <div class="tb-meta">提交 {{ submissions.length }} 份 · 待批 {{ pendingList.length }} · 已批 {{ gradedList.length }}</div>
       </div>
       <div class="tb-actions">
-        <el-button type="primary" round @click="router.push(`/quiz/${quiz.id}/report`)">📊 数据报告</el-button>
+        <el-button type="primary" round @click="router.push(`/quiz/${quiz.id}/report`)"><ZgGlyph emoji="📊" /> 数据报告</el-button>
       </div>
     </div>
 
@@ -93,7 +93,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
       <div class="stu-grid">
         <div v-for="s in currentList" :key="s.id" class="stu-card glass zg-card" @click="openStudent(s.id)">
           <div class="sc-head">
-            <span class="sc-name">👤 {{ s.real_name || `用户${s.user_id}` }}</span>
+            <span class="sc-name"><ZgGlyph emoji="👤" /> {{ s.real_name || `用户${s.user_id}` }}</span>
             <el-tag size="small" :type="s.status === 'graded' ? 'success' : 'warning'">{{ s.status === 'graded' ? '已批' : '待批' }}</el-tag>
           </div>
           <div class="sc-score">
@@ -110,7 +110,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
     <!-- 第二级：批改某学生作答 -->
     <div v-else class="lvl2">
       <div class="lvl2-head glass">
-        <span class="l2-back" @click="backToList">← 返回学生列表</span>
+        <span class="l2-back" @click="backToList"><ZgGlyph emoji="←" /> 返回学生列表</span>
         <span class="l2-name">{{ activeSub.real_name }} 的作答</span>
         <el-tag :type="activeSub.status === 'graded' ? 'success' : 'warning'">{{ activeSub.status === 'graded' ? '已批改' : '待批改' }}</el-tag>
         <span class="l2-score">当前得分：<b>{{ activeSub.total_score }}</b> / {{ activeSub.max_score }}</span>
@@ -129,7 +129,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
           <div class="q-line">正确答案：<b>{{ q.answer }}</b></div>
           <div class="q-line">
             <el-tag :type="activeSub.answers?.graded?.[q.id]?.correct ? 'success' : 'danger'">
-              {{ activeSub.answers?.graded?.[q.id]?.correct ? '✓ 正确' : '✗ 错误' }}
+              <template v-if="activeSub.answers?.graded?.[q.id]?.correct"><ZgGlyph emoji="✓" /> 正确</template><template v-else><ZgGlyph emoji="✗" /> 错误</template>
             </el-tag>
             <span style="margin-left:8px; color: var(--zg-text-dim); font-size:13px;">得分 {{ activeSub.answers?.graded?.[q.id]?.score || 0 }} / {{ q.score }}</span>
           </div>

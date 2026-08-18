@@ -73,7 +73,7 @@ async function submit() {
   <div class="page zg-container" v-loading="loading">
     <!-- 提交结果页 -->
     <div v-if="submitted && result" class="glass-strong result-card">
-      <div class="rs-icon">{{ result.status === 'graded' ? '🎉' : '⏳' }}</div>
+      <div class="rs-icon"><ZgGlyph v-if="result.status === 'graded'" emoji="🎉" /><ZgGlyph v-else emoji="⏳" /></div>
       <h1 class="rs-title">{{ result.status === 'graded' ? '答题完成' : '已提交，等待教师阅卷' }}</h1>
       <p class="rs-sub">{{ quiz.title }}</p>
 
@@ -105,14 +105,14 @@ async function submit() {
       </div>
 
       <div v-if="result.status === 'pending'" class="rs-notice">
-        <div class="rsn-icon">⏳</div>
+        <div class="rsn-icon"><ZgGlyph emoji="⏳" /></div>
         <div class="rsn-text">
           <div class="rsn-title">主观题等待教师批改</div>
           <div class="rsn-desc">已通过站内信通知任课教师阅卷。教师批改完成后，将再次通过站内信提醒你，届时可查看完整测评报告。</div>
         </div>
       </div>
       <div v-else class="rs-notice success">
-        <div class="rsn-icon">✅</div>
+        <div class="rsn-icon"><ZgGlyph emoji="✅" /></div>
         <div class="rsn-text">
           <div class="rsn-title">整张试卷报告已生成</div>
           <div class="rsn-desc">所有题目已判分完成，可查看完整测评报告。</div>
@@ -120,21 +120,21 @@ async function submit() {
       </div>
 
       <div class="rs-actions">
-        <el-button round @click="router.replace(`/quiz/${route.params.id}/report`)">📊 查看完整报告</el-button>
-        <el-button round @click="router.push('/quiz')">← 返回题库列表</el-button>
+        <el-button round @click="router.replace(`/quiz/${route.params.id}/report`)"><ZgGlyph emoji="📊" /> 查看完整报告</el-button>
+        <el-button round @click="router.push('/quiz')"><ZgGlyph emoji="←" /> 返回题库列表</el-button>
       </div>
     </div>
 
     <!-- 作答页 -->
     <template v-else>
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div v-if="quiz" class="glass-strong q-head">
       <h1 class="qh-title">{{ quiz.title }}</h1>
       <p class="qh-desc" v-if="quiz.description">{{ quiz.description }}</p>
       <div class="qh-meta">
         <span>共 {{ questions.length }} 题</span>
-        <span v-if="quiz.duration">⏱ {{ quiz.duration }} 分钟</span>
-        <span v-if="quiz.valid_until">📅 截止 {{ quiz.valid_until }}</span>
+        <span v-if="quiz.duration"><ZgGlyph emoji="⏱" /> {{ quiz.duration }} 分钟</span>
+        <span v-if="quiz.valid_until"><ZgGlyph emoji="📅" /> 截止 {{ quiz.valid_until }}</span>
       </div>
     </div>
 
@@ -147,7 +147,7 @@ async function submit() {
       <div class="q-content" v-html="renderMd(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="q-attachments">
-        <a v-for="(a, idx) in q.attachments" :key="idx" :href="`/api/resources/${a.url}/download`" target="_blank" class="qa-link">📎 {{ a.name }}</a>
+        <a v-for="(a, idx) in q.attachments" :key="idx" :href="`/api/resources/${a.url}/download`" target="_blank" class="qa-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 单选/判断 -->

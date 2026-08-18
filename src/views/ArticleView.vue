@@ -76,36 +76,36 @@ async function deleteArticleItem() {
 
 <template>
   <div class="page zg-container" v-if="article">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <article class="art-detail glass-strong">
       <div class="ad-cover" :style="{ backgroundImage: `url(${article.cover})` }"></div>
       <div class="ad-body">
         <div class="ad-cats">
-          <span class="ad-cat">{{ subject()?.icon }} {{ subject()?.name }}</span>
+          <span class="ad-cat"><ZgGlyph :emoji="subject()?.icon" /> {{ subject()?.name }}</span>
           <span class="ad-cat type">{{ article.category }}</span>
           <span v-for="t in article.tags" :key="t" class="ad-tag">#{{ t }}</span>
         </div>
         <h1 class="ad-title" style="display:inline-block">{{ article.title }}
-          <el-tag v-if="article?.status==='pending'" type="warning" effect="dark" style="margin-left:12px">⏳ 待超管审核（仅关联用户可见）</el-tag>
-          <el-tag v-else-if="article?.status==='pending_student'" type="info" effect="dark" style="margin-left:12px">👤 等待作者学生确认</el-tag>
-          <el-tag v-else-if="article?.status==='rejected'" type="danger" effect="dark" style="margin-left:12px">❌ 审核未通过</el-tag>
+          <el-tag v-if="article?.status==='pending'" type="warning" effect="dark" style="margin-left:12px"><ZgGlyph emoji="⏳" /> 待超管审核（仅关联用户可见）</el-tag>
+          <el-tag v-else-if="article?.status==='pending_student'" type="info" effect="dark" style="margin-left:12px"><ZgGlyph emoji="👤" /> 等待作者学生确认</el-tag>
+          <el-tag v-else-if="article?.status==='rejected'" type="danger" effect="dark" style="margin-left:12px"><ZgGlyph emoji="❌" /> 审核未通过</el-tag>
           <el-tag v-else-if="article?.status==='rejected_student'" type="danger" style="margin-left:12px">学生已拒绝发布</el-tag>
         </h1>
         <div class="ad-meta">
           <img :src="article.cover" class="ad-avatar" v-if="false" />
           <span>发布人：{{ article?.creator_name || article?.author }}</span><span class="dot">·</span>
           <template v-if="article?.actual_user_name"><span>实际作者：{{ article?.actual_user_name }} · 代发</span><span class="dot">·</span></template>
-          <span>{{ article.created_at || article.createdAt }}</span><span class="dot">·</span><span>👁 {{ article.views }}</span>
+          <span>{{ article.created_at || article.createdAt }}</span><span class="dot">·</span><span><ZgGlyph emoji="👁" /> {{ article.views }}</span>
         </div>
-        <div class="ad-recommend glass" v-if="article.recommendation">💡 {{ article.recommendation }}</div>
+        <div class="ad-recommend glass" v-if="article.recommendation"><ZgGlyph emoji="💡" /> {{ article.recommendation }}</div>
         <div class="ad-content" v-html="md(article.content)"></div>
         <div class="ad-gallery" v-if="article.images?.length">
           <img v-for="(im, i) in article.images" :key="i" :src="im" class="ad-img" />
         </div>
         <div class="ad-actions">
-          <div class="act" :class="{ on: liked }" @click="like">❤ {{ article.likes }}</div>
-          <div class="act" :class="{ on: collected }" @click="toggleFav">⭐ {{ collected ? '已收藏' : '收藏' }}</div>
-          <div class="act" @click="router.push(`/subject/${subject()?.slug}`)">📂 进入学科</div>
+          <div class="act" :class="{ on: liked }" @click="like"><ZgGlyph emoji="❤" /> {{ article.likes }}</div>
+          <div class="act" :class="{ on: collected }" @click="toggleFav"><ZgGlyph emoji="⭐" /> {{ collected ? '已收藏' : '收藏' }}</div>
+          <div class="act" @click="router.push(`/subject/${subject()?.slug}`)"><ZgGlyph emoji="📂" /> 进入学科</div>
           <el-button v-if="user.current?.id === article.user_id || user.current?.id === article.actual_user_id || user.isSuperAdmin || user.isTeacher" type="danger" plain size="small" @click="deleteArticleItem" style="margin-left:auto">删除美文</el-button>
         </div>
       </div>

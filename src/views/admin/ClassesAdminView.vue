@@ -58,7 +58,7 @@ async function deleteClass(c: any) {
 <template>
   <div>
     <div class="head">
-      <h1 class="dh-title">🏫 班级管理</h1>
+      <h1 class="dh-title"><ZgGlyph emoji="🏫" /> 班级管理</h1>
       <el-button type="primary" @click="openCreate">+ 新建班级</el-button>
     </div>
 

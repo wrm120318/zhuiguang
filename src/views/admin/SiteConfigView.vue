@@ -158,7 +158,7 @@ function resetConfig() {
   <div v-loading="loading">
     <div class="head">
       <div>
-        <h1 class="dh-title">🏠 网站自定义</h1>
+        <h1 class="dh-title"><ZgGlyph emoji="🏠" /> 网站自定义</h1>
         <p class="dh-sub">自定义首页标题、标语、快捷入口与公告栏，保存后全站立即生效。</p>
       </div>
       <div class="head-actions">
@@ -169,7 +169,7 @@ function resetConfig() {
 
     <el-form label-position="top" class="config-form">
       <div class="glass-strong config-page">
-        <div class="tip">💡 修改后点击「保存配置」即可全站生效。快捷入口可拖动排序、自由增删。</div>
+        <div class="tip"><ZgGlyph emoji="💡" /> 修改后点击「保存配置」即可全站生效。快捷入口可拖动排序、自由增删。</div>
 
         <!-- 基础信息 -->
         <div class="sec">
@@ -217,12 +217,12 @@ function resetConfig() {
               <div class="ql-index">{{ idx + 1 }}</div>
 
               <div class="ql-preview" :style="{ background: `linear-gradient(135deg, ${link.color}, ${link.color}cc)` }">
-                {{ link.icon || '⭐' }}
+                <ZgGlyph :emoji="link.icon || '⭐'" />
               </div>
 
               <div class="ql-fields">
                 <div class="ql-row">
-                  <el-input v-model="link.icon" class="ql-emoji" placeholder="🔥" maxlength="4">
+                  <el-input v-model="link.icon" class="ql-emoji" placeholder="图标 emoji" maxlength="4">
                     <template #prepend>图标</template>
                   </el-input>
                   <el-input v-model="link.label" placeholder="入口名称" maxlength="12">
@@ -260,9 +260,9 @@ function resetConfig() {
               </div>
 
               <div class="ql-ops">
-                <el-button circle size="small" :disabled="idx === 0" @click="moveLink(idx, -1)" title="上移">↑</el-button>
-                <el-button circle size="small" :disabled="idx === form.quickLinks.length - 1" @click="moveLink(idx, 1)" title="下移">↓</el-button>
-                <el-button type="danger" circle size="small" @click="removeLink(idx)" title="删除">✕</el-button>
+                <el-button circle size="small" :disabled="idx === 0" @click="moveLink(idx, -1)" title="上移"><ZgGlyph emoji="↑" /></el-button>
+                <el-button circle size="small" :disabled="idx === form.quickLinks.length - 1" @click="moveLink(idx, 1)" title="下移"><ZgGlyph emoji="↓" /></el-button>
+                <el-button type="danger" circle size="small" @click="removeLink(idx)" title="删除"><ZgGlyph emoji="✕" /></el-button>
               </div>
             </div>
 
@@ -302,8 +302,8 @@ function resetConfig() {
               <div class="item-tip">显示在顶部导航栏左侧的名称，留空或与网站名称一致即可。</div>
             </el-form-item>
             <el-form-item label="导航栏图标 emoji">
-              <el-input v-model="form.navTitleIcon" class="nav-icon-input" placeholder="🌟" maxlength="4" />
-              <span class="nav-icon-preview">当前预览：{{ form.navTitleIcon || '⭐' }}</span>
+              <el-input v-model="form.navTitleIcon" class="nav-icon-input" placeholder="导航栏图标" maxlength="4" />
+              <span class="nav-icon-preview">当前预览：<ZgGlyph :emoji="form.navTitleIcon || '⭐'" /></span>
             </el-form-item>
             <el-form-item label="显示搜索按钮">
               <el-switch v-model="form.showNavSearch" />

@@ -133,7 +133,7 @@ async function batchApprove() {
             <div class="au-title">{{ a.title }}</div>
             <div class="au-meta">{{ a.author }} · {{ a.category }} · {{ a.created_at }}
               <span v-if="a.actual_user_id" class="au-proxy">
-                🧑‍🎓 实际作者：<b>{{ a.actual_user_name || '学生#'+a.actual_user_id }}</b>
+                <ZgGlyph emoji="🧑‍" /><ZgGlyph emoji="🎓" /> 实际作者：<b>{{ a.actual_user_name || '学生#'+a.actual_user_id }}</b>
                 · 代发教师：{{ a.creator_name }}
               </span>
               <el-tag size="small" :type="statusType(a.status)" style="margin-left:8px">
@@ -160,7 +160,7 @@ async function batchApprove() {
 
       <template v-else>
         <div v-for="r in resources" :key="r.id" class="audit-card glass">
-          <div class="au-icon">{{ r.file_type === 'pdf' ? '📄' : r.file_type === 'ppt' ? '📊' : r.file_type === 'word' ? '📝' : r.file_type === 'excel' ? '📗' : r.file_type === 'video' ? '🎬' : '📦' }}</div>
+          <div class="au-icon"><ZgGlyph v-if="r.file_type === 'pdf'" emoji="📄" /><ZgGlyph v-else-if="r.file_type === 'ppt'" emoji="📊" /><ZgGlyph v-else-if="r.file_type === 'word'" emoji="📝" /><ZgGlyph v-else-if="r.file_type === 'excel'" emoji="📗" /><ZgGlyph v-else-if="r.file_type === 'video'" emoji="🎬" /><ZgGlyph v-else emoji="📦" /></div>
           <div class="au-body">
             <div class="au-title">{{ r.title }}</div>
             <div class="au-meta">{{ r.category }} · {{ r.file_name }} · 上传人：{{ r.creator_name }}

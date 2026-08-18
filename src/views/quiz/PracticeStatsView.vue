@@ -71,16 +71,16 @@ onMounted(load)
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
 
     <!-- 题目 + 统计卡片 -->
     <div v-if="question" class="qs-header">
       <div class="qs-meta">
-        <span class="qs-subj">{{ subject?.icon || '📚' }} {{ subject?.name }}</span>
+        <span class="qs-subj"><ZgGlyph :emoji="subject?.icon || '📚'" /> {{ subject?.name }}</span>
         <el-tag size="small">{{ qTypeLabel(question.qtype) }}</el-tag>
         <el-tag size="small" type="success">{{ question.score }} 分</el-tag>
-        <el-button size="small" type="primary" round @click="router.push(`/practice/${questionId}`)">🎯 开始作答</el-button>
-        <el-button v-if="isTeacher" size="small" @click="router.push(`/practice/my-records`)">📝 我的记录</el-button>
+        <el-button size="small" type="primary" round @click="router.push(`/practice/${questionId}`)"><ZgGlyph emoji="🎯" /> 开始作答</el-button>
+        <el-button v-if="isTeacher" size="small" @click="router.push(`/practice/my-records`)"><ZgGlyph emoji="📝" /> 我的记录</el-button>
       </div>
 
       <div class="qs-stats" v-if="stats">
@@ -105,23 +105,23 @@ onMounted(load)
 
     <!-- 题目内容 -->
     <div v-if="question" class="glass question-view">
-      <div class="q-label">📖 题目</div>
+      <div class="q-label"><ZgGlyph emoji="📖" /> 题目</div>
       <div class="q-content q-content-lg" v-html="md(question.content)"></div>
       <!-- 正确答案（教师可见） -->
       <div v-if="isTeacher && question.qtype !== 'subjective'" class="q-answer-reveal">
-        <div class="q-label">✅ 正确答案</div>
+        <div class="q-label"><ZgGlyph emoji="✅" /> 正确答案</div>
         <div class="q-answer-text">{{ question.answer }}</div>
       </div>
       <div v-if="question.attachments?.length" class="q-atts">
-        <a v-for="(a, i) in question.attachments" :key="i" :href="a.url" target="_blank" class="att-link">📎 {{ a.name }}</a>
+        <a v-for="(a, i) in question.attachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
     </div>
 
     <!-- 待批改列表 -->
-    <div v-if="pendingSubs.length" class="section-title">⏳ 待批改（{{ pendingSubs.length }} 条）</div>
+    <div v-if="pendingSubs.length" class="section-title"><ZgGlyph emoji="⏳" /> 待批改（{{ pendingSubs.length }} 条）</div>
     <div v-for="sub in pendingSubs" :key="sub.id" class="pending-card glass">
       <div class="pc-head">
-        <span class="pc-user">👤 {{ sub.real_name }}（{{ sub.username }}）</span>
+        <span class="pc-user"><ZgGlyph emoji="👤" /> {{ sub.real_name }}（{{ sub.username }}）</span>
         <span class="pc-time">提交于 {{ fmtTime(sub.submitted_at) }}</span>
         <el-tag size="small" type="warning">待批改</el-tag>
       </div>
@@ -136,18 +136,18 @@ onMounted(load)
     </div>
 
     <!-- 全部提交记录 -->
-    <div class="section-title">📋 全部提交记录（{{ detailSubs.length }} 条）</div>
+    <div class="section-title"><ZgGlyph emoji="📋" /> 全部提交记录（{{ detailSubs.length }} 条）</div>
     <div v-if="!detailSubs.length" class="empty-hint">
       <el-empty description="暂无提交记录" />
     </div>
     <div v-for="sub in detailSubs" :key="sub.sub_id" class="record-card glass">
       <div class="rc-head">
-        <span class="rc-user">👤 {{ sub.real_name }}（{{ sub.username }}）</span>
+        <span class="rc-user"><ZgGlyph emoji="👤" /> {{ sub.real_name }}（{{ sub.username }}）</span>
         <el-tag size="small" :type="statusTag(sub.status)?.type">{{ statusTag(sub.status)?.label }}</el-tag>
         <span class="rc-score" v-if="sub.status === 'graded'">
           {{ sub.score }}/{{ sub.max_score }}
-          <el-tag v-if="sub.correct === 1" size="small" type="success" style="margin-left:4px">✓</el-tag>
-          <el-tag v-else size="small" type="danger" style="margin-left:4px">✗</el-tag>
+          <el-tag v-if="sub.correct === 1" size="small" type="success" style="margin-left:4px"><ZgGlyph emoji="✓" /></el-tag>
+          <el-tag v-else size="small" type="danger" style="margin-left:4px"><ZgGlyph emoji="✗" /></el-tag>
         </span>
         <span class="rc-score waiting" v-else>待批</span>
         <span class="rc-time">{{ fmtTime(sub.graded_at || sub.submitted_at) }}</span>
@@ -162,7 +162,7 @@ onMounted(load)
       <div class="rc-footer">
         <span class="rc-ans-label">作答：</span>
         <span class="rc-answer">{{ sub.user_answer || '（无作答）' }}</span>
-        <span v-if="sub.comment" class="rc-comment">📝 {{ sub.comment }}</span>
+        <span v-if="sub.comment" class="rc-comment"><ZgGlyph emoji="📝" /> {{ sub.comment }}</span>
       </div>
     </div>
   </div>

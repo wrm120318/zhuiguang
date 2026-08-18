@@ -91,14 +91,14 @@ function levelExp(level: number) { return (level - 1) * 60 }
           :class="{ active: activeTab === 'guide' }"
           @click="activeTab = 'guide'"
         >
-          <span class="tab-icon">📘</span>网站说明
+          <span class="tab-icon"><ZgGlyph emoji="📘" /></span>网站说明
         </button>
         <button
           class="tab"
           :class="{ active: activeTab === 'exp' }"
           @click="activeTab = 'exp'"
         >
-          <span class="tab-icon">⭐</span>经验值说明
+          <span class="tab-icon"><ZgGlyph emoji="⭐" /></span>经验值说明
         </button>
       </div>
 
@@ -112,7 +112,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
           <div class="g-content" v-html="md(guide.content)"></div>
           <div class="g-foot">
             <el-button v-if="user.isSuperAdmin" type="primary" round @click="router.push('/admin/guide')">
-              ✏️ 编辑此说明
+              <ZgGlyph emoji="✏️" /> 编辑此说明
             </el-button>
           </div>
         </template>
@@ -124,16 +124,16 @@ function levelExp(level: number) { return (level - 1) * 60 }
       <!-- 经验值说明 -->
       <div v-show="activeTab === 'exp'" class="tab-panel">
         <section class="sec">
-          <h2>🌟 什么是经验值？</h2>
+          <h2><ZgGlyph emoji="🌟" /> 什么是经验值？</h2>
           <p>经验值是你在追光平台上活跃与贡献的量化体现。通过登录、分享美文、上传资料、参与题库自测等行为，都能获得经验值。经验值越高，等级越高，在经验排行榜上的名次也越靠前。</p>
         </section>
 
         <section class="sec">
-          <h2>📊 经验值获取规则</h2>
-          <p class="muted">下表为当前生效的经验值规则，超级管理员可在「管理后台 → 经验设置」中调整。删除/取消类操作将直接删除相关经验值记录，无需单独配置回收规则。</p>
+          <h2><ZgGlyph emoji="📊" /> 经验值获取规则</h2>
+          <p class="muted">下表为当前生效的经验值规则，超级管理员可在「管理后台 <ZgGlyph emoji="→" /> 经验设置」中调整。删除/取消类操作将直接删除相关经验值记录，无需单独配置回收规则。</p>
           <div class="rule-grid">
             <div v-for="r in ruleList" :key="r.key" class="rule-card glass">
-              <div class="rc-icon">{{ r.icon }}</div>
+              <div class="rc-icon"><ZgGlyph :emoji="r.icon" /></div>
               <div class="rc-body">
                 <div class="rc-label">{{ r.label }}</div>
                 <div class="rc-desc">{{ r.desc }}</div>
@@ -144,7 +144,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
         </section>
 
         <section class="sec">
-          <h2>🏆 等级说明</h2>
+          <h2><ZgGlyph emoji="🏆" /> 等级说明</h2>
           <p>每累计 <b>60 经验值</b> 提升一级，等级公式：<code>等级 = floor(经验值 / 60) + 1</code></p>
           <div class="level-table">
             <div class="lt-head"><span>等级</span><span>所需累计经验</span><span>头衔</span></div>
@@ -157,7 +157,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
         </section>
 
         <section class="sec">
-          <h2>📈 如何快速提升？</h2>
+          <h2><ZgGlyph emoji="📈" /> 如何快速提升？</h2>
           <ul>
             <li>坚持每日登录，积少成多</li>
             <li>积极分享优质美文与学习资料</li>
@@ -169,7 +169,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
 
         <div class="g-foot">
           <el-button v-if="user.isSuperAdmin" type="primary" round @click="router.push('/admin/exp-rules')">
-            ⚙️ 配置经验规则
+            <ZgGlyph emoji="⚙️" /> 配置经验规则
           </el-button>
         </div>
       </div>

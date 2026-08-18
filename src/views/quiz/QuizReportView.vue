@@ -51,12 +51,12 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
 
     <!-- ============ 教师考试数据报告 ============ -->
     <template v-if="isTeacherView && teacherData">
       <div class="glass-strong report-card">
-        <h1 class="rc-title">📊 考试数据报告</h1>
+        <h1 class="rc-title"><ZgGlyph emoji="📊" /> 考试数据报告</h1>
         <div class="rc-name">{{ teacherData.quiz?.title }}</div>
 
         <div class="stat-grid">
@@ -98,7 +98,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 
       <!-- 分数段分布 -->
       <div class="glass section-card">
-        <div class="sc-title">📈 分数段分布（按得分率百分比，适应不同总分）</div>
+        <div class="sc-title"><ZgGlyph emoji="📈" /> 分数段分布（按得分率百分比，适应不同总分）</div>
         <div class="range-list">
           <div v-for="r in tRanges" :key="r.label" class="range-row">
             <span class="range-label">{{ r.label }}</span>
@@ -112,7 +112,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 
       <!-- 每题分析 -->
       <div class="glass section-card">
-        <div class="sc-title">📝 每题分析</div>
+        <div class="sc-title"><ZgGlyph emoji="📝" /> 每题分析</div>
         <div v-for="(q, i) in tQuestions" :key="q.id" class="qana">
           <div class="qana-head">
             <span class="qana-no">第 {{ i + 1 }} 题</span>
@@ -134,7 +134,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 
       <!-- 学生成绩明细 -->
       <div class="glass section-card">
-        <div class="sc-title">👥 学生成绩明细</div>
+        <div class="sc-title"><ZgGlyph emoji="👥" /> 学生成绩明细</div>
         <el-table :data="tSubs" style="width: 100%" size="small">
           <el-table-column prop="real_name" label="学生" min-width="100" />
           <el-table-column label="得分" min-width="100">
@@ -156,7 +156,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
     <!-- ============ 学生个人报告 ============ -->
     <template v-else-if="sub">
       <div class="glass-strong report-card">
-        <h1 class="rc-title">📊 测评报告</h1>
+        <h1 class="rc-title"><ZgGlyph emoji="📊" /> 测评报告</h1>
         <div class="rc-name">{{ quiz?.title }}</div>
 
         <div class="score-row">
@@ -165,22 +165,22 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
             <span class="sb-max">/ {{ sub.max_score }}</span>
           </div>
           <el-tag :type="sub.status === 'graded' ? 'success' : 'warning'" size="large">
-            {{ sub.status === 'graded' ? '✅ 整张试卷报告已生成' : '⏳ 等待教师阅卷中' }}
+            <template v-if="sub.status === 'graded'"><ZgGlyph emoji="✅" /> 整张试卷报告已生成</template><template v-else><ZgGlyph emoji="⏳" /> 等待教师阅卷中</template>
           </el-tag>
         </div>
 
         <div v-if="sub.status === 'pending'" class="rc-pending-tip">
-          <span class="rpt-icon">⏳</span>
+          <span class="rpt-icon"><ZgGlyph emoji="⏳" /></span>
           <span>客观题已自动评分，主观题正在等待教师批改。批改完成后将通过站内信通知你，届时可在此查看完整报告。</span>
         </div>
         <div v-else class="rc-graded-tip">
-          <span class="rpt-icon">✅</span>
+          <span class="rpt-icon"><ZgGlyph emoji="✅" /></span>
           <span>整张试卷已批改完成，完整测评报告已生成！</span>
         </div>
 
         <div class="rc-meta">
-          <span>📝 提交时间：{{ sub.submitted_at?.slice(0, 16) }}</span>
-          <span v-if="sub.graded_at">✅ 批改时间：{{ sub.graded_at?.slice(0, 16) }}</span>
+          <span><ZgGlyph emoji="📝" /> 提交时间：{{ sub.submitted_at?.slice(0, 16) }}</span>
+          <span v-if="sub.graded_at"><ZgGlyph emoji="✅" /> 批改时间：{{ sub.graded_at?.slice(0, 16) }}</span>
         </div>
 
         <div class="rc-summary">
@@ -221,7 +221,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
               }">
               <span class="qo-letter">{{ letter(idx) }}</span>
               <span>{{ opt }}</span>
-              <span class="qo-tag" v-if="q.answer.split(',').includes(letter(idx))">✓ 正确</span>
+              <span class="qo-tag" v-if="q.answer.split(',').includes(letter(idx))"><ZgGlyph emoji="✓" /> 正确</span>
               <span class="qo-tag wrong" v-if="(sub?.answers?.answers?.[q.id] || '').split(',').includes(letter(idx)) && !q.answer.split(',').includes(letter(idx))">你的选择</span>
             </div>
           </div>

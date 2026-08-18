@@ -135,9 +135,9 @@ async function submit() {
 
 <template>
   <div class="page zg-container">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="editor-page glass-strong">
-      <h1 class="ep-title">✍️ 发布美文</h1>
+      <h1 class="ep-title"><ZgGlyph emoji="✍️" /> 发布美文</h1>
       <p class="ep-tip">选择对应学科，提交后进入待审核，由学科教师或管理员审核通过后公开展示。</p>
 
       <div class="ep-row">
@@ -152,15 +152,15 @@ async function submit() {
         <div class="author-field" v-if="user.isTeacher || user.isSuperAdmin">
           <div class="af-current" @click="authorPickerVisible = !authorPickerVisible">
             <span v-if="proxyAuthor" class="af-proxy">
-              🧑‍🎓 代发作者：<b>{{ proxyAuthor.real_name }}</b>
+              <ZgGlyph emoji="🧑‍" /><ZgGlyph emoji="🎓" /> 代发作者：<b>{{ proxyAuthor.real_name }}</b>
               <el-tag size="small" type="warning" style="margin-left:6px">学生确认后公开</el-tag>
             </span>
-            <span v-else class="af-self">✍️ 自己发布（作者：{{ form.author }}）</span>
-            <span class="af-toggle">{{ authorPickerVisible ? '▲' : '▼' }}</span>
+            <span v-else class="af-self"><ZgGlyph emoji="✍️" /> 自己发布（作者：{{ form.author }}）</span>
+            <span class="af-toggle"><ZgGlyph v-if="authorPickerVisible" emoji="▲" /><ZgGlyph v-else emoji="▼" /></span>
           </div>
           <div v-if="authorPickerVisible" class="af-picker glass-strong">
             <div class="afp-title">选择实际作者（学生）— 发布后需要学生确认</div>
-            <el-input v-model="authorSearch" placeholder="🔍 搜索学生姓名或账号..." size="small" clearable />
+            <el-input v-model="authorSearch" placeholder="搜索学生姓名或账号..." size="small" clearable />
             <div class="afp-list">
               <div v-for="s in filteredStudents" :key="s.id" class="afp-item" @click="selectProxyStudent(s)">
                 <span class="afp-name">{{ s.real_name }}</span>
@@ -197,7 +197,7 @@ async function submit() {
         <button @click="exec('formatBlock','<blockquote>')">引用</button>
         <button @click="exec('insertUnorderedList')">• 列表</button>
         <el-upload :show-file-list="false" :http-request="onUploadImg" accept="image/*">
-          <button>🖼️ 插入图片</button>
+          <button><ZgGlyph emoji="🖼️" /> 插入图片</button>
         </el-upload>
       </div>
       <div ref="editorRef" class="editor" contenteditable="true"></div>

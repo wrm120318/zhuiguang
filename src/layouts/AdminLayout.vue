@@ -18,21 +18,21 @@ async function selfRepair() {
   if (!user.isSuperAdmin) return
   try {
     await ElMessageBox.confirm(
-      '网站出现问题了吗？点击确定，服务器会在1~2分钟内自动修复全部故障（后端崩溃、隧道断了、1016/530错误），您只需稍后刷新页面即可。\n\n💡 小提示：也可以直接和我对话说「网站又挂了」，我会立刻帮您修好。',
-      '🔧 小白一键修复',
+      '网站出现问题了吗？点击确定，服务器会在1~2分钟内自动修复全部故障（后端崩溃、隧道断了、1016/530错误），您只需稍后刷新页面即可。\n\n小提示：也可以直接和我对话说「网站又挂了」，我会立刻帮您修好。',
+      '小白一键修复',
       { confirmButtonText: '确定开始自动修复', cancelButtonText: '取消', type: 'warning' }
     )
   } catch { return }
   if (repairing.value) { ElMessage.warning('修复正在进行中，请耐心等待1~2分钟后按F5刷新'); return }
   repairing.value = true
-  ElMessage.info('🔄 自动修复已启动！正在重启后端+重建隧道，请耐心等待1~2分钟，然后多按几次F5刷新页面...')
+  ElMessage.info('自动修复已启动！正在重启后端+重建隧道，请耐心等待1~2分钟，然后多按几次F5刷新页面...')
   try {
     const r = await fetch('/api/admin/self-repair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     })
     const d = await r.json().catch(() => ({}))
-    if (d?.msg) ElMessage.success('✅ ' + d.msg)
+    if (d?.msg) ElMessage.success(d.msg)
     setTimeout(() => { repairing.value = false }, 70 * 1000)
   } catch (e: any) {
     ElMessage.error('自动修复启动失败：' + (e?.message || '未知错误'))
@@ -121,7 +121,7 @@ function go(name: string) {
       :class="{ repairing: repairing }"
       @click="selfRepair"
       :disabled="repairing"
-      title="🔧 小白一键修复：如果网站出问题（1016/530、点不动、白屏），点这里1~2分钟自动修好！"
+      title="小白一键修复：如果网站出问题（1016/530、点不动、白屏），点这里1~2分钟自动修好！"
     >
       <span class="zg-sr-icon"><el-icon><component :is="repairing ? 'Loading' : 'Tools'" /></el-icon></span>
       <span class="zg-sr-text">{{ repairing ? '修复中...' : '一键修复' }}</span>

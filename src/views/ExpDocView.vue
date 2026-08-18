@@ -60,7 +60,7 @@ const ruleList = computed(() => {
   <div v-loading="loading">
     <div class="head">
       <div>
-        <h1 class="dh-title">📖 经验值说明</h1>
+        <h1 class="dh-title"><ZgGlyph emoji="📖" /> 经验值说明</h1>
         <p class="dh-sub">了解追光平台经验值系统：如何获得经验、经验值的作用、以及删除内容时的经验值回收规则。</p>
       </div>
     </div>
@@ -69,13 +69,13 @@ const ruleList = computed(() => {
       <!-- 经验值获取规则 -->
       <section class="section">
         <h2 class="sec-title">
-          <span class="sec-icon">📈</span>
+          <span class="sec-icon"><ZgGlyph emoji="📈" /></span>
           经验值获取规则
         </h2>
-        <div class="tip">💡 以下规则为用户获得经验值的途径。删除/取消类操作（如删除美文、取消点赞）将直接删除相关经验值记录，无需单独配置回收规则。</div>
+        <div class="tip"><ZgGlyph emoji="💡" /> 以下规则为用户获得经验值的途径。删除/取消类操作（如删除美文、取消点赞）将直接删除相关经验值记录，无需单独配置回收规则。</div>
         <div class="rule-list">
           <div v-for="r in ruleList" :key="r.key" class="rule-item">
-            <div class="ri-icon">{{ r.icon }}</div>
+            <div class="ri-icon"><ZgGlyph :emoji="r.icon" /></div>
             <div class="ri-body">
               <div class="ri-label">{{ r.label }}</div>
               <div class="ri-desc">{{ r.desc }}</div>
@@ -91,19 +91,19 @@ const ruleList = computed(() => {
       <!-- 经验值作用 -->
       <section class="section">
         <h2 class="sec-title">
-          <span class="sec-icon">🎯</span>
+          <span class="sec-icon"><ZgGlyph emoji="🎯" /></span>
           经验值的作用
         </h2>
         <div class="rule-list">
           <div class="rule-item">
-            <div class="ri-icon">📊</div>
+            <div class="ri-icon"><ZgGlyph emoji="📊" /></div>
             <div class="ri-body">
               <div class="ri-label">等级提升</div>
               <div class="ri-desc">经验值达到一定数量后可提升等级，等级越高权益越多</div>
             </div>
           </div>
           <div class="rule-item">
-            <div class="ri-icon">🏆</div>
+            <div class="ri-icon"><ZgGlyph emoji="🏆" /></div>
             <div class="ri-body">
               <div class="ri-label">排行榜</div>
               <div class="ri-desc">经验值参与全校排行榜，展示个人学习成果</div>
@@ -115,10 +115,10 @@ const ruleList = computed(() => {
       <!-- 等级说明 -->
       <section class="section">
         <h2 class="sec-title">
-          <span class="sec-icon">📋</span>
+          <span class="sec-icon"><ZgGlyph emoji="📋" /></span>
           等级说明
         </h2>
-        <div class="tip">💡 等级计算方式：等级 = 经验值 / 60 + 1</div>
+        <div class="tip"><ZgGlyph emoji="💡" /> 等级计算方式：等级 = 经验值 / 60 + 1</div>
         <div class="level-grid">
           <div class="level-item">
             <div class="level-num">1</div>

@@ -577,7 +577,7 @@ function openImport() {
             size="default"
             class="exp-log-search"
           >
-            <template #prefix><span>🔍</span></template>
+            <template #prefix><span><ZgGlyph emoji="🔍" /></span></template>
           </el-input>
           <el-select v-model="expLogActionFilter" placeholder="行为类型" clearable size="default" class="exp-log-action">
             <el-option v-for="o in EXP_LOG_ACTIONS" :key="o.value" :label="o.label" :value="o.value" />

@@ -128,9 +128,9 @@ async function submit() {
 
 <template>
   <div class="page zg-container">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="editor glass-strong">
-      <h1 class="ep-title">{{ isEdit ? '✏️ 编辑题库' : '📝 创建题库' }}</h1>
+      <h1 class="ep-title"><template v-if="isEdit"><ZgGlyph emoji="✏️" /> 编辑题库</template><template v-else><ZgGlyph emoji="📝" /> 创建题库</template></h1>
 
       <div class="ep-row">
         <el-input v-model="form.title" placeholder="题库名称，如：高三期末复习卷" />
@@ -202,10 +202,10 @@ async function submit() {
 
           <div class="qe-attach">
             <el-upload :http-request="(req: any) => onUploadAttach(req, q)" :show-file-list="false" multiple>
-              <el-button size="small">📎 添加附件（图片/文件）</el-button>
+              <el-button size="small"><ZgGlyph emoji="📎" /> 添加附件（图片/文件）</el-button>
             </el-upload>
             <div v-for="(a, idx) in q.attachments" :key="idx" class="qa-item">
-              <span>📎 {{ a.name }} ({{ fmtSize(a.size) }})</span>
+              <span><ZgGlyph emoji="📎" /> {{ a.name }} ({{ fmtSize(a.size) }})</span>
               <el-button text type="danger" size="small" @click="removeAttach(q, idx)">×</el-button>
             </div>
           </div>

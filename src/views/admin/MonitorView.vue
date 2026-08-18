@@ -281,9 +281,9 @@ onBeforeUnmount(() => {
 <template>
   <div v-loading="loading">
     <div class="head">
-      <h1 class="dh-title">🖥️ 网站运行监控</h1>
+      <h1 class="dh-title"><ZgGlyph emoji="🖥️" /> 网站运行监控</h1>
       <div>
-        <el-button @click="() => { load(); loadStorage() }" :loading="loading">🔄 刷新</el-button>
+        <el-button @click="() => { load(); loadStorage() }" :loading="loading"><ZgGlyph emoji="🔄" /> 刷新</el-button>
         <span class="auto-refresh-hint">自动每15秒刷新</span>
       </div>
     </div>
@@ -292,66 +292,66 @@ onBeforeUnmount(() => {
       <!-- 统一告警横幅 -->
       <div v-if="hasAlerts" class="alert-banner">
         <div v-for="(a, i) of data.alerts" :key="i" :class="['alert-item', `alert-${a.level}`]">
-          <span class="alert-icon">{{ a.level === 'danger' ? '🔴' : a.level === 'warning' ? '🟡' : '🔵' }}</span>
+          <span class="alert-icon"><ZgGlyph v-if="a.level === 'danger'" emoji="🔴" /><ZgGlyph v-else-if="a.level === 'warning'" emoji="🟡" /><ZgGlyph v-else emoji="🔵" /></span>
           <span class="alert-source">[{{ a.source }}]</span>
           <span class="alert-msg">{{ a.message }}</span>
         </div>
       </div>
 
       <!-- 在线状态 -->
-      <div class="section-title">👥 实时在线 & 今日概览</div>
+      <div class="section-title"><ZgGlyph emoji="👥" /> 实时在线 & 今日概览</div>
       <div class="stat-grid">
         <div class="stat-card glass zg-card online">
-          <div class="sc-icon">🟢</div>
+          <div class="sc-icon"><ZgGlyph emoji="🟢" /></div>
           <div>
             <div class="sc-num big">{{ data.online.online5min }}</div>
             <div class="sc-label">最近5分钟在线</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">🕒</div>
+          <div class="sc-icon"><ZgGlyph emoji="🕒" /></div>
           <div>
             <div class="sc-num">{{ data.online.online1hour }}</div>
             <div class="sc-label">最近1小时活跃</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">👥</div>
+          <div class="sc-icon"><ZgGlyph emoji="👥" /></div>
           <div>
             <div class="sc-num">{{ data.online.activeUsers }} / {{ data.online.totalUsers }}</div>
             <div class="sc-label">活跃用户 / 总用户</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">🔐</div>
+          <div class="sc-icon"><ZgGlyph emoji="🔐" /></div>
           <div>
             <div class="sc-num">{{ data.online.todayLogins }}</div>
             <div class="sc-label">今日登录人次</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">✍️</div>
+          <div class="sc-icon"><ZgGlyph emoji="✍️" /></div>
           <div>
             <div class="sc-num">{{ data.online.todayArticles }}</div>
             <div class="sc-label">今日发布美文</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">📦</div>
+          <div class="sc-icon"><ZgGlyph emoji="📦" /></div>
           <div>
             <div class="sc-num">{{ data.online.todayResources }}</div>
             <div class="sc-label">今日上传资料</div>
           </div>
         </div>
         <div class="stat-card glass zg-card">
-          <div class="sc-icon">⭐</div>
+          <div class="sc-icon"><ZgGlyph emoji="⭐" /></div>
           <div>
             <div class="sc-num">{{ data.online.todayExps }}</div>
             <div class="sc-label">今日发放经验值</div>
           </div>
         </div>
         <div class="stat-card glass zg-card pending">
-          <div class="sc-icon">⏳</div>
+          <div class="sc-icon"><ZgGlyph emoji="⏳" /></div>
           <div>
             <div class="sc-num">{{ data.pending.articles + data.pending.resources }}</div>
             <div class="sc-label">待审核（美文{{ data.pending.articles }} / 资料{{ data.pending.resources }}）</div>
@@ -360,10 +360,10 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 双库监控 Tab -->
-      <div class="section-title">🗄️ 双库全覆盖监控（Supabase + D1）</div>
+      <div class="section-title"><ZgGlyph emoji="🗄️" /> 双库全覆盖监控（Supabase + D1）</div>
       <el-tabs v-model="activeTab" class="monitor-tabs">
         <!-- ============ Supabase 存储监控 ============ -->
-        <el-tab-pane label="📦 Supabase 存储" name="supabase-storage">
+        <el-tab-pane name="supabase-storage"><template #label><ZgGlyph emoji="📦" /> Supabase 存储</template>
           <div v-loading="storageLoading">
             <template v-if="data.supabaseStorage">
               <!-- 容量进度条 -->
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
 
               <div class="row" style="margin-top:16px;">
                 <div class="glass info-panel">
-                  <div class="ip-title">📊 存储概况</div>
+                  <div class="ip-title"><ZgGlyph emoji="📊" /> 存储概况</div>
                   <div class="kv"><span class="k">存储桶</span><span class="v strong">{{ data.supabaseStorage.bucket }}</span></div>
                   <div class="kv"><span class="k">文件总数</span><span class="v strong">{{ data.supabaseStorage.totalFiles }} 个</span></div>
                   <div class="kv"><span class="k">已用空间</span><span class="v strong">{{ data.supabaseStorage.totalSizeFmt }}</span></div>
@@ -394,17 +394,17 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="glass info-panel">
-                  <div class="ip-title">📅 今日流量</div>
+                  <div class="ip-title"><ZgGlyph emoji="📅" /> 今日流量</div>
                   <div class="kv"><span class="k">今日上传</span><span class="v strong">{{ data.supabaseStorage.todayUploads }} 个文件</span></div>
                   <div class="kv"><span class="k">上传流量</span><span class="v strong">{{ data.supabaseStorage.todayUploadSizeFmt }}</span></div>
                 </div>
 
                 <div class="glass info-panel">
-                  <div class="ip-title">🔥 高频访问文件 TOP 5</div>
+                  <div class="ip-title"><ZgGlyph emoji="🔥" /> 高频访问文件 TOP 5</div>
                   <div v-if="data.supabaseStorage.hotResources?.length" class="top-list">
                     <div v-for="f of data.supabaseStorage.hotResources.slice(0,5)" :key="f.id" class="top-row">
                       <span class="top-name" :title="f.title">{{ f.title }}</span>
-                      <span class="top-dl">⬇ {{ f.downloads }}</span>
+                      <span class="top-dl"><ZgGlyph emoji="⬇" /> {{ f.downloads }}</span>
                       <span class="top-size">{{ f.fileSizeFmt }}</span>
                     </div>
                   </div>
@@ -415,8 +415,8 @@ onBeforeUnmount(() => {
               <!-- 大体积文件排行（支持预览+删除） -->
               <div class="glass info-panel" style="margin-top:16px;">
                 <div class="ip-title">
-                  📈 大体积文件 TOP 10
-                  <span class="ip-hint">点击文件名预览，点击 🗑️ 删除</span>
+                  <ZgGlyph emoji="📈" /> 大体积文件 TOP 10
+                  <span class="ip-hint">点击文件名预览，点击 <ZgGlyph emoji="🗑️" /> 删除</span>
                 </div>
                 <div class="top-list">
                   <div v-for="(f, i) of data.supabaseStorage.topFiles" :key="i" class="top-row file-mgmt-row">
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
                         v-if="f.hasResource"
                         class="resource-tag"
                         :title="`关联资源: ${f.resourceTitle || '未命名'}（状态: ${f.resourceStatus || '未知'}）`"
-                      >🔗</span>
+                      ><ZgGlyph emoji="🔗" /></span>
                     </span>
                     <span class="top-size">{{ f.sizeFmt }}</span>
                     <el-button
@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
                       @click="startDelete(f)"
                       :loading="deleteLoading && deletingFile?.name === f.name"
                     >
-                      <span style="font-size:14px;">🗑️</span>
+                      <span style="font-size:14px;"><ZgGlyph emoji="🗑️" /></span>
                     </el-button>
                   </div>
                   <div v-if="!data.supabaseStorage.topFiles?.length" class="empty-hint">暂无文件</div>
@@ -454,17 +454,17 @@ onBeforeUnmount(() => {
         </el-tab-pane>
 
         <!-- ============ Supabase 数据库监控 ============ -->
-        <el-tab-pane label="🗄️ Supabase 数据库" name="supabase-db">
+        <el-tab-pane name="supabase-db"><template #label><ZgGlyph emoji="🗄️" /> Supabase 数据库</template>
           <template v-if="data.supabaseDb">
             <div class="row">
               <div class="glass info-panel">
-                <div class="ip-title">🔌 数据库连接</div>
+                <div class="ip-title"><ZgGlyph emoji="🔌" /> 数据库连接</div>
                 <div class="kv"><span class="k">项目</span><span class="v strong">{{ data.supabaseDb.url }}</span></div>
-                <div class="kv"><span class="k">状态</span><span class="v" :style="{ color: data.supabaseDb.configured ? '#10b981' : '#ef4444', fontWeight: 700 }">{{ data.supabaseDb.configured ? '✅ 已连接' : '❌ 未配置' }}</span></div>
+                <div class="kv"><span class="k">状态</span><span class="v" :style="{ color: data.supabaseDb.configured ? '#10b981' : '#ef4444', fontWeight: 700 }"><template v-if="data.supabaseDb.configured"><ZgGlyph emoji="✅" /> 已连接</template><template v-else><ZgGlyph emoji="❌" /> 未配置</template></span></div>
                 <div class="kv"><span class="k">总记录数</span><span class="v strong">{{ (data.supabaseDb.totalRows || 0).toLocaleString() }} 条</span></div>
               </div>
               <div class="glass info-panel" style="grid-column: span 2;">
-                <div class="ip-title">📋 各表行数统计（Supabase PostgreSQL）</div>
+                <div class="ip-title"><ZgGlyph emoji="📋" /> 各表行数统计（Supabase PostgreSQL）</div>
                 <div class="tables">
                   <div v-for="(n, t) of data.supabaseDb.tableStats" :key="t" class="tbl-row">
                     <span class="tbl-name">{{ tableNameZh[t] || t }}</span>
@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
         </el-tab-pane>
 
         <!-- ============ D1 数据库监控 ============ -->
-        <el-tab-pane label="💾 D1 数据库" name="d1">
+        <el-tab-pane name="d1"><template #label><ZgGlyph emoji="💾" /> D1 数据库</template>
           <template v-if="data.database">
             <!-- D1 容量进度条 -->
             <div class="capacity-bar-wrap">
@@ -498,7 +498,7 @@ onBeforeUnmount(() => {
 
             <div class="db-row" style="margin-top:16px;">
               <div class="glass info-panel db-info">
-                <div class="ip-title">🗄️ D1 概况</div>
+                <div class="ip-title"><ZgGlyph emoji="🗄️" /> D1 概况</div>
                 <div class="kv"><span class="k">已用空间</span><span class="v strong">{{ data.database.fileSizeFmt }}</span></div>
                 <div class="kv"><span class="k">总页数</span><span class="v">{{ data.database.pageCount }} 页</span></div>
                 <div class="kv"><span class="k">页大小</span><span class="v">{{ data.database.pageSize }} B</span></div>
@@ -511,7 +511,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div class="glass info-panel db-tables">
-                <div class="ip-title">📋 各表数据量</div>
+                <div class="ip-title"><ZgGlyph emoji="📋" /> 各表数据量</div>
                 <div class="tables">
                   <div v-for="(n, t) of data.database.tables" :key="t" class="tbl-row"
                        :style="{ opacity: n === 0 ? 0.5 : 1 }">
@@ -526,30 +526,30 @@ onBeforeUnmount(() => {
         </el-tab-pane>
 
         <!-- ============ 缓存监控 ============ -->
-        <el-tab-pane label="🚀 缓存系统" name="cache">
+        <el-tab-pane name="cache"><template #label><ZgGlyph emoji="🚀" /> 缓存系统</template>
           <template v-if="data.cache">
             <div class="row">
               <div class="glass info-panel">
-                <div class="ip-title">🔥 热点文件缓存</div>
+                <div class="ip-title"><ZgGlyph emoji="🔥" /> 热点文件缓存</div>
                 <div class="kv"><span class="k">缓存文件数</span><span class="v strong">{{ data.cache.hotFile.count }} / {{ data.cache.hotFile.maxCount }}</span></div>
                 <div class="kv"><span class="k">缓存总大小</span><span class="v strong">{{ data.cache.hotFile.totalSizeFmt }}</span></div>
                 <div class="kv"><span class="k">总命中次数</span><span class="v" style="color:#10b981;font-weight:700;">{{ data.cache.hotFile.totalHits }} 次</span></div>
               </div>
               <div class="glass info-panel">
-                <div class="ip-title">⚡ API 内存缓存</div>
+                <div class="ip-title"><ZgGlyph emoji="⚡" /> API 内存缓存</div>
                 <div class="kv"><span class="k">缓存条目数</span><span class="v strong">{{ data.cache.api.count }} / {{ data.cache.api.maxCount }}</span></div>
               </div>
               <div class="glass info-panel">
-                <div class="ip-title">🌐 边缘缓存</div>
+                <div class="ip-title"><ZgGlyph emoji="🌐" /> 边缘缓存</div>
                 <div class="kv"><span class="k">类型</span><span class="v strong">{{ data.cache.edgeCache }}</span></div>
                 <div class="kv"><span class="k">缓存策略</span><span class="v">已审核资源：边缘缓存 24h</span></div>
                 <div class="kv"><span class="k">热点策略</span><span class="v">Worker 内存缓存 30min</span></div>
               </div>
             </div>
             <div class="glass info-panel" style="margin-top:16px;">
-              <div class="ip-title">🛠️ 缓存管理</div>
+              <div class="ip-title"><ZgGlyph emoji="🛠️" /> 缓存管理</div>
               <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;">
-                <el-button type="warning" size="small" @click="optimizeAction('purge_cache')">🗑️ 清除文件缓存</el-button>
+                <el-button type="warning" size="small" @click="optimizeAction('purge_cache')"><ZgGlyph emoji="🗑️" /> 清除文件缓存</el-button>
                 <span style="font-size:12px;color:var(--zg-text-dim);line-height:32px;">清除后所有文件将从 Supabase 重新拉取并重建缓存</span>
               </div>
             </div>
@@ -557,7 +557,7 @@ onBeforeUnmount(() => {
         </el-tab-pane>
 
         <!-- ============ 存储优化 ============ -->
-        <el-tab-pane label="📦 存储优化" name="optimize">
+        <el-tab-pane name="optimize"><template #label><ZgGlyph emoji="📦" /> 存储优化</template>
           <div v-loading="storageLoading">
             <template v-if="storageData">
               <!-- 优化建议概览 -->
@@ -587,24 +587,24 @@ onBeforeUnmount(() => {
               <!-- 存储告警 -->
               <div v-if="storageData.alerts?.length" class="alert-banner" style="margin-top:16px;">
                 <div v-for="(a, i) of storageData.alerts" :key="i" :class="['alert-item', `alert-${a.level}`]">
-                  <span class="alert-icon">{{ a.level === 'danger' ? '🔴' : a.level === 'warning' ? '🟡' : '🔵' }}</span>
+                  <span class="alert-icon"><ZgGlyph v-if="a.level === 'danger'" emoji="🔴" /><ZgGlyph v-else-if="a.level === 'warning'" emoji="🟡" /><ZgGlyph v-else emoji="🔵" /></span>
                   <span class="alert-msg">{{ a.message }}</span>
                 </div>
               </div>
 
               <!-- 优化操作 -->
               <div class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title">🛠️ 快捷操作</div>
+                <div class="ip-title"><ZgGlyph emoji="🛠️" /> 快捷操作</div>
                 <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;">
-                  <el-button type="primary" size="small" @click="optimizeAction('list')">📊 刷新优化建议</el-button>
-                  <el-button type="danger" size="small" @click="optimizeAction('clean_orphaned')">🧹 清理孤立文件</el-button>
-                  <el-button type="warning" size="small" @click="optimizeAction('purge_cache')">🗑️ 清除文件缓存</el-button>
+                  <el-button type="primary" size="small" @click="optimizeAction('list')"><ZgGlyph emoji="📊" /> 刷新优化建议</el-button>
+                  <el-button type="danger" size="small" @click="optimizeAction('clean_orphaned')"><ZgGlyph emoji="🧹" /> 清理孤立文件</el-button>
+                  <el-button type="warning" size="small" @click="optimizeAction('purge_cache')"><ZgGlyph emoji="🗑️" /> 清除文件缓存</el-button>
                 </div>
               </div>
 
               <!-- 优化建议列表 -->
               <div class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title">📋 文件优化建议（按预计节省空间排序）</div>
+                <div class="ip-title"><ZgGlyph emoji="📋" /> 文件优化建议（按预计节省空间排序）</div>
                 <el-table v-if="storageData.suggestions?.length" :data="storageData.suggestions.slice(0, 20)" size="small" style="margin-top:10px;" max-height="400">
                   <el-table-column type="index" label="#" width="40" />
                   <el-table-column prop="fileName" label="文件名" min-width="180" show-overflow-tooltip />
@@ -628,12 +628,12 @@ onBeforeUnmount(() => {
                   </el-table-column>
                   <el-table-column prop="resourceTitle" label="关联资源" min-width="120" show-overflow-tooltip />
                 </el-table>
-                <div v-else class="empty-hint">暂无需优化的文件，所有文件体积均小于 500KB 🎉</div>
+                <div v-else class="empty-hint">暂无需优化的文件，所有文件体积均小于 500KB <ZgGlyph emoji="🎉" /></div>
               </div>
 
               <!-- 孤立文件 -->
               <div v-if="storageData.orphanedFiles?.length" class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title">⚠️ 孤立文件（未关联资源记录，占用 {{ formatBytes(storageData.orphanedFiles.reduce((s:number,f:any)=>s+f.size,0)) }}）</div>
+                <div class="ip-title"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联资源记录，占用 {{ formatBytes(storageData.orphanedFiles.reduce((s:number,f:any)=>s+f.size,0)) }}）</div>
                 <div class="top-list" style="max-height:200px;">
                   <div v-for="(f, i) of storageData.orphanedFiles.slice(0, 10)" :key="i" class="top-row">
                     <span class="top-rank">{{ i + 1 }}</span>
@@ -648,20 +648,20 @@ onBeforeUnmount(() => {
       </el-tabs>
 
       <!-- Cloudflare 平台状态 + 用户角色分布 -->
-      <div class="section-title">☁️ Cloudflare 平台状态</div>
+      <div class="section-title"><ZgGlyph emoji="☁️" /> Cloudflare 平台状态</div>
       <div class="row">
         <div class="glass info-panel">
-          <div class="ip-title">🌐 运行环境</div>
+          <div class="ip-title"><ZgGlyph emoji="🌐" /> 运行环境</div>
           <div class="kv"><span class="k">运行时</span><span class="v strong">{{ data.platform.runtime }}</span></div>
           <div class="kv"><span class="k">边缘节点</span><span class="v strong">{{ data.platform.colo }}</span></div>
           <div class="kv"><span class="k">访问地区</span><span class="v">{{ data.platform.country }}</span></div>
           <div class="kv"><span class="k">HTTP协议</span><span class="v">{{ data.platform.httpProtocol }}</span></div>
           <div class="kv"><span class="k">TLS加密</span><span class="v">{{ data.platform.tlsVersion }}</span></div>
-          <div class="kv"><span class="k">边缘部署</span><span class="v strong" style="color:#10b981;">✅ 是</span></div>
+          <div class="kv"><span class="k">边缘部署</span><span class="v strong" style="color:#10b981;"><ZgGlyph emoji="✅" /> 是</span></div>
         </div>
 
         <div class="glass info-panel">
-          <div class="ip-title">📊 套餐限制</div>
+          <div class="ip-title"><ZgGlyph emoji="📊" /> 套餐限制</div>
           <div class="kv"><span class="k">D1数据库区域</span><span class="v">{{ data.platform.d1Region }}</span></div>
           <div class="kv"><span class="k">D1容量上限</span><span class="v strong">{{ data.platform.d1SizeLimit }}</span></div>
           <div class="kv"><span class="k">Worker CPU</span><span class="v">{{ data.platform.workerCpuLimit }}</span></div>
@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="glass info-panel">
-          <div class="ip-title">👤 用户角色分布</div>
+          <div class="ip-title"><ZgGlyph emoji="👤" /> 用户角色分布</div>
           <div v-for="r of data.roleDist" :key="r.name" class="role-row">
             <span class="role-name">{{ r.name }}</span>
             <span class="role-bar">
@@ -683,7 +683,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 图表 -->
-      <div class="section-title">📈 趋势分析</div>
+      <div class="section-title"><ZgGlyph emoji="📈" /> 趋势分析</div>
       <div class="chart-row">
         <div class="chart-card glass">
           <div class="cc-title">最近 7 天活跃趋势</div>
@@ -699,7 +699,7 @@ onBeforeUnmount(() => {
     <!-- ===== 文件预览弹窗（超管删除前预览） ===== -->
     <el-dialog
       v-model="previewVisible"
-      title="📄 文件预览"
+      title="文件预览"
       width="80%"
       top="5vh"
       :close-on-click-modal="false"
@@ -721,14 +721,14 @@ onBeforeUnmount(() => {
         <!-- 不支持预览的文件类型 -->
         <div v-else class="preview-other">
           <div class="file-info-card">
-            <div class="file-info-icon">📎</div>
+            <div class="file-info-icon"><ZgGlyph emoji="📎" /></div>
             <div class="file-info-name">{{ previewFile?.name }}</div>
             <div class="file-info-size">{{ previewFile?.sizeFmt }}</div>
             <div v-if="previewFile?.hasResource" class="file-info-resource">
-              🔗 关联资源: {{ previewFile?.resourceTitle || '未命名' }}
+              <ZgGlyph emoji="🔗" /> 关联资源: {{ previewFile?.resourceTitle || '未命名' }}
               <span class="file-info-id">（ID: {{ previewFile?.resourceId }}）</span>
             </div>
-            <div v-else class="file-info-resource" style="color:#f59e0b;">⚠️ 孤立文件（未关联任何资源记录）</div>
+            <div v-else class="file-info-resource" style="color:#f59e0b;"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联任何资源记录）</div>
           </div>
           <div class="preview-tip">该文件类型不支持在线预览，可直接删除</div>
         </div>
@@ -751,7 +751,7 @@ onBeforeUnmount(() => {
               @click="confirmDeleteFile"
               :loading="deleteLoading"
             >
-              <span style="margin-right:4px;">🗑️</span> 删除文件
+              <span style="margin-right:4px;"><ZgGlyph emoji="🗑️" /></span> 删除文件
             </el-button>
           </div>
         </div>

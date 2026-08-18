@@ -129,7 +129,7 @@ watch(() => route.params.peerId, async (pid) => {
 
 <template>
   <div class="page zg-container msg-page">
-    <h1 class="zg-page-title">✉️ 站内信</h1>
+    <h1 class="zg-page-title"><ZgGlyph emoji="✉️" /> 站内信</h1>
 
     <div class="msg-layout">
       <!-- 左侧：会话列表 / 联系人 -->
@@ -187,12 +187,12 @@ watch(() => route.params.peerId, async (pid) => {
         <!-- 超管监督模式 -->
         <template v-else-if="user.isSuperAdmin">
           <div class="admin-bar">
-            <div class="ab-title">🔍 超管监督 · 查看任意两人对话</div>
+            <div class="ab-title"><ZgGlyph emoji="🔍" /> 超管监督 · 查看任意两人对话</div>
             <div class="ab-row">
               <el-select v-model="adminA" filterable placeholder="用户A" size="small" style="width:160px">
                 <el-option v-for="u in allUsers" :key="u.id" :label="u.real_name" :value="u.id" />
               </el-select>
-              <span>⇄</span>
+              <span><ZgGlyph emoji="⇄" /></span>
               <el-select v-model="adminB" filterable placeholder="用户B" size="small" style="width:160px">
                 <el-option v-for="u in allUsers" :key="u.id" :label="u.real_name" :value="u.id" />
               </el-select>

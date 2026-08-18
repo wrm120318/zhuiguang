@@ -125,7 +125,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); c1?.dispos
     <h1 class="dh-title"><span class="zg-grad-text">超级管理员控制台</span></h1>
     <div class="feat-grid">
       <div v-for="f in features" :key="f.name" class="feat-card glass zg-card" @click="f.to()">
-        <div class="fc-icon" :style="{ background: `linear-gradient(135deg, ${f.color}, ${f.color}cc)` }">{{ f.icon }}</div>
+        <div class="fc-icon" :style="{ background: `linear-gradient(135deg, ${f.color}, ${f.color}cc)` }"><ZgGlyph :emoji="f.icon" /></div>
         <div class="fc-body">
           <div class="fc-name">{{ f.name }}</div>
           <div class="fc-desc">{{ f.desc }}</div>
@@ -133,10 +133,10 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resize); c1?.dispos
         <span class="fc-arrow">›</span>
       </div>
     </div>
-    <div class="d-section-title">📊 数据概览</div>
+    <div class="d-section-title"><ZgGlyph emoji="📊" /> 数据概览</div>
     <div class="stat-grid">
       <div v-for="s in stats" :key="s.label" class="stat-card glass zg-card">
-        <div class="sc-icon" :style="{ background: s.color + '22', color: s.color }">{{ s.icon }}</div>
+        <div class="sc-icon" :style="{ background: s.color + '22', color: s.color }"><ZgGlyph :emoji="s.icon" /></div>
         <div><div class="sc-num">{{ s.value }}</div><div class="sc-label">{{ s.label }}</div></div>
       </div>
     </div>

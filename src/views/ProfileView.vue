@@ -97,30 +97,30 @@ onMounted(() => { expProgress.value = calcProgress() })
             <span class="ph-role">{{ user.current.role === 'SUPER_ADMIN' ? '超级管理员' : user.current.role === 'TEACHER' ? '教师' : '学生' }}</span>
           </div>
           <div class="ph-contact">
-            <span v-if="user.current.email">📧 {{ user.current.email }}</span>
-            <span v-if="user.current.phone">📱 {{ user.current.phone }}</span>
+            <span v-if="user.current.email"><ZgGlyph emoji="📧" /> {{ user.current.email }}</span>
+            <span v-if="user.current.phone"><ZgGlyph emoji="📱" /> {{ user.current.phone }}</span>
           </div>
           <div class="ph-exp-bar">
             <div class="ph-exp-fill" :style="{ width: calcProgress() + '%' }"></div>
           </div>
           <div class="ph-exp-text">{{ user.current.exp }} EXP · 距下一级 {{ expToNextLevel(user.current.exp) - user.current.exp }} EXP</div>
         </div>
-        <el-button text circle class="ph-edit" @click="editing = true">✏️</el-button>
+        <el-button text circle class="ph-edit" @click="editing = true"><ZgGlyph emoji="✏️" /></el-button>
       </div>
     </div>
 
     <!-- 数据概览 -->
     <div class="stat-grid">
       <div class="stat-card glass zg-card">
-        <div class="stat-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)">📝</div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)"><ZgGlyph emoji="📝" /></div>
         <div class="stat-info"><div class="stat-num">{{ myArticles.length }}</div><div class="stat-label">我的美文</div></div>
       </div>
       <div class="stat-card glass zg-card" @click="router.push('/favorites')">
-        <div class="stat-icon" style="background:linear-gradient(135deg,#FB923C,#EF4444)">⭐</div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,#FB923C,#EF4444)"><ZgGlyph emoji="⭐" /></div>
         <div class="stat-info"><div class="stat-num">收藏</div><div class="stat-label">查看收藏</div></div>
       </div>
       <div class="stat-card glass zg-card" @click="router.push('/leaderboard')">
-        <div class="stat-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)">🏆</div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)"><ZgGlyph emoji="🏆" /></div>
         <div class="stat-info"><div class="stat-num">排行</div><div class="stat-label">查看排名</div></div>
       </div>
     </div>
@@ -149,15 +149,15 @@ onMounted(() => { expProgress.value = calcProgress() })
       <div v-if="pendingStudentArticles.length" class="pending-list">
         <div v-for="a in pendingStudentArticles" :key="a.id" class="pending-item glass-strong zg-card">
           <div class="pi-head">
-            <div class="pi-badge">🧑‍🏫 代发教师：<b>{{ a.creator_name }}</b></div>
+            <div class="pi-badge"><ZgGlyph emoji="🧑‍" /><ZgGlyph emoji="🏫" /> 代发教师：<b>{{ a.creator_name }}</b></div>
             <span class="pi-time">{{ a.created_at?.slice(0, 16) }}</span>
           </div>
           <div class="pi-title" @click="router.push(`/article/${a.id}`)">{{ a.title }}</div>
           <div class="pi-foot">
-            <span class="pi-hint">📌 同意后该美文进入超管审核，通过后经验值将计入您的账号</span>
+            <span class="pi-hint"><ZgGlyph emoji="📌" /> 同意后该美文进入超管审核，通过后经验值将计入您的账号</span>
             <div class="pi-actions">
-              <el-button type="primary" @click="approveArticle(a)">✅ 同意发布</el-button>
-              <el-button type="danger" plain @click="rejectArticle(a)">❌ 拒绝</el-button>
+              <el-button type="primary" @click="approveArticle(a)"><ZgGlyph emoji="✅" /> 同意发布</el-button>
+              <el-button type="danger" plain @click="rejectArticle(a)"><ZgGlyph emoji="❌" /> 拒绝</el-button>
               <el-button text @click="router.push(`/article/${a.id}`)">查看全文</el-button>
             </div>
           </div>
@@ -174,7 +174,7 @@ onMounted(() => { expProgress.value = calcProgress() })
           <div class="ma-title">{{ a.title }}</div>
           <div class="ma-meta">
             <span :class="['ma-status', a.status]">{{ a.status === 'approved' ? '已通过' : a.status === 'pending' ? '待超管审核' : a.status === 'pending_student' ? '待作者确认' : a.status === 'rejected_student' ? '作者已拒绝' : '已驳回' }}</span>
-            <span>❤ {{ a.likes || 0 }}</span>
+            <span><ZgGlyph emoji="❤" /> {{ a.likes || 0 }}</span>
             <span>{{ a.created_at?.slice(0, 10) }}</span>
           </div>
         </div>
@@ -189,8 +189,8 @@ onMounted(() => { expProgress.value = calcProgress() })
           <div class="ma-title">{{ r.title }}</div>
           <div class="ma-meta">
             <span :class="['ma-status', r.status]">{{ r.status === 'approved' ? '已通过' : r.status === 'pending' ? '待审核' : '已驳回' }}</span>
-            <span>⬇ {{ r.downloads || 0 }}</span>
-            <span>❤ {{ r.likes || 0 }}</span>
+            <span><ZgGlyph emoji="⬇" /> {{ r.downloads || 0 }}</span>
+            <span><ZgGlyph emoji="❤" /> {{ r.likes || 0 }}</span>
             <span>{{ r.created_at?.slice(0, 10) }}</span>
           </div>
         </div>

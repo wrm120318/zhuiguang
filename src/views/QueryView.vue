@@ -117,10 +117,10 @@ async function downloadTaskExcel() {
 
 <template>
   <div class="page zg-container" v-if="task">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
 
     <div class="q-hero glass-strong">
-      <div class="qh-subj" :style="{ color: subject()?.color }">{{ subject()?.icon }} {{ subject()?.name }}</div>
+      <div class="qh-subj" :style="{ color: subject()?.color }"><ZgGlyph :emoji="subject()?.icon" /> {{ subject()?.name }}</div>
       <h1 class="qh-title">{{ task.title }}</h1>
       <div class="qh-meta">
         <span>发布人：{{ task.creator_name }}</span>
@@ -131,20 +131,20 @@ async function downloadTaskExcel() {
       </div>
       <p class="qh-note">{{ task.note }}</p>
       <div class="qh-flags">
-        <span class="flag">🔒 行级隐私过滤</span>
-        <span class="flag" v-if="task.show_comment">💬 显示评语</span>
-        <span class="flag" v-else>🚫 隐藏评语</span>
-        <span class="flag" v-if="!task.allow_export">🚫 禁止导出</span>
+        <span class="flag"><ZgGlyph emoji="🔒" /> 行级隐私过滤</span>
+        <span class="flag" v-if="task.show_comment"><ZgGlyph emoji="💬" /> 显示评语</span>
+        <span class="flag" v-else><ZgGlyph emoji="🚫" /> 隐藏评语</span>
+        <span class="flag" v-if="!task.allow_export"><ZgGlyph emoji="🚫" /> 禁止导出</span>
       </div>
       <div class="qh-actions" v-if="canEdit">
-        <el-button size="small" @click="openEdit">✏️ 编辑任务</el-button>
-        <el-button size="small" type="success" plain :loading="downloading" @click="downloadTaskExcel">📥 导出全部数据</el-button>
+        <el-button size="small" @click="openEdit"><ZgGlyph emoji="✏️" /> 编辑任务</el-button>
+        <el-button size="small" type="success" plain :loading="downloading" @click="downloadTaskExcel"><ZgGlyph emoji="📥" /> 导出全部数据</el-button>
       </div>
     </div>
 
     <!-- 隐私说明 -->
     <div class="privacy glass">
-      <div class="prv-icon">🛡️</div>
+      <div class="prv-icon"><ZgGlyph emoji="🛡️" /></div>
       <div class="prv-text">
         <div class="prv-title">数据查询隐私保护</div>
         <div class="prv-desc">系统将严格依据您当前登录身份（<b>{{ user.current?.realName }}</b>）与查询任务中的「{{ task.match_field }}」字段进行匹配，仅返回 <b>标题行</b> 与 <b>您本人对应的数据行</b>，无法查看其他同学数据。后端行级过滤，前端不接收他人数据。</div>
@@ -153,7 +153,7 @@ async function downloadTaskExcel() {
 
     <!-- 查询入口 -->
     <div class="query-action" v-if="!queried">
-      <el-button type="primary" size="large" round :loading="querying" @click="doQuery">🔐 点击查询我的数据</el-button>
+      <el-button type="primary" size="large" round :loading="querying" @click="doQuery"><ZgGlyph emoji="🔐" /> 点击查询我的数据</el-button>
       <span class="qa-hint">将以「{{ user.current?.realName }}」身份匹配</span>
     </div>
 
@@ -161,7 +161,7 @@ async function downloadTaskExcel() {
     <div v-else class="result-wrap">
       <div class="result-head">
         <div class="section-title">我的查询结果</div>
-        <el-button v-if="task.allow_export && myRows.length" text size="small" @click="exportData">📥 导出</el-button>
+        <el-button v-if="task.allow_export && myRows.length" text size="small" @click="exportData"><ZgGlyph emoji="📥" /> 导出</el-button>
       </div>
 
       <div v-if="myRows.length" class="result-table glass">
@@ -179,7 +179,7 @@ async function downloadTaskExcel() {
       <el-empty v-else description="未查询到您的数据" />
 
       <div class="history" v-if="myRows.length > 1">
-        <div class="hist-title">📊 历史记录</div>
+        <div class="hist-title"><ZgGlyph emoji="📊" /> 历史记录</div>
         <div class="hist-tip">检测到您有 {{ myRows.length }} 条记录（如同一人多次测试），已全部展示于上方表格。</div>
       </div>
     </div>

@@ -142,7 +142,7 @@ async function deleteTask(t: any) {
 
 <template>
   <div>
-    <h1 class="dh-title">📈 数据查询任务</h1>
+    <h1 class="dh-title"><ZgGlyph emoji="📈" /> 数据查询任务</h1>
     <p class="tip">教师上传 Excel 成绩数据，学生仅可查询本人对应行（行级隐私过滤）。</p>
 
     <div class="steps glass">
@@ -184,15 +184,15 @@ async function deleteTask(t: any) {
           </el-form-item>
           <el-form-item label="数据文件">
             <div class="file-row">
-              <el-button @click="downloadTemplate">📥 下载模板</el-button>
+              <el-button @click="downloadTemplate"><ZgGlyph emoji="📥" /> 下载模板</el-button>
               <el-upload
                 :http-request="handleExcelUpload"
                 :show-file-list="false"
                 accept=".xlsx,.xls"
               >
-                <el-button type="primary" :loading="excelUploading">📤 上传 Excel</el-button>
+                <el-button type="primary" :loading="excelUploading"><ZgGlyph emoji="📤" /> 上传 Excel</el-button>
               </el-upload>
-              <span v-if="fileName" class="file-name">✅ {{ fileName }}</span>
+              <span v-if="fileName" class="file-name"><ZgGlyph emoji="✅" /> {{ fileName }}</span>
             </div>
           </el-form-item>
         </el-form>
@@ -203,7 +203,7 @@ async function deleteTask(t: any) {
         <div class="pp-title">解析预览 <span v-if="headers.length" class="pp-count">{{ rows.length }} 行 · {{ headers.length }} 列</span></div>
         <div v-if="headers.length" class="preview-table">
           <table>
-            <thead><tr><th v-for="h in headers" :key="h" :class="{ match: h === form.matchField }">{{ h }}{{ h === form.matchField ? ' 🔑' : '' }}</th></tr></thead>
+            <thead><tr><th v-for="h in headers" :key="h" :class="{ match: h === form.matchField }">{{ h }}<ZgGlyph v-if="h === form.matchField" emoji="🔑" /></th></tr></thead>
             <tbody>
               <tr v-for="(r, i) in rows.slice(0, 6)" :key="i"><td v-for="h in headers" :key="h">{{ r[h] }}</td></tr>
             </tbody>
@@ -223,7 +223,7 @@ async function deleteTask(t: any) {
             <div class="ex-meta">{{ data.subjectById(t.subject_id)?.name }} · {{ data.classById(t.class_id)?.name }} · 创建人：{{ t.creator_name }} · {{ t.created_at }}</div>
           </div>
           <div class="ex-actions">
-            <el-button size="small" type="primary" plain @click.stop="downloadTaskExcel(t)">📥 下载Excel</el-button>
+            <el-button size="small" type="primary" plain @click.stop="downloadTaskExcel(t)"><ZgGlyph emoji="📥" /> 下载Excel</el-button>
             <el-button v-if="user.isSuperAdmin || t.creator_id===user.current?.id" size="small" type="danger" plain @click.stop="deleteTask(t)">删除</el-button>
           </div>
         </div>

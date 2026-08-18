@@ -31,7 +31,7 @@ function excerpt(md: string) {
 <template>
   <div class="page zg-container">
     <div class="head">
-      <h1 class="zg-page-title">✍️ 网站博客</h1>
+      <h1 class="zg-page-title"><ZgGlyph emoji="✍️" /> 网站博客</h1>
       <div class="head-actions">
         <el-radio-group v-model="myOnly" size="small" @change="load">
           <el-radio-button :value="false">全部</el-radio-button>
@@ -44,14 +44,14 @@ function excerpt(md: string) {
     <div v-loading="loading" class="grid">
       <div v-for="b in filtered" :key="b.id" class="blog-card glass zg-card" @click="router.push(`/blog/${b.id}`)">
         <div v-if="b.cover" class="bc-cover" :style="{ backgroundImage: `url(${b.cover})` }"></div>
-        <div v-else class="bc-cover bc-placeholder">✍️</div>
+        <div v-else class="bc-cover bc-placeholder"><ZgGlyph emoji="✍️" /></div>
         <div class="bc-body">
           <div class="bc-title">{{ b.title }}</div>
           <div class="bc-excerpt">{{ excerpt(b.content) }}</div>
           <div class="bc-meta">
-            <span>👤 {{ b.author_name }}</span>
-            <span>👁 {{ b.views }}</span>
-            <span>📅 {{ b.created_at?.slice(5, 10) }}</span>
+            <span><ZgGlyph emoji="👤" /> {{ b.author_name }}</span>
+            <span><ZgGlyph emoji="👁" /> {{ b.views }}</span>
+            <span><ZgGlyph emoji="📅" /> {{ b.created_at?.slice(5, 10) }}</span>
           </div>
         </div>
       </div>

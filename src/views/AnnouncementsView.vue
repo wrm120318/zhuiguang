@@ -68,7 +68,7 @@ async function deleteAnn(a: any, e: Event) {
 <template>
   <div class="page zg-container">
     <div class="head">
-      <h1 class="zg-page-title">📢 网站公告</h1>
+      <h1 class="zg-page-title"><ZgGlyph emoji="📢" /> 网站公告</h1>
       <div class="head-actions">
         <el-radio-group v-model="filter" size="small">
           <el-radio-button value="all">全部</el-radio-button>
@@ -83,7 +83,7 @@ async function deleteAnn(a: any, e: Event) {
       <div v-for="a in filtered" :key="a.id" class="ann-card glass zg-card" :class="{ pinned: a.pinned }" @click="router.push(`/announcements/${a.id}`)">
         <div class="ac-head">
           <div class="ac-tags">
-            <span v-if="a.pinned" class="pin-tag">📌 置顶</span>
+            <span v-if="a.pinned" class="pin-tag"><ZgGlyph emoji="📌" /> 置顶</span>
             <el-tag :type="scopeType(a)" size="small">{{ scopeLabel(a) }}</el-tag>
           </div>
           <div class="ac-actions" v-if="user.isSuperAdmin" @click.stop>
@@ -97,8 +97,8 @@ async function deleteAnn(a: any, e: Event) {
         <div class="ac-title">{{ a.title }}</div>
         <div class="ac-excerpt">{{ excerpt(a.content) }}</div>
         <div class="ac-meta">
-          <span>👤 {{ a.author_name }}</span>
-          <span>👁 {{ a.views }}</span>
+          <span><ZgGlyph emoji="👤" /> {{ a.author_name }}</span>
+          <span><ZgGlyph emoji="👁" /> {{ a.views }}</span>
         </div>
       </div>
       <el-empty v-if="!loading && !filtered.length" description="暂无公告" />

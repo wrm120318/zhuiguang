@@ -56,7 +56,7 @@ async function turnAllOn() {
   <div v-loading="loading">
     <div class="head">
       <div>
-        <h1 class="dh-title">🧩 功能开关总控</h1>
+        <h1 class="dh-title"><ZgGlyph emoji="🧩" /> 功能开关总控</h1>
         <p class="dh-sub">一键控制网站所有功能的开启 / 关闭，关闭后对应入口对全体用户隐藏。</p>
       </div>
       <div class="head-actions">
@@ -66,11 +66,11 @@ async function turnAllOn() {
     </div>
 
     <div class="glass flag-page">
-      <div class="tip">💡 关闭某功能后，导航栏与相关页面入口会立即隐藏，但已存在的数据仍保留。</div>
+      <div class="tip"><ZgGlyph emoji="💡" /> 关闭某功能后，导航栏与相关页面入口会立即隐藏，但已存在的数据仍保留。</div>
 
       <div class="flag-grid">
         <div v-for="f in ALL_FLAGS" :key="f.key" class="flag-card" :class="{ off: !local[f.key] }">
-          <div class="fc-icon">{{ f.icon }}</div>
+          <div class="fc-icon"><ZgGlyph :emoji="f.icon" /></div>
           <div class="fc-body">
             <div class="fc-label">{{ f.label }}</div>
             <div class="fc-desc">{{ f.desc }}</div>

@@ -82,14 +82,14 @@ async function submit() {
 
 <template>
   <div class="page zg-container">
-    <div class="back" @click="router.back()">← 返回</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="glass-strong editor">
-      <h1 class="ep-title">✍️ 写博客</h1>
+      <h1 class="ep-title"><ZgGlyph emoji="✍️" /> 写博客</h1>
       <el-input v-model="form.title" placeholder="博客标题" size="large" style="margin-bottom:12px" />
 
       <div class="cover-row">
         <el-upload :http-request="onUploadCover" :show-file-list="false" accept="image/*">
-          <el-button size="small">📷 设置封面图</el-button>
+          <el-button size="small"><ZgGlyph emoji="📷" /> 设置封面图</el-button>
         </el-upload>
         <div v-if="form.cover" class="cover-preview" :style="{ backgroundImage: `url(${form.cover})` }"></div>
         <el-button v-if="form.cover" text type="danger" size="small" @click="form.cover = ''">移除封面</el-button>
@@ -104,18 +104,18 @@ async function submit() {
         <button @click="insertTag(TAGS.code)">代码</button>
         <button @click="insertTag(TAGS.link)">链接</button>
         <el-upload :http-request="onUploadImage" :show-file-list="false" accept="image/*" class="tb-upload">
-          <button>🖼 插入图片</button>
+          <button><ZgGlyph emoji="🖼" /> 插入图片</button>
         </el-upload>
         <el-upload :http-request="onUploadFile" :show-file-list="false" multiple class="tb-upload">
-          <button>📎 添加附件</button>
+          <button><ZgGlyph emoji="📎" /> 添加附件</button>
         </el-upload>
       </div>
       <el-input v-model="form.content" type="textarea" :rows="18" placeholder="支持 Markdown 语法：## 标题、**加粗**、- 列表、> 引用、![图片](url)、[链接](url)，也可上传图片和附件" />
 
       <div v-if="attachments.length" class="att-list">
-        <div class="att-title">📎 附件（{{ attachments.length }}）</div>
+        <div class="att-title"><ZgGlyph emoji="📎" /> 附件（{{ attachments.length }}）</div>
         <div v-for="(a, i) in attachments" :key="i" class="att-item">
-          <span>📄 {{ a.name }} ({{ fmtSize(a.size) }})</span>
+          <span><ZgGlyph emoji="📄" /> {{ a.name }} ({{ fmtSize(a.size) }})</span>
           <el-button text type="danger" size="small" @click="removeAttach(i)">移除</el-button>
         </div>
       </div>

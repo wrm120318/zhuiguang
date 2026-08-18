@@ -63,8 +63,8 @@ onMounted(() => load(1))
 
 <template>
   <div class="page zg-container" v-loading="loading">
-    <div class="back" @click="router.back()">← 返回</div>
-    <div class="dh-title">📝 我的单题训练记录</div>
+    <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
+    <div class="dh-title"><ZgGlyph emoji="📝" /> 我的单题训练记录</div>
 
     <div v-if="!records.length && !loading" class="empty-hint">
       <el-empty description="暂无训练记录，去学科站开始训练吧！" />
@@ -74,7 +74,7 @@ onMounted(() => load(1))
     <div class="records-list">
       <div v-for="rec in records" :key="rec.id" class="record-card glass">
         <div class="rc-head">
-          <span class="rc-subj">{{ rec.subject_icon || '📚' }} {{ rec.subject_name }}</span>
+          <span class="rc-subj"><ZgGlyph :emoji="rec.subject_icon || '📚'" /> {{ rec.subject_name }}</span>
           <el-tag size="small" type="info">{{ qTypeLabel(rec.qtype) }}</el-tag>
           <el-tag size="small" :type="statusTag(rec.status)?.type">{{ statusTag(rec.status)?.label }}</el-tag>
           <span class="rc-score" v-if="rec.status === 'graded'">得分：{{ rec.score }} / {{ rec.max_score }}</span>
@@ -85,14 +85,14 @@ onMounted(() => load(1))
 
         <!-- 附件 -->
         <div v-if="rec.qattachments?.length" class="rc-atts">
-          <a v-for="(a, i) in rec.qattachments" :key="i" :href="a.url" target="_blank" class="att-link">📎 {{ a.name }}</a>
+          <a v-for="(a, i) in rec.qattachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
         </div>
 
         <div class="rc-foot">
-          <span class="rc-time">🕐 {{ fmtTime(rec.submitted_at) }}</span>
+          <span class="rc-time"><ZgGlyph emoji="🕐" /> {{ fmtTime(rec.submitted_at) }}</span>
           <template v-if="rec.status === 'graded'">
-            <span class="rc-time" v-if="rec.graded_at">✅ {{ fmtTime(rec.graded_at) }}</span>
-            <span class="rc-comment" v-if="rec.comment">📝 教师评语：{{ rec.comment }}</span>
+            <span class="rc-time" v-if="rec.graded_at"><ZgGlyph emoji="✅" /> {{ fmtTime(rec.graded_at) }}</span>
+            <span class="rc-comment" v-if="rec.comment"><ZgGlyph emoji="📝" /> 教师评语：{{ rec.comment }}</span>
           </template>
           <div class="rc-actions">
             <el-button text size="small" type="primary" @click="router.push(`/practice/${rec.question_id}`)">查看详情</el-button>

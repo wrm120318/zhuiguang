@@ -4,7 +4,7 @@ import { useThemeStore } from '@/store/theme'
 import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
-const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', name: '我的主题', isActive: false, id: null })
+const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', inkgoldTone: 'light', name: '我的主题', isActive: false, id: null })
 
 onMounted(() => {
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
@@ -21,7 +21,7 @@ function pickTheme(id: number) {
 }
 
 async function publish() {
-  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, designMode: d.designMode }, isActive: true })
+  await theme.saveDraft({ id: d.id, name: d.name, config: { primary: d.primary, primary2: d.primary2, accent: d.accent, bgFrom: d.bgFrom, bgVia: d.bgVia, bgTo: d.bgTo, blur: d.blur, radius: d.radius, designMode: d.designMode, inkgoldTone: d.inkgoldTone }, isActive: true })
   ElMessage.success('主题已发布，全站即时生效')
 }
 function reset() {
@@ -33,7 +33,7 @@ function reset() {
 
 <template>
   <div class="theme-page">
-    <h1 class="dh-title">🎨 界面风格编辑器</h1>
+    <h1 class="dh-title"><ZgGlyph emoji="🎨" /> 界面风格编辑器</h1>
     <p class="tip">实时调整全局配色、毛玻璃强度、圆角，发布后全站生效。</p>
 
     <div class="theme-row">
@@ -60,6 +60,14 @@ function reset() {
             <el-radio-button label="inkgold">墨金学术</el-radio-button>
           </el-radio-group>
           <p class="tip" style="margin-top:8px">墨金学术 = 胶囊导航 + 沉稳金 + 液态玻璃 + 衬线标题 + 手机化过渡；经典 = 当前外观，切回后完全一致。</p>
+          <div v-if="d.designMode === 'inkgold'" style="margin-top:18px">
+            <div class="ep-label">墨金深浅（发布后全站生效）</div>
+            <el-radio-group v-model="d.inkgoldTone">
+              <el-radio-button label="light">浅色 · 暖米白</el-radio-button>
+              <el-radio-button label="dark">深色 · 温润暖黑</el-radio-button>
+            </el-radio-group>
+            <p class="tip" style="margin-top:8px">浅色为默认学术风（暖米白 + 沉稳金，1.0–2.0 原貌）；深色为温润暖黑。两者均去表情 emoji、改用金色 SVG 图标。</p>
+          </div>
         </div>
 
         <div class="ep-section">
@@ -118,19 +126,19 @@ function reset() {
         <div class="pp-label">实时预览</div>
         <div class="pp-demo glass-strong">
           <div class="pp-nav glass">
-            <span class="pp-logo">🌟 追光</span>
+            <span class="pp-logo"><ZgGlyph emoji="🌟" /> 追光</span>
             <span class="pp-link on">首页</span>
             <span class="pp-link">学科</span>
             <el-button size="small" type="primary" round>主按钮</el-button>
           </div>
           <div class="pp-cards">
             <div class="pp-card glass zg-card">
-              <div class="pp-card-icon" :style="{ background: `linear-gradient(135deg, ${d.primary}, ${d.accent})` }">📖</div>
+              <div class="pp-card-icon" :style="{ background: `linear-gradient(135deg, ${d.primary}, ${d.accent})` }"><ZgGlyph emoji="📖" /></div>
               <div class="pp-card-title">语文</div>
               <div class="pp-card-desc">诗书礼乐，美文共赏</div>
             </div>
             <div class="pp-card glass zg-card">
-              <div class="pp-card-icon" :style="{ background: `linear-gradient(135deg, ${d.primary2}, ${d.accent})` }">📐</div>
+              <div class="pp-card-icon" :style="{ background: `linear-gradient(135deg, ${d.primary2}, ${d.accent})` }"><ZgGlyph emoji="📐" /></div>
               <div class="pp-card-title">数学</div>
               <div class="pp-card-desc">逻辑与抽象之美</div>
             </div>

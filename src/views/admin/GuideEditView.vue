@@ -42,7 +42,7 @@ function insertTag(tag: string) {
 <template>
   <div v-loading="loading">
     <div class="head">
-      <h1 class="dh-title">📖 网站说明编辑</h1>
+      <h1 class="dh-title"><ZgGlyph emoji="📖" /> 网站说明编辑</h1>
       <el-button type="primary" :loading="submitting" @click="save">保存</el-button>
     </div>
     <div class="glass edit-page">

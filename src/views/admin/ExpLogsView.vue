@@ -197,11 +197,11 @@ onMounted(load)
   <div v-loading="loading">
     <div class="head">
       <div>
-        <h1 class="dh-title">📋 经验记录</h1>
+        <h1 class="dh-title"><ZgGlyph emoji="📋" /> 经验记录</h1>
         <p class="dh-sub">查看全部用户的经验值变动明细，共 {{ total }} 条记录。</p>
       </div>
       <div class="head-actions">
-        <el-button @click="router.push({ name: 'admin-dashboard' })">← 返回</el-button>
+        <el-button @click="router.push({ name: 'admin-dashboard' })"><ZgGlyph emoji="←" /> 返回</el-button>
         <el-button type="primary" @click="load">刷新</el-button>
       </div>
     </div>
@@ -213,7 +213,7 @@ onMounted(load)
         clearable
         class="fb-search"
       >
-        <template #prefix><span>🔍</span></template>
+        <template #prefix><span><ZgGlyph emoji="🔍" /></span></template>
       </el-input>
       <el-select v-model="actionFilter" placeholder="行为类型" clearable class="fb-action">
         <el-option
