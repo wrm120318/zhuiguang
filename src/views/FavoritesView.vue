@@ -55,12 +55,16 @@ async function removeFav(type: string, id: number) {
     <div v-if="articles.length" class="fav-section">
       <div class="section-title"><ZgGlyph emoji="✍️" /> 美文 ({{ articles.length }})</div>
       <div class="fav-grid">
-        <div v-for="a in articles" :key="a.id" class="fav-card glass zg-card">
-          <div class="fc-body" @click="router.push(`/article/${a.id}`)">
-            <div class="fc-title">{{ a.title }}</div>
-            <div class="fc-meta">{{ a.author }} · {{ a.created_at?.slice(0,10) }}</div>
+        <div v-for="a in articles" :key="a.id" class="fav-card glass zg-card zg-swipe-card" v-swipe-action>
+          <div class="zg-swipe-actions">
+            <button class="zg-swipe-btn danger" @click="removeFav('article', a.id)">取消收藏</button>
           </div>
-          <el-button text size="small" @click="removeFav('article', a.id)"><ZgGlyph emoji="✕" /></el-button>
+          <div class="zg-swipe-front" @click="router.push(`/article/${a.id}`)">
+            <div class="fc-body">
+              <div class="fc-title">{{ a.title }}</div>
+              <div class="fc-meta">{{ a.author }} · {{ a.created_at?.slice(0,10) }}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -68,12 +72,16 @@ async function removeFav(type: string, id: number) {
     <div v-if="resources.length" class="fav-section">
       <div class="section-title"><ZgGlyph emoji="📦" /> 资料 ({{ resources.length }})</div>
       <div class="fav-grid">
-        <div v-for="r in resources" :key="r.id" class="fav-card glass zg-card">
-          <div class="fc-body" @click="router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
-            <div class="fc-title">{{ r.title }}</div>
-            <div class="fc-meta">{{ r.category }} · <ZgGlyph emoji="⬇" /> {{ r.downloads }}</div>
+        <div v-for="r in resources" :key="r.id" class="fav-card glass zg-card zg-swipe-card" v-swipe-action>
+          <div class="zg-swipe-actions">
+            <button class="zg-swipe-btn danger" @click="removeFav('resource', r.id)">取消收藏</button>
           </div>
-          <el-button text size="small" @click="removeFav('resource', r.id)"><ZgGlyph emoji="✕" /></el-button>
+          <div class="zg-swipe-front" @click="router.push(`/subject/${data.subjectById(r.subject_id)?.slug}`)">
+            <div class="fc-body">
+              <div class="fc-title">{{ r.title }}</div>
+              <div class="fc-meta">{{ r.category }} · <ZgGlyph emoji="⬇" /> {{ r.downloads }}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

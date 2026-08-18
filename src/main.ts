@@ -37,4 +37,8 @@ app.component('ZgSparkline', ZgSparkline)
 import { swipeClose } from './directives/swipeClose'
 app.directive('swipe-close', swipeClose)
 
+// 全局注册 B7 卡片左滑操作指令（移动端露出编辑/删除）
+import { vSwipeAction } from './directives/swipeAction'
+app.directive('swipe-action', vSwipeAction)
+
 app.mount('#app')

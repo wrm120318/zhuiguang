@@ -1166,3 +1166,64 @@ html.zg-inkgold-dark {
 }
 .zg-inkgold .el-empty__description, .zg-inkgold-dark .el-empty__description { color: var(--zg-text-dim) !important; font-size: var(--zg-fs-sm); }
 
+/* ===== B7 表单体验增强（仅墨金作用域） ===== */
+
+/* B7 帮助气泡：表单标签旁的 ? 提示 */
+.zg-inkgold .zg-help, .zg-inkgold-dark .zg-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-left: 6px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; cursor: help; color: #BA7517;
+  background: rgba(186, 117, 23, .12); border: 1px solid rgba(186, 117, 23, .3);
+  vertical-align: middle; user-select: none;
+}
+.zg-inkgold-dark .zg-help { color: #D4AF37; background: rgba(212, 175, 55, .12); border-color: rgba(212, 175, 55, .3); }
+
+/* B7 浮动标签：聚焦时表单标签上浮变金 + 占位符淡出（仅墨金） */
+.zg-inkgold .el-form-item:focus-within .el-form-item__label,
+.zg-inkgold-dark .el-form-item:focus-within .el-form-item__label {
+  color: var(--zg-primary);
+  transform: translateY(-1px);
+  transition: color .2s ease, transform .2s ease;
+}
+.zg-inkgold .el-input__inner::placeholder,
+.zg-inkgold-dark .el-input__inner::placeholder {
+  transition: opacity .2s ease, transform .2s ease;
+}
+.zg-inkgold .el-form-item:focus-within .el-input__inner::placeholder,
+.zg-inkgold-dark .el-form-item:focus-within .el-input__inner::placeholder {
+  opacity: .55;
+}
+
+/* B7 自动保存草稿提示条 */
+.zg-inkgold .zg-autosave, .zg-inkgold-dark .zg-autosave {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--zg-text-dim); margin-left: 10px;
+}
+.zg-inkgold .zg-autosave .dot, .zg-inkgold-dark .zg-autosave .dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #3fa66a;
+  box-shadow: 0 0 0 3px rgba(63, 166, 106, .18);
+}
+
+/* B7 卡片左滑操作容器（移动端） */
+.zg-swipe-card { position: relative; overflow: hidden; }
+.zg-swipe-front {
+  position: relative; z-index: 2; min-width: 0;
+  transition: transform .26s cubic-bezier(.2, .8, .2, 1);
+  will-change: transform;
+}
+.zg-swipe-actions {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 1;
+  display: flex; align-items: stretch;
+}
+.zg-swipe-actions .zg-swipe-btn {
+  border: none; color: #fff; font-size: 13px; font-weight: 600;
+  min-width: 64px; padding: 0 18px; cursor: pointer;
+  background: linear-gradient(135deg, #D4AF37, #BA7517);
+}
+.zg-swipe-actions .zg-swipe-btn.danger { background: linear-gradient(135deg, #ef6c5a, #d9432f); }
+/* 桌面端（hover 设备）：悬停即露出操作，保证鼠标可用 */
+@media (hover: hover) {
+  .zg-swipe-card:hover .zg-swipe-front { transform: translateX(-64px); }
+  .zg-swipe-card:hover .zg-swipe-actions { z-index: 3; }
+}
+

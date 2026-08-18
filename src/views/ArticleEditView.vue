@@ -5,6 +5,7 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useAutoSave } from '@/composables/useAutoSave'
 
 const router = useRouter()
 const data = useDataStore()
@@ -22,6 +23,8 @@ const editorRef = ref<HTMLElement | null>(null)
 const images = ref<string[]>([])
 const cover = ref('')
 const submitting = ref(false)
+// B7 自动保存草稿：正文快照（contenteditable 非响应式，单独同步）
+const content = ref('')
 
 // 需求3：教师代发美文 — 选择实际作者学生（可搜索）
 const allStudents = ref<any[]>([])
@@ -43,6 +46,26 @@ const filteredStudents = computed(() => {
 const subjectOptions = computed(() => data.subjects.filter(s => s.modules?.articles))
 const subjectId = ref(1)
 
+// B7 自动保存草稿：监听表单/正文变化，防抖写入 localStorage；进入页恢复、发布后清除
+const { hasDraft: draftSaved, restoreDraft: restoreDraftFn, clear: clearDraft } = useAutoSave({
+  key: 'zg_draft_article_new',
+  sources: [form, subjectId, cover, images, content],
+  snapshot: () => ({
+    form: form.value,
+    subjectId: subjectId.value,
+    cover: cover.value,
+    images: images.value,
+    content: content.value,
+  }),
+  restore: (d: any) => {
+    if (d.form) Object.assign(form.value, d.form)
+    if (typeof d.subjectId === 'number') subjectId.value = d.subjectId
+    if (typeof d.cover === 'string') cover.value = d.cover
+    if (Array.isArray(d.images)) images.value = d.images
+    if (typeof d.content === 'string' && editorRef.value) editorRef.value.innerHTML = d.content
+  },
+})
+
 onMounted(async () => {
   if (!data.subjects.length) await data.fetchSubjects()
   if (subjectOptions.value.length && !subjectOptions.value.find(s => s.id === subjectId.value)) {
@@ -55,6 +78,8 @@ onMounted(async () => {
       allStudents.value = r.data || r
     } catch {}
   }
+  // B7 自动保存草稿：进入页面时恢复上次未发布的草稿
+  if (restoreDraftFn()) ElMessage.info('已恢复上次未发布的草稿')
 })
 
 function exec(cmd: string, val?: string) {
@@ -128,6 +153,7 @@ async function submit() {
     } else {
       ElMessage.success('提交成功，待超级管理员审核通过后将公开')
     }
+    clearDraft() // B7 发布成功后清除草稿
     router.push(`/subject/${data.subjectById(subjectId.value)?.slug}`)
   } catch { /* http 拦截器已提示 */ } finally { submitting.value = false }
 }
@@ -138,7 +164,9 @@ async function submit() {
     <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="editor-page glass-strong">
       <h1 class="ep-title"><ZgGlyph emoji="✍️" /> 发布美文</h1>
-      <p class="ep-tip">选择对应学科，提交后进入待审核，由学科教师或管理员审核通过后公开展示。</p>
+      <p class="ep-tip">选择对应学科，提交后进入待审核，由学科教师或管理员审核通过后公开展示。
+        <span class="zg-autosave" v-if="draftSaved"><span class="dot"></span>草稿已自动保存</span>
+      </p>
 
       <div class="ep-row">
         <el-select v-model="subjectId" placeholder="选择学科" style="width:160px">
@@ -200,7 +228,7 @@ async function submit() {
           <button><ZgGlyph emoji="🖼️" /> 插入图片</button>
         </el-upload>
       </div>
-      <div ref="editorRef" class="editor" contenteditable="true"></div>
+      <div ref="editorRef" class="editor" contenteditable="true" @input="content = ($event.target as HTMLElement).innerHTML"></div>
 
       <div class="ep-foot">
         <el-button @click="router.back()">取消</el-button>

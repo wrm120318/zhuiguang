@@ -2,11 +2,15 @@
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ZgStepper from '@/components/ZgStepper.vue'
 
 const subjects = ref<any[]>([])
 const loading = ref(false)
 const editVisible = ref(false)
 const editForm = ref<any>({})
+// B7 多步步骤指示器：基本信息 → 模块配置 → 确认发布
+const step = ref(0)
+const steps = ['基本信息', '模块配置', '确认发布']
 
 async function load() {
   loading.value = true
@@ -23,6 +27,7 @@ function openCreate() {
     modules: { announcement: true, resources: true, articles: true, query: false, quiz: false, leaderboard: true },
     announcement: '',
   }
+  step.value = 0
   editVisible.value = true
 }
 
@@ -34,8 +39,18 @@ function openEdit(s: any) {
     modules: s.modules || { announcement: true, resources: true, articles: false, query: false, quiz: false, leaderboard: true },
     announcement: s.announcement || '',
   }
+  step.value = 0
   editVisible.value = true
 }
+
+function nextStep() {
+  if (step.value === 0 && (!editForm.value.name || !editForm.value.slug)) {
+    ElMessage.warning('请先填写学科名称和标识')
+    return
+  }
+  step.value++
+}
+function prevStep() { step.value-- }
 
 async function saveSubject() {
   const f = editForm.value
@@ -121,43 +136,87 @@ const moduleDefs = [
       <template #header>
         <div class="dlg-head"><span class="dlg-bar"></span><ZgGlyph emoji="📚" /><span>{{ editForm.id ? '编辑学科' : '新建学科' }}</span></div>
       </template>
+      <ZgStepper :steps="steps" :current="step" />
       <el-form label-position="top">
-        <el-form-item label="学科名称"><el-input v-model="editForm.name" placeholder="如：物理" /></el-form-item>
-        <el-form-item label="标识 slug"><el-input v-model="editForm.slug" placeholder="英文标识，如：physics" :disabled="!!editForm.id" /></el-form-item>
-        <el-form-item label="图标">
-          <div class="preset-row">
-            <span v-for="i in iconPresets" :key="i" class="preset" :class="{on: editForm.icon === i}" @click="editForm.icon = i"><ZgGlyph :emoji="i" /></span>
-          </div>
-        </el-form-item>
-        <el-form-item label="主色调">
-          <div class="color-row">
-            <el-color-picker v-model="editForm.color" />
-            <div class="preset-row" style="margin-left:12px">
-              <span v-for="c in colorPresets" :key="c" class="sw" :style="{background: c}" @click="editForm.color = c"></span>
+        <!-- 步骤一：基本信息 -->
+        <div v-show="step === 0">
+          <el-form-item>
+            <template #label>
+              <span>学科名称</span>
+              <el-tooltip content="在前台展示的学科名称，建议 2–4 个字" placement="top"><span class="zg-help">?</span></el-tooltip>
+            </template>
+            <el-input v-model="editForm.name" placeholder="如：物理" />
+          </el-form-item>
+          <el-form-item>
+            <template #label>
+              <span>标识 slug</span>
+              <el-tooltip content="英文唯一标识，用于页面地址（如 /subject/physics），创建后不可修改" placement="top"><span class="zg-help">?</span></el-tooltip>
+            </template>
+            <el-input v-model="editForm.slug" placeholder="英文标识，如：physics" :disabled="!!editForm.id" />
+          </el-form-item>
+          <el-form-item>
+            <template #label>
+              <span>图标</span>
+              <el-tooltip content="在前台学科导航与卡片上展示的图标" placement="top"><span class="zg-help">?</span></el-tooltip>
+            </template>
+            <div class="preset-row">
+              <span v-for="i in iconPresets" :key="i" class="preset" :class="{on: editForm.icon === i}" @click="editForm.icon = i"><ZgGlyph :emoji="i" /></span>
             </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="描述"><el-input v-model="editForm.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="公告"><el-input v-model="editForm.announcement" type="textarea" :rows="2" placeholder="学科公告内容" /></el-form-item>
-        <el-form-item label="排序">
-          <el-input-number v-model="editForm.displayOrder" :min="0" controls-position="right" />
-        </el-form-item>
-        <el-form-item label="模块开关">
-          <div class="mod-grid">
-            <div v-for="m in moduleDefs" :key="m.key" class="mod-card" :class="{on: editForm.modules?.[m.key]}" @click="editForm.modules[m.key] = !editForm.modules?.[m.key]">
-              <el-icon class="mc-ico"><component :is="m.icon" /></el-icon>
-              <div class="mc-body">
-                <div class="mc-title">{{ m.label }}</div>
-                <div class="mc-desc">{{ m.desc }}</div>
+          </el-form-item>
+          <el-form-item>
+            <template #label>
+              <span>主色调</span>
+              <el-tooltip content="学科卡片与导航条的底色，可配合超级管理员后台的学科自定义色使用" placement="top"><span class="zg-help">?</span></el-tooltip>
+            </template>
+            <div class="color-row">
+              <el-color-picker v-model="editForm.color" />
+              <div class="preset-row" style="margin-left:12px">
+                <span v-for="c in colorPresets" :key="c" class="sw" :style="{background: c}" @click="editForm.color = c"></span>
               </div>
-              <el-switch :model-value="editForm.modules?.[m.key]" @change="(v:boolean) => { editForm.modules[m.key] = v }" @click.stop />
             </div>
-          </div>
-        </el-form-item>
+          </el-form-item>
+          <el-form-item label="描述"><el-input v-model="editForm.description" type="textarea" :rows="2" /></el-form-item>
+          <el-form-item label="公告"><el-input v-model="editForm.announcement" type="textarea" :rows="2" placeholder="学科公告内容" /></el-form-item>
+          <el-form-item label="排序">
+            <el-input-number v-model="editForm.displayOrder" :min="0" controls-position="right" />
+          </el-form-item>
+        </div>
+        <!-- 步骤二：模块配置 -->
+        <div v-show="step === 1">
+          <el-form-item>
+            <template #label>
+              <span>模块开关</span>
+              <el-tooltip content="开启后，该学科前台将显示对应模块入口" placement="top"><span class="zg-help">?</span></el-tooltip>
+            </template>
+            <div class="mod-grid">
+              <div v-for="m in moduleDefs" :key="m.key" class="mod-card" :class="{on: editForm.modules?.[m.key]}" @click="editForm.modules[m.key] = !editForm.modules?.[m.key]">
+                <el-icon class="mc-ico"><component :is="m.icon" /></el-icon>
+                <div class="mc-body">
+                  <div class="mc-title">{{ m.label }}</div>
+                  <div class="mc-desc">{{ m.desc }}</div>
+                </div>
+                <el-switch :model-value="editForm.modules?.[m.key]" @change="(v:boolean) => { editForm.modules[m.key] = v }" @click.stop />
+              </div>
+            </div>
+          </el-form-item>
+        </div>
+        <!-- 步骤三：确认发布 -->
+        <div v-show="step === 2" class="confirm-box glass">
+          <div class="cb-row"><span class="cb-k">名称</span><span class="cb-v">{{ editForm.name || '—' }}</span></div>
+          <div class="cb-row"><span class="cb-k">标识</span><span class="cb-v">{{ editForm.slug || '—' }}</span></div>
+          <div class="cb-row"><span class="cb-k">图标</span><span class="cb-v" style="font-size:22px"><ZgGlyph :emoji="editForm.icon" /></span></div>
+          <div class="cb-row"><span class="cb-k">主色</span><span class="cb-v"><span class="color-dot" :style="{background: editForm.color}"></span> {{ editForm.color }}</span></div>
+          <div class="cb-row"><span class="cb-k">描述</span><span class="cb-v">{{ editForm.description || '—' }}</span></div>
+          <div class="cb-row"><span class="cb-k">模块</span><span class="cb-v">
+            <span v-for="(v, k) in editForm.modules" :key="k" v-show="v" class="mod-chip">{{ {announcement:'公告',resources:'资料',articles:'美文',query:'查询',quiz:'题库',leaderboard:'排行'}[k] }}</span>
+          </span></div>
+        </div>
       </el-form>
       <template #footer>
+        <el-button v-if="step > 0" @click="prevStep">上一步</el-button>
+        <el-button v-if="step < 2" @click="nextStep">下一步</el-button>
+        <el-button type="primary" v-if="step === 2" @click="saveSubject">保存</el-button>
         <el-button @click="editVisible=false">取消</el-button>
-        <el-button type="primary" @click="saveSubject">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -185,6 +244,11 @@ const moduleDefs = [
 .mc-body { flex:1; }
 .mc-title { font-weight:600; font-size:var(--zg-fs-sm); }
 .mc-desc { font-size:var(--zg-fs-xs); color:var(--zg-text-dim); }
+.confirm-box { padding:16px 18px; border-radius:12px; margin-bottom:6px; }
+.cb-row { display:flex; align-items:center; gap:14px; padding:7px 0; border-bottom:1px dashed rgba(186,117,23,.14); }
+.cb-row:last-child { border-bottom:none; }
+.cb-k { width:52px; flex:none; color:var(--zg-text-dim); font-size:var(--zg-fs-sm); }
+.cb-v { font-weight:600; font-size:var(--zg-fs-sm); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 
 @media (max-width: 768px) {
   .dh-title { font-size: 20px; }
