@@ -22,7 +22,7 @@ onMounted(load)
 
 function openCreate() {
   editForm.value = {
-    name: '', slug: '', icon: '📚', color: '', description: '',
+    name: '', slug: '', icon: '📚', color: '#BA7517', description: '',
     displayOrder: subjects.value.length + 1,
     modules: { announcement: true, resources: true, articles: true, query: false, quiz: false, leaderboard: true },
     announcement: '',

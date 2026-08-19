@@ -508,13 +508,13 @@ html.zg-inkgold {
   --el-color-primary-dark-2: #9c6112;
 }
 
-/* 背景：暖米白渐变 + 淡金光斑 */
+/* 背景：暖米白渐变 + 淡金光斑（用 CSS 变量，便于 bright 档热切换） */
 .zg-inkgold .zg-bg {
   animation: zgGradientShift 28s ease infinite !important;
   background:
     radial-gradient(1100px 760px at 16% -8%, rgba(212,175,55,0.10), transparent 60%),
     radial-gradient(900px 640px at 100% 2%, rgba(200,146,46,0.07), transparent 55%),
-    linear-gradient(160deg, #FAF8F4, #F5F1E8 50%, #EFE9DC) !important;
+    linear-gradient(160deg, var(--zg-bg-from) 0%, var(--zg-bg-via) 50%, var(--zg-bg-to) 100%) !important;
 }
 .zg-inkgold .zg-orb { opacity: 0.5 !important; animation: zgFloat 20s ease-in-out infinite !important; filter: blur(80px) !important; }
 .zg-inkgold .zg-orb.a { width: 460px; height: 460px; background: radial-gradient(circle, rgba(212,175,55,0.35), transparent 70%) !important; top: -140px; left: -100px; }
@@ -772,11 +772,12 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .zg-footer { border-top-color: rgba(186,117,23,0.14) !important; }
 
 /* 墨金·明显提亮档（后台界面风格可切换，全站全用户生效）
-   注意：applyTheme 会把 --zg-bg-* 写成 documentElement 内联样式，内联优先于样式表类选择器，
-   故此处必须 !important，否则"明显提亮"会被后台背景色内联值压住而失效。 */
+   soft 温和 = 暖米白 + 沉稳金
+   bright 明显 = 近纯白 + 极淡金光斑，背景整体更亮更净，高级感更强 */
 .zg-inkgold.zg-inkgold-bright {
-  --zg-bg-from: #FDFBF7 !important; --zg-bg-via: #FAF6EE !important; --zg-bg-to: #F5F0E4 !important;
-  --zg-card-bg: rgba(255,255,255,0.94) !important; --zg-card-border: rgba(186,117,23,0.16) !important;
+  --zg-bg-from: #FFFFFF !important; --zg-bg-via: #FCFAF6 !important; --zg-bg-to: #F8F5EE !important;
+  --zg-card-bg: rgba(255,255,255,0.96) !important; --zg-card-border: rgba(186,117,23,0.14) !important;
+  --zg-shadow: 0 1px 4px rgba(120,90,30,0.04), 0 12px 32px rgba(120,90,30,0.08) !important;
 }
 
 /* ============================================================
@@ -1085,10 +1086,10 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .hs-divider { background: rgba(212,175,55,0.18) !important; }
 .zg-inkgold-dark .zg-footer { border-top-color: rgba(212,175,55,0.14) !important; }
 
-/* 墨金深色·明显提亮档（后台可切换，!important 同理覆盖内联背景变量；选择器随 BUG-17 一并升级避免被基础深档块反压） */
+/* 墨金深色·明显提亮档（柔和提亮的深色版，背景更通透） */
 html.zg-inkgold.zg-inkgold-dark.zg-inkgold-bright {
-  --zg-bg-from: #241F16 !important; --zg-bg-via: #1C1810 !important; --zg-bg-to: #15110B !important;
-  --zg-card-bg: rgba(255,255,255,0.08) !important;
+  --zg-bg-from: #2A241A !important; --zg-bg-via: #221C14 !important; --zg-bg-to: #1A1610 !important;
+  --zg-card-bg: rgba(255,255,255,0.10) !important;
 }
 
 /* ============================================================

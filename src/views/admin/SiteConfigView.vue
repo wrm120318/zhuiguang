@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 
@@ -129,8 +129,16 @@ async function save() {
 }
 
 // ===== 快捷入口动态编辑 =====
+// Q3：墨金模式下展示「墨金图标包」（与经典不同的金色高阶图标集合）
 const PRESET_COLORS = ['#F59E0B', '#FB923C', '#FBBF24', '#FDE68A', '#F97316', '#EF4444', '#34D399', '#60A5FA']
-const PRESET_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '✍️', '📦', '🎓', '💡', '🔥']
+const CLASSIC_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '✍️', '📦', '🎓', '💡', '🔥']
+// 墨金图标包：只选 ZgGlyph 在墨金下能渲染为高阶金色 SVG/EP 图标的 emoji（其他 emoji 在墨金下会回退成原 emoji）
+// 覆盖：学科/排行/个人/收藏/说明/博客/公告/题库/搜索/帮助/设置/消息
+const INKGOLD_EMOJIS = ['📚', '🏆', '👤', '⭐', '📖', '✍️', '📢', '📝', '🔍', '💡', '⚙', '🔔']
+// Q4：图标包跟随设计模式自动切换（墨金时呈现更高级的金色图标）
+import { useThemeStore } from '@/store/theme'
+const themeStore = useThemeStore()
+const PRESET_EMOJIS = computed(() => (themeStore.activeTheme?.config?.designMode === 'inkgold' ? INKGOLD_EMOJIS : CLASSIC_EMOJIS))
 const THEME_COLORS = ['#F59E0B', '#FB923C', '#F97316', '#EF4444', '#8B5CF6', '#3B82F6', '#10B981', '#EC4899']
 
 function addLink() {
