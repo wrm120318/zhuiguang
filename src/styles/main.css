@@ -145,11 +145,11 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.2) inset !important; border-radius: 10px !important; }
 /* A1 修复（经典档）：hover 100% 实色 → 45% 半透明（走 rgb 通道变量，后台自定义主色时同样跟随） */
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(var(--zg-primary-rgb), 0.45) inset !important; }
-/* A1 修复（经典档）：补 .is-focus 柔和光环（文档 §A1 修复方案第 1 条规格） */
+/* A1 修复（经典档）：focus 态改为"只换内边色"（不再叠加 3px 外环，避免橙色矩形块）；默认 1px 20% 内边 → focus 1px 100% 主色，更克制 */
 .el-input__wrapper.is-focus,
 .el-textarea__inner:focus,
 .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), 0.15), 0 0 0 1px var(--zg-primary) inset !important;
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
   transition: box-shadow .2s ease;
 }
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
@@ -721,7 +721,7 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .el-input__wrapper.is-focus,
 .zg-inkgold .el-textarea__inner:focus,
 .zg-inkgold .el-select__wrapper.is-focus {
-  box-shadow: 0 0 0 3px rgba(186,117,23,0.20), 0 0 0 1px var(--zg-primary) inset !important;
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
 }
 
 /* 图标 / logo 极淡呼吸金芒 */
@@ -1037,7 +1037,7 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .el-input__wrapper.is-focus,
 .zg-inkgold-dark .el-textarea__inner:focus,
 .zg-inkgold-dark .el-select__wrapper.is-focus {
-  box-shadow: 0 0 0 3px rgba(212,175,55,0.22), 0 0 0 1px var(--zg-primary) inset !important;
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
 }
 
 /* 图标 / logo 极淡呼吸金芒 */

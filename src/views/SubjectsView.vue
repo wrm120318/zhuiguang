@@ -27,13 +27,24 @@ onMounted(load)
 async function onRefresh(done: () => void) { await load(); done() }
 
 // 图标样式（A7 规格）：学科自定义 s.color 照常渲染实色渐变（铁律4）；无 color 默认走暖金浅底 + 主色图标
+// ★ Q3 修复：自定义背景色太浅（如 #FFFFFF/#FDE68A）时，emoji 默认深色被白底吞掉看不见——自动反色用深色图标
+function isLightColor(hex: string): boolean {
+  const m = (hex || '').replace('#', '').match(/.{2}/g)
+  if (!m || m.length < 3) return false
+  const [r, g, b] = m.map(x => parseInt(x, 16))
+  // YIQ 亮度公式（业界感知亮度标准）
+  return (r * 299 + g * 587 + b * 114) / 1000 > 170
+}
 function iconStyle(color?: string) {
   if (!color) {
     const cfg: any = theme.activeTheme?.config
     const a = cfg?.designMode === 'inkgold' && cfg?.inkgoldTone === 'dark' ? 0.12 : 0.10
     return { background: `rgba(var(--zg-primary-rgb), ${a})`, color: 'var(--zg-primary)' }
   }
-  return { background: `linear-gradient(135deg, ${color}, ${color}aa)` }
+  return {
+    background: `linear-gradient(135deg, ${color}, ${color}aa)`,
+    color: isLightColor(color) ? 'rgba(120,53,15,0.85)' : '#fff',
+  }
 }
 
 function go(s: any) { router.push(`/subject/${s.slug}`) }
