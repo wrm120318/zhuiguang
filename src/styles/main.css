@@ -157,6 +157,15 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 /* A4 修复：文字行高防圆角切字 + 字数计数器不压文字 */
 .el-textarea__inner { line-height: 1.6; }
 .el-input .el-input__count { background: transparent !important; padding-right: 8px; }
+
+/* ★ 输入控件圆角解耦（用户反馈：主题圆角设置不应影响文本域/输入框，避免大圆角切字） */
+.el-textarea { border-radius: 10px !important; }
+.el-textarea__inner,
+.el-input__wrapper,
+.el-select__wrapper {
+  border-radius: 10px !important;
+  max-height: none;
+}
 /* B9 修复：全局键盘焦点指示（仅键盘导航时可见，不影响鼠标操作；输入框已有焦点光环，排除避免双圈） */
 :focus-visible { outline: 2px solid rgba(var(--zg-primary-rgb), 0.6); outline-offset: 2px; }
 .el-input__inner:focus-visible, .el-textarea__inner:focus-visible { outline: none; }
@@ -468,15 +477,17 @@ img { -webkit-user-drag: none; }
    ============================================================ */
 html.zg-inkgold {
   /* —— 温润墨金 调色板（暖米白底 + 沉稳金 + 墨字，非黑）——
-     BUG-01 修复：applyTheme() 会把后台主题色写成 documentElement 内联样式，内联优先于
-     不带 !important 的类规则 → 墨金主色曾被后台橘色击穿。此处按 bright 档先例（L727/L1032）
-     补 !important；同时 theme.ts 已改为墨金模式下清除内联值，双保险。 */
-  --zg-primary: #BA7517 !important;
-  --zg-primary-2: #C8922E !important;
-  --zg-accent: #D4AF37 !important;
-  --zg-primary-rgb: 186, 117, 23 !important;
-  --zg-primary-2-rgb: 200, 146, 46 !important;
-  --zg-accent-rgb: 212, 175, 55 !important;
+     【indirection 方案】主色/辅色/点缀色用 var(--zg-custom-*) 兜底：
+     - theme.ts 把后台自定义色写到 --zg-custom-primary 等内联变量
+     - 此处 var() 读取：用户已自定义则跟随，未自定义则用墨金默认（金系）
+     - 经典模式（无 .zg-inkgold 类）完全不加载 → 与现状像素级一致
+     - 深色档由下方 .zg-inkgold-dark 叠加，config.inkgoldTone==='dark' 时启用。 */
+  --zg-primary: var(--zg-custom-primary, #BA7517) !important;
+  --zg-primary-2: var(--zg-custom-primary-2, #C8922E) !important;
+  --zg-accent: var(--zg-custom-accent, #D4AF37) !important;
+  --zg-primary-rgb: var(--zg-custom-primary-rgb, 186, 117, 23) !important;
+  --zg-primary-2-rgb: var(--zg-custom-primary-2-rgb, 200, 146, 46) !important;
+  --zg-accent-rgb: var(--zg-custom-accent-rgb, 212, 175, 55) !important;
   --zg-text: #2B2620;
   --zg-text-dim: #6B5E48;
   --zg-card-bg: rgba(255,255,255,0.80);
@@ -615,9 +626,15 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold .el-button,
-.zg-inkgold .el-input__wrapper,
+/* 输入框/文本域/下拉的圆角独立于胶囊体系——固定 10px（不被主题圆角影响，避免大圆角切字） */
+.zg-inkgold .el-textarea,
 .zg-inkgold .el-textarea__inner,
-.zg-inkgold .el-select__wrapper,
+.zg-inkgold .el-input__wrapper,
+.zg-inkgold .el-select__wrapper {
+  border-radius: 10px !important;
+}
+/* 墨金胶囊：仅作用于按钮/标签/导航链接（不影响文本输入） */
+.zg-inkgold .el-button,
 .zg-inkgold .el-tag,
 .zg-inkgold .sq-tag,
 .zg-inkgold .nav-link { border-radius: 999px !important; }
@@ -776,7 +793,7 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
    （深色模式文字解析成浅档深棕 #2B2620、深底深字不可读）。升级为 html.zg-inkgold.zg-inkgold-dark (0,2,1)。 */
 html.zg-inkgold.zg-inkgold-dark {
   /* —— 温润墨金 调色板（暗色但不阴郁：暖墨底 + 流光金 + 暖白文字）——
-     BUG-01 修复：同浅色档，补 !important 防内联击穿。 */
+     【indirection】同浅色档，主色走 var(--zg-custom-*)：用户自定义色在深色档同样生效。 */
   --zg-bg-from: #1B1710 !important;
   --zg-bg-via: #15110B !important;
   --zg-bg-to: #0E0B07 !important;
@@ -784,12 +801,12 @@ html.zg-inkgold.zg-inkgold-dark {
   --zg-text-dim: #B8A37A;
   --zg-card-bg: rgba(255,255,255,0.05);
   --zg-card-border: rgba(212,175,55,0.20);
-  --zg-primary: #D4AF37 !important;
-  --zg-primary-2: #E6C66E !important;
-  --zg-accent: #F1D99B !important;
-  --zg-primary-rgb: 212, 175, 55 !important;
-  --zg-primary-2-rgb: 230, 198, 110 !important;
-  --zg-accent-rgb: 241, 217, 155 !important;
+  --zg-primary: var(--zg-custom-primary, #D4AF37) !important;
+  --zg-primary-2: var(--zg-custom-primary-2, #E6C66E) !important;
+  --zg-accent: var(--zg-custom-accent, #F1D99B) !important;
+  --zg-primary-rgb: var(--zg-custom-primary-rgb, 212, 175, 55) !important;
+  --zg-primary-2-rgb: var(--zg-custom-primary-2-rgb, 230, 198, 110) !important;
+  --zg-accent-rgb: var(--zg-custom-accent-rgb, 241, 217, 155) !important;
   --zg-radius: 22px !important;
   --zg-blur: 22px !important;
   --zg-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 22px 56px rgba(0,0,0,0.40);

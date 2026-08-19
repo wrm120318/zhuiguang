@@ -126,16 +126,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     </div>
 
     <!-- 公告栏：配置加载完成后才渲染，避免闪烁 -->
-    <div v-if="showAnnouncement" class="announce-bar glass zg-slide-up" style="animation-delay:0.1s">
+    <div v-if="showAnnouncement" class="announce-bar zg-slide-up" style="animation-delay:0.1s">
       <span class="ab-icon"><ZgGlyph :emoji="'📢'" /></span>
       <span class="ab-text" v-html="renderMarkdownPreserveSpaces(siteConfig.announcementBar)"></span>
     </div>
 
-    <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
-    <div class="quick-grid" v-if="displayQuickLinks && displayQuickLinks.length">
-      <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
-        <div class="qg-icon" :style="iconStyle(ql.color)"><ZgGlyph :emoji="ql.icon" /></div>
-        <div class="qg-text">{{ ql.label }}</div>
+    <!-- 快捷入口：横向卡片列表（现代高级，去除多余嵌套框） -->
+    <div class="quick-list" v-if="displayQuickLinks && displayQuickLinks.length">
+      <div v-for="(ql, i) in displayQuickLinks" :key="i" class="ql-item zg-slide-up" :style="{ animationDelay: `${i * 0.05}s` }" @click="router.push(ql.path)">
+        <div class="ql-icon" :style="iconStyle(ql.color)"><ZgGlyph :emoji="ql.icon" /></div>
+        <div class="ql-body">
+          <div class="ql-text">{{ ql.label }}</div>
+          <div class="ql-hint">{{ ql.hint || '点击进入' }}</div>
+        </div>
+        <div class="ql-arrow"><ZgGlyph emoji="→" /></div>
       </div>
     </div>
 
@@ -143,7 +147,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <div class="section" v-if="data.subjects.length && (siteConfig?.showSubjects !== false)">
       <div class="section-title">学科子站</div>
       <div class="subj-row">
-        <div v-for="s in data.subjects" :key="s.id" class="subj-chip glass zg-card" @click="router.push(`/subject/${s.slug}`)">
+        <div v-for="s in data.subjects" :key="s.id" class="subj-chip" @click="router.push(`/subject/${s.slug}`)">
           <span class="sc-icon" :style="iconStyle(s.color)"><ZgGlyph :emoji="s.icon" /></span>
           <span class="sc-name">{{ s.name }}</span>
         </div>
@@ -154,7 +158,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <div class="section" v-if="articles.length && (siteConfig?.showLatestArticles !== false)">
       <div class="section-title">最新美文</div>
       <div class="art-grid">
-        <div v-for="(a, i) in articles.slice(0, siteConfig?.maxArticlesOnHome || 6)" :key="a.id" class="art-card glass zg-card zg-slide-up" :style="{ animationDelay: `${i * 0.08}s` }" @click="goArticle(a.id)">
+        <div v-for="(a, i) in articles.slice(0, siteConfig?.maxArticlesOnHome || 6)" :key="a.id" class="art-card zg-card zg-slide-up" :style="{ animationDelay: `${i * 0.08}s` }" @click="goArticle(a.id)">
           <div class="ac-cover" v-if="a.cover" :style="{ backgroundImage: `url(${a.cover})` }"></div>
           <div class="ac-cover ac-placeholder" v-else>
             <span>{{ a.category?.[0] || '追' }}</span>
@@ -194,23 +198,35 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .hs-label { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 2px; }
 .hs-divider { width: 1px; height: 30px; background: rgba(var(--zg-primary-rgb),.15); }
 
-.quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 20px; }
-
-.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(var(--zg-primary-rgb),.25); }
+/* 公告栏：轻量横幅，不加玻璃边框 */
+.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.06); border: 1px solid rgba(var(--zg-primary-rgb),.15); }
 .ab-icon { font-size: 18px; }
 .ab-text { font-size: var(--zg-fs-sm); color: var(--zg-text); line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; }
-.qg-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; cursor: pointer; }
-.qg-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 14px rgba(var(--zg-primary-rgb),.2); }
-.qg-text { font-size: var(--zg-fs-sm); font-weight: 600; color: var(--zg-text); }
 
-.section { margin-top: 28px; }
-.subj-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.subj-chip { display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer; }
-.sc-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-.sc-name { font-weight: 600; font-size: var(--zg-fs-sm); }
+/* 快捷入口：横向卡片列表（高级、现代、无多余嵌套框） */
+.quick-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 20px; }
+.ql-item { display: flex; align-items: center; gap: 16px; padding: 18px 20px; border-radius: 16px; background: rgba(255,255,255,0.65); border: 1px solid rgba(var(--zg-primary-rgb),.12); cursor: pointer; transition: all .28s cubic-bezier(.22,1,.36,1); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.ql-item:hover { transform: translateY(-3px); border-color: rgba(var(--zg-primary-rgb),.35); background: rgba(255,255,255,0.85); box-shadow: 0 12px 32px rgba(var(--zg-primary-rgb),.12); }
+.ql-item:hover .ql-arrow { transform: translateX(4px); color: var(--zg-primary); }
+.ql-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex: none; box-shadow: 0 4px 12px rgba(var(--zg-primary-rgb),.18); }
+.ql-body { flex: 1; min-width: 0; }
+.ql-text { font-size: var(--zg-fs-base); font-weight: 700; color: var(--zg-text); line-height: 1.4; }
+.ql-hint { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 2px; opacity: .7; }
+.ql-arrow { font-size: 18px; color: var(--zg-text-dim); transition: transform .25s ease, color .25s ease; flex: none; }
+
+.section { margin-top: 32px; }
+.section-title { font-size: var(--zg-fs-lg); font-weight: 700; margin-bottom: 18px; display:flex; align-items:center; gap:10px; color: var(--zg-text); }
+.section-title::before { content:''; width:3px; height:16px; border-radius:3px; background: linear-gradient(var(--zg-accent), var(--zg-primary)); }
+
+.subj-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.subj-chip { display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer; border-radius: 999px; background: rgba(255,255,255,0.65); border: 1px solid rgba(var(--zg-primary-rgb),.12); transition: all .25s ease; }
+.subj-chip:hover { border-color: rgba(var(--zg-primary-rgb),.35); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(var(--zg-primary-rgb),.1); }
+.sc-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.sc-name { font-weight: 600; font-size: var(--zg-fs-sm); color: var(--zg-text); }
 
 .art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
-.art-card { overflow: hidden; cursor: pointer; }
+.art-card { overflow: hidden; cursor: pointer; border-radius: 16px; background: rgba(255,255,255,0.75); border: 1px solid rgba(var(--zg-primary-rgb),.12); }
+.art-card:hover { transform: translateY(-4px); border-color: rgba(var(--zg-primary-rgb),.35); box-shadow: 0 16px 40px rgba(var(--zg-primary-rgb),.14); }
 .ac-cover { height: 140px; background-size: cover; background-position: center; }
 .ac-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; font-weight: 800; color: rgba(var(--zg-primary-rgb),.3); }
 .ac-body { padding: 14px 16px; }
@@ -228,10 +244,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-sub { font-size: var(--zg-fs-sm); }
   .hero-stats { gap: 14px; margin-top: 20px; }
   .hs-num { font-size: var(--zg-fs-md); }
-  .quick-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .qg-card { padding: 14px 6px; }
-  .qg-icon { width: 42px; height: 42px; font-size: 20px; border-radius: 12px; }
-  .qg-text { font-size: var(--zg-fs-xs); }
+  .quick-list { grid-template-columns: 1fr; gap: 8px; }
+  .ql-item { padding: 14px 16px; gap: 12px; }
+  .ql-icon { width: 40px; height: 40px; font-size: 20px; border-radius: 12px; }
+  .ql-text { font-size: var(--zg-fs-sm); }
+  .ql-hint { display: none; }
   .subj-row { gap: 8px; }
   .subj-chip { padding: 8px 12px; }
   .art-grid { grid-template-columns: 1fr; gap: 12px; }
@@ -245,14 +262,13 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-stats { gap: 32px; margin-top: 36px; }
   .hs-num { font-size: 32px; }
   .hs-label { font-size: 13px; }
-  .quick-grid { gap: 20px; margin-top: 28px; }
-  .qg-card { padding: 28px 16px; }
-  .qg-icon { width: 64px; height: 64px; border-radius: 20px; font-size: 30px; }
-  .qg-text { font-size: 15px; }
-  .subj-row { gap: 14px; }
-  .subj-chip { padding: 14px 22px; }
-  .sc-icon { width: 42px; height: 42px; }
-  .sc-name { font-size: 15px; }
+  .quick-list { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .ql-item { padding: 22px 18px; flex-direction: column; align-items: flex-start; gap: 14px; }
+  .ql-icon { width: 52px; height: 52px; font-size: 26px; border-radius: 16px; }
+  .ql-text { font-size: 15px; }
+  .ql-arrow { align-self: flex-end; margin-top: -28px; }
+  .subj-row { gap: 12px; }
+  .subj-chip { padding: 12px 20px; }
   .art-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
 }
 

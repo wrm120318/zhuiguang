@@ -12,9 +12,9 @@ onMounted(() => {
 
 watch(d, () => { theme.preview({ ...d }) }, { deep: true })
 
-// BUG-13 修复：预设色板跟随设计模式——经典=橘黄系原色板（像素级不变），墨金=沉稳金系
-const classicSwatches = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#fde047', '#a16207', '#fdba74']
-const inkgoldSwatches = ['#BA7517', '#C8922E', '#D4AF37', '#A66B11', '#8C6414', '#E6C66E', '#9C7A2A', '#B8905A']
+// BUG-13 修复：预设色板跟随设计模式——经典=橘黄系原色板（像素级不变），墨金=沉稳金系（12 色更自由）
+const classicSwatches = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#fde047', '#a16207', '#fdba74', '#dc2626', '#0891b2', '#7c3aed', '#059669']
+const inkgoldSwatches = ['#BA7517', '#C8922E', '#D4AF37', '#A66B11', '#8C6414', '#E6C66E', '#9C7A2A', '#B8905A', '#6B4423', '#A0784A', '#D9B777', '#F0DCA8']
 const presetColors = computed(() => (d.designMode === 'inkgold' ? inkgoldSwatches : classicSwatches))
 
 function pickTheme(id: number) {
@@ -64,7 +64,7 @@ function reset() {
           </el-radio-group>
           <p class="tip" style="margin-top:8px">墨金学术 = 胶囊导航 + 沉稳金 + 液态玻璃 + 衬线标题 + 手机化过渡；经典 = 当前外观，切回后完全一致。</p>
           <div v-if="d.designMode === 'inkgold'" style="margin-top:18px">
-            <p class="tip ink-note">墨金模式下，主色/辅色/点缀色/圆角/毛玻璃由皮肤统一接管（保证全站墨金一致性）；下方色板与滑杆的自定义在经典模式下生效。</p>
+            <p class="tip ink-note">墨金模式默认使用沉稳金色系；下方色板/圆角/毛玻璃的自定义在墨金模式下也生效（会覆盖默认金色）。无自定义时墨金保持沉稳金原貌。</p>
             <div class="ep-label">墨金深浅（发布后全站生效）</div>
             <el-radio-group v-model="d.inkgoldTone">
               <el-radio-button label="light">浅色 · 暖米白</el-radio-button>

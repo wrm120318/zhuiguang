@@ -17,25 +17,44 @@ function hexToRgbChannels(hex: string): string | null {
 function applyTheme(c: any) {
   if (!c) return
   const root = document.documentElement
-  // BUG-01 修复：墨金模式下皮肤变量（主色/圆角/毛玻璃/背景）由 main.css 的 .zg-inkgold 作用域接管，
-  // 此处不再写内联样式（内联会击穿墨金定义），并清除经典模式预览可能残留的内联值。
-  // 经典模式保持原逻辑：后台色板自定义照常生效（铁律 4/5）。
+  // 【indirection】始终把后台主题色写到 --zg-custom-* 内联变量（墨金类规则用 var(--zg-custom-*) 兜底读取）
+  // - 经典模式：同时写直接 --zg-primary 等，覆盖 :root 默认（像素级不变）
+  // - 墨金模式：清除直接 --zg-primary 等，让 .zg-inkgold 类规则的 var(--zg-custom-*) 接管
+  // 这样自定义色在两种模式都生效，墨金模式无自定义时仍走沉稳金默认
+  const writeCustom = (p: string, v: string) => { if (v) root.style.setProperty(p, v) }
+  const writeDirect = (p: string, v: string) => { if (v) root.style.setProperty(p, v) }
+  const removeDirect = (p: string) => root.style.removeProperty(p)
+
+  // RGB 通道：跟随后台自定义色（用于 rgba() 表达式）
+  const pr = hexToRgbChannels(c.primary); if (pr) root.style.setProperty('--zg-custom-primary-rgb', pr)
+  const p2 = hexToRgbChannels(c.primary2); if (p2) root.style.setProperty('--zg-custom-primary-2-rgb', p2)
+  const ac = hexToRgbChannels(c.accent); if (ac) root.style.setProperty('--zg-custom-accent-rgb', ac)
+
   if (c.designMode === 'inkgold') {
-    ;['--zg-primary', '--zg-primary-2', '--zg-accent', '--zg-bg-from', '--zg-bg-via', '--zg-bg-to', '--zg-blur', '--zg-radius',
-      '--zg-primary-rgb', '--zg-primary-2-rgb', '--zg-accent-rgb'].forEach(p => root.style.removeProperty(p))
+    // 墨金模式：写 --zg-custom-* 供类规则 var() 读取；清除直接 --zg-primary 等让位给墨金规则
+    writeCustom('--zg-custom-primary', c.primary)
+    writeCustom('--zg-custom-primary-2', c.primary2)
+    writeCustom('--zg-custom-accent', c.accent)
+    // 圆角/毛玻璃：墨金模式仍走皮肤默认（22px/22px），不写直接值（类规则 !important 已稳控）
+    // 清除直接值防止后台经典配置残留击穿墨金
+    removeDirect('--zg-primary'); removeDirect('--zg-primary-2'); removeDirect('--zg-accent')
+    removeDirect('--zg-bg-from'); removeDirect('--zg-bg-via'); removeDirect('--zg-bg-to')
+    removeDirect('--zg-blur'); removeDirect('--zg-radius')
+    removeDirect('--zg-primary-rgb'); removeDirect('--zg-primary-2-rgb'); removeDirect('--zg-accent-rgb')
   } else {
-    root.style.setProperty('--zg-primary', c.primary)
-    root.style.setProperty('--zg-primary-2', c.primary2)
-    root.style.setProperty('--zg-accent', c.accent)
-    root.style.setProperty('--zg-bg-from', c.bgFrom)
-    root.style.setProperty('--zg-bg-via', c.bgVia)
-    root.style.setProperty('--zg-bg-to', c.bgTo)
-    root.style.setProperty('--zg-blur', c.blur + 'px')
-    root.style.setProperty('--zg-radius', c.radius + 'px')
-    // RGB 通道跟随后台自定义色（失败则回落到 :root 默认，不清除旧值以外的情况不存在——写不进就保持 CSS 默认）
-    const pr = hexToRgbChannels(c.primary); if (pr) root.style.setProperty('--zg-primary-rgb', pr)
-    const p2 = hexToRgbChannels(c.primary2); if (p2) root.style.setProperty('--zg-primary-2-rgb', p2)
-    const ac = hexToRgbChannels(c.accent); if (ac) root.style.setProperty('--zg-accent-rgb', ac)
+    // 经典模式：直接写 --zg-primary 等（铁律 4/5：后台自定义色板照常生效）
+    writeDirect('--zg-primary', c.primary)
+    writeDirect('--zg-primary-2', c.primary2)
+    writeDirect('--zg-accent', c.accent)
+    writeDirect('--zg-bg-from', c.bgFrom)
+    writeDirect('--zg-bg-via', c.bgVia)
+    writeDirect('--zg-bg-to', c.bgTo)
+    writeDirect('--zg-blur', c.blur + 'px')
+    writeDirect('--zg-radius', c.radius + 'px')
+    // 经典档 RGB 通道也直接写
+    if (pr) root.style.setProperty('--zg-primary-rgb', pr)
+    if (p2) root.style.setProperty('--zg-primary-2-rgb', p2)
+    if (ac) root.style.setProperty('--zg-accent-rgb', ac)
   }
   // 设计模式（皮肤开关）：墨金加 zg-inkgold 类，经典移除 → 基础样式完全不变
   root.classList.toggle('zg-inkgold', c.designMode === 'inkgold')
