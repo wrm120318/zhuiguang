@@ -136,12 +136,12 @@ async function submit() {
 .cover-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .cover-preview { width: 80px; height: 50px; background-size: cover; background-position: center; border-radius: 6px; }
 .toolbar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-.toolbar button { background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.15); color: var(--zg-text); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
-.toolbar button:hover { background: rgba(245,158,11,.2); }
+.toolbar button { background: rgba(var(--zg-primary-rgb),.06); border: 1px solid rgba(var(--zg-primary-rgb),.15); color: var(--zg-text); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.toolbar button:hover { background: rgba(var(--zg-primary-rgb),.2); }
 .tb-upload { display: inline-block; }
 .att-list { margin-top: 16px; }
 .att-title { font-size: 13px; color: var(--zg-text-dim); margin-bottom: 8px; }
-.att-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(245,158,11,.05); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+.att-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(var(--zg-primary-rgb),.05); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
 .ep-foot { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
 @media (max-width: 768px) { .editor { padding: 16px; } }
 </style>

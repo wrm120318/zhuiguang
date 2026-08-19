@@ -322,14 +322,14 @@ async function deleteSubmission() {
 .pb-att { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .att-link { font-size: 13px; color: var(--zg-primary); text-decoration: underline; }
 .opts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-.opt { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; background: rgba(245,158,11,.05); border: 2px solid transparent; cursor: pointer; transition: all .2s; }
-.opt:hover { background: rgba(245,158,11,.1); }
-.opt.on { background: rgba(245,158,11,.15); border-color: var(--zg-primary); }
-.opt-letter { width: 30px; height: 30px; border-radius: 50%; background: rgba(245,158,11,.15); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.opt { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; background: rgba(var(--zg-primary-rgb),.05); border: 2px solid transparent; cursor: pointer; transition: all .2s; }
+.opt:hover { background: rgba(var(--zg-primary-rgb),.1); }
+.opt.on { background: rgba(var(--zg-primary-rgb),.15); border-color: var(--zg-primary); }
+.opt-letter { width: 30px; height: 30px; border-radius: 50%; background: rgba(var(--zg-primary-rgb),.15); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
 .opt.on .opt-letter { background: var(--zg-primary); color: #fff; }
 .subj-area { margin-bottom: 20px; }
 .toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
-.toolbar button { background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.15); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.toolbar button { background: rgba(var(--zg-primary-rgb),.06); border: 1px solid rgba(var(--zg-primary-rgb),.15); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .pb-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .rb-title { font-size: 22px; font-weight: 800; text-align: center; }
 .rb-subj { text-align: center; color: var(--zg-text-dim); margin: 6px 0 18px; font-size: 13px; }
@@ -340,7 +340,7 @@ async function deleteSubmission() {
 .rb-max { font-size: 18px; color: var(--zg-text-dim); }
 .rb-tip { font-size: 13px; color: var(--zg-text-dim); }
 .rb-line { font-size: 14px; color: var(--zg-text-dim); margin: 10px 0 6px; }
-.rb-answer { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
+.rb-answer { padding: 12px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .rb-ref { padding: 12px; background: rgba(16,185,129,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 
 /* 批改模式样式 */
@@ -355,7 +355,7 @@ async function deleteSubmission() {
 .grade-content { font-size: 15px; line-height: 1.8; margin-bottom: 16px; }
 .grade-answer-section { margin-bottom: 16px; }
 .grade-label { font-size: 13px; color: var(--zg-text-dim); margin-bottom: 6px; font-weight: 600; }
-.grade-answer { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; min-height: 60px; }
+.grade-answer { padding: 12px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 8px; font-size: 14px; line-height: 1.7; min-height: 60px; }
 .grade-ref-section { margin-bottom: 16px; }
 .grade-ref { padding: 12px; background: rgba(16,185,129,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .grade-current-score { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: rgba(16,185,129,.06); border-radius: 8px; margin-bottom: 18px; }
@@ -363,7 +363,7 @@ async function deleteSubmission() {
 .grade-score-num { font-size: 28px; font-weight: 800; color: var(--zg-success); }
 .grade-score-max { font-size: 14px; color: var(--zg-text-dim); }
 .ml-2 { margin-left: 8px; }
-.grade-form { padding: 18px; background: rgba(245,158,11,.04); border-radius: 10px; border: 1px solid rgba(245,158,11,.12); }
+.grade-form { padding: 18px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 10px; border: 1px solid rgba(var(--zg-primary-rgb),.12); }
 .grade-form-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .grade-form-label { font-size: 14px; color: var(--zg-text); font-weight: 600; min-width: 80px; padding-top: 8px; }
 .grade-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }

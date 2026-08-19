@@ -3,6 +3,19 @@
   --zg-primary: #F59E0B;
   --zg-primary-2: #FB923C;
   --zg-accent: #FBBF24;
+  /* BUG-06 修复配套：主色 RGB 通道，供 rgba(var(--zg-primary-rgb), a) 形式的半透明底色使用。
+     经典档取值与上方 hex 完全一致（替换硬编码橘色后经典档像素级不变）；墨金两档在各自作用域重定义。 */
+  --zg-primary-rgb: 245, 158, 11;
+  --zg-primary-2-rgb: 251, 146, 60;
+  --zg-accent-rgb: 251, 191, 36;
+  /* B3 暖白 3 级（经典档补定义，墨金档已有；供 #FDE68A/#FEF3C7 硬编码替换使用，经典档取值不变） */
+  --zg-cream-50: #FFFBF5;
+  --zg-cream-100: #FEF3C7;
+  --zg-cream-200: #FDE68A;
+  /* A4 修复：显式重置 Element Plus 圆角变量（文档 4.0 §A4 规格） */
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px; /* 仅按钮/胶囊用 */
   --zg-bg-from: #FFFBEB;
   --zg-bg-via: #FEF3C7;
   --zg-bg-to: #FDE68A;
@@ -128,10 +141,25 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 .el-button:hover { background: rgba(245,158,11,.1) !important; color: var(--zg-primary) !important; border-color: var(--zg-primary) !important; }
 /* 图标基线对齐（全局 SVG 图标，决策 A 启用） */
 .el-icon { vertical-align: -2px; }
-.el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.2) inset !important; border-radius: 12px !important; }
-.el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px var(--zg-primary) inset !important; }
+/* A4 修复：圆角 12px → 10px（文档 §A4 统一收敛） */
+.el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.2) inset !important; border-radius: 10px !important; }
+/* A1 修复（经典档）：hover 100% 实色 → 45% 半透明（走 rgb 通道变量，后台自定义主色时同样跟随） */
+.el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(var(--zg-primary-rgb), 0.45) inset !important; }
+/* A1 修复（经典档）：补 .is-focus 柔和光环（文档 §A1 修复方案第 1 条规格） */
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), 0.15), 0 0 0 1px var(--zg-primary) inset !important;
+  transition: box-shadow .2s ease;
+}
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
 .el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
+/* A4 修复：文字行高防圆角切字 + 字数计数器不压文字 */
+.el-textarea__inner { line-height: 1.6; }
+.el-input .el-input__count { background: transparent !important; padding-right: 8px; }
+/* B9 修复：全局键盘焦点指示（仅键盘导航时可见，不影响鼠标操作；输入框已有焦点光环，排除避免双圈） */
+:focus-visible { outline: 2px solid rgba(var(--zg-primary-rgb), 0.6); outline-offset: 2px; }
+.el-input__inner:focus-visible, .el-textarea__inner:focus-visible { outline: none; }
 /* ===== Element Plus 弹窗样式 - macOS 风格：实色暖背景 + 柔和大阴影 + 正中居中 =====
    EP 2.x 真实居中容器类名为 .el-overlay-dialog / .el-overlay-message-box
    设计参考：实色背景保证可读性，遮罩层负责模糊暗化，大柔和阴影营造悬浮感 */
@@ -439,20 +467,26 @@ img { -webkit-user-drag: none; }
    深色档由下方 .zg-inkgold-dark 叠加，config.inkgoldTone==='dark' 时启用。
    ============================================================ */
 html.zg-inkgold {
-  /* —— 温润墨金 调色板（暖米白底 + 沉稳金 + 墨字，非黑）—— */
-  --zg-primary: #BA7517;
-  --zg-primary-2: #C8922E;
-  --zg-accent: #D4AF37;
+  /* —— 温润墨金 调色板（暖米白底 + 沉稳金 + 墨字，非黑）——
+     BUG-01 修复：applyTheme() 会把后台主题色写成 documentElement 内联样式，内联优先于
+     不带 !important 的类规则 → 墨金主色曾被后台橘色击穿。此处按 bright 档先例（L727/L1032）
+     补 !important；同时 theme.ts 已改为墨金模式下清除内联值，双保险。 */
+  --zg-primary: #BA7517 !important;
+  --zg-primary-2: #C8922E !important;
+  --zg-accent: #D4AF37 !important;
+  --zg-primary-rgb: 186, 117, 23 !important;
+  --zg-primary-2-rgb: 200, 146, 46 !important;
+  --zg-accent-rgb: 212, 175, 55 !important;
   --zg-text: #2B2620;
   --zg-text-dim: #6B5E48;
   --zg-card-bg: rgba(255,255,255,0.80);
   --zg-card-border: rgba(186,117,23,0.22);
-  --zg-radius: 20px;
-  --zg-blur: 18px;
+  --zg-radius: 20px !important;
+  --zg-blur: 18px !important;
   --zg-shadow: 0 2px 8px rgba(120,90,30,0.06), 0 16px 44px rgba(120,90,30,0.14);
-  --zg-bg-from: #FAF8F4;
-  --zg-bg-via: #F5F1E8;
-  --zg-bg-to: #EFE9DC;
+  --zg-bg-from: #FAF8F4 !important;
+  --zg-bg-via: #F5F1E8 !important;
+  --zg-bg-to: #EFE9DC !important;
   /* Element Plus 强调色跟随墨金：消输入框橘黄 + 全站 EP 组件转沉稳金 */
   --el-color-primary: #BA7517;
   --el-color-primary-light-3: #c79a4d;
@@ -737,20 +771,27 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 
 /* 墨金学术 · 深色档（温润暖黑，叠加在浅色之上；config.inkgoldTone==='dark'） */
 
-.zg-inkgold-dark {
-  /* —— 温润墨金 调色板（暗色但不阴郁：暖墨底 + 流光金 + 暖白文字）—— */
-  --zg-bg-from: #1B1710;
-  --zg-bg-via: #15110B;
-  --zg-bg-to: #0E0B07;
+/* BUG-17（本轮新发现）：原选择器 .zg-inkgold-dark 特异性 (0,1,0) 压不过浅色档 html.zg-inkgold (0,1,1)，
+   深档的 --zg-text/--zg-primary/--zg-card-bg/--zg-shadow/--zg-radius/--zg-blur 全部被浅档定义覆盖
+   （深色模式文字解析成浅档深棕 #2B2620、深底深字不可读）。升级为 html.zg-inkgold.zg-inkgold-dark (0,2,1)。 */
+html.zg-inkgold.zg-inkgold-dark {
+  /* —— 温润墨金 调色板（暗色但不阴郁：暖墨底 + 流光金 + 暖白文字）——
+     BUG-01 修复：同浅色档，补 !important 防内联击穿。 */
+  --zg-bg-from: #1B1710 !important;
+  --zg-bg-via: #15110B !important;
+  --zg-bg-to: #0E0B07 !important;
   --zg-text: #F3EBD9;
   --zg-text-dim: #B8A37A;
   --zg-card-bg: rgba(255,255,255,0.05);
   --zg-card-border: rgba(212,175,55,0.20);
-  --zg-primary: #D4AF37;
-  --zg-primary-2: #E6C66E;
-  --zg-accent: #F1D99B;
-  --zg-radius: 22px;
-  --zg-blur: 22px;
+  --zg-primary: #D4AF37 !important;
+  --zg-primary-2: #E6C66E !important;
+  --zg-accent: #F1D99B !important;
+  --zg-primary-rgb: 212, 175, 55 !important;
+  --zg-primary-2-rgb: 230, 198, 110 !important;
+  --zg-accent-rgb: 241, 217, 155 !important;
+  --zg-radius: 22px !important;
+  --zg-blur: 22px !important;
   --zg-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 22px 56px rgba(0,0,0,0.40);
   /* Element Plus 强调色跟随墨金：消输入框橘黄 + 全站 EP 组件转沉稳金 */
   --el-color-primary: #D4AF37;
@@ -1027,8 +1068,8 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .hs-divider { background: rgba(212,175,55,0.18) !important; }
 .zg-inkgold-dark .zg-footer { border-top-color: rgba(212,175,55,0.14) !important; }
 
-/* 墨金深色·明显提亮档（后台可切换，!important 同理覆盖内联背景变量） */
-.zg-inkgold-dark.zg-inkgold-bright {
+/* 墨金深色·明显提亮档（后台可切换，!important 同理覆盖内联背景变量；选择器随 BUG-17 一并升级避免被基础深档块反压） */
+html.zg-inkgold.zg-inkgold-dark.zg-inkgold-bright {
   --zg-bg-from: #241F16 !important; --zg-bg-via: #1C1810 !important; --zg-bg-to: #15110B !important;
   --zg-card-bg: rgba(255,255,255,0.08) !important;
 }
@@ -1052,7 +1093,8 @@ html.zg-inkgold {
   --zg-shadow-lg:0 4px 12px rgba(120,90,30,.08), 0 24px 60px rgba(120,90,30,.18);
   --zg-shadow-xl:0 8px 20px rgba(120,90,30,.10), 0 40px 90px rgba(120,90,30,.22);
   --zg-cream-50:#FFFBF5; --zg-cream-100:#FEF3C7; --zg-cream-200:#FDE68A;
-  --zg-fs-2xl:32px; --zg-fs-xl:24px; --zg-fs-lg:20px; --zg-fs-md:17px; --zg-fs-sm:15px;
+  /* BUG-07 修复：字号令牌接回 --zg-fs-scale（原先写死 px，墨金下用户字号调节失效）；B2 阶梯值不变 */
+  --zg-fs-2xl:calc(32px * var(--zg-fs-scale)); --zg-fs-xl:calc(24px * var(--zg-fs-scale)); --zg-fs-lg:calc(20px * var(--zg-fs-scale)); --zg-fs-md:calc(17px * var(--zg-fs-scale)); --zg-fs-sm:calc(15px * var(--zg-fs-scale));
   --zg-space-1:4px; --zg-space-2:8px; --zg-space-3:12px; --zg-space-4:16px;
   --zg-space-5:20px; --zg-space-6:24px; --zg-space-7:32px; --zg-space-8:40px;
   --zg-space-9:56px; --zg-space-10:80px;
@@ -1070,7 +1112,8 @@ html.zg-inkgold-dark {
   --zg-shadow-lg:0 4px 12px rgba(0,0,0,.35), 0 24px 60px rgba(0,0,0,.50);
   --zg-shadow-xl:0 8px 20px rgba(0,0,0,.40), 0 40px 90px rgba(0,0,0,.55);
   --zg-cream-50:#2B2620; --zg-cream-100:#322C22; --zg-cream-200:#3D362A;
-  --zg-fs-2xl:32px; --zg-fs-xl:24px; --zg-fs-lg:20px; --zg-fs-md:17px; --zg-fs-sm:15px;
+  /* BUG-07 修复：字号令牌接回 --zg-fs-scale（原先写死 px，墨金下用户字号调节失效）；B2 阶梯值不变 */
+  --zg-fs-2xl:calc(32px * var(--zg-fs-scale)); --zg-fs-xl:calc(24px * var(--zg-fs-scale)); --zg-fs-lg:calc(20px * var(--zg-fs-scale)); --zg-fs-md:calc(17px * var(--zg-fs-scale)); --zg-fs-sm:calc(15px * var(--zg-fs-scale));
   --zg-space-1:4px; --zg-space-2:8px; --zg-space-3:12px; --zg-space-4:16px;
   --zg-space-5:20px; --zg-space-6:24px; --zg-space-7:32px; --zg-space-8:40px;
   --zg-space-9:56px; --zg-space-10:80px;

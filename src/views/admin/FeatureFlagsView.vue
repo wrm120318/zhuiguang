@@ -92,9 +92,9 @@ async function turnAllOn() {
 .dh-sub { font-size: 13px; color: var(--zg-text-dim); margin-top: 4px; }
 .head-actions { display: flex; gap: 10px; }
 .flag-page { padding: 24px; }
-.tip { background: rgba(245,158,11,.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 18px; }
+.tip { background: rgba(var(--zg-primary-rgb),.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 18px; }
 .flag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-.flag-card { display: flex; align-items: center; gap: 14px; padding: 16px; background: rgba(245,158,11,.06); border-radius: 12px; transition: all .2s; border: 1px solid transparent; }
+.flag-card { display: flex; align-items: center; gap: 14px; padding: 16px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 12px; transition: all .2s; border: 1px solid transparent; }
 .flag-card.off { background: rgba(107,114,128,.08); opacity: .7; }
 .fc-icon { font-size: 28px; }
 .fc-body { flex: 1; }

@@ -55,9 +55,11 @@ function excerpt(md: string) {
           </div>
         </div>
       </div>
-      <el-empty v-if="!loading && !filtered.length" description="还没有博客，去写一篇吧～">
-        <el-button type="primary" @click="router.push('/blog/new')">写第一篇</el-button>
-      </el-empty>
+      <ZgState v-if="!loading && !filtered.length" type="empty" title="还没有博客" desc="记录学习心得、写下第一篇吧～">
+        <template #actions>
+          <el-button type="primary" @click="router.push('/blog/new')">写第一篇</el-button>
+        </template>
+      </ZgState>
     </div>
   </div>
 </template>
@@ -69,7 +71,7 @@ function excerpt(md: string) {
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .blog-card { overflow: hidden; cursor: pointer; }
 .bc-cover { height: 140px; background-size: cover; background-position: center; }
-.bc-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(251,191,36,.2), rgba(251,146,60,.15)); font-size: 48px; }
+.bc-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; }
 .bc-body { padding: 16px; }
 .bc-title { font-weight: 700; font-size: 16px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .bc-excerpt { color: var(--zg-text-dim); font-size: 13px; line-height: 1.6; margin: 8px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

@@ -253,14 +253,14 @@ async function deleteTask(t: any) {
 .pp-count { font-size:12px; color:var(--zg-text-dim); font-weight:400; }
 .preview-table { overflow-x:auto; }
 table { width:100%; border-collapse:collapse; }
-th, td { padding:10px 12px; text-align:left; border-bottom:1px solid rgba(245,158,11,.06); font-size:13px; }
+th, td { padding:10px 12px; text-align:left; border-bottom:1px solid rgba(var(--zg-primary-rgb),.06); font-size:13px; }
 th { color:var(--zg-text-dim); font-weight:600; }
-th.match { color:var(--zg-accent); background:rgba(245,158,11,.1); }
+th.match { color:var(--zg-accent); background:rgba(var(--zg-primary-rgb),.1); }
 .more-rows { font-size:12px; color:var(--zg-text-dim); padding:12px; text-align:center; }
 .existing { margin-top:32px; }
 .ex-list { padding:8px; }
 .ex-item { display:flex; align-items:center; justify-content:space-between; padding:14px; border-radius:10px; cursor:pointer; }
-.ex-item:hover { background:rgba(245,158,11,.06); }
+.ex-item:hover { background:rgba(var(--zg-primary-rgb),.06); }
 .ex-title { font-weight:600; }
 .ex-meta { font-size:12px; color:var(--zg-text-dim); margin-top:3px; }
 .ex-go { color:var(--zg-text-dim); }

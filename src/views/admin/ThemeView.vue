@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch, onMounted } from 'vue'
+import { reactive, watch, onMounted, computed } from 'vue'
 import { useThemeStore } from '@/store/theme'
 import { ElMessage } from 'element-plus'
 
@@ -12,7 +12,10 @@ onMounted(() => {
 
 watch(d, () => { theme.preview({ ...d }) }, { deep: true })
 
-const presetColors = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#fde047', '#a16207', '#fdba74']
+// BUG-13 修复：预设色板跟随设计模式——经典=橘黄系原色板（像素级不变），墨金=沉稳金系
+const classicSwatches = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', '#fde047', '#a16207', '#fdba74']
+const inkgoldSwatches = ['#BA7517', '#C8922E', '#D4AF37', '#A66B11', '#8C6414', '#E6C66E', '#9C7A2A', '#B8905A']
+const presetColors = computed(() => (d.designMode === 'inkgold' ? inkgoldSwatches : classicSwatches))
 
 function pickTheme(id: number) {
   const t = theme.themes.find((x: any) => x.id === id)
@@ -61,6 +64,7 @@ function reset() {
           </el-radio-group>
           <p class="tip" style="margin-top:8px">墨金学术 = 胶囊导航 + 沉稳金 + 液态玻璃 + 衬线标题 + 手机化过渡；经典 = 当前外观，切回后完全一致。</p>
           <div v-if="d.designMode === 'inkgold'" style="margin-top:18px">
+            <p class="tip ink-note">墨金模式下，主色/辅色/点缀色/圆角/毛玻璃由皮肤统一接管（保证全站墨金一致性）；下方色板与滑杆的自定义在经典模式下生效。</p>
             <div class="ep-label">墨金深浅（发布后全站生效）</div>
             <el-radio-group v-model="d.inkgoldTone">
               <el-radio-button label="light">浅色 · 暖米白</el-radio-button>
@@ -159,18 +163,19 @@ function reset() {
 <style scoped>
 .dh-title { font-size:24px; font-weight:800; }
 .tip { color:var(--zg-text-dim); font-size:13px; margin:6px 0 20px; }
+.ink-note { padding:10px 12px; border-radius:10px; background:rgba(var(--zg-primary-rgb),.08); border:1px dashed rgba(var(--zg-primary-rgb),.35); margin:0 0 14px; }
 .theme-row { display:grid; grid-template-columns:380px 1fr; gap:24px; }
 .edit-panel { padding:24px; height:fit-content; }
 .ep-section { margin-bottom:22px; }
 .ep-label { font-size:13px; color:var(--zg-text-dim); margin-bottom:10px; font-weight:600; }
 .preset-row { display:flex; flex-wrap:wrap; gap:8px; }
-.preset-chip { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; background:rgba(245,158,11,.06); cursor:pointer; font-size:13px; border:1px solid transparent; }
-.preset-chip.on { border-color:var(--zg-primary); background:rgba(245,158,11,.15); }
+.preset-chip { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; background:rgba(var(--zg-primary-rgb),.06); cursor:pointer; font-size:13px; border:1px solid transparent; }
+.preset-chip.on { border-color:var(--zg-primary); background:rgba(var(--zg-primary-rgb),.15); }
 .pc-dot { width:14px; height:14px; border-radius:50%; }
 .color-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .color-val { font-size:13px; color:var(--zg-text-dim); font-family:monospace; }
 .swatches { display:flex; gap:6px; }
-.sw { width:20px; height:20px; border-radius:6px; cursor:pointer; border:1px solid rgba(245,158,11,.3); }
+.sw { width:20px; height:20px; border-radius:6px; cursor:pointer; border:1px solid rgba(var(--zg-primary-rgb),.3); }
 .bg-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .bg-row span { font-size:12px; color:var(--zg-text-dim); }
 .ep-actions { display:flex; gap:12px; margin-top:24px; }
@@ -185,7 +190,7 @@ function reset() {
 .pp-card-icon { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; margin-bottom:10px; }
 .pp-card-title { font-weight:700; }
 .pp-card-desc { font-size:12px; color:var(--zg-text-dim); margin-top:2px; }
-.pp-grad { font-size:12px; color:var(--zg-text-dim); text-align:center; padding-top:16px; border-top:1px dashed rgba(245,158,11,.15); }
+.pp-grad { font-size:12px; color:var(--zg-text-dim); text-align:center; padding-top:16px; border-top:1px dashed rgba(var(--zg-primary-rgb),.15); }
 @media (max-width:980px){ .theme-row{grid-template-columns:1fr;} }
 
 @media (max-width: 768px) {
@@ -228,7 +233,7 @@ function reset() {
   .ep-label { font-size: 14px; margin-bottom: 12px; }
   .preset-row { gap: 12px; }
   .preset-chip { padding: 8px 16px; font-size: 14px; gap: 10px; border-radius: 24px; transition: all .2s ease; }
-  .preset-chip:hover { background: rgba(245,158,11,.12); }
+  .preset-chip:hover { background: rgba(var(--zg-primary-rgb),.12); }
   .color-row { gap: 16px; }
   .color-val { font-size: 14px; }
   .swatches { gap: 8px; }

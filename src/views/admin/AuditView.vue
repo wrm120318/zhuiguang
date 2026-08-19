@@ -193,7 +193,7 @@ async function batchApprove() {
 .audit-list { display:flex; flex-direction:column; gap:16px; }
 .audit-card { display:flex; gap:16px; padding:16px; }
 .au-cover { width:120px; height:90px; object-fit:cover; border-radius:10px; flex-shrink:0; }
-.au-icon { width:80px; height:80px; border-radius:12px; background:rgba(245,158,11,.06); display:flex; align-items:center; justify-content:center; font-size:36px; flex-shrink:0; }
+.au-icon { width:80px; height:80px; border-radius:12px; background:rgba(var(--zg-primary-rgb),.06); display:flex; align-items:center; justify-content:center; font-size:36px; flex-shrink:0; }
 .au-body { flex:1; min-width:0; }
 .au-title { font-weight:700; font-size:16px; }
 .au-meta { font-size:12px; color:var(--zg-text-dim); margin:4px 0; }
@@ -201,9 +201,9 @@ async function batchApprove() {
 .au-content { font-size:13px; color:var(--zg-text-dim); margin-top:8px; max-height:80px; overflow:hidden; }
 .au-content :deep(p) { margin-bottom:6px; }
 .au-actions { display:flex; flex-direction:column; gap:8px; justify-content:center; }
-.au-proxy { display:block; font-size:12px; color:#9a3412; margin:4px 0; padding:4px 8px; background:rgba(251,146,60,.1); border-radius:6px; }
+.au-proxy { display:block; font-size:12px; color:#9a3412; margin:4px 0; padding:4px 8px; background:rgba(var(--zg-primary-2-rgb),.1); border-radius:6px; }
 .au-proxy b { color:#c2410c; }
-.au-proxy-card { border-left:3px solid var(--zg-primary); background:rgba(245,158,11,.04); }
+.au-proxy-card { border-left:3px solid var(--zg-primary); background:rgba(var(--zg-primary-rgb),.04); }
 @media (max-width:768px){ .audit-card{flex-direction:column;} .au-cover{width:100%;height:160px;} }
 
 @media (max-width: 768px) {
@@ -220,7 +220,7 @@ async function batchApprove() {
   .au-meta { font-size: 11px; }
   .au-rec { font-size: 12px; }
   .au-content { font-size: 12px; max-height: 60px; }
-  .au-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; padding-top: 8px; border-top: 1px dashed rgba(245,158,11,.1); }
+  .au-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 6px; padding-top: 8px; border-top: 1px dashed rgba(var(--zg-primary-rgb),.1); }
   .au-actions .el-button { flex: 1; min-width: auto; }
 }
 

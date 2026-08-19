@@ -112,7 +112,7 @@ onMounted(() => { expProgress.value = calcProgress() })
     <!-- 数据概览 -->
     <div class="stat-grid">
       <div class="stat-card glass zg-card">
-        <div class="stat-icon" style="background:linear-gradient(135deg,#FBBF24,#F59E0B)"><ZgGlyph emoji="📝" /></div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,var(--zg-accent),var(--zg-primary))"><ZgGlyph emoji="📝" /></div>
         <div class="stat-info"><div class="stat-num">{{ myArticles.length }}</div><div class="stat-label">我的美文</div></div>
       </div>
       <div class="stat-card glass zg-card" @click="router.push('/favorites')">
@@ -120,7 +120,7 @@ onMounted(() => { expProgress.value = calcProgress() })
         <div class="stat-info"><div class="stat-num">收藏</div><div class="stat-label">查看收藏</div></div>
       </div>
       <div class="stat-card glass zg-card" @click="router.push('/leaderboard')">
-        <div class="stat-icon" style="background:linear-gradient(135deg,#FDE68A,#FBBF24)"><ZgGlyph emoji="🏆" /></div>
+        <div class="stat-icon" style="background:linear-gradient(135deg,var(--zg-cream-200),var(--zg-accent))"><ZgGlyph emoji="🏆" /></div>
         <div class="stat-info"><div class="stat-num">排行</div><div class="stat-label">查看排名</div></div>
       </div>
     </div>
@@ -212,17 +212,17 @@ onMounted(() => { expProgress.value = calcProgress() })
 
 <style scoped>
 .profile-hero { position: relative; overflow: hidden; margin-top: 20px; border-radius: 24px; padding: 28px 32px; }
-.ph-bg { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(251,191,36,.1), rgba(251,146,60,.06)); z-index: 0; }
+.ph-bg { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.1), rgba(var(--zg-primary-2-rgb),.06)); z-index: 0; }
 .ph-content { position: relative; z-index: 1; display: flex; gap: 20px; align-items: flex-start; }
 .ph-avatar-wrap { position: relative; flex-shrink: 0; }
-.ph-avatar { width: 80px; height: 80px; border-radius: 24px; object-fit: cover; border: 3px solid rgba(245,158,11,.3); }
-.ph-level-badge { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(245,158,11,.3); }
+.ph-avatar { width: 80px; height: 80px; border-radius: 24px; object-fit: cover; border: 3px solid rgba(var(--zg-primary-rgb),.3); }
+.ph-level-badge { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(var(--zg-primary-rgb),.3); }
 .ph-info { flex: 1; min-width: 0; }
 .ph-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ph-name { font-size: var(--zg-fs-xl); font-weight: 800; }
-.ph-role { font-size: var(--zg-fs-xs); padding: 2px 10px; border-radius: 6px; background: rgba(245,158,11,.2); color: #92400e; font-weight: 600; }
+.ph-role { font-size: var(--zg-fs-xs); padding: 2px 10px; border-radius: 6px; background: rgba(var(--zg-primary-rgb),.2); color: #92400e; font-weight: 600; }
 .ph-contact { display: flex; gap: 16px; margin-top: 6px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); flex-wrap: wrap; }
-.ph-exp-bar { height: 8px; border-radius: 8px; background: rgba(245,158,11,.12); margin-top: 14px; overflow: hidden; }
+.ph-exp-bar { height: 8px; border-radius: 8px; background: rgba(var(--zg-primary-rgb),.12); margin-top: 14px; overflow: hidden; }
 .ph-exp-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--zg-accent), var(--zg-primary)); transition: width .5s; }
 .ph-exp-text { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 6px; }
 .ph-edit { position: absolute; top: 16px; right: 16px; font-size: 18px; }
@@ -249,8 +249,8 @@ onMounted(() => { expProgress.value = calcProgress() })
 .ma-meta { display: flex; gap: 12px; margin-top: 6px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); align-items: center; }
 .ma-status { padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
 .ma-status.approved { background: #dcfce7; color: #166534; }
-.ma-status.pending { background: #fef3c7; color: #92400e; }
-.ma-status.pending_student { background: linear-gradient(135deg,#ffedd5,#fef3c7); color:#9a3412; }
+.ma-status.pending { background: var(--zg-cream-100); color: #92400e; }
+.ma-status.pending_student { background: linear-gradient(135deg,#ffedd5,var(--zg-cream-100)); color:#9a3412; }
 .ma-status.rejected_student { background:#fee2e2; color:#991b1b; }
 .ma-status.rejected { background: #fee2e2; color: #991b1b; }
 

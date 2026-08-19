@@ -59,8 +59,8 @@ function onTab(it: any) {
     background: rgba(255,251,235,0.92);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border-top: 1px solid rgba(245,158,11,0.15);
-    box-shadow: 0 -4px 20px rgba(245,158,11,0.08);
+    border-top: 1px solid rgba(var(--zg-primary-rgb),0.15);
+    box-shadow: 0 -4px 20px rgba(var(--zg-primary-rgb),0.08);
     justify-content: space-around; align-items: center;
     padding-bottom: env(safe-area-inset-bottom);
   }
@@ -75,7 +75,7 @@ function onTab(it: any) {
   .tab.on { color: var(--zg-primary); }
   .t-icon { font-size:22px; transition: transform .3s cubic-bezier(.2,.8,.2,1); }
   .t-label { font-size:10px; font-weight:500; }
-  .tab.on .t-icon { transform: translateY(-3px) scale(1.15); filter: drop-shadow(0 4px 8px rgba(245,158,11,0.4)); }
+  .tab.on .t-icon { transform: translateY(-3px) scale(1.15); filter: drop-shadow(0 4px 8px rgba(var(--zg-primary-rgb),0.4)); }
   .tab.on .t-label { font-weight:700; }
   .t-dot {
     position: absolute; bottom: 2px;

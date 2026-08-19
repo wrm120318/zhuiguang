@@ -390,7 +390,7 @@ onBeforeUnmount(() => {
                   <div class="kv"><span class="k">文件总数</span><span class="v strong">{{ data.supabaseStorage.totalFiles }} 个</span></div>
                   <div class="kv"><span class="k">已用空间</span><span class="v strong">{{ data.supabaseStorage.totalSizeFmt }}</span></div>
                   <div class="kv"><span class="k">剩余空间</span><span class="v" style="color:#10b981;font-weight:700;">{{ data.supabaseStorage.remainingFmt }}</span></div>
-                  <div class="kv"><span class="k">使用率</span><span class="v" :style="{ color: storageUsedPercentNum > 80 ? '#ef4444' : storageUsedPercentNum > 60 ? '#f59e0b' : '#10b981', fontWeight: 700 }">{{ data.supabaseStorage.usedPercent }}%</span></div>
+                  <div class="kv"><span class="k">使用率</span><span class="v" :style="{ color: storageUsedPercentNum > 80 ? '#ef4444' : storageUsedPercentNum > 60 ? 'var(--zg-primary)' : '#10b981', fontWeight: 700 }">{{ data.supabaseStorage.usedPercent }}%</span></div>
                 </div>
 
                 <div class="glass info-panel">
@@ -507,7 +507,7 @@ onBeforeUnmount(() => {
                 <div class="kv"><span class="k">表数量</span><span class="v">{{ data.database.tableCount }} 张</span></div>
                 <div v-if="data.database.emptyTables?.length" class="kv">
                   <span class="k">空表</span>
-                  <span class="v" style="color:#f59e0b;">{{ data.database.emptyTables.length }} 张</span>
+                  <span class="v" style="color:var(--zg-primary);">{{ data.database.emptyTables.length }} 张</span>
                 </div>
               </div>
               <div class="glass info-panel db-tables">
@@ -575,7 +575,7 @@ onBeforeUnmount(() => {
                   <div class="opt-label">剩余空间</div>
                 </div>
                 <div class="opt-stat">
-                  <div class="opt-num" style="color:#f59e0b;">{{ storageData.suggestions?.length || 0 }}</div>
+                  <div class="opt-num" style="color:var(--zg-primary);">{{ storageData.suggestions?.length || 0 }}</div>
                   <div class="opt-label">可优化文件</div>
                 </div>
                 <div class="opt-stat">
@@ -728,7 +728,7 @@ onBeforeUnmount(() => {
               <ZgGlyph emoji="🔗" /> 关联资源: {{ previewFile?.resourceTitle || '未命名' }}
               <span class="file-info-id">（ID: {{ previewFile?.resourceId }}）</span>
             </div>
-            <div v-else class="file-info-resource" style="color:#f59e0b;"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联任何资源记录）</div>
+            <div v-else class="file-info-resource" style="color:var(--zg-primary);"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联任何资源记录）</div>
           </div>
           <div class="preview-tip">该文件类型不支持在线预览，可直接删除</div>
         </div>
@@ -771,7 +771,7 @@ onBeforeUnmount(() => {
 .alert-banner { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
 .alert-item { display:flex; align-items:center; gap:8px; padding:10px 16px; border-radius:8px; font-size:13px; }
 .alert-danger { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.3); color:#dc2626; }
-.alert-warning { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); color:#d97706; }
+.alert-warning { background:rgba(var(--zg-primary-rgb),.1); border:1px solid rgba(var(--zg-primary-rgb),.3); color:#d97706; }
 .alert-info { background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); color:#2563eb; }
 .alert-icon { font-size:16px; }
 .alert-source { font-weight:700; flex-shrink:0; }
@@ -782,7 +782,7 @@ onBeforeUnmount(() => {
 .stat-card { display:flex; align-items:center; gap:14px; padding:18px; }
 .stat-card.online { border:2px solid rgba(16,185,129,.3); background:rgba(16,185,129,.05); }
 .stat-card.pending { border:2px solid rgba(239,68,68,.3); }
-.sc-icon { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; background:rgba(245,158,11,.1); }
+.sc-icon { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; background:rgba(var(--zg-primary-rgb),.1); }
 .sc-num { font-size:22px; font-weight:800; color:var(--zg-accent); }
 .sc-num.big { font-size:30px; color:#10b981; }
 .sc-label { font-size:12px; color:var(--zg-text-dim); }
@@ -792,14 +792,14 @@ onBeforeUnmount(() => {
 .monitor-tabs :deep(.el-tabs__item) { font-weight:600; font-size:14px; }
 
 /* 容量进度条 */
-.capacity-bar-wrap { background:rgba(245,158,11,.05); border-radius:12px; padding:16px; }
+.capacity-bar-wrap { background:rgba(var(--zg-primary-rgb),.05); border-radius:12px; padding:16px; }
 .cap-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px; }
 .cap-title { font-weight:700; font-size:14px; }
 .cap-numbers { font-size:13px; color:var(--zg-text-dim); }
 .cap-numbers b { color:var(--zg-primary); font-size:16px; }
 .capacity-bar { height:28px; background:rgba(0,0,0,.06); border-radius:14px; overflow:hidden; position:relative; }
 .capacity-fill { height:100%; background:linear-gradient(90deg,#10b981,#34d399); border-radius:14px; transition:width .5s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:12px; min-width:40px; }
-.capacity-fill.warning { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+.capacity-fill.warning { background:linear-gradient(90deg,var(--zg-primary),var(--zg-accent)); }
 .capacity-fill.danger { background:linear-gradient(90deg,#ef4444,#f87171); }
 .cap-percent { color:#fff; font-weight:800; font-size:13px; text-shadow:0 1px 2px rgba(0,0,0,.2); }
 
@@ -813,7 +813,7 @@ onBeforeUnmount(() => {
 .row { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
 .info-panel { padding:20px; display:flex; flex-direction:column; gap:8px; }
 .ip-title { font-weight:700; font-size:15px; margin-bottom:6px; }
-.kv { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px dashed rgba(245,158,11,.1); }
+.kv { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px dashed rgba(var(--zg-primary-rgb),.1); }
 .kv:last-child { border-bottom:none; }
 .k { color:var(--zg-text-dim); }
 .v { color:var(--zg-text); text-align:right; max-width:60%; word-break:break-all; }
@@ -821,8 +821,8 @@ onBeforeUnmount(() => {
 
 .role-row { display:flex; align-items:center; gap:10px; padding:6px 0; }
 .role-name { width:80px; font-size:13px; flex-shrink:0; }
-.role-bar { flex:1; height:20px; background:rgba(245,158,11,.08); border-radius:10px; overflow:hidden; }
-.role-bar-fill { display:block; height:100%; background:linear-gradient(90deg,#f59e0b,#fbbf24); border-radius:10px; transition:width .3s; }
+.role-bar { flex:1; height:20px; background:rgba(var(--zg-primary-rgb),.08); border-radius:10px; overflow:hidden; }
+.role-bar-fill { display:block; height:100%; background:linear-gradient(90deg,var(--zg-primary),var(--zg-accent)); border-radius:10px; transition:width .3s; }
 .role-num { width:60px; font-size:13px; font-weight:700; text-align:right; flex-shrink:0; }
 
 .db-row { display:grid; grid-template-columns:300px 1fr; gap:16px; }
@@ -830,16 +830,16 @@ onBeforeUnmount(() => {
 .db-tables { padding:20px; }
 .tables { margin-top:6px; max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
 .tbl-row { display:flex; justify-content:space-between; padding:5px 8px; font-size:12px; border-radius:6px; }
-.tbl-row:nth-child(odd) { background:rgba(245,158,11,.05); }
+.tbl-row:nth-child(odd) { background:rgba(var(--zg-primary-rgb),.05); }
 .tbl-name { color:var(--zg-text-dim); }
 .tbl-num { font-weight:700; color:var(--zg-accent); }
-.tbl-empty { font-size:10px; color:#f59e0b; margin-left:8px; }
+.tbl-empty { font-size:10px; color:var(--zg-primary); margin-left:8px; }
 
 /* TOP 列表 */
 .top-list { display:flex; flex-direction:column; gap:4px; max-height:300px; overflow-y:auto; }
 .top-row { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; font-size:12px; }
-.top-row:nth-child(odd) { background:rgba(245,158,11,.05); }
-.top-rank { width:24px; height:24px; border-radius:50%; background:rgba(245,158,11,.15); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--zg-accent); flex-shrink:0; }
+.top-row:nth-child(odd) { background:rgba(var(--zg-primary-rgb),.05); }
+.top-rank { width:24px; height:24px; border-radius:50%; background:rgba(var(--zg-primary-rgb),.15); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--zg-accent); flex-shrink:0; }
 .top-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--zg-text); }
 .top-dl { color:var(--zg-accent); font-weight:700; flex-shrink:0; }
 .top-size { color:var(--zg-text-dim); flex-shrink:0; min-width:60px; text-align:right; }
@@ -872,7 +872,7 @@ onBeforeUnmount(() => {
 /* ===== 大体积文件管理（预览+删除） ===== */
 .ip-hint { font-size:11px; color:var(--zg-text-dim); font-weight:400; margin-left:8px; }
 .file-mgmt-row { padding:6px 8px; }
-.file-mgmt-row:hover { background:rgba(245,158,11,.1); }
+.file-mgmt-row:hover { background:rgba(var(--zg-primary-rgb),.1); }
 .file-name-clickable { cursor:default; }
 .file-name-clickable.previewable { cursor:pointer; color:var(--zg-accent); text-decoration:underline; text-decoration-style:dotted; }
 .file-name-clickable.previewable:hover { color:var(--zg-primary); }
@@ -885,7 +885,7 @@ onBeforeUnmount(() => {
 .preview-image { max-width:100%; max-height:70vh; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.15); }
 .preview-pdf { width:100%; height:70vh; border-radius:8px; border:1px solid rgba(0,0,0,.1); }
 .preview-other { text-align:center; padding:40px 20px; }
-.file-info-card { display:inline-flex; flex-direction:column; align-items:center; gap:8px; padding:30px 40px; background:rgba(245,158,11,.05); border-radius:12px; border:1px dashed rgba(245,158,11,.2); }
+.file-info-card { display:inline-flex; flex-direction:column; align-items:center; gap:8px; padding:30px 40px; background:rgba(var(--zg-primary-rgb),.05); border-radius:12px; border:1px dashed rgba(var(--zg-primary-rgb),.2); }
 .file-info-icon { font-size:48px; }
 .file-info-name { font-weight:700; font-size:15px; color:var(--zg-text); word-break:break-all; max-width:400px; }
 .file-info-size { font-size:13px; color:var(--zg-text-dim); }

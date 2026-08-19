@@ -116,9 +116,11 @@ function levelExp(level: number) { return (level - 1) * 60 }
             </el-button>
           </div>
         </template>
-        <el-empty v-else-if="!loading" description="暂无网站说明">
-          <el-button v-if="user.isSuperAdmin" type="primary" @click="router.push('/admin/guide')">前往编辑</el-button>
-        </el-empty>
+        <ZgState v-else-if="!loading" type="empty" title="暂无网站说明" desc="管理员还没有撰写网站说明。">
+          <template #actions>
+            <el-button v-if="user.isSuperAdmin" type="primary" @click="router.push('/admin/guide')">前往编辑</el-button>
+          </template>
+        </ZgState>
       </div>
 
       <!-- 经验值说明 -->
@@ -186,8 +188,8 @@ function levelExp(level: number) { return (level - 1) * 60 }
   gap: 8px;
   padding: 6px;
   margin-bottom: 28px;
-  background: rgba(245, 158, 11, .08);
-  border: 1px solid rgba(245, 158, 11, .15);
+  background: rgba(var(--zg-primary-rgb), .08);
+  border: 1px solid rgba(var(--zg-primary-rgb), .15);
   border-radius: 14px;
 }
 .tab {
@@ -207,11 +209,11 @@ function levelExp(level: number) { return (level - 1) * 60 }
   transition: all .25s ease;
   white-space: nowrap;
 }
-.tab:hover { color: var(--zg-primary); background: rgba(245, 158, 11, .1); }
+.tab:hover { color: var(--zg-primary); background: rgba(var(--zg-primary-rgb), .1); }
 .tab.active {
   color: #fff;
-  background: linear-gradient(135deg, var(--zg-primary), #f59e0b);
-  box-shadow: 0 6px 16px rgba(245, 158, 11, .3);
+  background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary));
+  box-shadow: 0 6px 16px rgba(var(--zg-primary-rgb), .3);
 }
 .tab-icon { font-size: 17px; }
 
@@ -237,7 +239,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
 .muted { color: var(--zg-text-dim); font-size: 13px; }
 .sec ul { padding-left: 24px; }
 .sec li { font-size: 14px; line-height: 2; }
-.sec code { background: rgba(245, 158, 11, .12); padding: 2px 8px; border-radius: 6px; font-size: 13px; }
+.sec code { background: rgba(var(--zg-primary-rgb), .12); padding: 2px 8px; border-radius: 6px; font-size: 13px; }
 .rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
 .rule-card { display: flex; align-items: center; gap: 12px; padding: 14px; }
 .rc-icon { font-size: 26px; }
@@ -248,12 +250,12 @@ function levelExp(level: number) { return (level - 1) * 60 }
 .rc-exp-neg { color: #ef4444; }
 .level-table { margin-top: 14px; max-width: 480px; }
 .lt-head, .lt-row { display: grid; grid-template-columns: 1fr 1fr 1.5fr; padding: 10px 14px; }
-.lt-head { font-weight: 700; font-size: 13px; color: var(--zg-text-dim); border-bottom: 2px solid rgba(245, 158, 11, .2); }
-.lt-row { font-size: 14px; border-bottom: 1px dashed rgba(245, 158, 11, .1); }
+.lt-head { font-weight: 700; font-size: 13px; color: var(--zg-text-dim); border-bottom: 2px solid rgba(var(--zg-primary-rgb), .2); }
+.lt-row { font-size: 14px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb), .1); }
 .lt-row span:first-child { font-weight: 700; color: var(--zg-primary); }
 
 /* 通用底部操作区 */
-.g-foot { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(245, 158, 11, .15); }
+.g-foot { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(var(--zg-primary-rgb), .15); }
 
 /* 移动端适配 */
 @media (max-width: 768px) {

@@ -30,11 +30,12 @@ const siteConfig = computed(() => settings.siteConfig)
 const configLoaded = computed(() => settings.siteConfigLoaded)
 
 // 默认快捷入口（与后台 SiteConfigView 默认值一致）
+// A7 修复：默认 color 置空 → 走统一暖金浅底；后台自定义 color 照常生效（铁律4）
 const defaultQuickLinks = [
-  { icon: '📚', label: '学科广场', path: '/subjects', color: '#F59E0B' },
-  { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '#FBBF24' },
-  { icon: '👤', label: '个人中心', path: '/profile', color: '#FB923C' },
-  { icon: '⭐', label: '我的收藏', path: '/favorites', color: '#FDE68A' },
+  { icon: '📚', label: '学科广场', path: '/subjects', color: '' },
+  { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '' },
+  { icon: '👤', label: '个人中心', path: '/profile', color: '' },
+  { icon: '⭐', label: '我的收藏', path: '/favorites', color: '' },
 ]
 
 // 计算最终展示的快捷入口：配置加载完成前不渲染，避免闪烁
@@ -45,14 +46,15 @@ const displayQuickLinks = computed(() => {
   return defaultQuickLinks
 })
 
-// 图标底色：后台自定义 color 照常生效；无 color 时按皮肤回退默认暖金（铁律4：自定义优先）
-function iconBg(color?: string) {
-  const cfg: any = theme.activeTheme?.config
-  const def = cfg?.designMode === 'inkgold'
-    ? (cfg.inkgoldTone === 'dark' ? '#D4AF37' : '#BA7517')
-    : '#F59E0B'
-  const c = color || def
-  return `linear-gradient(135deg, ${c}, ${c}aa)`
+// 图标样式（A7 规格）：后台自定义 color → 照常渲染实色渐变（铁律4：自定义优先）；
+// 无 color（默认态）→ 暖金浅底 rgba(var(--zg-primary-rgb), .10) + 主色图标（不再杂色实色渐变）
+function iconStyle(color?: string) {
+  if (!color) {
+    const cfg: any = theme.activeTheme?.config
+    const a = cfg?.designMode === 'inkgold' && cfg?.inkgoldTone === 'dark' ? 0.12 : 0.10
+    return { background: `rgba(var(--zg-primary-rgb), ${a})`, color: 'var(--zg-primary)' }
+  }
+  return { background: `linear-gradient(135deg, ${color}, ${color}aa)` }
 }
 
 // 公告栏：配置加载完成前不渲染，避免闪烁
@@ -132,7 +134,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     <!-- 快捷入口：配置加载完成后才渲染，避免先显示默认值再闪烁为自定义配置 -->
     <div class="quick-grid" v-if="displayQuickLinks && displayQuickLinks.length">
       <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qg-card glass zg-card" @click="router.push(ql.path)">
-        <div class="qg-icon" :style="{ background: iconBg(ql.color) }"><ZgGlyph :emoji="ql.icon" /></div>
+        <div class="qg-icon" :style="iconStyle(ql.color)"><ZgGlyph :emoji="ql.icon" /></div>
         <div class="qg-text">{{ ql.label }}</div>
       </div>
     </div>
@@ -142,7 +144,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       <div class="section-title">学科子站</div>
       <div class="subj-row">
         <div v-for="s in data.subjects" :key="s.id" class="subj-chip glass zg-card" @click="router.push(`/subject/${s.slug}`)">
-          <span class="sc-icon" :style="{ background: iconBg(s.color) }"><ZgGlyph :emoji="s.icon" /></span>
+          <span class="sc-icon" :style="iconStyle(s.color)"><ZgGlyph :emoji="s.icon" /></span>
           <span class="sc-name">{{ s.name }}</span>
         </div>
       </div>
@@ -181,24 +183,24 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
 <style scoped>
 .hero { position: relative; overflow: hidden; margin-top: 20px; border-radius: 24px; padding: 40px; }
-.hero-bg { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(251,191,36,0.12), rgba(251,146,60,0.08)); z-index: 0; }
+.hero-bg { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),0.12), rgba(var(--zg-primary-2-rgb),0.08)); z-index: 0; }
 .hero-content { position: relative; z-index: 1; }
-.hero-tag { display: inline-block; padding: 6px 14px; border-radius: 30px; background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.3); font-size: var(--zg-fs-sm); color: #b45309; margin-bottom: 18px; font-weight: 500; }
+.hero-tag { display: inline-block; padding: 6px 14px; border-radius: 30px; background: rgba(var(--zg-primary-rgb),.15); border: 1px solid rgba(var(--zg-primary-rgb),.3); font-size: var(--zg-fs-sm); color: #b45309; margin-bottom: 18px; font-weight: 500; }
 .hero-title { font-size: var(--zg-fs-2xl); font-weight: 800; line-height: 1.3; }
 .hero-sub { color: var(--zg-text-dim); margin-top: 10px; font-size: var(--zg-fs-base); line-height: 1.6; }
 .hero-stats { display: flex; align-items: center; gap: 20px; margin-top: 28px; }
 .hs-item { text-align: center; }
 .hs-num { font-size: var(--zg-fs-xl); font-weight: 800; color: var(--zg-text); }
 .hs-label { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 2px; }
-.hs-divider { width: 1px; height: 30px; background: rgba(245,158,11,.15); }
+.hs-divider { width: 1px; height: 30px; background: rgba(var(--zg-primary-rgb),.15); }
 
 .quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 20px; }
 
-.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(245,158,11,.25); }
+.announce-bar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; margin-top: 14px; border-radius: 14px; border: 1px solid rgba(var(--zg-primary-rgb),.25); }
 .ab-icon { font-size: 18px; }
 .ab-text { font-size: var(--zg-fs-sm); color: var(--zg-text); line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; }
 .qg-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 12px; cursor: pointer; }
-.qg-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 14px rgba(245,158,11,.2); }
+.qg-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 14px rgba(var(--zg-primary-rgb),.2); }
 .qg-text { font-size: var(--zg-fs-sm); font-weight: 600; color: var(--zg-text); }
 
 .section { margin-top: 28px; }
@@ -210,13 +212,13 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .art-card { overflow: hidden; cursor: pointer; }
 .ac-cover { height: 140px; background-size: cover; background-position: center; }
-.ac-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(251,191,36,.2), rgba(251,146,60,.15)); font-size: 48px; font-weight: 800; color: rgba(245,158,11,.3); }
+.ac-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; font-weight: 800; color: rgba(var(--zg-primary-rgb),.3); }
 .ac-body { padding: 14px 16px; }
 .ac-title { font-weight: 700; font-size: var(--zg-fs-base); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ac-meta { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); }
 .ac-dot { opacity: .5; }
 
-.zg-footer { text-align: center; padding: 32px 0 8px; margin-top: 40px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); opacity: 0.7; border-top: 1px dashed rgba(245,158,11,.12); white-space: pre-wrap; word-wrap: break-word; }
+.zg-footer { text-align: center; padding: 32px 0 8px; margin-top: 40px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); opacity: 0.7; border-top: 1px dashed rgba(var(--zg-primary-rgb),.12); white-space: pre-wrap; word-wrap: break-word; }
 .zg-footer :deep(br) { display: block; content: ""; margin: 4px 0; }
 .zg-footer :deep(*) { white-space: pre-wrap; }
 

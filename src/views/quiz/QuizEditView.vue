@@ -228,14 +228,14 @@ async function submit() {
 .q-section { margin-top: 20px; }
 .qs-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .qs-title { font-weight: 700; font-size: 16px; }
-.q-edit { padding: 16px; border-radius: 12px; background: rgba(245,158,11,.04); border: 1px dashed rgba(245,158,11,.18); margin-bottom: 14px; }
+.q-edit { padding: 16px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.04); border: 1px dashed rgba(var(--zg-primary-rgb),.18); margin-bottom: 14px; }
 .qe-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .qe-no { font-weight: 700; }
 .qe-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .qe-opt { display: flex; align-items: center; gap: 8px; }
 .qe-tip { font-size: 12px; color: var(--zg-text-dim); margin-top: 6px; }
 .qe-attach { margin-top: 10px; }
-.qa-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(245,158,11,.08); border-radius: 6px; margin-top: 6px; font-size: 13px; }
+.qa-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(var(--zg-primary-rgb),.08); border-radius: 6px; margin-top: 6px; font-size: 13px; }
 .ep-foot { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 @media (max-width: 720px) { .editor { padding: 18px; } .ep-row { flex-direction: column; } }
 </style>

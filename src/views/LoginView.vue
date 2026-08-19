@@ -115,23 +115,26 @@ async function clickFixLoginPage() {
 .login-page { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 500; overflow: hidden; }
 .login-bg { position: absolute; inset: 0; z-index: 0; }
 .lb-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; animation: zgFloat 18s ease-in-out infinite; }
-.lb-orb.a { width: 400px; height: 400px; background: radial-gradient(circle, #FBBF24, transparent 70%); top: -100px; left: -80px; }
+.lb-orb.a { width: 400px; height: 400px; background: radial-gradient(circle, var(--zg-accent), transparent 70%); top: -100px; left: -80px; }
 .lb-orb.b { width: 350px; height: 350px; background: radial-gradient(circle, #FB923C, transparent 70%); bottom: -100px; right: -60px; animation-delay: -6s; }
-.lb-orb.c { width: 250px; height: 250px; background: radial-gradient(circle, #FDE68A, transparent 70%); top: 50%; left: 60%; animation-delay: -12s; opacity: 0.3; }
-.login-card { position: relative; z-index: 1; width: 400px; max-width: 92vw; padding: 36px 32px; border-radius: 24px; }
+.lb-orb.c { width: 250px; height: 250px; background: radial-gradient(circle, var(--zg-cream-200), transparent 70%); top: 50%; left: 60%; animation-delay: -12s; opacity: 0.3; }
+.login-card { position: relative; z-index: 1; width: 400px; max-width: 92vw; padding: 36px 32px; border-radius: 24px; box-shadow: 0 2px 8px rgba(120,53,15,0.06), 0 18px 48px rgba(120,53,15,0.14); }
 .lc-logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 6px; }
-.lc-logo-mark { font-size: 40px; filter: drop-shadow(0 0 14px rgba(245,158,11,0.45)); }
+.lc-logo-mark { font-size: 40px; filter: drop-shadow(0 0 14px rgba(var(--zg-primary-rgb),0.45)); }
 .zg-inkgold .lc-logo-mark { filter: drop-shadow(0 0 16px rgba(212,175,55,0.5)); }
 .zg-inkgold .lb-orb { opacity: 0.12 !important; filter: blur(90px) !important; }
 .zg-inkgold .lb-orb.a { background: radial-gradient(circle, rgba(212,175,55,0.5), transparent 70%) !important; }
 .zg-inkgold .lb-orb.b { background: radial-gradient(circle, rgba(230,198,110,0.42), transparent 70%) !important; }
 .zg-inkgold .lb-orb.c { background: radial-gradient(circle, rgba(212,175,55,0.32), transparent 70%) !important; opacity: 0.08 !important; }
-.zg-inkgold .login-card { border: 1px solid rgba(212,175,55,0.22) !important; box-shadow: 0 28px 80px rgba(0,0,0,0.55) !important; }
+/* A5 修复：墨金浅色 → 双层柔和棕金阴影（原先误用深色档的单层重黑影 0 28px 80px rgba(0,0,0,.55)） */
+.zg-inkgold .login-card { border: 1px solid rgba(186,117,23,0.22) !important; box-shadow: 0 2px 8px rgba(120,90,30,0.06), 0 20px 48px rgba(120,90,30,0.16) !important; }
+/* A5 修复：墨金深色 → 收暗双层 + 顶部 1px 高光描边（文档 §A5 规格，避免"黑洞"质感） */
+.zg-inkgold-dark .login-card { border: 1px solid rgba(212,175,55,0.22) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 24px 64px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.08) !important; }
 .lc-logo h1 { font-size: 32px; font-weight: 800; }
 .lc-subtitle { text-align: center; color: var(--zg-text-dim); font-size: var(--zg-fs-sm); margin-bottom: 28px; }
-.lc-tabs { display:flex; gap:8px; margin-bottom: 20px; background: rgba(245,158,11,.08); padding: 4px; border-radius: 12px; }
+.lc-tabs { display:flex; gap:8px; margin-bottom: 20px; background: rgba(var(--zg-primary-rgb),.08); padding: 4px; border-radius: 12px; }
 .lc-tab { flex:1; text-align:center; padding: 10px; border-radius: 10px; cursor:pointer; color:var(--zg-text-dim); font-weight:600; transition:all .2s; }
-.lc-tab.on { background: var(--zg-primary); color: #fff; box-shadow: 0 4px 12px rgba(245,158,11,.3); }
+.lc-tab.on { background: var(--zg-primary); color: #fff; box-shadow: 0 4px 12px rgba(var(--zg-primary-rgb),.3); }
 .lc-form { display:flex; flex-direction:column; gap:14px; }
 .reg-disabled-tip { font-size:13px; color:#ef4444; text-align:center; padding:6px 10px; background:rgba(239,68,68,.08); border-radius:8px; }
 @media (max-width: 768px) {
@@ -151,7 +154,7 @@ async function clickFixLoginPage() {
 /* 🔧 登录页右上角小修复按钮：极小，不挡UI，只有管理员知道用途 */
 .zg-login-fix-btn {
   position: fixed;
-  top: 18px;
+  top: calc(18px + env(safe-area-inset-top)); /* BUG-11: 刘海屏顶部安全区 */
   right: 20px;
   z-index: 99999;
   width: 36px;
@@ -159,7 +162,7 @@ async function clickFixLoginPage() {
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  background: rgba(245, 158, 11, 0.18);
+  background: rgba(var(--zg-primary-rgb), 0.18);
   color: #b45309;
   font-size: 17px;
   line-height: 1;

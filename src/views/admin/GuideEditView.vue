@@ -66,8 +66,8 @@ function insertTag(tag: string) {
 .dh-title { font-size: 24px; font-weight: 800; }
 .edit-page { padding: 20px; }
 .toolbar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-.toolbar button { background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.15); color: var(--zg-text); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
-.toolbar button:hover { background: rgba(245,158,11,.2); }
+.toolbar button { background: rgba(var(--zg-primary-rgb),.06); border: 1px solid rgba(var(--zg-primary-rgb),.15); color: var(--zg-text); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.toolbar button:hover { background: rgba(var(--zg-primary-rgb),.2); }
 .tip { font-size: 12px; color: var(--zg-text-dim); margin-top: 10px; }
 @media (max-width: 768px) { .edit-page { padding: 14px; } }
 </style>

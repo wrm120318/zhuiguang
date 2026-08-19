@@ -23,7 +23,7 @@ withDefaults(defineProps<{ items: Item[] }>(), { items: () => [] })
 .zg-tl-line { position: absolute; left: 10px; top: 18px; bottom: 0; width: 2px; background: linear-gradient(var(--zg-primary), transparent); opacity: .35; }
 .zg-tl-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--zg-primary); box-shadow: 0 0 0 4px rgba(186,117,23,.12); margin-top: 4px; }
 .zg-tl-dot.success { background: var(--zg-success, #10B981); box-shadow: 0 0 0 4px rgba(16,185,129,.15); }
-.zg-tl-dot.warning { background: var(--zg-warning, #F59E0B); box-shadow: 0 0 0 4px rgba(245,158,11,.15); }
+.zg-tl-dot.warning { background: var(--zg-warning, var(--zg-primary)); box-shadow: 0 0 0 4px rgba(var(--zg-primary-rgb),.15); }
 .zg-tl-dot.info { background: var(--zg-info, #3B82F6); box-shadow: 0 0 0 4px rgba(59,130,246,.15); }
 .zg-tl-dot.error { background: var(--zg-error, #EF4444); box-shadow: 0 0 0 4px rgba(239,68,68,.15); }
 .zg-tl-card { padding: 14px 16px; }

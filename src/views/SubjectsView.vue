@@ -26,13 +26,14 @@ onMounted(load)
 
 async function onRefresh(done: () => void) { await load(); done() }
 
-function iconBg(color?: string) {
-  const cfg: any = theme.activeTheme?.config
-  const def = cfg?.designMode === 'inkgold'
-    ? (cfg.inkgoldTone === 'dark' ? '#D4AF37' : '#BA7517')
-    : '#F59E0B'
-  const c = color || def
-  return `linear-gradient(135deg, ${c}, ${c}aa)`
+// 图标样式（A7 规格）：学科自定义 s.color 照常渲染实色渐变（铁律4）；无 color 默认走暖金浅底 + 主色图标
+function iconStyle(color?: string) {
+  if (!color) {
+    const cfg: any = theme.activeTheme?.config
+    const a = cfg?.designMode === 'inkgold' && cfg?.inkgoldTone === 'dark' ? 0.12 : 0.10
+    return { background: `rgba(var(--zg-primary-rgb), ${a})`, color: 'var(--zg-primary)' }
+  }
+  return { background: `linear-gradient(135deg, ${color}, ${color}aa)` }
 }
 
 function go(s: any) { router.push(`/subject/${s.slug}`) }
@@ -66,7 +67,7 @@ function go(s: any) { router.push(`/subject/${s.slug}`) }
     <!-- 学科网格 -->
     <div v-else class="sp-grid">
       <div v-for="(s, i) in data.subjects" :key="s.id" class="sp-card glass zg-card zg-reveal" :style="{ animationDelay: `${i * 0.05}s` }" @click="go(s)">
-        <div class="sp-icon" :style="{ background: iconBg(s.color) }"><ZgGlyph :emoji="s.icon" /></div>
+        <div class="sp-icon" :style="iconStyle(s.color)"><ZgGlyph :emoji="s.icon" /></div>
         <div class="sp-body">
           <div class="sp-name">{{ s.name }}</div>
           <div class="sp-desc">{{ s.description || '探索该学科的精彩资料与美文' }}</div>

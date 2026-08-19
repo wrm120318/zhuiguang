@@ -245,10 +245,10 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 .rc-title { font-size: 22px; font-weight: 800; }
 .rc-name { color: var(--zg-text-dim); margin: 6px 0 18px; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 10px; }
-.stat-item { padding: 14px; border-radius: 12px; background: rgba(245,158,11,.06); }
+.stat-item { padding: 14px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.06); }
 .stat-num { font-size: 26px; font-weight: 800; }
 .stat-num.ok { color: #10b981; }
-.stat-num.warn { color: #f59e0b; }
+.stat-num.warn { color: var(--zg-primary); }
 .stat-num.danger { color: #ef4444; }
 .stat-label { font-size: 12px; color: var(--zg-text-dim); margin-top: 4px; }
 .pass-line { font-size: 13px; color: var(--zg-text-dim); margin-top: 16px; }
@@ -257,10 +257,10 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 .range-list { display: flex; flex-direction: column; gap: 10px; }
 .range-row { display: flex; align-items: center; gap: 12px; }
 .range-label { width: 70px; font-size: 13px; color: var(--zg-text-dim); }
-.range-bar-bg { flex: 1; height: 22px; background: rgba(245,158,11,.06); border-radius: 6px; overflow: hidden; }
+.range-bar-bg { flex: 1; height: 22px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 6px; overflow: hidden; }
 .range-bar { height: 100%; background: linear-gradient(90deg, var(--zg-primary), var(--zg-accent)); border-radius: 6px; transition: width .4s; }
 .range-count { width: 60px; font-size: 13px; font-weight: 600; text-align: right; }
-.qana { padding: 16px 0; border-bottom: 1px solid rgba(245,158,11,.08); }
+.qana { padding: 16px 0; border-bottom: 1px solid rgba(var(--zg-primary-rgb),.08); }
 .qana:last-child { border-bottom: none; }
 .qana-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .qana-no { font-weight: 700; }
@@ -275,11 +275,11 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 .sb-max { font-size: 18px; color: var(--zg-text-dim); }
 .rc-meta { display: flex; justify-content: center; gap: 24px; font-size: 13px; color: var(--zg-text-dim); margin-top: 16px; flex-wrap: wrap; }
 .rc-pending-tip, .rc-graded-tip { display: flex; align-items: center; gap: 10px; max-width: 560px; margin: 18px auto 0; padding: 14px 18px; border-radius: 12px; font-size: 13px; line-height: 1.7; }
-.rc-pending-tip { background: rgba(245,158,11,.1); color: var(--zg-text); }
+.rc-pending-tip { background: rgba(var(--zg-primary-rgb),.1); color: var(--zg-text); }
 .rc-graded-tip { background: rgba(16,185,129,.1); color: var(--zg-text); }
 .rpt-icon { font-size: 24px; flex-shrink: 0; }
 .rc-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 24px; }
-.rs-item { padding: 14px; border-radius: 12px; background: rgba(245,158,11,.06); }
+.rs-item { padding: 14px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.06); }
 .rs-num { font-size: 22px; font-weight: 800; }
 .rs-num.correct { color: #10b981; }
 .rs-num.wrong { color: #ef4444; }
@@ -293,16 +293,16 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 .q-content { font-size: 15px; line-height: 1.8; margin-bottom: 14px; }
 .q-content :deep(img) { max-width: 100%; border-radius: 10px; }
 .q-options { display: flex; flex-direction: column; gap: 8px; }
-.q-opt { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; background: rgba(245,158,11,.04); border: 1px solid rgba(245,158,11,.1); }
+.q-opt { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; background: rgba(var(--zg-primary-rgb),.04); border: 1px solid rgba(var(--zg-primary-rgb),.1); }
 .q-opt.correct { background: rgba(16,185,129,.08); border-color: #10b981; }
 .q-opt.mine-wrong { background: rgba(239,68,68,.08); border-color: #ef4444; }
-.qo-letter { width: 26px; height: 26px; border-radius: 50%; background: rgba(245,158,11,.15); display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.qo-letter { width: 26px; height: 26px; border-radius: 50%; background: rgba(var(--zg-primary-rgb),.15); display: flex; align-items: center; justify-content: center; font-weight: 700; }
 .q-opt.correct .qo-letter { background: #10b981; color: #fff; }
 .q-opt.mine-wrong .qo-letter { background: #ef4444; color: #fff; }
 .qo-tag { margin-left: auto; font-size: 12px; color: #10b981; }
 .qo-tag.wrong { color: #ef4444; }
 .q-line { font-size: 14px; color: var(--zg-text-dim); margin: 10px 0 6px; }
-.q-answer, .q-ref { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
+.q-answer, .q-ref { padding: 12px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .q-ref { background: rgba(16,185,129,.06); }
 @media (max-width: 720px) {
   .stat-grid, .rc-summary { grid-template-columns: repeat(2, 1fr); }

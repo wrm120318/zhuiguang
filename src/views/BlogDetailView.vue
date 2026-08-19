@@ -106,7 +106,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
         </div>
       </div>
     </article>
-    <el-empty v-else-if="!loading" description="博客不存在" />
+    <ZgState v-else-if="!loading" type="404" title="博客不存在" desc="这篇博客可能已被删除或链接有误。" />
 
     <!-- 评论区 -->
     <section v-if="blog" class="glass comment-box">
@@ -140,7 +140,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 .detail { padding: 32px; margin-top: 8px; }
 .cover { height: 220px; background-size: cover; background-position: center; border-radius: 14px; margin-bottom: 20px; }
 .d-title { font-size: 28px; font-weight: 800; line-height: 1.3; }
-.d-meta { display: flex; gap: 16px; align-items: center; color: var(--zg-text-dim); font-size: 13px; margin: 12px 0 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px dashed rgba(245,158,11,.15); }
+.d-meta { display: flex; gap: 16px; align-items: center; color: var(--zg-text-dim); font-size: 13px; margin: 12px 0 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb),.15); }
 .d-content { font-size: 15px; line-height: 1.9; color: var(--zg-text); }
 .d-content :deep(h2) { font-size: 22px; margin: 24px 0 12px; }
 .d-content :deep(h3) { font-size: 18px; margin: 20px 0 10px; }
@@ -148,13 +148,13 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 .d-content :deep(li) { margin: 6px 0; }
 .d-content :deep(img) { max-width: 100%; border-radius: 12px; margin: 12px 0; }
 .d-content :deep(a) { color: var(--zg-primary); }
-.d-attachments { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.15); }
+.d-attachments { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(var(--zg-primary-rgb),.15); }
 .da-title { font-weight: 700; margin-bottom: 12px; }
-.da-item { display: block; padding: 12px 16px; background: rgba(245,158,11,.06); border-radius: 10px; margin-bottom: 8px; color: var(--zg-text); text-decoration: none; font-size: 14px; transition: all .2s; }
-.da-item:hover { background: rgba(245,158,11,.15); }
+.da-item { display: block; padding: 12px 16px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 10px; margin-bottom: 8px; color: var(--zg-text); text-decoration: none; font-size: 14px; transition: all .2s; }
+.da-item:hover { background: rgba(var(--zg-primary-rgb),.15); }
 .like-bar { display: flex; justify-content: center; margin-top: 28px; }
-.like-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px; border-radius: 24px; background: rgba(245,158,11,.06); border: 2px solid rgba(245,158,11,.2); cursor: pointer; transition: all .2s; user-select: none; }
-.like-btn:hover { background: rgba(245,158,11,.12); }
+.like-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px; border-radius: 24px; background: rgba(var(--zg-primary-rgb),.06); border: 2px solid rgba(var(--zg-primary-rgb),.2); cursor: pointer; transition: all .2s; user-select: none; }
+.like-btn:hover { background: rgba(var(--zg-primary-rgb),.12); }
 .like-btn.on { background: rgba(239,68,68,.1); border-color: #ef4444; }
 .lb-icon { font-size: 20px; }
 .lb-text { font-weight: 600; font-size: 14px; }

@@ -176,7 +176,7 @@ async function downloadTaskExcel() {
           </tbody>
         </table>
       </div>
-      <el-empty v-else description="未查询到您的数据" />
+      <ZgState v-else type="search" title="未查询到您的数据" desc="请确认姓名/学号输入无误，或联系发布老师。" />
 
       <div class="history" v-if="myRows.length > 1">
         <div class="hist-title"><ZgGlyph emoji="📊" /> 历史记录</div>
@@ -184,7 +184,7 @@ async function downloadTaskExcel() {
       </div>
     </div>
   </div>
-  <el-empty v-else description="查询任务不存在" style="margin-top:80px" />
+  <ZgState v-else type="404" title="查询任务不存在" desc="该查询任务可能已被删除或链接有误。" style="margin-top:80px" />
 
   <!-- 编辑查询任务对话框（仅超管 / 创建者） -->
   <el-dialog v-model="editVisible" title="编辑查询任务" width="520px" :close-on-click-modal="false">
@@ -222,8 +222,8 @@ async function downloadTaskExcel() {
 .qh-note { margin:14px 0; color:var(--zg-text); line-height:1.7; }
 .qh-flags { display:flex; gap:8px; flex-wrap:wrap; }
 .qh-actions { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
-.flag { padding:4px 10px; border-radius:8px; font-size:12px; background:rgba(245,158,11,.06); color:var(--zg-text-dim); }
-.privacy { display:flex; gap:16px; padding:20px 24px; margin-top:20px; border:1px solid rgba(245,158,11,.25); }
+.flag { padding:4px 10px; border-radius:8px; font-size:12px; background:rgba(var(--zg-primary-rgb),.06); color:var(--zg-text-dim); }
+.privacy { display:flex; gap:16px; padding:20px 24px; margin-top:20px; border:1px solid rgba(var(--zg-primary-rgb),.25); }
 .prv-icon { font-size:28px; }
 .prv-title { font-weight:700; color:var(--zg-accent); }
 .prv-desc { font-size:13px; color:var(--zg-text-dim); line-height:1.7; margin-top:4px; }
@@ -234,13 +234,13 @@ async function downloadTaskExcel() {
 .result-head { display:flex; justify-content:space-between; align-items:center; }
 .result-table { padding:8px; overflow-x:auto; }
 table { width:100%; border-collapse:collapse; }
-th, td { padding:14px 18px; text-align:left; border-bottom:1px solid rgba(245,158,11,.06); }
+th, td { padding:14px 18px; text-align:left; border-bottom:1px solid rgba(var(--zg-primary-rgb),.06); }
 th { font-size:13px; color:var(--zg-text-dim); font-weight:600; white-space:nowrap; }
 td { font-size:15px; }
 td.score { font-weight:800; color:var(--zg-accent); font-size:18px; }
 td.grade { font-weight:700; }
 td.comment { color:var(--zg-text-dim); max-width:300px; }
-.history { margin-top:20px; padding:16px 20px; border-radius:12px; background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.2); }
+.history { margin-top:20px; padding:16px 20px; border-radius:12px; background:rgba(var(--zg-primary-rgb),.1); border:1px solid rgba(var(--zg-primary-rgb),.2); }
 .hist-title { font-weight:700; }
 .hist-tip { font-size:13px; color:var(--zg-text-dim); margin-top:4px; }
 @media (max-width:768px){

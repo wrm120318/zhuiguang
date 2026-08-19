@@ -168,20 +168,20 @@ const ruleList = computed(() => {
 .section { margin-bottom: 24px; }
 .sec-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
 .sec-icon { font-size: 20px; }
-.tip { background: rgba(245,158,11,.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 16px; }
+.tip { background: rgba(var(--zg-primary-rgb),.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 16px; }
 .tip.note { background: rgba(59,130,246,.08); }
 .rule-list { display: flex; flex-direction: column; gap: 10px; }
-.rule-item { display: flex; align-items: center; gap: 14px; padding: 14px; background: rgba(245,158,11,.04); border-radius: 12px; }
+.rule-item { display: flex; align-items: center; gap: 14px; padding: 14px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 12px; }
 .ri-icon { font-size: 26px; }
 .ri-body { flex: 1; }
 .ri-label { font-weight: 700; font-size: 15px; }
 .ri-desc { font-size: 12px; color: var(--zg-text-dim); margin-top: 2px; }
 .ri-value { display: flex; align-items: baseline; gap: 4px; }
-.exp-num { font-size: 20px; font-weight: 800; color: #f59e0b; }
+.exp-num { font-size: 20px; font-weight: 800; color: var(--zg-primary); }
 .exp-unit { font-size: 12px; color: var(--zg-text-dim); }
 .level-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.level-item { padding: 16px; background: rgba(245,158,11,.04); border-radius: 12px; text-align: center; }
-.level-num { font-size: 24px; font-weight: 800; color: #f59e0b; }
+.level-item { padding: 16px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 12px; text-align: center; }
+.level-num { font-size: 24px; font-weight: 800; color: var(--zg-primary); }
 .level-label { font-size: 14px; font-weight: 600; margin-top: 4px; }
 .level-exp { font-size: 12px; color: var(--zg-text-dim); margin-top: 4px; }
 @media (max-width: 768px) { .section { padding: 16px; } .rule-item { flex-wrap: wrap; } .ri-value { width: 100%; justify-content: flex-end; margin-top: 8px; } }

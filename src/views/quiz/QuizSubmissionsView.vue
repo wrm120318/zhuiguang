@@ -165,7 +165,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
 .lvl1-tabs { margin-bottom: 8px; }
 .stu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
 .stu-card { padding: 18px; cursor: pointer; transition: all .2s; }
-.stu-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(245,158,11,.15); }
+.stu-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(var(--zg-primary-rgb),.15); }
 .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .sc-name { font-weight: 700; font-size: 15px; }
 .sc-score { font-size: 14px; color: var(--zg-text-dim); margin-bottom: 6px; }
@@ -187,7 +187,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
 .q-content { font-size: 15px; line-height: 1.8; margin-bottom: 10px; }
 .q-content :deep(img) { max-width: 100%; border-radius: 10px; }
 .q-line { font-size: 13px; color: var(--zg-text-dim); margin: 6px 0; }
-.q-answer, .q-ref { padding: 12px; background: rgba(245,158,11,.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
+.q-answer, .q-ref { padding: 12px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .q-ref { background: rgba(16,185,129,.06); }
 .grade-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
 .action-bar { padding: 14px 22px; margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px; }

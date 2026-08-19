@@ -66,9 +66,7 @@ onMounted(() => load(1))
     <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <div class="dh-title"><ZgGlyph emoji="📝" /> 我的单题训练记录</div>
 
-    <div v-if="!records.length && !loading" class="empty-hint">
-      <el-empty description="暂无训练记录，去学科站开始训练吧！" />
-    </div>
+    <ZgState v-if="!records.length && !loading" type="empty" title="暂无训练记录" desc="去学科站开始训练，记录会出现在这里！" />
 
     <!-- 记录列表 -->
     <div class="records-list">
@@ -132,9 +130,9 @@ onMounted(() => load(1))
 .rc-question { font-size: 15px; line-height: 1.8; margin-bottom: 12px; }
 .rc-atts { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .att-link { font-size: 13px; color: var(--zg-primary); text-decoration: underline; }
-.rc-foot { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid rgba(245,158,11,0.12); }
+.rc-foot { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid rgba(var(--zg-primary-rgb),0.12); }
 .rc-time { font-size: 12px; color: var(--zg-text-dim); white-space: nowrap; }
-.rc-comment { font-size: 13px; color: #92400e; background: rgba(245,158,11,0.08); padding: 4px 10px; border-radius: 6px; }
+.rc-comment { font-size: 13px; color: #92400e; background: rgba(var(--zg-primary-rgb),0.08); padding: 4px 10px; border-radius: 6px; }
 .rc-actions { margin-left: auto; display: flex; gap: 6px; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; padding: 16px 0; }
 .pager-info { font-size: 13px; color: var(--zg-text-dim); }

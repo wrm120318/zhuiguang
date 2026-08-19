@@ -52,7 +52,7 @@ function onAction() {
           <stop offset="0" stop-color="var(--zg-accent)"/><stop offset="1" stop-color="var(--zg-primary)"/>
         </linearGradient>
       </defs>
-      <ellipse cx="100" cy="140" rx="62" ry="10" fill="rgba(186,117,23,.10)"/>
+      <ellipse cx="100" cy="140" rx="62" ry="10" fill="rgba(var(--zg-primary-rgb),.10)"/>
       <path d="M52 96c10-7 26-7 38 0 12 7 28 7 38 0" stroke="url(#zgG1)" stroke-width="3" stroke-linecap="round"/>
       <path d="M52 96c-4 14 2 30 12 36 14 8 30 8 44 0 12-7 18-24 14-40" stroke="url(#zgG1)" stroke-width="3" stroke-linecap="round" opacity=".85"/>
       <path d="M90 96c4 7 14 7 18 0" stroke="url(#zgG1)" stroke-width="3" stroke-linecap="round"/>
@@ -70,7 +70,7 @@ function onAction() {
           <stop offset="0" stop-color="var(--zg-accent)"/><stop offset="1" stop-color="var(--zg-primary)"/>
         </linearGradient>
       </defs>
-      <ellipse cx="100" cy="140" rx="58" ry="9" fill="rgba(186,117,23,.10)"/>
+      <ellipse cx="100" cy="140" rx="58" ry="9" fill="rgba(var(--zg-primary-rgb),.10)"/>
       <circle cx="86" cy="74" r="30" stroke="url(#zgG2)" stroke-width="4"/>
       <line x1="108" y1="96" x2="132" y2="120" stroke="url(#zgG2)" stroke-width="4" stroke-linecap="round"/>
       <path d="M74 74h24M86 62v24" stroke="url(#zgG2)" stroke-width="3" stroke-linecap="round" opacity=".55"/>
@@ -84,7 +84,7 @@ function onAction() {
           <stop offset="0" stop-color="var(--zg-accent)"/><stop offset="1" stop-color="var(--zg-primary)"/>
         </linearGradient>
       </defs>
-      <ellipse cx="100" cy="142" rx="56" ry="9" fill="rgba(186,117,23,.10)"/>
+      <ellipse cx="100" cy="142" rx="56" ry="9" fill="rgba(var(--zg-primary-rgb),.10)"/>
       <path d="M70 56h60l-6 48H76z" stroke="url(#zgG3)" stroke-width="4" stroke-linejoin="round"/>
       <path d="M64 56l8-10h56l8 10" stroke="url(#zgG3)" stroke-width="4" stroke-linejoin="round"/>
       <line x1="100" y1="74" x2="100" y2="92" stroke="url(#zgG3)" stroke-width="4" stroke-linecap="round"/>
@@ -99,7 +99,7 @@ function onAction() {
           <stop offset="0" stop-color="var(--zg-accent)"/><stop offset="1" stop-color="var(--zg-primary)"/>
         </linearGradient>
       </defs>
-      <path d="M0 120 Q50 96 100 118 T200 116 V160 H0 Z" fill="rgba(186,117,23,.10)"/>
+      <path d="M0 120 Q50 96 100 118 T200 116 V160 H0 Z" fill="rgba(var(--zg-primary-rgb),.10)"/>
       <circle cx="34" cy="40" r="1.6" fill="var(--zg-accent)"/><circle cx="60" cy="26" r="1.2" fill="var(--zg-primary)" opacity=".7"/>
       <circle cx="120" cy="34" r="1.8" fill="var(--zg-accent)"/><circle cx="160" cy="50" r="1.3" fill="var(--zg-primary)" opacity=".7"/>
       <circle cx="92" cy="20" r="1.1" fill="var(--zg-primary)" opacity=".6"/>

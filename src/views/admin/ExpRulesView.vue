@@ -120,14 +120,14 @@ function reset() {
 .dh-sub { font-size: 13px; color: var(--zg-text-dim); margin-top: 4px; }
 .head-actions { display: flex; gap: 10px; }
 .rule-page { padding: 24px; }
-.tip { background: rgba(245,158,11,.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 18px; }
+.tip { background: rgba(var(--zg-primary-rgb),.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 18px; }
 .rule-list { display: flex; flex-direction: column; gap: 10px; }
-.rule-item { display: flex; align-items: center; gap: 14px; padding: 14px; background: rgba(245,158,11,.04); border-radius: 12px; }
+.rule-item { display: flex; align-items: center; gap: 14px; padding: 14px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 12px; }
 .ri-icon { font-size: 26px; }
 .ri-body { flex: 1; }
 .ri-label { font-weight: 700; font-size: 15px; }
 .ri-desc { font-size: 12px; color: var(--zg-text-dim); margin-top: 2px; }
-.ri-desc code { background: rgba(245,158,11,.12); padding: 1px 6px; border-radius: 4px; }
+.ri-desc code { background: rgba(var(--zg-primary-rgb),.12); padding: 1px 6px; border-radius: 4px; }
 .ri-input { display: flex; align-items: center; gap: 8px; }
 .ri-unit { font-size: 12px; color: var(--zg-text-dim); white-space: nowrap; }
 .foot { margin-top: 20px; display: flex; justify-content: flex-end; }

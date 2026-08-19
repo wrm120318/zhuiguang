@@ -59,7 +59,7 @@ function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed
         </a>
       </div>
     </article>
-    <el-empty v-else-if="!loading" description="公告不存在或无权查看" />
+    <ZgState v-else-if="!loading" type="404" title="公告不存在或无权查看" desc="这条公告可能已被删除，或你没有查看权限。" />
   </div>
 </template>
 
@@ -69,7 +69,7 @@ function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed
 .detail { padding: 32px; margin-top: 8px; }
 .d-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .d-title { font-size: 26px; font-weight: 800; line-height: 1.3; }
-.d-meta { display: flex; gap: 16px; color: var(--zg-text-dim); font-size: 13px; margin: 12px 0 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px dashed rgba(245,158,11,.15); }
+.d-meta { display: flex; gap: 16px; color: var(--zg-text-dim); font-size: 13px; margin: 12px 0 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb),.15); }
 .d-content { font-size: 15px; line-height: 1.9; color: var(--zg-text); }
 .d-content :deep(h2) { font-size: 22px; margin: 24px 0 12px; }
 .d-content :deep(h3) { font-size: 18px; margin: 20px 0 10px; }
@@ -77,9 +77,9 @@ function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed
 .d-content :deep(li) { margin: 6px 0; }
 .d-content :deep(img) { max-width: 100%; border-radius: 12px; margin: 12px 0; }
 .d-content :deep(a) { color: var(--zg-primary); }
-.d-attachments { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.15); }
+.d-attachments { margin-top: 32px; padding-top: 20px; border-top: 1px dashed rgba(var(--zg-primary-rgb),.15); }
 .da-title { font-weight: 700; margin-bottom: 12px; }
-.da-item { display: block; padding: 12px 16px; background: rgba(245,158,11,.06); border-radius: 10px; margin-bottom: 8px; color: var(--zg-text); text-decoration: none; font-size: 14px; transition: all .2s; }
-.da-item:hover { background: rgba(245,158,11,.15); }
+.da-item { display: block; padding: 12px 16px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 10px; margin-bottom: 8px; color: var(--zg-text); text-decoration: none; font-size: 14px; transition: all .2s; }
+.da-item:hover { background: rgba(var(--zg-primary-rgb),.15); }
 @media (max-width: 768px) { .detail { padding: 20px; } .d-title { font-size: 22px; } }
 </style>

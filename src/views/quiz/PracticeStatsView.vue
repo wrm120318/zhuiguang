@@ -193,7 +193,7 @@ onMounted(load)
 .pc-time, .rc-time { font-size: 12px; color: var(--zg-text-dim); }
 .pc-score, .rc-score { font-weight: 700; }
 .pc-score.waiting, .rc-score.waiting { color: #eab308; }
-.pc-answer, .rc-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: rgba(245,158,11,0.05); border-radius: 8px; font-size: 13px; }
+.pc-answer, .rc-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: rgba(var(--zg-primary-rgb),0.05); border-radius: 8px; font-size: 13px; }
 .pc-ans-label, .rc-ans-label { font-size: 12px; color: var(--zg-text-dim); flex-shrink: 0; }
 .pc-ans-content, .rc-answer { flex: 1; word-break: break-all; }
 .rc-comment { font-size: 12px; color: #92400e; }

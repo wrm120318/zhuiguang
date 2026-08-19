@@ -101,7 +101,7 @@ async function deleteAnn(a: any, e: Event) {
           <span><ZgGlyph emoji="👁" /> {{ a.views }}</span>
         </div>
       </div>
-      <el-empty v-if="!loading && !filtered.length" description="暂无公告" />
+      <ZgState v-if="!loading && !filtered.length" type="empty" title="暂无公告" desc="新的通知发布后会第一时间出现在这里。" />
     </div>
   </div>
 </template>
@@ -121,7 +121,7 @@ async function deleteAnn(a: any, e: Event) {
 .ac-tags { display: flex; gap: 6px; align-items: center; }
 .pin-tag { background: linear-gradient(135deg,#ef4444,#f97316); color:#fff; padding:2px 10px; border-radius:10px; font-size:11px; font-weight:700; }
 .ann-card.pinned { border: 2px solid rgba(239,68,68,.35); background: rgba(239,68,68,.04); position:relative; overflow:hidden; }
-.ann-card.pinned::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,#ef4444,#f97316,#f59e0b); }
+.ann-card.pinned::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,#ef4444,#f97316,var(--zg-primary)); }
 .ac-actions { display: flex; gap: 6px; }
 @media (max-width: 768px) { .zg-page-title { font-size: 22px; } }
 </style>

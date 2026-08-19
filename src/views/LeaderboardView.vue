@@ -90,7 +90,7 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
         <span class="col-level">Lv.{{ levelFromExp(u.exp) }}</span>
         <span class="col-exp">{{ u.pe }}</span>
       </div>
-      <el-empty v-if="!ranked.length" description="暂无数据" />
+      <ZgState v-if="!ranked.length" type="empty" title="暂无数据" desc="排行榜还在等待第一批追光者。" />
     </div>
   </div>
 </template>
@@ -105,22 +105,22 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
 .podium { display:flex; justify-content:center; align-items:flex-end; gap:24px; margin:40px 0; }
 .podium-item { display:flex; flex-direction:column; align-items:center; position:relative; }
 .pm-medal { font-size:32px; }
-.pm-avatar { width:64px; height:64px; border-radius:50%; border:3px solid rgba(245,158,11,.3); margin:6px 0; object-fit:cover; }
-.p1 .pm-avatar { border-color:#fbbf24; box-shadow:0 0 20px rgba(251,191,36,.5); }
+.pm-avatar { width:64px; height:64px; border-radius:50%; border:3px solid rgba(var(--zg-primary-rgb),.3); margin:6px 0; object-fit:cover; }
+.p1 .pm-avatar { border-color:var(--zg-accent); box-shadow:0 0 20px rgba(var(--zg-accent-rgb),.5); }
 .p2 .pm-avatar { border-color:#cbd5e1; }
 .p3 .pm-avatar { border-color:#f97316; }
 .pm-name { font-weight:700; }
 .pm-exp { font-size:13px; color:var(--zg-accent); font-weight:600; }
 .pm-bar { width:80px; margin-top:12px; border-radius:12px 12px 0 0; background:linear-gradient(180deg, var(--zg-primary), transparent); }
-.p1 .pm-bar { background:linear-gradient(180deg, #fbbf24, transparent); }
+.p1 .pm-bar { background:linear-gradient(180deg, var(--zg-accent), transparent); }
 .p2 .pm-bar { background:linear-gradient(180deg, #cbd5e1, transparent); }
 .p3 .pm-bar { background:linear-gradient(180deg, #f97316, transparent); }
 .rank-table { padding:8px; margin-top:20px; }
 .rt-head, .rt-row { display:grid; grid-template-columns: 80px 1fr 100px 100px 120px; align-items:center; padding:12px 16px; }
-.rt-head { color:var(--zg-text-dim); font-size:13px; border-bottom:1px solid rgba(245,158,11,.1); }
+.rt-head { color:var(--zg-text-dim); font-size:13px; border-bottom:1px solid rgba(var(--zg-primary-rgb),.1); }
 .rt-row { border-radius:10px; transition:background .2s; }
-.rt-row:hover { background:rgba(245,158,11,.06); }
-.rt-row.me { background:rgba(245,158,11,.15); border:1px solid rgba(245,158,11,.3); }
+.rt-row:hover { background:rgba(var(--zg-primary-rgb),.06); }
+.rt-row.me { background:rgba(var(--zg-primary-rgb),.15); border:1px solid rgba(var(--zg-primary-rgb),.3); }
 .rt-avatar { width:30px; height:30px; border-radius:50%; margin-right:10px; vertical-align:middle; object-fit:cover; }
 .col-user { display:flex; align-items:center; }
 .col-exp { font-weight:700; color:var(--zg-accent); }

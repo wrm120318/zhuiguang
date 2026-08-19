@@ -74,7 +74,7 @@ onMounted(() => { if (query.value) search() })
 .result-section { margin-bottom: 28px; }
 .result-list { display: flex; flex-direction: column; gap: 10px; }
 .result-card { display: flex; align-items: center; gap: 14px; padding: 16px 20px; cursor: pointer; }
-.rc-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(245,158,11,.1); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.rc-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.1); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
 .rc-body { flex: 1; min-width: 0; }
 .rc-title { font-weight: 700; font-size: var(--zg-fs-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rc-meta { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); margin-top: 4px; }

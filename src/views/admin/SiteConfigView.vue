@@ -45,10 +45,10 @@ function defaultConfig(): SiteConfig {
     heroSubtitle: '在这里分享知识，收获成长。',
     showQuickLinks: true,
     quickLinks: [
-      { icon: '📚', label: '学科广场', path: '/subjects', color: '#F59E0B' },
-      { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '#FBBF24' },
-      { icon: '👤', label: '个人中心', path: '/profile', color: '#FB923C' },
-      { icon: '⭐', label: '我的收藏', path: '/favorites', color: '#FDE68A' },
+      { icon: '📚', label: '学科广场', path: '/subjects', color: '' },
+      { icon: '🏆', label: '经验排行', path: '/leaderboard', color: '' },
+      { icon: '👤', label: '个人中心', path: '/profile', color: '' },
+      { icon: '⭐', label: '我的收藏', path: '/favorites', color: '' },
     ],
     footerText: '© 追光学科共享平台 · 用知识点亮未来',
     showAnnouncementBar: false,
@@ -84,7 +84,7 @@ function mergeConfig(remote: any) {
         icon: q.icon ?? '⭐',
         label: q.label ?? '',
         path: q.path ?? '/',
-        color: q.color ?? '#F59E0B',
+        color: q.color ?? '',
       }))
     : d.quickLinks
   form.footerText = remote.footerText ?? d.footerText
@@ -134,7 +134,7 @@ const PRESET_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '�
 const THEME_COLORS = ['#F59E0B', '#FB923C', '#F97316', '#EF4444', '#8B5CF6', '#3B82F6', '#10B981', '#EC4899']
 
 function addLink() {
-  form.quickLinks.push({ icon: '⭐', label: '', path: '/', color: '#F59E0B' })
+  form.quickLinks.push({ icon: '⭐', label: '', path: '/', color: '' })
 }
 
 function removeLink(index: number) {
@@ -381,7 +381,7 @@ function resetConfig() {
 .head-actions { display: flex; gap: 10px; }
 
 .config-page { padding: 24px; }
-.tip { background: rgba(245,158,11,.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 22px; }
+.tip { background: rgba(var(--zg-primary-rgb),.08); padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--zg-text-dim); margin-bottom: 22px; }
 
 .sec { margin-bottom: 24px; }
 .sec:last-of-type { margin-bottom: 0; }
@@ -393,11 +393,11 @@ function resetConfig() {
 
 /* 快捷入口编辑器 */
 .ql-tip { font-size: 12px; color: var(--zg-text-dim); margin-bottom: 12px; }
-.ql-empty { padding: 24px; text-align: center; color: var(--zg-text-dim); font-size: 13px; background: rgba(245,158,11,.04); border-radius: 12px; border: 1px dashed rgba(245,158,11,.2); }
-.ql-item { display: flex; align-items: flex-start; gap: 14px; padding: 16px; background: rgba(245,158,11,.04); border-radius: 12px; margin-bottom: 10px; border: 1px solid transparent; transition: border-color .2s; }
-.ql-item:hover { border-color: rgba(245,158,11,.2); }
+.ql-empty { padding: 24px; text-align: center; color: var(--zg-text-dim); font-size: 13px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 12px; border: 1px dashed rgba(var(--zg-primary-rgb),.2); }
+.ql-item { display: flex; align-items: flex-start; gap: 14px; padding: 16px; background: rgba(var(--zg-primary-rgb),.04); border-radius: 12px; margin-bottom: 10px; border: 1px solid transparent; transition: border-color .2s; }
+.ql-item:hover { border-color: rgba(var(--zg-primary-rgb),.2); }
 .ql-index { width: 24px; height: 24px; border-radius: 50%; background: var(--zg-primary); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 4px; }
-.ql-preview { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(245,158,11,.2); color: #fff; }
+.ql-preview { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; box-shadow: 0 4px 14px rgba(var(--zg-primary-rgb),.2); color: #fff; }
 .ql-fields { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ql-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .ql-row .el-input { flex: 1; min-width: 120px; }
@@ -406,14 +406,14 @@ function resetConfig() {
 .ql-color-label { font-size: 12px; color: var(--zg-text-dim); white-space: nowrap; }
 .ql-color-val { font-size: 12px; color: var(--zg-text-dim); font-family: monospace; }
 .ql-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
-.ql-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(245,158,11,.3); transition: transform .15s; }
+.ql-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(var(--zg-primary-rgb),.3); transition: transform .15s; }
 .ql-sw:hover { transform: scale(1.15); }
 .ql-sw.on { box-shadow: 0 0 0 2px var(--zg-primary); }
 .ql-emoji-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ql-eq-label { font-size: 12px; color: var(--zg-text-dim); }
 .ql-eq-item { font-size: 18px; cursor: pointer; padding: 2px 4px; border-radius: 6px; transition: all .15s; }
-.ql-eq-item:hover { background: rgba(245,158,11,.12); transform: scale(1.15); }
-.ql-eq-item.on { background: rgba(245,158,11,.2); box-shadow: 0 0 0 1px var(--zg-primary); }
+.ql-eq-item:hover { background: rgba(var(--zg-primary-rgb),.12); transform: scale(1.15); }
+.ql-eq-item.on { background: rgba(var(--zg-primary-rgb),.2); box-shadow: 0 0 0 1px var(--zg-primary); }
 .ql-ops { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 .ql-add { width: 100%; margin-top: 4px; border-style: dashed !important; }
 
@@ -424,11 +424,11 @@ function resetConfig() {
 .nav-icon-preview { margin-left: 12px; font-size: 14px; color: var(--zg-text-dim); }
 .color-val { margin-left: 12px; font-size: 12px; color: var(--zg-text-dim); font-family: monospace; }
 .color-presets { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: 12px; vertical-align: middle; }
-.color-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(245,158,11,.3); transition: transform .15s; display: inline-block; }
+.color-sw { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(var(--zg-primary-rgb),.3); transition: transform .15s; display: inline-block; }
 .color-sw:hover { transform: scale(1.15); }
 .color-sw.on { box-shadow: 0 0 0 2px var(--zg-primary); }
 
-.foot { margin-top: 28px; padding-top: 20px; border-top: 1px dashed rgba(245,158,11,.15); display: flex; justify-content: flex-end; gap: 10px; }
+.foot { margin-top: 28px; padding-top: 20px; border-top: 1px dashed rgba(var(--zg-primary-rgb),.15); display: flex; justify-content: flex-end; gap: 10px; }
 
 @media (max-width: 768px) {
   .config-page { padding: 16px; }
