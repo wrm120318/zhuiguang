@@ -1,3 +1,26 @@
+/* ===== 自托管 Noto Serif SC（零 Google Fonts CDN 依赖） ===== */
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/noto-serif-sc-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/noto-serif-sc-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/noto-serif-sc-800.woff2') format('woff2');
+}
+
 /* ===== 追光 设计系统 · 浅黄橘黄小清新 + 毛玻璃 + H5 深度适配 ===== */
 :root {
   --zg-primary: #F59E0B;
@@ -764,7 +787,7 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 
 /* ===== 首页点缀（仅墨金浅色）：沉稳金 ===== */
 .zg-inkgold .hero-bg { background: linear-gradient(135deg, rgba(186,117,23,0.12), rgba(200,146,46,0.06)) !important; }
-.zg-inkgold .hero-tag { background: rgba(186,117,23,0.14) !important; border-color: rgba(186,117,23,0.3) !important; color: #9c6112; }
+.zg-inkgold .hero-tag { background: rgba(186,117,23,0.14) !important; border-color: rgba(186,117,23,0.32) !important; color: #7A4A10 !important; box-shadow: 0 0 12px rgba(186,117,23,0.08) !important; }
 .zg-inkgold .announce-bar { border-color: rgba(186,117,23,0.28) !important; }
 .zg-inkgold .qg-icon { box-shadow: 0 4px 14px rgba(186,117,23,0.2) !important; }
 .zg-inkgold .qg-icon, .zg-inkgold .sc-icon, .zg-inkgold-dark .qg-icon, .zg-inkgold-dark .sc-icon { color: var(--zg-primary); }
