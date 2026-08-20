@@ -165,7 +165,8 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 /* 图标基线对齐（全局 SVG 图标，决策 A 启用） */
 .el-icon { vertical-align: -2px; }
 /* A4 修复：圆角 12px → 10px（文档 §A4 统一收敛） */
-.el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.2) inset !important; border-radius: 10px !important; }
+/* 报告 §7.3-2：硬编码橘色改 RGB 通道变量（守铁律9），经典取值一致=像素级不变，墨金自动跟随金 */
+.el-input__wrapper, .el-textarea__inner, .el-select__wrapper { background: rgba(255,255,255,0.9) !important; box-shadow: 0 0 0 1px rgba(var(--zg-primary-rgb), 0.2) inset !important; border-radius: 10px !important; }
 /* A1 修复（经典档）：hover 100% 实色 → 45% 半透明（走 rgb 通道变量，后台自定义主色时同样跟随） */
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(var(--zg-primary-rgb), 0.45) inset !important; }
 /* A1 修复（经典档）：focus 态改为"只换内边色"（不再叠加 3px 外环，避免橙色矩形块）；默认 1px 20% 内边 → focus 1px 100% 主色，更克制 */
@@ -176,7 +177,8 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   transition: box-shadow .2s ease;
 }
 .el-input__inner, .el-textarea__inner { color: var(--zg-text) !important; font-size: var(--zg-fs-base) !important; }
-.el-input__inner::placeholder, .el-textarea__inner::placeholder { color: #b45309 !important; }
+/* 报告 §7.3-2：placeholder 硬编码 #b45309 → 暗调主色通道（经典橘 / 墨金金自动跟随） */
+.el-input__inner::placeholder, .el-textarea__inner::placeholder { color: rgba(var(--zg-primary-rgb), .7) !important; }
 /* A4 修复：文字行高防圆角切字 + 字数计数器不压文字 */
 .el-textarea__inner { line-height: 1.6; }
 .el-input .el-input__count { background: transparent !important; padding-right: 8px; }
@@ -192,6 +194,29 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
 /* B9 修复：全局键盘焦点指示（仅键盘导航时可见，不影响鼠标操作；输入框已有焦点光环，排除避免双圈） */
 :focus-visible { outline: 2px solid rgba(var(--zg-primary-rgb), 0.6); outline-offset: 2px; }
 .el-input__inner:focus-visible, .el-textarea__inner:focus-visible { outline: none; }
+/* ★★★ 报告 §7.3-1 根治「输入框聚焦时罩一层橘色/金色矩形方框」★★★
+   根因：Element Plus 2.8.4 的 .el-input__wrapper 默认 tabindex:0（input.mjs L230），
+   本身即可聚焦容器 → 触发上面全局 :focus-visible 的 2px outline；
+   而 CSS 的 outline 不跟随 border-radius，在 10px 圆角输入框上渲染成"方块状"描边，
+   与输入框自身 focus 内阴影光环叠加 = 用户所见"橘色矩形方框"（经典显橘、墨金显金）。
+   修复：输入框已有专属 focus 内阴影光环，无需 outline 双圈，三档全部排除。
+   墨金 .zg-inkgold / .zg-inkgold-dark 的 :focus-visible 带 !important，故此处同权重覆盖，
+   且深档选择器特异性 ≥ 浅档（守铁律8）。 */
+.el-input__wrapper:focus-visible,
+.el-input__wrapper:focus-within,
+.el-select__wrapper:focus-visible,
+.el-select__wrapper:focus-within,
+.el-textarea__inner:focus-visible { outline: none !important; }
+html.zg-inkgold .el-input__wrapper:focus-visible,
+html.zg-inkgold .el-input__wrapper:focus-within,
+html.zg-inkgold .el-select__wrapper:focus-visible,
+html.zg-inkgold .el-select__wrapper:focus-within,
+html.zg-inkgold .el-textarea__inner:focus-visible { outline: none !important; }
+html.zg-inkgold.zg-inkgold-dark .el-input__wrapper:focus-visible,
+html.zg-inkgold.zg-inkgold-dark .el-input__wrapper:focus-within,
+html.zg-inkgold.zg-inkgold-dark .el-select__wrapper:focus-visible,
+html.zg-inkgold.zg-inkgold-dark .el-select__wrapper:focus-within,
+html.zg-inkgold.zg-inkgold-dark .el-textarea__inner:focus-visible { outline: none !important; }
 /* ===== Element Plus 弹窗样式 - macOS 风格：实色暖背景 + 柔和大阴影 + 正中居中 =====
    EP 2.x 真实居中容器类名为 .el-overlay-dialog / .el-overlay-message-box
    设计参考：实色背景保证可读性，遮罩层负责模糊暗化，大柔和阴影营造悬浮感 */
@@ -664,11 +689,25 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .el-button--primary { background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)) !important; border-color: var(--zg-primary) !important; color: #fff !important; font-weight: 600; }
 .zg-inkgold .el-button--primary:hover { color: #fff !important; }
 
-/* 衬线标题（组件 scoped 仅设 weight 不设 family，故此处生效） */
+/* 衬线标题（组件 scoped 仅设 weight 不设 family，故此处生效）
+   报告 §2.4-3 回退链加固：补 'Source Han Serif SC'（思源宋体，部分系统自带），
+   让 preload 万一失效时也先落到真衬线 CJK，而非通用 serif→系统无衬线替补。
+   报告 §2.4-4 一致性：问候语/用户名/section-title/brand-name 全部继承同一条墨金衬线。 */
 .zg-inkgold h1, .zg-inkgold h2, .zg-inkgold h3,
 .zg-inkgold .dh-title, .zg-inkgold .section-title, .zg-inkgold .brand-name,
-.zg-inkgold .hero-title, .zg-inkgold .lc-logo h1 {
-  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif !important;
+.zg-inkgold .hero-title, .zg-inkgold .hero-greet, .zg-inkgold .hero-name,
+.zg-inkgold .lc-logo h1 {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif !important;
+}
+/* 报告 §2.4-2 字重降到与 logo 小标题同款优雅档：Hero 由 700–800 → 600，
+   字距由负追踪改舒展 .01em，开启视觉字号优化。根治"用户名巨难看（800 粗体衬线笨重）"。 */
+.zg-inkgold .hero-title,
+.zg-inkgold .hero-greet,
+.zg-inkgold .hero-name {
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+  font-optical-sizing: auto;
+  font-synthesis-weight: none; /* 禁止浏览器合成假粗体，避免衬线被"描粗"变脏 */
 }
 
 /* ===== 导航栏胶囊化（仅墨金）===== */
@@ -980,11 +1019,22 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .el-button--primary { background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)) !important; border-color: var(--zg-primary) !important; color: #1B1710 !important; font-weight: 600; }
 .zg-inkgold-dark .el-button--primary:hover { color: #1B1710 !important; }
 
-/* 衬线标题（组件 scoped 仅设 weight 不设 family，故此处生效） */
+/* 衬线标题（组件 scoped 仅设 weight 不设 family，故此处生效）
+   同浅色档：回退链加固 + 一致性覆盖 hero-greet / hero-name。 */
 .zg-inkgold-dark h1, .zg-inkgold-dark h2, .zg-inkgold-dark h3,
 .zg-inkgold-dark .dh-title, .zg-inkgold-dark .section-title, .zg-inkgold-dark .brand-name,
-.zg-inkgold-dark .hero-title, .zg-inkgold-dark .lc-logo h1 {
-  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif !important;
+.zg-inkgold-dark .hero-title, .zg-inkgold-dark .hero-greet, .zg-inkgold-dark .hero-name,
+.zg-inkgold-dark .lc-logo h1 {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif !important;
+}
+/* 字重 600 优雅档（深档特异性 (0,2,1) ≥ 浅档 (0,1,1)，守铁律8） */
+html.zg-inkgold.zg-inkgold-dark .hero-title,
+html.zg-inkgold.zg-inkgold-dark .hero-greet,
+html.zg-inkgold.zg-inkgold-dark .hero-name {
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+  font-optical-sizing: auto;
+  font-synthesis-weight: none;
 }
 
 /* ===== 导航栏胶囊化（仅墨金）===== */
@@ -1453,5 +1503,129 @@ html.zg-inkgold-dark {
 }
 .zg-inkgold .brand:hover .brand-name, .zg-inkgold-dark .brand:hover .brand-name { animation: zgLogoShine .9s linear; }
 @keyframes zgLogoShine { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* ============================================================
+   「温润如瓷」材质系统（报告 §2.1 / §2.2 / §5-2）
+   摒弃"液态玻璃（冷/折射/科技感）"，改为温润象牙瓷：
+     瓷体 = 暖白象牙渐变（只比页面底色亮一档，杜绝"白贴纸"）
+     釉光 = 顶部高光，光掠瓷沿
+     柔影 = 多层低透明大扩散（让瓷"浮"起来而非"框"起来 → 根治 §1.2 矩形阴影观感）
+     金边 = 发丝级 inset 描边（克制，非霓虹金线）
+   材质三级（§2.2）：L1 主角瓷板 / L2 次级瓷卡 / L3 点缀瓷纹（不单独投影，融入底色）
+   【铁律1/2/14】仅墨金作用域；经典模式（无 .zg-inkgold 类）完全不加载本段。
+   ============================================================ */
+html.zg-inkgold {
+  /* —— 瓷体三级 —— */
+  --zg-porcelain: linear-gradient(158deg, #FFFDF8 0%, #FBF5EA 100%);            /* L1 主角：厚瓷 */
+  --zg-porcelain-2: linear-gradient(158deg, rgba(255,253,248,.88) 0%, rgba(251,245,234,.74) 100%); /* L2 次级 */
+  --zg-porcelain-3: linear-gradient(158deg, rgba(255,253,248,.52) 0%, rgba(250,244,233,.36) 100%); /* L3 点缀 */
+  /* —— 釉光 / 发丝金边 —— */
+  --zg-glaze: inset 0 1px 0 rgba(255,255,255,.9);
+  --zg-rim: inset 0 0 0 1px rgba(186,117,23,.10);
+  --zg-hair: 0 1px 0 rgba(212,175,55,.22);
+  /* —— 多层柔影（§2.1）—— */
+  --zg-soft-1: 0 1px 2px rgba(120,90,30,.05);
+  --zg-soft-2: 0 10px 30px rgba(120,90,30,.10);
+  --zg-soft-3: 0 30px 70px rgba(120,90,30,.10);
+  --zg-porcelain-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3);
+  --zg-porcelain-shadow-sm: 0 1px 2px rgba(120,90,30,.04), 0 6px 18px rgba(120,90,30,.07);
+  /* 全站阴影统一换成瓷柔影：去掉原 0 16px 44px 硬边双层投影的"矩形框"观感 */
+  --zg-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+/* 提亮档（bright）：瓷体更净，柔影更轻（特异性 0,2,0 > 上方 0,1,1，故需完整重声明） */
+html.zg-inkgold.zg-inkgold-bright {
+  --zg-porcelain: linear-gradient(158deg, #FFFFFF 0%, #FDFAF4 100%);
+  --zg-porcelain-2: linear-gradient(158deg, rgba(255,255,255,.92) 0%, rgba(253,250,244,.80) 100%);
+  --zg-porcelain-3: linear-gradient(158deg, rgba(255,255,255,.60) 0%, rgba(253,250,244,.42) 100%);
+  --zg-soft-1: 0 1px 2px rgba(120,90,30,.035);
+  --zg-soft-2: 0 8px 24px rgba(120,90,30,.07);
+  --zg-soft-3: 0 24px 56px rgba(120,90,30,.07);
+  --zg-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+/* 深色档：暗底暖金瓷（报告 §5-2 末条）。选择器特异性 (0,2,1) ≥ 浅档 (0,1,1)，守铁律8 */
+html.zg-inkgold.zg-inkgold-dark {
+  --zg-porcelain: linear-gradient(158deg, #241E15 0%, #1C1710 100%);
+  --zg-porcelain-2: linear-gradient(158deg, rgba(255,246,224,.075) 0%, rgba(255,246,224,.032) 100%);
+  --zg-porcelain-3: linear-gradient(158deg, rgba(255,246,224,.046) 0%, rgba(255,246,224,.018) 100%);
+  --zg-glaze: inset 0 1px 0 rgba(255,243,214,.10);
+  --zg-rim: inset 0 0 0 1px rgba(212,175,55,.14);
+  --zg-hair: 0 1px 0 rgba(212,175,55,.26);
+  --zg-soft-1: 0 1px 2px rgba(0,0,0,.34);
+  --zg-soft-2: 0 10px 30px rgba(0,0,0,.34);
+  --zg-soft-3: 0 30px 70px rgba(0,0,0,.36);
+  --zg-porcelain-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3);
+  --zg-porcelain-shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.28);
+  --zg-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+/* 深色 + 提亮：暖墨略提亮（特异性 0,3,1，压过上面两档） */
+html.zg-inkgold.zg-inkgold-dark.zg-inkgold-bright {
+  --zg-porcelain: linear-gradient(158deg, #2A2318 0%, #221C13 100%);
+  --zg-porcelain-2: linear-gradient(158deg, rgba(255,246,224,.095) 0%, rgba(255,246,224,.045) 100%);
+  --zg-porcelain-3: linear-gradient(158deg, rgba(255,246,224,.058) 0%, rgba(255,246,224,.024) 100%);
+}
+
+/* —— 全站卡片换瓷材质（§5-2：墨金 Hero/卡片改瓷；后台同步避免"前台瓷、后台旧玻璃"割裂 §4.2）——
+   用 --zg-rim 发丝内描边取代原 1px 实色金边；border 保留 1px transparent 以维持既有盒模型尺寸（不改布局）。 */
+html.zg-inkgold .glass,
+html.zg-inkgold .glass-strong,
+html.zg-inkgold .el-card {
+  background: var(--zg-porcelain-2) !important;
+  border: 1px solid transparent !important;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow) !important;
+}
+html.zg-inkgold.zg-inkgold-dark .glass,
+html.zg-inkgold.zg-inkgold-dark .glass-strong,
+html.zg-inkgold.zg-inkgold-dark .el-card {
+  background: var(--zg-porcelain-2) !important;
+  border: 1px solid transparent !important;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow) !important;
+}
+/* 卡片 hover：柔影加深 + 金边略显，不做位移过冲（温润不跳脱） */
+html.zg-inkgold .zg-card:hover {
+  border-color: transparent !important;
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+html.zg-inkgold.zg-inkgold-dark .zg-card:hover {
+  border-color: transparent !important;
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .26), var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+/* 弹窗/抽屉/下拉：同款瓷体（浮层材质与页面一致，杜绝割裂） */
+html.zg-inkgold .el-dialog,
+html.zg-inkgold .el-message-box,
+html.zg-inkgold .el-drawer,
+html.zg-inkgold .el-dropdown-menu,
+html.zg-inkgold .el-popover,
+html.zg-inkgold .el-select-dropdown,
+html.zg-inkgold .el-notification,
+html.zg-inkgold.zg-inkgold-dark .el-dialog,
+html.zg-inkgold.zg-inkgold-dark .el-message-box,
+html.zg-inkgold.zg-inkgold-dark .el-drawer,
+html.zg-inkgold.zg-inkgold-dark .el-dropdown-menu,
+html.zg-inkgold.zg-inkgold-dark .el-popover,
+html.zg-inkgold.zg-inkgold-dark .el-select-dropdown,
+html.zg-inkgold.zg-inkgold-dark .el-notification {
+  background: var(--zg-porcelain) !important;
+  border: 1px solid transparent !important;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-soft-2), var(--zg-soft-3) !important;
+}
+/* 瓷面通用工具类：供首页/后台复用（L1/L2/L3 三级材质） */
+html.zg-inkgold .zg-plate,
+html.zg-inkgold.zg-inkgold-dark .zg-plate {
+  background: var(--zg-porcelain);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow);
+}
+html.zg-inkgold .zg-plate-2,
+html.zg-inkgold.zg-inkgold-dark .zg-plate-2 {
+  background: var(--zg-porcelain-2);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+}
+html.zg-inkgold .zg-plate-3,
+html.zg-inkgold.zg-inkgold-dark .zg-plate-3 {
+  background: var(--zg-porcelain-3);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim);   /* L3 不单独投影，融入底色 */
+}
 
 

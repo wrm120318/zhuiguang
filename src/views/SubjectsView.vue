@@ -98,7 +98,9 @@ function go(s: any) { router.push(`/subject/${s.slug}`) }
 .sp-sub { color: var(--zg-text-dim, #7a6e54); margin-top: 8px; font-size: var(--zg-fs-base, 15px); line-height: 1.6; }
 .sp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .sp-card { display: flex; align-items: center; gap: 16px; padding: 20px; border-radius: 18px; cursor: pointer; transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s ease, border-color .28s ease; }
-.sp-card:hover { transform: translateY(-4px); box-shadow: var(--zg-shadow-lg, 0 4px 12px rgba(120,90,30,.08)); }
+/* 悬停：仅做温润上浮，阴影交给全局瓷材质（§2 多层柔影，杜绝硬矩形阴影）。
+   墨金下由 main.css「html.zg-inkgold .zg-card:hover」接管柔影；经典下回退软影。 */
+.sp-card:hover { transform: translateY(-4px); box-shadow: var(--zg-porcelain-shadow, 0 10px 30px rgba(120,90,30,.10)); }
 .sp-card:hover .sp-arrow { transform: translateX(4px); color: var(--zg-primary); }
 .sp-icon { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; flex: none; box-shadow: 0 6px 16px rgba(0,0,0,.08); }
 .sp-body { flex: 1; min-width: 0; }

@@ -25,7 +25,9 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-const siteConfig = computed(() => settings.siteConfig)
+/* 报告 §9.3：消费 activeSiteConfig —— 按当前 designMode 取对应主题那一套自定义配置。
+   经典 / 墨金各自独立一份（互不覆盖）；旧单份结构由 store 侧向后兼容。 */
+const siteConfig = computed(() => settings.activeSiteConfig)
 const configLoaded = computed(() => settings.siteConfigLoaded)
 
 const defaultQuickLinks = [
@@ -67,6 +69,14 @@ const showAnnouncement = computed(() => {
   return siteConfig.value?.showAnnouncementBar && siteConfig.value?.announcementBar
 })
 
+/* 报告 §3.1 Hero「视觉资产区」的数据微缩：
+   /api/stats 需登录，未登录时降级用公开数据（学科数 / 已取回的美文数），拿不到则显示破折号。 */
+const heroFacts = computed(() => [
+  { k: '学科', v: data.subjects.length || 0 },
+  { k: '美文', v: stats.value.articles || articles.value.length || 0 },
+  { k: '资料', v: stats.value.resources || 0 },
+])
+
 const error = ref(false)
 
 async function load() {
@@ -96,56 +106,99 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   <ZgPullRefresh class="page zg-container home-page" @refresh="onRefresh">
     <ZgNetworkError v-if="error" @retry="load" />
     <template v-else>
-      <!-- 首页专属极淡呼吸光晕（仅墨金作用域，经典不渲染任何可见内容） -->
+      <!-- 首页专属暖金呼吸光晕（仅墨金作用域可见，经典不渲染任何可见内容） -->
       <div class="home-bg" aria-hidden="true"></div>
 
-      <!-- Hero：克制玻璃 + 衬线留白 + 品牌光线母题 -->
+      <!-- Hero：L1 主角瓷板（墨金两栏 / 经典单栏原样） -->
       <section class="hero">
-        <div class="hero-content home-enter">
-          <div class="hero-meta">
-            <div class="hero-tag"><ZgGlyph :emoji="'🌟'" /> {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
-            <div class="hero-time" v-if="user.isLogin">{{ new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }) }}</div>
+        <!-- 釉面斜向光泽：仅墨金渲染（§2.1 釉光） -->
+        <div class="hero-glaze" aria-hidden="true"></div>
+        <!-- 经典档 display:contents → 布局与改版前完全等价（铁律1） -->
+        <div class="hero-grid">
+          <div class="hero-content home-enter">
+            <div class="hero-meta">
+              <div class="hero-tag"><ZgGlyph :emoji="'🌟'" /> {{ siteConfig?.siteName || '追光学科共享平台' }}</div>
+              <div class="hero-time" v-if="user.isLogin">{{ new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }) }}</div>
+            </div>
+
+            <h1 class="hero-title">
+              <span class="hero-greet">{{ greeting }}，</span>
+              <span class="hero-name">{{ user.current?.realName || '追光者' }}</span>
+              <span class="hero-dot">。</span>
+            </h1>
+
+            <p class="hero-slogan">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
+
+            <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
+              <div class="hs-item">
+                <div class="hs-num"><ZgCountUp :value="user.current?.exp || 0" /></div>
+                <div class="hs-label">经验值</div>
+              </div>
+              <div class="hs-divider"></div>
+              <div class="hs-item">
+                <div class="hs-num">Lv.<ZgCountUp :value="user.current?.level || 1" /></div>
+                <div class="hs-label">等级</div>
+              </div>
+              <div class="hs-divider"></div>
+              <div class="hs-item">
+                <div class="hs-num"><ZgCountUp :value="stats.articles || 0" /></div>
+                <div class="hs-label">美文</div>
+              </div>
+              <div class="hs-divider"></div>
+              <div class="hs-item">
+                <div class="hs-num"><ZgCountUp :value="stats.resources || 0" /></div>
+                <div class="hs-label">资料</div>
+              </div>
+            </div>
           </div>
 
-          <h1 class="hero-title">
-            <span class="hero-greet">{{ greeting }}，</span>
-            <span class="hero-name">{{ user.current?.realName || '追光者' }}</span>
-            <span class="hero-dot">。</span>
-          </h1>
-
-          <p class="hero-slogan">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
-
-          <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
-            <div class="hs-item">
-              <div class="hs-num"><ZgCountUp :value="user.current?.exp || 0" /></div>
-              <div class="hs-label">经验值</div>
+          <!-- 视觉资产区（§3.1）：瓷纹光盘 + 平台数据微缩。仅墨金渲染，经典 display:none -->
+          <aside class="hero-aside" aria-hidden="true">
+            <div class="ha-disc">
+              <svg viewBox="0 0 200 200" width="100%" height="100%" role="presentation">
+                <!-- 注：SVG presentation attribute 不解析 var()，故一律用 inline style 写 CSS 变量，
+                     确保三档主题色（含后台自定义主色）真正穿透到纹样。 -->
+                <defs>
+                  <radialGradient id="haCore" cx="42%" cy="36%" r="66%">
+                    <stop offset="0" style="stop-color: var(--zg-accent); stop-opacity: .55" />
+                    <stop offset="1" style="stop-color: var(--zg-primary); stop-opacity: .14" />
+                  </radialGradient>
+                  <linearGradient id="haArc" x1="20" y1="150" x2="180" y2="70" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" style="stop-color: var(--zg-primary); stop-opacity: .05" />
+                    <stop offset=".55" style="stop-color: var(--zg-primary); stop-opacity: .42" />
+                    <stop offset="1" style="stop-color: var(--zg-accent); stop-opacity: .08" />
+                  </linearGradient>
+                </defs>
+                <!-- 瓷盘同心纹（釉面细纹，极淡） -->
+                <circle cx="100" cy="100" r="86" fill="none" style="stroke: var(--zg-primary); stroke-opacity: .08" />
+                <circle cx="100" cy="100" r="66" fill="none" style="stroke: var(--zg-primary); stroke-opacity: .10" />
+                <circle cx="100" cy="100" r="46" fill="none" style="stroke: var(--zg-primary); stroke-opacity: .13" />
+                <!-- 追光弧：品牌母题 -->
+                <path d="M22 138 Q100 190 178 96" fill="none" stroke="url(#haArc)" stroke-width="7" stroke-linecap="round" />
+                <!-- 暖光核 -->
+                <circle cx="100" cy="92" r="30" fill="url(#haCore)" />
+                <!-- 点缀光斑 -->
+                <circle cx="152" cy="52" r="4.4" style="fill: var(--zg-accent); fill-opacity: .55" />
+                <circle cx="46" cy="66" r="2.6" style="fill: var(--zg-primary); fill-opacity: .35" />
+              </svg>
             </div>
-            <div class="hs-divider"></div>
-            <div class="hs-item">
-              <div class="hs-num">Lv.<ZgCountUp :value="user.current?.level || 1" /></div>
-              <div class="hs-label">等级</div>
+            <div class="ha-facts">
+              <div class="hf" v-for="f in heroFacts" :key="f.k">
+                <span class="hf-k">{{ f.k }}</span>
+                <span class="hf-v">{{ f.v || '—' }}</span>
+              </div>
             </div>
-            <div class="hs-divider"></div>
-            <div class="hs-item">
-              <div class="hs-num"><ZgCountUp :value="stats.articles || 0" /></div>
-              <div class="hs-label">美文</div>
-            </div>
-            <div class="hs-divider"></div>
-            <div class="hs-item">
-              <div class="hs-num"><ZgCountUp :value="stats.resources || 0" /></div>
-              <div class="hs-label">资料</div>
-            </div>
-          </div>
+          </aside>
         </div>
       </section>
 
-      <!-- 公告：玻璃横标 -->
+      <!-- 公告：经典=玻璃横标；墨金=去盒化贴顶细栏（§3.1） -->
       <div v-if="showAnnouncement" class="announce-bar zg-slide-up">
         <span class="ab-icon"><ZgGlyph :emoji="'📢'" /></span>
         <span class="ab-text" v-html="renderMarkdownPreserveSpaces(siteConfig.announcementBar)"></span>
       </div>
 
-      <!-- 快捷入口：单行玻璃胶囊 -->
+      <!-- 快捷入口：经典=玻璃胶囊；墨金=L3 瓷纹胶囊条（融入底色、不单独投影） -->
       <div class="quick-row" v-if="displayQuickLinks && displayQuickLinks.length">
         <div v-for="(ql, i) in displayQuickLinks" :key="i" class="qr-item" @click="router.push(ql.path)">
           <div class="qr-icon" :style="iconStyle(ql.color)"><ZgGlyph :emoji="ql.icon" /></div>
@@ -153,7 +206,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         </div>
       </div>
 
-      <!-- 学科子站 -->
+      <!-- 学科子站：经典=胶囊流；墨金=瓷片网格（桌面多列，横向利用率拉满） -->
       <div class="section" v-if="data.subjects.length && (siteConfig?.showSubjects !== false)">
         <div class="section-head">
           <div class="section-title">学科子站</div>
@@ -167,7 +220,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         </div>
       </div>
 
-      <!-- 最新美文 -->
+      <!-- 最新美文：墨金=杂志瓷卡（封面釉光 + 标题区） -->
       <div class="section" v-if="articles.length && (siteConfig?.showLatestArticles !== false)">
         <div class="section-head">
           <div class="section-title">最新美文</div>
@@ -204,16 +257,26 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 <style scoped>
 .home-page { position: relative; }
 
-/* 首页专属极淡呼吸光晕：仅墨金可见（经典不渲染任何可见内容） */
+/* ============================================================
+   首页背景光晕
+   经典：不渲染任何可见内容（铁律1，像素级不动）
+   墨金：§2.3 暖金呼吸光晕——比旧版明显但仍克制（.18~.24 + 更大 blur + 18s 缓动），
+         是"瓷盘后的暖光"，不是霓虹灯。
+   ============================================================ */
 .home-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 .zg-inkgold .home-bg::before {
-  content: ''; position: absolute; top: -200px; right: -160px; width: 680px; height: 680px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(212,175,55,0.14), transparent 68%); filter: blur(90px);
-  opacity: 0.75; animation: zgBreath 18s ease-in-out infinite;
+  content: ''; position: absolute; top: -240px; right: -200px; width: 820px; height: 820px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--zg-accent-rgb), 0.24), transparent 66%); filter: blur(110px);
+  opacity: 0.85; animation: zgBreath 18s ease-in-out infinite;
+}
+.zg-inkgold .home-bg::after {
+  content: ''; position: absolute; bottom: -260px; left: -180px; width: 640px; height: 640px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--zg-primary-rgb), 0.14), transparent 68%); filter: blur(120px);
+  opacity: 0.7; animation: zgBreath 22s ease-in-out infinite reverse;
 }
 @keyframes zgBreath {
   0%,100% { transform: scale(1); opacity: 0.58; }
-  50% { transform: scale(1.07); opacity: 0.80; }
+  50% { transform: scale(1.07); opacity: 0.86; }
 }
 
 /* ===== HERO 通用结构 ===== */
@@ -221,7 +284,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   position: relative; margin: 6px 0 28px; padding: 56px 54px 50px; border-radius: 28px;
   overflow: hidden; min-height: 360px; display: flex; flex-direction: column; justify-content: center;
 }
-/* 品牌光线母题：顶部一道金色光线 + 一道极缓流光（只此一处，贯穿三档主题色） */
+/* 品牌光线母题：顶部一道金色光线 + 一道极缓流光（经典保留原样） */
 .hero::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 3;
   background: linear-gradient(90deg, transparent, var(--zg-accent) 18%, var(--zg-primary) 50%, var(--zg-accent) 82%, transparent);
@@ -237,24 +300,29 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .home-enter { animation: homeEnter .8s cubic-bezier(.22,1,.36,1) both; }
 @keyframes homeEnter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 
+/* Hero 两栏容器：经典 display:contents（渲染结果与改版前完全一致），墨金桌面转两栏网格 */
+.hero-grid { display: contents; }
+/* 釉面光泽 / 视觉资产区：经典不渲染 */
+.hero-glaze, .hero-aside { display: none; }
+
 .hero-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .hero-tag { display: inline-flex; align-items: center; gap: 7px; padding: 8px 18px; border-radius: 999px; font-size: 13px; font-weight: 700; letter-spacing: .3px; }
 .hero-time { font-size: 13px; font-weight: 600; letter-spacing: .2px; color: var(--zg-text-dim); }
 
-/* 标题：经典=无衬线渐变展示；墨金=衬线留白（衬线由 main.css 的 !important 强制生效） */
+/* 标题：经典=无衬线渐变展示；墨金=优雅衬线（字体族与 600 字重由 main.css 强制，报告 §2.4） */
 .hero-title { margin: 0 0 14px; line-height: 1.12; font-size: 42px; font-weight: 800; letter-spacing: -1.5px; color: var(--zg-text); }
 .hero-greet { font-weight: 600; opacity: .7; }
 .hero-name { background: linear-gradient(118deg, var(--zg-primary-2), var(--zg-primary) 55%, var(--zg-accent)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; }
 .hero-dot { color: var(--zg-primary-2); -webkit-text-fill-color: var(--zg-primary-2); }
 .hero-slogan { margin: 0 0 34px; font-size: 19px; line-height: 1.7; max-width: 660px; font-weight: 500; opacity: .82; letter-spacing: .2px; }
 
-/* 墨金标题覆盖 */
-.zg-inkgold .hero-title { font-size: 46px; font-weight: 700; letter-spacing: -.5px; text-shadow: 0 2px 18px rgba(186,117,23,0.08); }
-.zg-inkgold .hero-greet { opacity: .80; }
-.zg-inkgold .hero-name { background: none; -webkit-text-fill-color: var(--zg-text); color: var(--zg-text); position: relative; }
-.zg-inkgold .hero-name::after { content: ''; position: absolute; left: 0; right: 35%; bottom: -4px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, var(--zg-primary), var(--zg-accent) 70%, transparent); }
+/* 墨金标题：与"各页 logo 小标题"同款优雅衬线（600 字重 + 舒展字距，不再碑文笨重） */
+.zg-inkgold .hero-title { font-size: 44px; font-weight: 600; letter-spacing: .01em; line-height: 1.22; text-shadow: none; }
+.zg-inkgold .hero-greet { opacity: .74; font-weight: 600; }
+.zg-inkgold .hero-name { background: none; -webkit-text-fill-color: var(--zg-text); color: var(--zg-text); font-weight: 600; position: relative; }
+.zg-inkgold .hero-name::after { content: ''; position: absolute; left: 0; right: 38%; bottom: -6px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--zg-primary), var(--zg-accent) 70%, transparent); opacity: .8; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
-.zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; }
+.zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; font-size: 17px; max-width: 30em; }
 
 /* ===== hero-stats ===== */
 .hero-stats { display: flex; align-items: center; gap: 0; padding: 22px 32px; border-radius: 20px; }
@@ -263,7 +331,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .hs-label { font-size: 12px; margin-top: 4px; font-weight: 600; letter-spacing: .5px; color: var(--zg-text-dim); }
 .hs-divider { width: 1px; height: 38px; background: rgba(var(--zg-primary-rgb), 0.18); }
 
-/* ===== 经典模式：干净橙玻璃（不越界，不堆墨金液态玻璃） ===== */
+/* ===== 经典模式：干净橙玻璃（原样冷冻，铁律1） ===== */
 .hero, .announce-bar, .qr-item, .subj-chip, .art-card {
   background: linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.52));
   -webkit-backdrop-filter: blur(var(--zg-blur)); backdrop-filter: blur(var(--zg-blur));
@@ -271,21 +339,100 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: 0 1px 0 0 rgba(255,255,255,0.9) inset, 0 -1px 0 0 rgba(120,53,15,0.04) inset, var(--zg-shadow);
 }
 
-/* ===== 墨金学术模式：克制玻璃 + 金发丝描边（限定 .zg-inkgold 作用域） ===== */
-.zg-inkgold .hero { background: linear-gradient(155deg, rgba(255,255,255,0.92), rgba(255,251,242,0.82)); border: 1px solid var(--zg-card-border); box-shadow: var(--zg-shadow); }
-.zg-inkgold .hero-stats { background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(255,251,242,0.66)); border: 1px solid var(--zg-card-border); box-shadow: var(--zg-shadow); }
-.zg-inkgold .announce-bar,
+/* ============================================================
+   墨金学术 ·「温润如瓷」材质（报告 §2）
+   L1 Hero 瓷板 / L2 美文卡·统计条 / L3 快捷入口·学科瓷片·公告细栏
+   ============================================================ */
+/* L1 主角瓷板：厚瓷 + 釉光 + 多层柔影（浮起来，不是被框住） */
+.zg-inkgold .hero {
+  background: var(--zg-porcelain);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* §2.1：去掉霓虹 2px 金光线与流光，改发丝金线 + 极淡渐隐 */
+.zg-inkgold .hero::before {
+  height: 1px; opacity: .9;
+  background: linear-gradient(90deg, transparent, rgba(var(--zg-accent-rgb), .55) 26%, rgba(var(--zg-primary-rgb), .40) 64%, transparent);
+  box-shadow: none;
+}
+.zg-inkgold .hero::after { display: none; }
+/* 釉面斜向光泽：光打在釉面上的温润反光（极低透明度，大半径） */
+.zg-inkgold .hero-glaze {
+  display: block; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background:
+    linear-gradient(122deg, rgba(255,255,255,.62) 0%, rgba(255,255,255,.16) 20%, transparent 44%),
+    radial-gradient(120% 84% at 88% 6%, rgba(var(--zg-accent-rgb), .12), transparent 62%);
+}
+/* L2 统计条：中等瓷感 */
+.zg-inkgold .hero-stats {
+  background: var(--zg-porcelain-2);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+}
+/* L2 美文瓷卡 */
+.zg-inkgold .art-card {
+  background: var(--zg-porcelain-2);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* L3 点缀：快捷入口 / 学科瓷片 —— 极淡底 + 发丝边，不单独投影，融入页面底色（§2.2） */
 .zg-inkgold .qr-item,
-.zg-inkgold .subj-chip,
-.zg-inkgold .art-card { background: linear-gradient(155deg, rgba(255,255,255,0.90), rgba(255,251,242,0.80)); border: 1px solid var(--zg-card-border); box-shadow: var(--zg-shadow); }
+.zg-inkgold .subj-chip {
+  background: var(--zg-porcelain-3);
+  border: 1px solid transparent;
+  box-shadow: var(--zg-glaze), var(--zg-rim);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* L3 公告：去盒化贴顶细栏（不再独立白卡，§3.1） */
+.zg-inkgold .announce-bar {
+  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .07), rgba(var(--zg-accent-rgb), .03) 62%, transparent);
+  border: none; border-left: 2px solid rgba(var(--zg-primary-rgb), .55);
+  box-shadow: none; border-radius: 0 12px 12px 0;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* hover：柔影加深 + 金边浮现（温润，不跳脱） */
+.zg-inkgold .qr-item:hover,
+.zg-inkgold .subj-chip:hover {
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .26), var(--zg-porcelain-shadow-sm);
+}
+.zg-inkgold .art-card:hover {
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-porcelain-shadow);
+}
 
-/* 墨金深色：暗底暖金，不阴郁 */
-.zg-inkgold.zg-inkgold-dark .hero,
-.zg-inkgold.zg-inkgold-dark .hero-stats,
-.zg-inkgold.zg-inkgold-dark .announce-bar,
-.zg-inkgold.zg-inkgold-dark .qr-item,
-.zg-inkgold.zg-inkgold-dark .subj-chip,
-.zg-inkgold.zg-inkgold-dark .art-card { background: linear-gradient(155deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)); border-color: rgba(212,175,55,0.20); box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 22px 56px rgba(0,0,0,0.4); }
+/* 墨金深色档：暗底暖金瓷（变量已在 main.css 深档重声明，此处只需补差异项） */
+.zg-inkgold.zg-inkgold-dark .hero-glaze {
+  background:
+    linear-gradient(122deg, rgba(255,243,214,.075) 0%, rgba(255,243,214,.022) 22%, transparent 46%),
+    radial-gradient(120% 84% at 88% 6%, rgba(var(--zg-accent-rgb), .14), transparent 62%);
+}
+.zg-inkgold.zg-inkgold-dark .announce-bar {
+  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .12), rgba(var(--zg-accent-rgb), .04) 62%, transparent);
+  border-left-color: rgba(var(--zg-primary-rgb), .6);
+}
+
+/* ===== Hero 视觉资产区（仅墨金）===== */
+.zg-inkgold .hero-aside {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  position: relative; z-index: 2;
+}
+.ha-disc { width: 100%; max-width: 232px; aspect-ratio: 1; position: relative; }
+.zg-inkgold .ha-disc::before {
+  content: ''; position: absolute; inset: 6%; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, rgba(255,255,255,.75), rgba(var(--zg-accent-rgb), .05) 62%, transparent 74%);
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .10);
+}
+.zg-inkgold.zg-inkgold-dark .ha-disc::before {
+  background: radial-gradient(circle at 38% 32%, rgba(255,243,214,.10), rgba(var(--zg-accent-rgb), .05) 60%, transparent 74%);
+}
+.ha-disc svg { position: relative; z-index: 1; display: block; animation: haSpin 68s linear infinite; }
+@keyframes haSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.ha-facts { display: flex; align-items: stretch; gap: 0; width: 100%; max-width: 260px; }
+.hf { flex: 1; text-align: center; padding: 0 6px; position: relative; }
+.hf + .hf::before { content: ''; position: absolute; left: 0; top: 12%; bottom: 12%; width: 1px; background: rgba(var(--zg-primary-rgb), .16); }
+.hf-k { display: block; font-size: 11px; letter-spacing: .18em; color: var(--zg-text-dim); opacity: .85; }
+.hf-v { display: block; margin-top: 4px; font-size: 21px; font-weight: 600; color: var(--zg-text); font-variant-numeric: tabular-nums; }
 
 /* 公告 */
 .announce-bar { display: flex; align-items: center; gap: 12px; padding: 15px 22px; margin: 0 0 28px; border-radius: 16px; border-left: 3px solid var(--zg-primary); }
@@ -299,6 +446,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .qr-item:hover { transform: translateY(-2px); }
 .qr-icon { width: 34px; height: 34px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex: none; }
 .qr-text { font-size: 14px; font-weight: 700; color: var(--zg-text); letter-spacing: .2px; }
+/* 墨金：胶囊内图标底改极淡瓷金（后台自定义 color 时仍走 iconStyle 实色，铁律10） */
+.zg-inkgold .qr-text { font-weight: 600; }
 
 /* 学科 */
 .section { margin: 36px 0; }
@@ -311,6 +460,10 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .subj-chip:hover { transform: translateY(-2px); }
 .sc-icon { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none; }
 .sc-name { font-weight: 700; font-size: 14px; color: var(--zg-text); letter-spacing: .2px; }
+/* 墨金：标题改优雅衬线细节（字体族由 main.css 统一），金条改发丝短线 */
+.zg-inkgold .section-title { font-weight: 600; letter-spacing: .02em; }
+.zg-inkgold .section-title::before { width: 2px; height: 16px; border-radius: 2px; opacity: .8; }
+.zg-inkgold .sc-name { font-weight: 600; }
 
 /* 美文 */
 .art-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
@@ -319,8 +472,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .ac-cover { position: relative; height: 150px; background-size: cover; background-position: center; }
 .ac-cover::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 60px; background: linear-gradient(180deg, rgba(255,255,255,0.25), transparent); pointer-events: none; }
 .ac-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb), 0.45), rgba(var(--zg-primary-2-rgb), 0.35)); font-size: 44px; font-weight: 800; color: rgba(255,255,255,0.85); }
-.zg-inkgold .ac-placeholder { background: linear-gradient(135deg, rgba(186,117,23,0.12), rgba(212,175,55,0.06)); color: var(--zg-primary); }
+.zg-inkgold .ac-placeholder { background: linear-gradient(135deg, rgba(var(--zg-primary-rgb), 0.10), rgba(var(--zg-accent-rgb), 0.05)); color: var(--zg-primary); font-weight: 600; }
 .zg-inkgold-dark .ac-placeholder { color: var(--zg-accent); }
+/* 墨金：封面顶部釉光（暖金而非冷白） */
+.zg-inkgold .ac-cover::after { height: 72px; background: linear-gradient(180deg, rgba(255,253,248,.42), transparent); }
+.zg-inkgold.zg-inkgold-dark .ac-cover::after { background: linear-gradient(180deg, rgba(255,243,214,.10), transparent); }
 .ac-body { padding: 15px 18px; }
 .ac-title { font-weight: 700; font-size: 15px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--zg-text); }
 .ac-meta { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--zg-text-dim); }
@@ -332,12 +488,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-footer :deep(br) { display: block; content: ""; margin: 4px 0; }
 .zg-footer :deep(*) { white-space: pre-wrap; }
 
-/* 桌面端 */
+/* ===== 平板（768–1199px）：墨金两列过渡（§3.3） ===== */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .zg-inkgold .subj-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .zg-inkgold .subj-chip { border-radius: 16px; padding: 12px 14px; }
+  .zg-inkgold .art-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+}
+
+/* ===== 桌面端（≥1200px）：解决"空"——Hero 两栏 + 多列网格 ===== */
 @media (min-width: 1200px) {
   .hero { padding: 68px 64px 60px; border-radius: 32px; min-height: 400px; }
   .hero-title { font-size: 48px; letter-spacing: -2px; }
-  .zg-inkgold .hero-title { font-size: 52px; }
+  .zg-inkgold .hero-title { font-size: 46px; letter-spacing: .01em; }
   .hero-slogan { font-size: 21px; margin-bottom: 42px; }
+  .zg-inkgold .hero-slogan { font-size: 18px; margin-bottom: 34px; }
   .hero-stats { padding: 26px 40px; border-radius: 24px; }
   .hs-num { font-size: 34px; }
   .hs-label { font-size: 13px; }
@@ -345,37 +509,78 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .section-title { font-size: 22px; }
   .section-meta { font-size: 13px; }
   .art-grid { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+  /* 墨金：桌面幅宽放宽到 1360（§3.1），横向利用率拉满 */
+  .zg-inkgold .home-page { max-width: 1360px; }
+  /* Hero 两栏：左文案 + 右视觉资产 */
+  .zg-inkgold .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 46px; align-items: center; }
+  .zg-inkgold .hero { padding: 64px 60px 58px; }
+  .zg-inkgold .hero-aside::before {
+    content: ''; position: absolute; left: -23px; top: 8%; bottom: 8%; width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(var(--zg-primary-rgb), .22), transparent);
+  }
+  /* 学科瓷片网格：5 列（1360 宽下每片 ~250px） */
+  .zg-inkgold .subj-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .zg-inkgold .subj-chip { border-radius: 16px; padding: 13px 16px; }
+  /* 快捷入口瓷纹条：等分铺满一行，不再挤在左侧留大空 */
+  .zg-inkgold .quick-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; overflow: visible; }
+  .zg-inkgold .qr-item { border-radius: 18px; padding: 14px 18px; justify-content: flex-start; }
+  .zg-inkgold .art-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
+}
+@media (min-width: 1440px) {
+  .zg-inkgold .subj-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .zg-inkgold .art-grid { grid-template-columns: repeat(4, 1fr); }
+  .zg-inkgold .hero-grid { grid-template-columns: minmax(0, 1fr) 330px; gap: 54px; }
 }
 @media (min-width: 1600px) { .art-grid { grid-template-columns: repeat(4, 1fr); } }
 
-/* 移动端 */
+/* ===== 移动端（≤767px）：Hero 单栏（文案上 / 资产缩为顶部细带），触控 ≥40px ===== */
 @media (max-width: 768px) {
   .hero { margin: 0 0 20px; padding: 34px 22px 30px; border-radius: 24px; min-height: auto; }
   .hero-meta { margin-bottom: 14px; }
   .hero-tag { font-size: 12px; padding: 6px 14px; }
   .hero-time { display: none; }
   .hero-title { font-size: 30px; letter-spacing: -1px; margin-bottom: 10px; }
-  .zg-inkgold .hero-title { font-size: 30px; letter-spacing: -.3px; }
+  .zg-inkgold .hero-title { font-size: 29px; letter-spacing: .01em; line-height: 1.3; }
   .hero-slogan { font-size: 14px; margin-bottom: 22px; }
+  .zg-inkgold .hero-slogan { font-size: 14px; }
   .hero-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 16px 14px; border-radius: 18px; }
   .hs-divider { display: none; }
   .hs-num { font-size: 22px; }
   .hs-label { font-size: 11px; }
   .announce-bar { padding: 12px 16px; margin-bottom: 20px; border-radius: 14px; }
+  .zg-inkgold .announce-bar { border-radius: 0 10px 10px 0; padding: 11px 14px; }
   .ab-text { font-size: 13px; }
   .quick-row { margin-bottom: 24px; gap: 8px; }
-  .qr-item { padding: 10px 14px; gap: 9px; }
+  .qr-item { padding: 10px 14px; gap: 9px; min-height: 44px; }
   .qr-icon { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
   .qr-text { font-size: 13px; }
   .section { margin: 24px 0; }
   .section-title { font-size: 18px; }
   .section-meta { font-size: 11px; }
-  .subj-chip { padding: 8px 14px; }
+  .subj-chip { padding: 8px 14px; min-height: 42px; }
   .sc-icon { width: 26px; height: 26px; font-size: 14px; border-radius: 8px; }
   .sc-name { font-size: 13px; }
   .art-card { border-radius: 18px; }
   .ac-cover { height: 130px; }
   .ac-body { padding: 12px 14px; }
   .ac-title { font-size: 14px; }
+
+  /* 墨金移动端：资产区收为顶部细光带（瓷盘不占高），学科横滚胶囊 */
+  .zg-inkgold .hero-grid { display: contents; }
+  .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(var(--zg-primary-rgb), .14); }
+  .zg-inkgold .ha-disc { width: 62px; max-width: 62px; flex: none; }
+  .zg-inkgold .ha-facts { max-width: none; }
+  .zg-inkgold .hf-v { font-size: 17px; }
+  .zg-inkgold .hf-k { font-size: 10px; letter-spacing: .14em; }
+  .zg-inkgold .subj-row { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-bottom: 4px; scrollbar-width: none; }
+  .zg-inkgold .subj-row::-webkit-scrollbar { display: none; }
+  .zg-inkgold .subj-chip { flex: none; white-space: nowrap; }
+}
+
+/* 无障碍：尊重"减少动态效果"偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .ha-disc svg { animation: none; }
+  .zg-inkgold .home-bg::before, .zg-inkgold .home-bg::after { animation: none; }
 }
 </style>

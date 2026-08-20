@@ -2,6 +2,11 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useThemeStore } from '@/store/theme'
+import { useSettingsStore } from '@/store/settings'
+
+const themeStore = useThemeStore()
+const settings = useSettingsStore()
 
 interface QuickLink {
   icon: string
@@ -37,8 +42,18 @@ interface SiteConfig {
 const loading = ref(true)
 const saving = ref(false)
 
-// 默认配置：与首页 HomeView 的快捷入口保持一致
-function defaultConfig(): SiteConfig {
+/* ============================================================
+   报告 §9.3 双主题分套编辑
+   数据结构：{ classic: <完整配置>, inkgold: <完整配置> }
+   顶部「编辑模式」切换 → 表单加载对应主题子配置；保存时整体 PUT（两套都在，互不覆盖）。
+   ============================================================ */
+type EditMode = 'classic' | 'inkgold'
+const editMode = ref<EditMode>('classic')
+// 后端原始双主题配置（本地草稿：切换编辑模式不丢未保存的改动）
+const rawConfig = ref<any>({ classic: null, inkgold: null })
+
+// 默认配置：与首页 HomeView 的快捷入口保持一致；主色按主题各自默认（经典暖橙 / 墨金沉稳金）
+function defaultConfig(mode: EditMode = 'classic'): SiteConfig {
   return {
     siteName: '追光学科共享平台',
     siteSlogan: '追光的人，终会身披万丈光芒',
@@ -64,17 +79,17 @@ function defaultConfig(): SiteConfig {
     showSubjects: true,
     showLatestArticles: true,
     maxArticlesOnHome: 6,
-    // 颜色主题
-    primaryColor: '#F59E0B',
+    // 颜色主题：墨金默认沉稳金，经典默认暖橙（根治"墨金下橙色打架"）
+    primaryColor: mode === 'inkgold' ? '#BA7517' : '#F59E0B',
   }
 }
 
 const form = reactive<SiteConfig>(defaultConfig())
 
 // 合并后端返回的配置，缺失字段补默认值
-function mergeConfig(remote: any) {
-  const d = defaultConfig()
-  if (!remote || typeof remote !== 'object') return
+function mergeConfig(remote: any, mode: EditMode = editMode.value) {
+  const d = defaultConfig(mode)
+  if (!remote || typeof remote !== 'object') { Object.assign(form, d); return }
   form.siteName = remote.siteName ?? d.siteName
   form.siteSlogan = remote.siteSlogan ?? d.siteSlogan
   form.heroSubtitle = remote.heroSubtitle ?? d.heroSubtitle
@@ -105,10 +120,23 @@ function mergeConfig(remote: any) {
   form.primaryColor = remote.primaryColor ?? d.primaryColor
 }
 
+// 当前表单快照（用于写回 rawConfig，避免引用共享）
+function formSnapshot(): SiteConfig {
+  return { ...form, quickLinks: form.quickLinks.map(q => ({ ...q })) } as SiteConfig
+}
+
 onMounted(async () => {
   try {
     const cfg: any = await api.getSiteConfig()
-    mergeConfig(cfg)
+    // 兼容：后端已双主题化 → 直接用；仍是旧单份结构 → 两套均以现值为初值（不丢数据）
+    if (cfg && (cfg.classic || cfg.inkgold)) {
+      rawConfig.value = { classic: cfg.classic || null, inkgold: cfg.inkgold || null }
+    } else {
+      rawConfig.value = { classic: cfg || null, inkgold: cfg || null }
+    }
+    // 默认进入「当前生效主题」那一套，减少误改
+    editMode.value = themeStore.activeTheme?.config?.designMode === 'inkgold' ? 'inkgold' : 'classic'
+    mergeConfig(rawConfig.value[editMode.value], editMode.value)
   } catch (e: any) {
     ElMessage.error('加载网站配置失败：' + (e?.message || '请稍后重试'))
   } finally {
@@ -116,11 +144,26 @@ onMounted(async () => {
   }
 })
 
+// 切换编辑模式：先把当前表单存回内存草稿，再载入目标主题那一套（双向切换不丢未保存改动）
+function switchMode(m: EditMode) {
+  if (m === editMode.value) return
+  rawConfig.value[editMode.value] = formSnapshot()
+  editMode.value = m
+  mergeConfig(rawConfig.value[m], m)
+}
+
 async function save() {
   saving.value = true
   try {
-    await api.saveSiteConfig({ ...form, quickLinks: form.quickLinks.map(q => ({ ...q })) })
-    ElMessage.success('网站配置已保存，立即生效')
+    rawConfig.value[editMode.value] = formSnapshot()
+    const next = {
+      classic: rawConfig.value.classic || defaultConfig('classic'),
+      inkgold: rawConfig.value.inkgold || defaultConfig('inkgold'),
+    }
+    await api.saveSiteConfig(next)
+    // 重新拉取 → store 本地同步（前台立即生效 + 后台回显一致，全链路闭环）
+    await settings.fetchSiteConfig()
+    ElMessage.success(`已保存「${editMode.value === 'inkgold' ? '墨金学术' : '经典暖橘'}」那一套配置，全站立即生效`)
   } catch (e: any) {
     ElMessage.error('保存失败：' + (e?.message || '请稍后重试'))
   } finally {
@@ -130,16 +173,19 @@ async function save() {
 
 // ===== 快捷入口动态编辑 =====
 // Q3：墨金模式下展示「墨金图标包」（与经典不同的金色高阶图标集合）
-const PRESET_COLORS = ['#F59E0B', '#FB923C', '#FBBF24', '#FDE68A', '#F97316', '#EF4444', '#34D399', '#60A5FA']
+const CLASSIC_COLORS = ['#F59E0B', '#FB923C', '#FBBF24', '#FDE68A', '#F97316', '#EF4444', '#34D399', '#60A5FA']
+// 墨金色板：沉稳金 / 亮金 / 暖砂 / 墨绿等学术感配色（与经典暖橙系区分）
+const INKGOLD_COLORS = ['#BA7517', '#C8922E', '#D4AF37', '#E6C66E', '#9C6112', '#7C6A3F', '#4E6E58', '#5B6B8C']
 const CLASSIC_EMOJIS = ['📚', '🏆', '👤', '⭐', '📝', '📢', '🔍', '✍️', '📦', '🎓', '💡', '🔥']
 // 墨金图标包：只选 ZgGlyph 在墨金下能渲染为高阶金色 SVG/EP 图标的 emoji（其他 emoji 在墨金下会回退成原 emoji）
 // 覆盖：学科/排行/个人/收藏/说明/博客/公告/题库/搜索/帮助/设置/消息
 const INKGOLD_EMOJIS = ['📚', '🏆', '👤', '⭐', '📖', '✍️', '📢', '📝', '🔍', '💡', '⚙', '🔔']
-// Q4：图标包跟随设计模式自动切换（墨金时呈现更高级的金色图标）
-import { useThemeStore } from '@/store/theme'
-const themeStore = useThemeStore()
-const PRESET_EMOJIS = computed(() => (themeStore.activeTheme?.config?.designMode === 'inkgold' ? INKGOLD_EMOJIS : CLASSIC_EMOJIS))
-const THEME_COLORS = ['#F59E0B', '#FB923C', '#F97316', '#EF4444', '#8B5CF6', '#3B82F6', '#10B981', '#EC4899']
+// 报告 §9.3：图标包 / 色板跟随「正在编辑的那一套主题」，而不是当前生效主题
+const PRESET_EMOJIS = computed(() => (editMode.value === 'inkgold' ? INKGOLD_EMOJIS : CLASSIC_EMOJIS))
+const PRESET_COLORS = computed(() => (editMode.value === 'inkgold' ? INKGOLD_COLORS : CLASSIC_COLORS))
+const THEME_COLORS = computed(() => (editMode.value === 'inkgold'
+  ? ['#BA7517', '#C8922E', '#D4AF37', '#9C6112', '#7C6A3F', '#4E6E58', '#5B6B8C', '#8C5B3F']
+  : ['#F59E0B', '#FB923C', '#F97316', '#EF4444', '#8B5CF6', '#3B82F6', '#10B981', '#EC4899']))
 
 function addLink() {
   form.quickLinks.push({ icon: '⭐', label: '', path: '/', color: '' })
@@ -157,8 +203,9 @@ function moveLink(index: number, dir: -1 | 1) {
 }
 
 function resetConfig() {
-  Object.assign(form, defaultConfig())
-  ElMessage.info('已恢复为默认配置（未保存）')
+  // 只恢复"当前编辑的这一套"，另一套配置不受影响
+  Object.assign(form, defaultConfig(editMode.value))
+  ElMessage.info(`已将「${editMode.value === 'inkgold' ? '墨金学术' : '经典暖橘'}」恢复为默认配置（未保存）`)
 }
 </script>
 
@@ -175,9 +222,25 @@ function resetConfig() {
       </div>
     </div>
 
+    <!-- 报告 §9.3：双主题分套编辑 —— 经典 / 墨金各一份完整配置，互不覆盖 -->
+    <div class="glass mode-bar">
+      <div class="mb-left">
+        <div class="mb-title">编辑模式</div>
+        <div class="mb-sub">两套界面风格各有一套独立的网站自定义配置；切换后编辑的是对应那一套，保存时两套一并提交、互不覆盖。</div>
+      </div>
+      <el-radio-group :model-value="editMode" @change="(v: any) => switchMode(v)" class="mb-switch">
+        <el-radio-button value="classic">经典暖橘</el-radio-button>
+        <el-radio-button value="inkgold">墨金学术</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <el-form label-position="top" class="config-form">
       <div class="glass-strong config-page">
-        <div class="tip"><ZgGlyph emoji="💡" /> 修改后点击「保存配置」即可全站生效。快捷入口可拖动排序、自由增删。</div>
+        <div class="tip">
+          <ZgGlyph emoji="💡" /> 当前正在编辑
+          <b>{{ editMode === 'inkgold' ? '墨金学术' : '经典暖橘' }}</b>
+          的配置；修改后点击「保存配置」即可全站生效。快捷入口可排序、自由增删。
+        </div>
 
         <!-- 基础信息 -->
         <div class="sec">

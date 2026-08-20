@@ -15,7 +15,8 @@ const data = useDataStore()
 const settings = useSettingsStore()
 
 // 站点配置（品牌名称等），未配置或加载失败时回退默认品牌名「追光」
-const siteConfig = computed(() => settings.siteConfig)
+// 报告 §9.3：消费 activeSiteConfig —— 经典 / 墨金各自一套自定义，按当前 designMode 取用
+const siteConfig = computed(() => settings.activeSiteConfig)
 const brandName = computed(() => siteConfig.value?.navTitle || siteConfig.value?.siteName || '追光')
 // 导航按钮可见性：优先使用站点配置，回退功能开关
 const showSearch = computed(() => siteConfig.value?.showNavSearch !== false && settings.isEnabled('search'))

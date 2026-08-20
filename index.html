@@ -2,10 +2,19 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
-    <meta name="theme-color" content="#F59E0B" />
+    <!-- 报告 §8.2 favicon 现代化：透明底「追光」母题（光晕+追光弧+光核+光斑），
+         默认经典暖橙档；theme.ts 就绪后按 designMode 切换为墨金金调（id=zg-favicon）。 -->
+    <link rel="icon" id="zg-favicon" type="image/svg+xml" href="/favicon-classic.svg" />
+    <link rel="apple-touch-icon" id="zg-favicon-touch" href="/favicon-classic.svg" />
+    <meta name="theme-color" id="zg-theme-color" content="#F59E0B" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+    <!-- 报告 §2.4-1 字体根治：自托管 Noto Serif SC 预载（零 CDN）。
+         preload 让衬线在 HTML 解析阶段以最高优先级下载，首屏绘制前即就位，
+         从而使 @font-face 的 font-display:swap 替补（通用 serif → 系统无衬线 CJK）永不显示，
+         根治「早上好没衬线 / 用户名巨难看」的首屏无衬线闪屏。
+         600 = 展示主字重（Hero 标题）；700 = 次级标题。800 保留字面但不预载（仅旧位偶用，避免首屏多拉 1.5MB）。 -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/noto-serif-sc-600.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/noto-serif-sc-700.woff2" />
     <title>追光 · 学科共享平台</title>
   </head>
   <body>

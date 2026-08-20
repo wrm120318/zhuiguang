@@ -2,8 +2,27 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ThemeConfig } from '@/types'
 import { api } from '@/api'
+import { useSettingsStore, type DesignMode } from '@/store/settings'
 
 interface ThemeRow { id: number; name: string; config: any; is_active: number }
+
+/**
+ * 报告 §8.2 favicon 双主题切换：
+ * 经典 → /favicon-classic.svg（暖橙）；墨金 → /favicon-inkgold.svg（沉稳金）。
+ * 同步改写 meta[theme-color]，让移动端浏览器地址栏配色也跟随皮肤。
+ */
+function applyFavicon(mode: DesignMode, tone: 'light' | 'dark') {
+  const href = mode === 'inkgold' ? '/favicon-inkgold.svg' : '/favicon-classic.svg'
+  const icon = document.getElementById('zg-favicon') as HTMLLinkElement | null
+  if (icon && icon.getAttribute('href') !== href) icon.setAttribute('href', href)
+  const touch = document.getElementById('zg-favicon-touch') as HTMLLinkElement | null
+  if (touch && touch.getAttribute('href') !== href) touch.setAttribute('href', href)
+  const meta = document.getElementById('zg-theme-color') as HTMLMetaElement | null
+  if (meta) {
+    const color = mode === 'inkgold' ? (tone === 'dark' ? '#1B1710' : '#FAF8F4') : '#F59E0B'
+    if (meta.getAttribute('content') !== color) meta.setAttribute('content', color)
+  }
+}
 
 // hex → "r, g, b" 通道（用于 --zg-primary-rgb 等半透明底色变量跟随后台自定义色）
 function hexToRgbChannels(hex: string): string | null {
@@ -62,6 +81,13 @@ function applyTheme(c: any) {
   root.classList.toggle('zg-inkgold-dark', c.designMode === 'inkgold' && (c.inkgoldTone || 'light') === 'dark')
   // 墨金·背景亮度档（后台界面风格可切换；soft 温和 / bright 明显）
   root.classList.toggle('zg-inkgold-bright', c.designMode === 'inkgold' && (c.bright || 'soft') === 'bright')
+
+  const mode: DesignMode = c.designMode === 'inkgold' ? 'inkgold' : 'classic'
+  const tone: 'light' | 'dark' = (c.inkgoldTone || 'light') === 'dark' ? 'dark' : 'light'
+  // 报告 §8.2：站点图标 / 地址栏配色跟随皮肤
+  applyFavicon(mode, tone)
+  // 报告 §9.3：把当前设计模式同步进 settings store，驱动 activeSiteConfig 切换到对应那一套自定义
+  try { useSettingsStore().setDesignMode(mode) } catch { /* pinia 未就绪（极早期调用）时忽略 */ }
 }
 
 export const useThemeStore = defineStore('theme', () => {
