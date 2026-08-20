@@ -1525,12 +1525,12 @@ html.zg-inkgold {
   --zg-glaze: inset 0 1px 0 rgba(255,255,255,.9);
   --zg-rim: inset 0 0 0 1px rgba(186,117,23,.10);
   --zg-hair: 0 1px 0 rgba(212,175,55,.22);
-  /* —— 多层柔影（§2.1）—— */
-  --zg-soft-1: 0 1px 2px rgba(120,90,30,.05);
-  --zg-soft-2: 0 10px 30px rgba(120,90,30,.10);
-  --zg-soft-3: 0 30px 70px rgba(120,90,30,.10);
+  /* —— 多层柔影（§2.1）：负扩散→大半径扩散柔影，仅"浮"不"框"，根治矩形界限观感 —— */
+  --zg-soft-1: 0 1px 2px rgba(120,90,30,.04);
+  --zg-soft-2: 0 14px 40px -16px rgba(120,90,30,.20);
+  --zg-soft-3: 0 38px 84px -36px rgba(120,90,30,.22);
   --zg-porcelain-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3);
-  --zg-porcelain-shadow-sm: 0 1px 2px rgba(120,90,30,.04), 0 6px 18px rgba(120,90,30,.07);
+  --zg-porcelain-shadow-sm: 0 1px 2px rgba(120,90,30,.03), 0 10px 28px -10px rgba(120,90,30,.16);
   /* 全站阴影统一换成瓷柔影：去掉原 0 16px 44px 硬边双层投影的"矩形框"观感 */
   --zg-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
 }
@@ -1552,11 +1552,11 @@ html.zg-inkgold.zg-inkgold-dark {
   --zg-glaze: inset 0 1px 0 rgba(255,243,214,.10);
   --zg-rim: inset 0 0 0 1px rgba(212,175,55,.14);
   --zg-hair: 0 1px 0 rgba(212,175,55,.26);
-  --zg-soft-1: 0 1px 2px rgba(0,0,0,.34);
-  --zg-soft-2: 0 10px 30px rgba(0,0,0,.34);
-  --zg-soft-3: 0 30px 70px rgba(0,0,0,.36);
+  --zg-soft-1: 0 1px 2px rgba(0,0,0,.30);
+  --zg-soft-2: 0 14px 40px -16px rgba(0,0,0,.44);
+  --zg-soft-3: 0 38px 84px -36px rgba(0,0,0,.48);
   --zg-porcelain-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3);
-  --zg-porcelain-shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.28);
+  --zg-porcelain-shadow-sm: 0 1px 2px rgba(0,0,0,.26), 0 10px 28px -10px rgba(0,0,0,.36);
   --zg-shadow: var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
 }
 /* 深色 + 提亮：暖墨略提亮（特异性 0,3,1，压过上面两档） */
@@ -1573,14 +1573,14 @@ html.zg-inkgold .glass-strong,
 html.zg-inkgold .el-card {
   background: var(--zg-porcelain-2) !important;
   border: 1px solid transparent !important;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow) !important;
+  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow) !important;
 }
 html.zg-inkgold.zg-inkgold-dark .glass,
 html.zg-inkgold.zg-inkgold-dark .glass-strong,
 html.zg-inkgold.zg-inkgold-dark .el-card {
   background: var(--zg-porcelain-2) !important;
   border: 1px solid transparent !important;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow) !important;
+  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow) !important;
 }
 /* 卡片 hover：柔影加深 + 金边略显，不做位移过冲（温润不跳脱） */
 html.zg-inkgold .zg-card:hover {
@@ -1608,26 +1608,26 @@ html.zg-inkgold.zg-inkgold-dark .el-select-dropdown,
 html.zg-inkgold.zg-inkgold-dark .el-notification {
   background: var(--zg-porcelain) !important;
   border: 1px solid transparent !important;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-soft-2), var(--zg-soft-3) !important;
+  box-shadow: var(--zg-glaze), var(--zg-soft-2), var(--zg-soft-3) !important;
 }
 /* 瓷面通用工具类：供首页/后台复用（L1/L2/L3 三级材质） */
 html.zg-inkgold .zg-plate,
 html.zg-inkgold.zg-inkgold-dark .zg-plate {
   background: var(--zg-porcelain);
   border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow);
+  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow);
 }
 html.zg-inkgold .zg-plate-2,
 html.zg-inkgold.zg-inkgold-dark .zg-plate-2 {
   background: var(--zg-porcelain-2);
   border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow-sm);
 }
 html.zg-inkgold .zg-plate-3,
 html.zg-inkgold.zg-inkgold-dark .zg-plate-3 {
   background: var(--zg-porcelain-3);
   border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-rim);   /* L3 不单独投影，融入底色 */
+  box-shadow: var(--zg-glaze);   /* L3 不单独投影，融入底色 */
 }
 
 
