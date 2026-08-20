@@ -69,13 +69,27 @@ const showAnnouncement = computed(() => {
   return siteConfig.value?.showAnnouncementBar && siteConfig.value?.announcementBar
 })
 
-/* 报告 §3.1 Hero「视觉资产区」的数据微缩：
-   /api/stats 需登录，未登录时降级用公开数据（学科数 / 已取回的美文数），拿不到则显示破折号。 */
-const heroFacts = computed(() => [
-  { k: '学科', v: data.subjects.length || 0 },
-  { k: '美文', v: stats.value.articles || articles.value.length || 0 },
-  { k: '资料', v: stats.value.resources || 0 },
-])
+/* Hero 数据条（单一来源，杜绝重复）：
+   - 公开项：学科 / 美文 / 资料（全站可见）
+   - 登录追加：经验值 / 等级 / 收藏（个人维度，详见 §3.1 视觉资产区去重）
+   原实现 hero-stats 与 aside ha-facts 两份数据源导致「美文/资料」重复且数值冲突（4 vs 1），
+   现合并为单一 heroStats，每个指标只出现一次。 */
+const favorites = ref<any[]>([])
+const heroStats = computed(() => {
+  const list: { k: string; v: number }[] = [
+    { k: '学科', v: data.subjects.length || 0 },
+    { k: '美文', v: stats.value.articles || articles.value.length || 0 },
+    { k: '资料', v: stats.value.resources || 0 },
+  ]
+  if (user.isLogin) {
+    list.unshift(
+      { k: '经验值', v: user.current?.exp || 0 },
+      { k: '等级', v: user.current?.level || 1 },
+    )
+    list.push({ k: '收藏', v: favorites.value.length || 0 })
+  }
+  return list
+})
 
 const error = ref(false)
 
@@ -84,12 +98,14 @@ async function load() {
   try {
     if (!settings.siteConfigLoaded) await settings.fetchSiteConfig()
     if (!data.subjects.length) await data.fetchSubjects()
-    const [artsRes, statsRes] = await Promise.allSettled([
+    const [artsRes, statsRes, favRes] = await Promise.allSettled([
       api.articles({ limit: 6 }),
       api.stats(),
+      api.favorites(),
     ])
     if (artsRes.status === 'fulfilled') articles.value = artsRes.value as any
     if (statsRes.status === 'fulfilled') stats.value = statsRes.value as any
+    if (favRes.status === 'fulfilled') favorites.value = (favRes.value as any) || []
   } catch { error.value = true }
 }
 onMounted(load)
@@ -129,26 +145,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
             <p class="hero-slogan">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
 
-            <div class="hero-stats" v-if="user.isLogin && (siteConfig?.showHeroStats !== false)">
-              <div class="hs-item">
-                <div class="hs-num"><ZgCountUp :value="user.current?.exp || 0" /></div>
-                <div class="hs-label">经验值</div>
-              </div>
-              <div class="hs-divider"></div>
-              <div class="hs-item">
-                <div class="hs-num">Lv.<ZgCountUp :value="user.current?.level || 1" /></div>
-                <div class="hs-label">等级</div>
-              </div>
-              <div class="hs-divider"></div>
-              <div class="hs-item">
-                <div class="hs-num"><ZgCountUp :value="stats.articles || 0" /></div>
-                <div class="hs-label">美文</div>
-              </div>
-              <div class="hs-divider"></div>
-              <div class="hs-item">
-                <div class="hs-num"><ZgCountUp :value="stats.resources || 0" /></div>
-                <div class="hs-label">资料</div>
-              </div>
+            <div class="hero-stats" v-if="siteConfig?.showHeroStats !== false">
+              <template v-for="(s, i) in heroStats" :key="s.k">
+                <div class="hs-item">
+                  <div class="hs-num"><ZgCountUp :value="s.v" /></div>
+                  <div class="hs-label">{{ s.k }}</div>
+                </div>
+                <div class="hs-divider" v-if="i < heroStats.length - 1"></div>
+              </template>
             </div>
           </div>
 
@@ -181,12 +185,6 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
                 <circle cx="152" cy="52" r="4.4" style="fill: var(--zg-accent); fill-opacity: .55" />
                 <circle cx="46" cy="66" r="2.6" style="fill: var(--zg-primary); fill-opacity: .35" />
               </svg>
-            </div>
-            <div class="ha-facts">
-              <div class="hf" v-for="f in heroFacts" :key="f.k">
-                <span class="hf-k">{{ f.k }}</span>
-                <span class="hf-v">{{ f.v || '—' }}</span>
-              </div>
             </div>
           </aside>
         </div>
@@ -319,8 +317,13 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* 墨金标题：与"各页 logo 小标题"同款优雅衬线（600 字重 + 舒展字距，不再碑文笨重） */
 .zg-inkgold .hero-title { font-size: 44px; font-weight: 600; letter-spacing: .01em; line-height: 1.22; text-shadow: none; }
 .zg-inkgold .hero-greet { opacity: .74; font-weight: 600; }
-.zg-inkgold .hero-name { background: none; -webkit-text-fill-color: var(--zg-text); color: var(--zg-text); font-weight: 600; position: relative; }
-.zg-inkgold .hero-name::after { content: ''; position: absolute; left: 0; right: 38%; bottom: -6px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--zg-primary), var(--zg-accent) 70%, transparent); opacity: .8; }
+/* 墨金 hero 名字：金色渐变衬线（去掉平淡深色+细下划线，恢复高级品牌质感，与经典档同款处理语言但用金调） */
+.zg-inkgold .hero-name {
+  background: linear-gradient(118deg, var(--zg-primary-2), var(--zg-primary) 55%, var(--zg-accent));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  font-weight: 600; position: relative;
+}
+.zg-inkgold .hero-name::after { display: none; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
 .zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; font-size: 17px; max-width: 30em; }
 
@@ -364,17 +367,18 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     linear-gradient(122deg, rgba(255,255,255,.62) 0%, rgba(255,255,255,.16) 20%, transparent 44%),
     radial-gradient(120% 84% at 88% 6%, rgba(var(--zg-accent-rgb), .12), transparent 62%);
 }
-/* L2 统计条：中等瓷感 */
+/* L2 统计条：去盒化——直接坐在 L1 Hero 瓷板上，不另起瓷卡（消除"卡中卡"），仅用发丝分隔线分区 */
 .zg-inkgold .hero-stats {
-  background: var(--zg-porcelain-2);
-  border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
 }
-/* L2 美文瓷卡 */
+/* L2 美文：由"带外阴影的浮动瓷卡"压成融入底色的瓷片（tint + 发丝边，无外阴影），消除"各自带投影白卡" */
 .zg-inkgold .art-card {
-  background: var(--zg-porcelain-2);
+  background: var(--zg-porcelain-3);
   border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-rim), var(--zg-porcelain-shadow-sm);
+  box-shadow: var(--zg-glaze), var(--zg-rim);
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 /* L3 点缀：快捷入口 / 学科瓷片 —— 极淡底 + 发丝边，不单独投影，融入页面底色（§2.2） */
@@ -398,7 +402,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .26), var(--zg-porcelain-shadow-sm);
 }
 .zg-inkgold .art-card:hover {
-  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-porcelain-shadow);
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22);
 }
 
 /* 墨金深色档：暗底暖金瓷（变量已在 main.css 深档重声明，此处只需补差异项） */

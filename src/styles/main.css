@@ -697,7 +697,9 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .dh-title, .zg-inkgold .section-title, .zg-inkgold .brand-name,
 .zg-inkgold .hero-title, .zg-inkgold .hero-greet, .zg-inkgold .hero-name,
 .zg-inkgold .lc-logo h1 {
-  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif !important;
+  /* 回退链加固：优先真衬线 CJK；若系统无衬线字体（如 Windows 缺 Songti/STSong），
+     退到 Microsoft YaHei / PingFang SC 等干净无衬线，避免退化到丑陋的 SimSun 宋体。 */
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'Microsoft YaHei', 'PingFang SC', serif !important;
 }
 /* 报告 §2.4-2 字重降到与 logo 小标题同款优雅档：Hero 由 700–800 → 600，
    字距由负追踪改舒展 .01em，开启视觉字号优化。根治"用户名巨难看（800 粗体衬线笨重）"。 */
