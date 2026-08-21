@@ -105,13 +105,13 @@ function go(s: any) { router.push(`/subject/${s.slug}`) }
 /* 墨金：学科卡由"硬边白卡"改为清晰瓷面 + 大扩散柔影（只浮不框，阴影是好的设计）；
    经典档 .glass 橙玻璃不动（铁律1）。 */
 .zg-inkgold .sp-card.glass {
-  background: var(--zg-porcelain-2) !important;
+  background: var(--zg-porcelain-3) !important;
   border: 1px solid transparent !important;
-  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow) !important;
+  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow-sm) !important;
   -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
 }
 .zg-inkgold .sp-card.glass:hover {
-  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .24), var(--zg-porcelain-shadow) !important;
+  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-porcelain-shadow-sm) !important;
   transform: translateY(-3px);
 }
 /* 图标小硬阴影在墨金下也压掉，避免"卡中带小盒" */

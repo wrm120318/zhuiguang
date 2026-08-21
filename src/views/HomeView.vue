@@ -29,6 +29,8 @@ const greeting = computed(() => {
    经典 / 墨金各自独立一份（互不覆盖）；旧单份结构由 store 侧向后兼容。 */
 const siteConfig = computed(() => settings.activeSiteConfig)
 const configLoaded = computed(() => settings.siteConfigLoaded)
+/* 仅墨金模式渲染创新元素（CTA 等），确保经典档像素级冻结不被污染（铁律1） */
+const isInkgold = computed(() => settings.designMode === 'inkgold')
 
 const defaultQuickLinks = [
   { icon: '📚', label: '学科广场', path: '/subjects', color: '' },
@@ -146,6 +148,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
             <p class="hero-slogan">{{ siteConfig?.siteSlogan || '追光的人，终会身披万丈光芒。' }} {{ siteConfig?.heroSubtitle || '在这里分享知识，收获成长。' }}</p>
 
             <div class="hero-accent" aria-hidden="true"></div>
+
+            <div class="hero-cta" v-if="isInkgold">
+              <button class="cta cta-primary" @click="router.push('/subjects')">开始探索</button>
+              <button class="cta cta-ghost" @click="router.push('/leaderboard')">经验排行</button>
+            </div>
 
             <div class="hero-stats" v-if="siteConfig?.showHeroStats !== false">
               <template v-for="(s, i) in heroStats" :key="s.k">
@@ -317,6 +324,16 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* 品牌点睛短金线：点睛而非框边 */
 .hero-accent { width: 56px; height: 3px; border-radius: 3px; margin: 14px 0 26px; background: linear-gradient(90deg, var(--zg-primary), var(--zg-accent)); box-shadow: 0 1px 6px rgba(var(--zg-primary-rgb), .30); }
 
+/* ===== Hero CTA（仅墨金渲染，经典不出现 → 铁律1 冻结不被污染）===== */
+.hero-cta { display: flex; gap: 12px; margin: 22px 0 4px; flex-wrap: wrap; }
+.cta { appearance: none; -webkit-appearance: none; border: none; cursor: pointer; font-family: var(--zg-font); font-size: 15px; font-weight: 700; letter-spacing: .3px; padding: 13px 26px; border-radius: 999px; transition: transform .2s cubic-bezier(.22,1,.36,1), box-shadow .25s, background .25s, border-color .25s; }
+.cta-primary { background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)); color: #fff; box-shadow: 0 8px 22px rgba(var(--zg-primary-rgb), .32); }
+.cta-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(var(--zg-primary-rgb), .42); }
+.cta-ghost { background: rgba(var(--zg-primary-rgb), .08); color: var(--zg-text); border: 1px solid rgba(var(--zg-primary-rgb), .22); }
+.cta-ghost:hover { background: rgba(var(--zg-primary-rgb), .14); transform: translateY(-2px); }
+.zg-inkgold .hero-cta { margin-top: 26px; }
+.zg-inkgold .cta { font-weight: 600; }
+
 /* 标题：经典=无衬线渐变展示；墨金=优雅衬线（字体族与 600 字重由 main.css 强制，报告 §2.4） */
 .hero-title { margin: 0 0 14px; line-height: 1.12; font-size: 42px; font-weight: 800; letter-spacing: -1.5px; color: var(--zg-text); }
 .hero-greet { font-weight: 600; opacity: .7; }
@@ -327,22 +344,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* 墨金标题：与"各页 logo 小标题"同款优雅衬线（600 字重 + 舒展字距，不再碑文笨重） */
 .zg-inkgold .hero-title { font-size: 44px; font-weight: 600; letter-spacing: .01em; line-height: 1.22; text-shadow: none; }
 .zg-inkgold .hero-greet { opacity: .74; font-weight: 600; }
-/* 墨金 hero 名字：品牌化金调渐变 + 缓动流光扫过（现代 / 品牌 / 创新）。
-   主题金调走 rgb 通道（铁律9），叠加一道流光与柔和投影，立体而不框死。 */
+/* 墨金 hero 名字：优雅衬线 + 沉稳金实色（非渐变、非流光、无廉价投影，干净高级）。
+   字体族由 main.css 全局 serif 规则继承，回退链已规避 SimSun（铁律：不退化丑宋体）。 */
 .zg-inkgold .hero-name {
-  display: inline-block;
-  background-image: linear-gradient(100deg,
-    rgba(var(--zg-primary-rgb), 1) 0%,
-    rgba(var(--zg-accent-rgb), 1) 28%,
-    #FFF4CF 50%,
-    rgba(var(--zg-accent-rgb), 1) 72%,
-    rgba(var(--zg-primary-rgb), 1) 100%);
-  background-size: 220% auto;
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  font-weight: 700; letter-spacing: .01em;
-  filter: drop-shadow(0 2px 12px rgba(var(--zg-primary-rgb), .22));
-  animation: zgNameShimmer 7s linear infinite;
-  will-change: background-position;
+  display: inline;
+  background: none;
+  -webkit-text-fill-color: var(--zg-primary);
+  color: var(--zg-primary);
+  filter: none;
 }
 .zg-inkgold .hero-name::after { display: none; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
@@ -354,6 +363,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .hs-item { flex: 1; text-align: center; }
 .hs-num { font-size: 30px; font-weight: 800; letter-spacing: -.6px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .hs-label { font-size: 12px; margin-top: 4px; font-weight: 600; letter-spacing: .5px; color: var(--zg-text-dim); }
+/* 统计数字：沉稳金实色 + 干净数字体（tabular），静态、克制、现代 */
+.zg-inkgold .hs-num {
+  background: none;
+  -webkit-text-fill-color: var(--zg-primary);
+  color: var(--zg-primary);
+  font-family: var(--zg-font); font-weight: 800; letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
 .hs-divider { width: 1px; height: 38px; background: rgba(var(--zg-primary-rgb), 0.18); }
 
 /* ===== 经典模式：干净橙玻璃（原样冷冻，铁律1） ===== */
@@ -368,19 +385,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    墨金学术 ·「温润如瓷」材质（报告 §2）
    L1 Hero 瓷板 / L2 美文卡·统计条 / L3 快捷入口·学科瓷片·公告细栏
    ============================================================ */
-/* L1 主角瓷板：厚瓷 + 釉光 + 多层柔影（浮起来，不是被框住） */
+/* L1 主角瓷板 →「开放釉光 hero」：不再有硬边界圆角卡 + 矩形阴影。
+   改为随页面暖底晕开的柔光瓷面（径向渐变边缘化开），overflow 放开让光晕自由呼吸，
+   彻底打破"首页=一堆被框住的白卡"旧范式（§创新·敢于打破）。 */
 .zg-inkgold .hero {
-  background: var(--zg-porcelain);
-  border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow);
-  -webkit-backdrop-filter: none; backdrop-filter: none;
-}
-/* §2.1：去掉霓虹 2px 金光线与流光，改发丝金线 + 极淡渐隐 */
-.zg-inkgold .hero::before {
-  height: 1px; opacity: .9;
-  background: linear-gradient(90deg, transparent, rgba(var(--zg-accent-rgb), .55) 26%, rgba(var(--zg-primary-rgb), .40) 64%, transparent);
+  background:
+    radial-gradient(140% 130% at 16% -12%, var(--zg-porcelain) 0%, rgba(255,253,248,0) 62%),
+    radial-gradient(120% 120% at 102% -6%, rgba(var(--zg-accent-rgb), .10), transparent 58%);
+  border: none;
   box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  overflow: visible;
 }
+/* 墨金：无卡边后，顶部悬浮金线失去依附，移除（品牌线已由 hero-kicker / hero-accent 承担） */
+.zg-inkgold .hero::before { display: none; }
 .zg-inkgold .hero::after { display: none; }
 /* 釉面斜向光泽：光打在釉面上的温润反光（极低透明度，大半径） */
 .zg-inkgold .hero-glaze {
@@ -389,7 +407,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
     linear-gradient(122deg, rgba(255,255,255,.62) 0%, rgba(255,255,255,.16) 20%, transparent 44%),
     radial-gradient(120% 84% at 88% 6%, rgba(var(--zg-accent-rgb), .12), transparent 62%);
 }
-/* L2 统计条：去盒化——直接坐在 L1 Hero 瓷板上，不另起瓷卡（消除"卡中卡"），仅用发丝分隔线分区 */
+/* 统计条：彻底去盒——坐在开放 hero 上，无边框无底色（只靠数字+分隔线表达，不是矩形框） */
 .zg-inkgold .hero-stats {
   background: transparent;
   border: none;
@@ -403,12 +421,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow-sm);
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
-/* L3 点缀：快捷入口 / 学科瓷片 —— 极淡底 + 大扩散柔影，融入页面且不显硬矩形（§2.2） */
+/* L3 点缀：快捷入口 / 学科瓷片 —— 极淡瓷金底，无边框无外阴影，融进页面（流动感，无矩形界限） */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: var(--zg-porcelain-3);
-  border: 1px solid transparent;
-  box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow-sm);
+  background: rgba(var(--zg-primary-rgb), .05);
+  border: none;
+  box-shadow: none;
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 /* L3 公告：去盒化贴顶细栏（不再独立白卡，§3.1） */
@@ -418,10 +436,13 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: none; border-radius: 0 12px 12px 0;
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
-/* hover：柔影加深 + 金边浮现（温润，不跳脱；交互态微边框可接受，非静态矩形界限） */
+/* hover：底色微升 + 描边微显（无外阴影，保持流动感） */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .26), var(--zg-porcelain-shadow-sm);
+  background: rgba(var(--zg-primary-rgb), .10);
+  border-color: rgba(var(--zg-primary-rgb), .30);
+  box-shadow: none;
+  transform: translateY(-2px);
 }
 .zg-inkgold .art-card:hover {
   box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-porcelain-shadow-sm);
@@ -576,6 +597,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-meta { margin-bottom: 14px; }
   .hero-tag { font-size: 12px; padding: 6px 14px; }
   .hero-time { display: none; }
+  .hero-cta { margin: 18px 0 2px; gap: 10px; }
+  .cta { padding: 12px 22px; font-size: 14px; }
   .hero-title { font-size: 30px; letter-spacing: -1px; margin-bottom: 10px; }
   .zg-inkgold .hero-title { font-size: 29px; letter-spacing: .01em; line-height: 1.3; }
   .hero-slogan { font-size: 14px; margin-bottom: 22px; }
