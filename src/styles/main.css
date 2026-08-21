@@ -435,11 +435,25 @@ html.zg-inkgold.zg-inkgold-dark .el-textarea__inner:focus-visible { outline: non
 a { color: inherit; text-decoration: none; }
 img { -webkit-user-drag: none; }
 
-/* ===== H5 移动端深度适配 ===== */
+/* ===== H5 移动端深度适配（高级感基底） ===== */
 @media (max-width: 768px) {
   :root { --zg-radius: 14px; --zg-blur: 12px; }
-  .zg-container { padding: 0 14px; }
-  .page { padding: 14px 0 90px; }
+  /* 全局移动端 UX 基底：清晰文字 + 去除点击高亮 + 防止橡皮筋回弹 */
+  html { -webkit-text-size-adjust: 100%; }
+  *, *::before, *::after { -webkit-tap-highlight-color: transparent; }
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: contain;
+  }
+  /* 横向安全区（刘海/灵动岛）：左右内边距自动让出缺口 */
+  .zg-container {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  /* 底部安全区（Home 指示条）：页面底部留白，避免内容被横条遮挡 */
+  .page { padding: 14px 0 calc(90px + env(safe-area-inset-bottom)); }
   .section-title { font-size: var(--zg-fs-md); margin-bottom: 12px; }
   /* 移动端弹窗：宽度收窄，居中由全局 .el-overlay-dialog flex 统一处理 */
   .el-dialog {
@@ -451,7 +465,7 @@ img { -webkit-user-drag: none; }
     max-width: 92vw !important;
   }
   .el-drawer { width: 88% !important; }
-  /* 移动端表单优化 */
+  /* 移动端表单优化：输入框/按钮触控 ≥44px */
   .el-form-item__label { font-size: var(--zg-fs-sm) !important; }
   .el-input__inner { height: 44px !important; }
   .el-button { min-height: 40px; }
@@ -474,8 +488,11 @@ img { -webkit-user-drag: none; }
 /* ===== 超小屏适配 ===== */
 @media (max-width: 380px) {
   :root { --zg-radius: 12px; }
-  .zg-container { padding: 0 10px; }
-  .page { padding: 10px 0 80px; }
+  .zg-container {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+  .page { padding: 10px 0 calc(80px + env(safe-area-inset-bottom)); }
 }
 
 /* ===== 安全区域适配（刘海屏/底部横条）===== */

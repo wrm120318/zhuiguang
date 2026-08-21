@@ -591,50 +591,91 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 @media (min-width: 1600px) { .art-grid { grid-template-columns: repeat(4, 1fr); } }
 
-/* ===== 移动端（≤767px）：Hero 单栏（文案上 / 资产缩为顶部细带），触控 ≥40px ===== */
+/* ===== 移动端（≤767px）：Hero 单栏 · 触控 ≥44px · 高级留白节奏 ===== */
 @media (max-width: 768px) {
-  .hero { margin: 0 0 20px; padding: 34px 22px 30px; border-radius: 24px; min-height: auto; }
-  .hero-meta { margin-bottom: 14px; }
+  .home-page { overflow-x: hidden; }
+  .hero { margin: 0 0 22px; padding: 30px 22px 28px; border-radius: 26px; min-height: auto; }
+  .hero-meta { margin-bottom: 16px; }
+  .hero-kicker { font-size: 12px; letter-spacing: .04em; }
   .hero-tag { font-size: 12px; padding: 6px 14px; }
   .hero-time { display: none; }
-  .hero-cta { margin: 18px 0 2px; gap: 10px; }
-  .cta { padding: 12px 22px; font-size: 14px; }
-  .hero-title { font-size: 30px; letter-spacing: -1px; margin-bottom: 10px; }
-  .zg-inkgold .hero-title { font-size: 29px; letter-spacing: .01em; line-height: 1.3; }
-  .hero-slogan { font-size: 14px; margin-bottom: 22px; }
+  /* hero-cta 仅墨金渲染（v-if isInkgold），下列样式天然不影响经典档 */
+  .hero-cta { display: flex; margin: 20px 0 2px; gap: 12px; }
+  .cta { flex: 1; min-height: 48px; padding: 12px 18px; font-size: 15px; border-radius: 14px; }
+  .hero-title { font-size: clamp(27px, 8.2vw, 33px); letter-spacing: -0.5px; line-height: 1.28; margin-bottom: 12px; }
+  .zg-inkgold .hero-title { font-size: clamp(26px, 8vw, 32px); letter-spacing: .01em; line-height: 1.3; }
+  .hero-name { font-weight: 700; }
+  .hero-slogan { font-size: 14px; line-height: 1.75; margin-bottom: 24px; color: var(--zg-text-dim); }
   .zg-inkgold .hero-slogan { font-size: 14px; }
-  .hero-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 16px 14px; border-radius: 18px; }
+  .hero-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 18px 16px; border-radius: 20px; }
+  .hs-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   .hs-divider { display: none; }
-  .hs-num { font-size: 22px; }
-  .hs-label { font-size: 11px; }
-  .announce-bar { padding: 12px 16px; margin-bottom: 20px; border-radius: 14px; }
-  .zg-inkgold .announce-bar { border-radius: 0 10px 10px 0; padding: 11px 14px; }
-  .ab-text { font-size: 13px; }
-  .quick-row { margin-bottom: 24px; gap: 8px; }
-  .qr-item { padding: 10px 14px; gap: 9px; min-height: 44px; }
+  .hs-num { font-size: 24px; line-height: 1.1; }
+  .hs-label { font-size: 11px; letter-spacing: .08em; }
+  .announce-bar { padding: 13px 16px; margin-bottom: 22px; border-radius: 16px; }
+  .zg-inkgold .announce-bar { border-radius: 0 12px 12px 0; padding: 12px 14px; }
+  .ab-text { font-size: 13px; line-height: 1.6; }
+
+  /* 快捷入口：经典维持现有横滑胶囊；下方墨金升级为 2 列瓷纹磁贴（高级网格感） */
+  .quick-row { margin-bottom: 28px; gap: 8px; }
+  .qr-item { padding: 11px 14px; gap: 9px; min-height: 46px; }
   .qr-icon { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
   .qr-text { font-size: 13px; }
-  .section { margin: 24px 0; }
-  .section-title { font-size: 18px; }
-  .section-meta { font-size: 11px; }
-  .subj-chip { padding: 8px 14px; min-height: 42px; }
-  .sc-icon { width: 26px; height: 26px; font-size: 14px; border-radius: 8px; }
-  .sc-name { font-size: 13px; }
-  .art-card { border-radius: 18px; }
-  .ac-cover { height: 130px; }
-  .ac-body { padding: 12px 14px; }
-  .ac-title { font-size: 14px; }
 
-  /* 墨金移动端：资产区收为顶部细光带（瓷盘不占高），学科横滚胶囊 */
+  .section { margin: 28px 0; }
+  .section-title { font-size: 19px; letter-spacing: .01em; }
+  .section-meta { font-size: 11px; letter-spacing: .04em; }
+
+  .subj-chip { padding: 9px 15px; min-height: 44px; }
+  .sc-icon { width: 28px; height: 28px; font-size: 15px; border-radius: 9px; }
+  .sc-name { font-size: 13px; }
+
+  .art-card { border-radius: 20px; }
+  .ac-cover { height: 138px; }
+  .ac-body { padding: 13px 15px 15px; }
+  .ac-title { font-size: 15px; line-height: 1.45; }
+
+  .zg-footer { padding: 44px 0 calc(8px + env(safe-area-inset-bottom)); margin-top: 52px; }
+
+  /* 墨金移动端：资产区收为顶部细光带（瓷盘不占高） */
   .zg-inkgold .hero-grid { display: contents; }
-  .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(var(--zg-primary-rgb), .14); }
-  .zg-inkgold .ha-disc { width: 62px; max-width: 62px; flex: none; }
+  .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(var(--zg-primary-rgb), .14); }
+  .zg-inkgold .ha-disc { width: 60px; max-width: 60px; flex: none; }
   .zg-inkgold .ha-facts { max-width: none; }
   .zg-inkgold .hf-v { font-size: 17px; }
   .zg-inkgold .hf-k { font-size: 10px; letter-spacing: .14em; }
-  .zg-inkgold .subj-row { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-bottom: 4px; scrollbar-width: none; }
+
+  /* 墨金快捷入口：2 列瓷纹磁贴（与首页瓷材质统一） */
+  .zg-inkgold .quick-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; overflow: visible; }
+  .zg-inkgold .qr-item { border-radius: 16px; padding: 14px 16px; white-space: normal; justify-content: flex-start; min-height: 54px; }
+
+  /* 墨金学科瓷片：横向滑动 + 滚动吸附 + 边缘柔化渐隐（高级横滑体验） */
+  .zg-inkgold .subj-row {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 9px; padding-bottom: 6px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; scroll-padding-left: 2px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  }
   .zg-inkgold .subj-row::-webkit-scrollbar { display: none; }
-  .zg-inkgold .subj-chip { flex: none; white-space: nowrap; }
+  .zg-inkgold .subj-chip { flex: none; white-space: nowrap; scroll-snap-align: start; }
+
+  /* 触感反馈：轻点微缩（尊重"减少动态"偏好） */
+  .qr-item, .cta, .subj-chip, .art-card { transition: transform .18s ease, box-shadow .28s ease; }
+  .qr-item:active, .cta:active, .subj-chip:active, .art-card:active { transform: scale(.97); }
+}
+
+/* ===== 手机细屏（≤480px）：进一步收紧节奏，避免拥挤 ===== */
+@media (max-width: 480px) {
+  .hero { padding: 26px 18px 24px; }
+  .hero-title { font-size: clamp(24px, 7.6vw, 29px); }
+  .zg-inkgold .hero-title { font-size: clamp(23px, 7.4vw, 28px); }
+  .hero-stats { gap: 10px; padding: 16px 12px; }
+  .hs-num { font-size: 22px; }
+  .quick-row { gap: 8px; }
+  .zg-inkgold .qr-item { padding: 12px 14px; min-height: 50px; }
+  .section { margin: 24px 0; }
+  .section-title { font-size: 18px; }
+  .ac-cover { height: 124px; }
 }
 
 /* 无障碍：尊重"减少动态效果"偏好 */

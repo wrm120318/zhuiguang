@@ -364,17 +364,27 @@ function typeLabel(t: string) {
 .n-time { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); }
 
 @media (max-width: 768px) {
-  .nav-inner { height: 56px; gap: 8px; padding: 0 12px; }
-  .links { display:none; }
-  .actions { gap: 4px; }
-  .bell { display:none !important; }
-  .menu-btn { display:inline-flex !important; }
-  .me-meta { display:none; }
+  /* 顶栏纳入刘海安全区，玻璃模糊更通透 */
+  .nav { padding-top: env(safe-area-inset-top); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); }
+  .nav-inner { height: 56px; gap: 8px; padding: 0 14px; }
+  .links { display: none; }
+  .actions { gap: 2px; }
+  .bell { display: none !important; }
+  .menu-btn { display: inline-flex !important; }
+  .me-meta { display: none; }
   .me { padding: 2px; }
   .avatar { width: 32px; height: 32px; }
+  .action-btn { font-size: 18px !important; }
   .search-dialog { width: 92% !important; }
   .search-bar { flex-direction: column; }
-  .action-btn { font-size: 16px !important; }
+  .search-bar :deep(.el-button) { width: 100%; }
+
+  /* 抽屉：纳入底部安全区，菜单项加大触控 */
+  :deep(.el-drawer) { max-width: 340px; }
+  .drawer { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .d-search { min-height: 50px; }
+  .d-item { min-height: 50px; }
+  .d-subj { min-height: 46px; display: flex; align-items: center; justify-content: center; }
 }
 
 @media (min-width: 1200px) {

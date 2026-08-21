@@ -133,13 +133,22 @@ function go(s: any) { router.push(`/subject/${s.slug}`) }
 .sp-arrow-sk { width: 22px; height: 22px; border-radius: 6px; background: rgba(186,117,23,.1); flex: none; }
 
 @media (max-width: 768px) {
-  .sp-head { margin: 14px 0 18px; }
-  .sp-title { font-size: var(--zg-fs-xl, 24px); }
-  .sp-sub { font-size: var(--zg-fs-sm, 14px); }
-  .sp-grid { grid-template-columns: 1fr; gap: 12px; }
-  .sp-card { padding: 16px; gap: 14px; }
-  .sp-icon { width: 48px; height: 48px; font-size: 24px; border-radius: 14px; }
+  .sp-head { margin: 16px 0 20px; }
+  .sp-title { font-size: var(--zg-fs-xl, 24px); letter-spacing: .01em; }
+  .sp-sub { font-size: var(--zg-fs-sm, 14px); line-height: 1.65; margin-top: 6px; }
+  .sp-grid { grid-template-columns: 1fr; gap: 14px; }
+  .sp-card { padding: 18px; gap: 14px; border-radius: 20px; transition: transform .18s ease, box-shadow .28s ease; }
+  .sp-card:active { transform: scale(.985); }
+  .sp-icon { width: 52px; height: 52px; font-size: 25px; border-radius: 15px; }
   .sp-name { font-size: var(--zg-fs-base, 15px); }
+  /* 窄屏科目描述放宽到两行，避免生硬截断 */
+  .sp-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+}
+
+@media (max-width: 480px) {
+  .sp-card { padding: 16px; gap: 12px; }
+  .sp-icon { width: 48px; height: 48px; font-size: 23px; }
+  .sp-title { font-size: 22px; }
 }
 @media (min-width: 1200px) {
   .sp-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
