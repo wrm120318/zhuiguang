@@ -103,17 +103,17 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 
 <style scoped>
 .zg-root { position: relative; }
-.app-main { min-height: calc(100vh - 64px); }
-.app-main.public-page { min-height: 100vh; }
+.app-main { min-height: calc(100vh - 64px); min-height: calc(100dvh - 64px); }
+.app-main.public-page { min-height: 100vh; min-height: 100dvh; }
 .has-tabbar { padding-bottom: 64px; }
-.zg-splash { display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh; gap:14px; }
-.public-page .zg-splash { height:100vh; }
+.zg-splash { display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh; height:80dvh; gap:14px; }
+.public-page .zg-splash { height:100vh; height:100dvh; }
 .zg-splash-logo { font-size:56px; filter: drop-shadow(0 0 16px rgba(var(--zg-primary-rgb),0.4)); animation: zgBreath 3.2s ease-in-out infinite; }
 .zg-splash-name { font-size:26px; font-weight:800; letter-spacing:3px; }
 .zg-splash-bar { width:140px; height:3px; border-radius:3px; background: rgba(var(--zg-primary-rgb),0.18); overflow:hidden; }
 .zg-splash-bar span { display:block; height:100%; width:40%; border-radius:3px; background: linear-gradient(90deg, transparent, var(--zg-primary), transparent); animation: zgSplashMove 1.3s ease-in-out infinite; }
 @keyframes zgSplashMove { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
 @media (max-width: 768px) {
-  .app-main:not(.public-page) { min-height: calc(100vh - 56px); }
+  .app-main:not(.public-page) { min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }
 }
 </style>

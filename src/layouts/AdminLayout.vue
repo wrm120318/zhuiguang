@@ -130,13 +130,13 @@ function go(name: string) {
 </template>
 
 <style scoped>
-.admin-layout { display:flex; flex-wrap: wrap; gap:0; min-height:calc(100vh - 64px); position: relative; }
+.admin-layout { display:flex; flex-wrap: wrap; gap:0; min-height:calc(100vh - 64px); min-height:calc(100dvh - 64px); position: relative; }
 .admin-topbar { display:none; position: sticky; top:0; z-index: 150; border-radius:0; border-left:none; border-right:none; border-top:none; align-items:center; padding: 8px 14px; height: 52px; }
 .at-btn { font-size: 20px !important; color: var(--zg-text) !important; }
 .at-brand { font-size: 18px; font-weight: 800; flex: 1; text-align: center; }
 .at-back { color: var(--zg-primary) !important; font-size: 13px !important; }
 
-.sidebar { width:240px; padding:20px 16px; position:sticky; top:64px; height:calc(100vh - 64px); display:flex; flex-direction:column; border-radius:0; border-top:none; border-bottom:none; border-left:none; z-index: 160; }
+.sidebar { width:240px; padding:20px 16px; position:sticky; top:64px; height:calc(100vh - 64px); height:calc(100dvh - 64px); display:flex; flex-direction:column; border-radius:0; border-top:none; border-bottom:none; border-left:none; z-index: 160; }
 .sb-brand { font-size:20px; font-weight:800; padding:8px 12px; }
 .sb-role { font-size:12px; color:var(--zg-text-dim); padding:0 12px 16px; border-bottom:1px solid rgba(var(--zg-primary-rgb),.1); }
 .sb-nav { flex:1; display:flex; flex-direction:column; gap:4px; padding-top:12px; overflow-y: auto; }
@@ -164,11 +164,11 @@ function go(name: string) {
 }
 
 @media (max-width: 960px) {
-  .admin-layout { min-height: 100vh; flex-direction: column; }
+  .admin-layout { min-height: 100vh; min-height: 100dvh; flex-direction: column; }
   .admin-topbar { display:flex; }
   .sidebar {
     position: fixed; top: 52px; left: 0; bottom: 0;
-    height: calc(100vh - 52px); width: 78%; max-width: 320px;
+    height: calc(100vh - 52px); height: calc(100dvh - 52px); width: 78%; max-width: 320px;
     transform: translateX(-102%); transition: transform .3s cubic-bezier(.2,.8,.2,1);
     padding: 16px 12px; z-index: 170; border-right: 1px solid rgba(var(--zg-primary-rgb),.18);
     border-radius: 0 16px 16px 0;

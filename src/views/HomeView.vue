@@ -349,8 +349,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold .hero-name {
   display: inline;
   background: none;
-  -webkit-text-fill-color: var(--zg-primary);
-  color: var(--zg-primary);
+  -webkit-text-fill-color: var(--zg-text);
+  color: var(--zg-text);
   filter: none;
 }
 .zg-inkgold .hero-name::after { display: none; }
@@ -366,8 +366,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* 统计数字：沉稳金实色 + 干净数字体（tabular），静态、克制、现代 */
 .zg-inkgold .hs-num {
   background: none;
-  -webkit-text-fill-color: var(--zg-primary);
-  color: var(--zg-primary);
+  -webkit-text-fill-color: var(--zg-text);
+  color: var(--zg-text);
   font-family: var(--zg-font); font-weight: 800; letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
 }
@@ -389,13 +389,18 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    改为随页面暖底晕开的柔光瓷面（径向渐变边缘化开），overflow 放开让光晕自由呼吸，
    彻底打破"首页=一堆被框住的白卡"旧范式（§创新·敢于打破）。 */
 .zg-inkgold .hero {
-  background:
-    radial-gradient(140% 130% at 16% -12%, var(--zg-porcelain) 0%, rgba(255,253,248,0) 62%),
-    radial-gradient(120% 120% at 102% -6%, rgba(var(--zg-accent-rgb), .10), transparent 58%);
+  /* 真柔光玻璃：透光底色 + backdrop-filter 让身后暖金光晕透出；无硬边、负扩散柔影只浮不框 */
+  background: linear-gradient(155deg, rgba(255,255,255,0.52), rgba(255,250,240,0.40));
+  -webkit-backdrop-filter: blur(calc(var(--zg-blur) + 4px)) saturate(185%);
+  backdrop-filter: blur(calc(var(--zg-blur) + 4px)) saturate(185%);
   border: none;
-  box-shadow: none;
-  -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: var(--zg-glaze), var(--zg-soft-2), var(--zg-soft-3);
   overflow: visible;
+}
+/* 深色档 hero：暗底暖金玻璃 */
+.zg-inkgold.zg-inkgold-dark .hero {
+  background: linear-gradient(155deg, rgba(40,34,24,0.48), rgba(26,21,14,0.36));
+  box-shadow: var(--zg-glaze), var(--zg-soft-2), var(--zg-soft-3);
 }
 /* 墨金：无卡边后，顶部悬浮金线失去依附，移除（品牌线已由 hero-kicker / hero-accent 承担） */
 .zg-inkgold .hero::before { display: none; }
@@ -416,10 +421,15 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 /* 美文瓷卡：由"硬边白卡"改为清晰瓷面 + 大扩散柔影（只浮不框，阴影是好的设计） */
 .zg-inkgold .art-card {
-  background: var(--zg-porcelain-2);
+  background: linear-gradient(158deg, rgba(255,255,255,0.60), rgba(255,250,240,0.46));
   border: 1px solid transparent;
   box-shadow: var(--zg-glaze), var(--zg-porcelain-shadow-sm);
-  -webkit-backdrop-filter: none; backdrop-filter: none;
+  -webkit-backdrop-filter: blur(var(--zg-blur)) saturate(180%);
+  backdrop-filter: blur(var(--zg-blur)) saturate(180%);
+}
+/* 深色档美文卡：暗底暖金玻璃 */
+.zg-inkgold.zg-inkgold-dark .art-card {
+  background: linear-gradient(158deg, rgba(40,34,24,0.54), rgba(26,21,14,0.40));
 }
 /* L3 点缀：快捷入口 / 学科瓷片 —— 极淡瓷金底，无边框无外阴影，融进页面（流动感，无矩形界限） */
 .zg-inkgold .qr-item,
@@ -649,15 +659,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .zg-inkgold .quick-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; overflow: visible; }
   .zg-inkgold .qr-item { border-radius: 16px; padding: 14px 16px; white-space: normal; justify-content: flex-start; min-height: 54px; }
 
-  /* 墨金学科瓷片：横向滑动 + 滚动吸附 + 边缘柔化渐隐（高级横滑体验） */
+  /* 墨金学科瓷片：换行网格（不再横滑/遮罩，尊重"换行就行"） */
   .zg-inkgold .subj-row {
-    display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 9px; padding-bottom: 6px;
-    scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; scroll-padding-left: 2px;
-    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-            mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+    display: flex; flex-wrap: wrap; gap: 9px; overflow-x: visible; padding-bottom: 0;
   }
   .zg-inkgold .subj-row::-webkit-scrollbar { display: none; }
-  .zg-inkgold .subj-chip { flex: none; white-space: nowrap; scroll-snap-align: start; }
+  .zg-inkgold .subj-chip { flex: 0 1 auto; white-space: nowrap; }
 
   /* 触感反馈：轻点微缩（尊重"减少动态"偏好） */
   .qr-item, .cta, .subj-chip, .art-card { transition: transform .18s ease, box-shadow .28s ease; }

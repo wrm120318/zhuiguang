@@ -223,7 +223,7 @@ watch(() => route.params.peerId, async (pid) => {
 <style scoped>
 .msg-page { padding-bottom: 20px; }
 .zg-page-title { font-size: 24px; font-weight: 800; margin: 16px 0; }
-.msg-layout { display: flex; gap: 14px; height: calc(100vh - 200px); min-height: 480px; }
+.msg-layout { display: flex; gap: 14px; height: calc(100vh - 200px); height: calc(100dvh - 200px); min-height: 480px; }
 .sidebar { width: 280px; display: flex; flex-direction: column; padding: 14px; }
 .sb-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; color: var(--zg-text-dim); }
 .sb-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
