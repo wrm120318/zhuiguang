@@ -104,6 +104,8 @@ npx wrangler deploy
 4. **改了 `schema.sql` 须手动执行**：`npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql`
 5. **密钥不入库**：`.env` 和 `server/local.db` 在 `.gitignore` 中排除
 6. **Cloudflare 免费额度充足**：Workers 10 万请求/天、D1 5GB、Pages 无限请求
+7. **v3.0 视觉资源需随前端一起推送**：`public/fonts/noto-serif-sc-{600,700,800}.woff2`（自托管衬线字体）与 `public/bg/inkgold-paper*.svg`（主题背景图）必须进 Git 仓库，Pages 构建时 Vite 原样拷到 `dist/`。若这些文件漏推，墨金主题会变回无衬线字体 / 无背景图（玻璃无物可透）。
+8. **主题切换验证**：发布后需分别用超管在后台切 `designMode=classic/inkgold` + `inkgoldTone=light/dark`，确认三档（经典/墨金浅/墨金深）前台均正常渲染、无矩形边框、无金色直角输入框。
 
 ---
 

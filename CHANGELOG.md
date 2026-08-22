@@ -5,6 +5,32 @@
 
 ---
 
+## [v3.0.0] - 2026-08-22
+
+> 里程碑：墨金学术主题 + 全站液态玻璃质感正式上线（此前 v2.1.x 为经典暖橘单主题）。
+
+### 新增
+- **墨金学术主题（双档）**：`designMode=inkgold` + `inkgoldTone=light/dark`，超级管理员后台可切换，全站全用户生效（浅色暖米白 #FAF8F4 + 沉稳金 #BA7517；深色温润暖黑 #1B1710）。
+- **全站液态玻璃材质系统 v7**：对标 Apple / OPPO / vivo / 华为 / 小米级真柔光玻璃。三级材质 L1/L2/L3（`--zg-glass-1/2/3` 几乎透明 0.08~0.12 + blur 10~12px + 明显亮边 0.6~0.7），多层柔影只「浮」不「框」，移除所有静态面板的 `--zg-rim` 发丝金边（矩形界限根因）。
+- **主题背景图**：`public/bg/inkgold-paper.svg`（浅）/ `inkgold-paper-dark.svg`（深），网格 + 光斑 + 丝光纹理，玻璃透出其质感。
+- **自托管衬线字体**：`public/fonts/noto-serif-sc-{600,700,800}.woff2`（Noto Serif SC 简体中文，零 CDN 依赖），墨金 Hero 标题用高级衬线。
+- **渐变文字**：`.zg-grad-text` 用于导航栏「追光」与首页 Hero 问候/站名，统一高级渐变质感。
+
+### 修复
+- **Bug14 输入框金色直角矩形边框**：`:focus-visible` 的 `outline` 不跟随 `border-radius`，改为排除 `.el-input__wrapper / .el-textarea__inner / .el-select__wrapper / .el-input__inner`（commit `3e3bc9d67f`）。
+- **Bug15 弹窗 header/footer 灰色矩形条**：`.el-dialog__header/__footer` 灰色渐变背景改为 `transparent`。
+- **Bug16 Hero 仍显矩形边框**：移除原 `box-shadow: inset 0 1px 0` 顶部釉光（像边框），改为 `box-shadow: none` + `border-radius:0` 开放釉光区。
+- **Bug17 墨金深浅两档 CSS 特异性**：深档选择器必须为 `html.zg-inkgold.zg-inkgold-dark`（特异性 ≥ 浅档 `html.zg-inkgold`），否则深档变量永不生效（曾致深底深字不可读）。
+
+### 修改文件
+- `src/styles/main.css`（玻璃 token 块、`.zg-grad-text`、`:focus-visible`、弹窗透明化、深档变量块）
+- `src/views/HomeView.vue`（Hero 开放化、美文卡/快捷入口/学科 chip 改 L2/L3 液态玻璃、移动端适配）
+- `src/store/theme.ts`、`src/views/admin/ThemeView.vue`（深浅档开关）
+- `public/bg/inkgold-paper.svg`、`public/bg/inkgold-paper-dark.svg`、`public/fonts/noto-serif-sc-*.woff2`
+- 上线 hash：`style-B41jgASM.css`（部署链 v4→v5→输入修复→v6→v7）
+
+---
+
 ## [v2.1.19] - 2026-08-16
 
 ### 文档完善

@@ -288,7 +288,20 @@ SQLite 返回的 lastInsertRowid 为 BigInt，JSON.stringify 报错。
 | BigInt 转换 | `Number(r.lastInsertRowid)` | 禁止删除（否则 JSON 序列化报错） |
 | 路由顺序 | 具体路由在通配路由前 | 禁止调整顺序（否则被 `/:id` 吞掉） |
 
-### 6.5 标注方式
+### 6.5 墨金主题与液态玻璃（v3.0.0 新增）
+
+| 位置 | 内容 | 禁止操作 |
+|---|---|---|
+| `src/styles/main.css` 经典档 `:root` | 经典暖橘主题变量 | 禁止修改（像素级不动，自 v1.0 基线） |
+| `src/styles/main.css` `.zg-inkgold` / `.zg-inkgold-dark` | 墨金双档作用域 | 禁止把墨金样式写成全局 scoped 强加进经典（"一锅端"） |
+| `src/styles/main.css` 深档变量块 | `html.zg-inkgold.zg-inkgold-dark`（特异性 0,2,1） | 禁止让深档特异性低于浅档（否则深底深字不可读，Bug17） |
+| 墨金玻璃三级材质 | L1 0.08 / L2 0.10 / L3 0.12 + 亮边 0.6~0.7 | 禁止压到 0.35 以上做成"白瓷不透光" |
+| 静态面板 `--zg-rim` | `inset 0 0 0 1px` 发丝金边 | 禁止使用（矩形界限根因，必须移除） |
+| `:focus-visible` 选择器 | 须排除 `.el-input__wrapper` 等输入框类 | 禁止让输入框出现金色直角矩形边框（Bug14） |
+| `public/fonts/noto-serif-sc-*.woff2` | 自托管衬线字体 | 禁止改回 Google Fonts CDN 依赖 |
+| `public/bg/inkgold-paper*.svg` | 主题背景图 | 禁止删除（玻璃需透出背景） |
+
+### 6.6 标注方式
 
 新增的"禁止修改"逻辑，建议在代码中加注释标注：
 
