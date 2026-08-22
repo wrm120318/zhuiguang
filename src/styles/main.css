@@ -622,26 +622,24 @@ html.zg-inkgold {
   --zg-soft-card: 0 12px 36px -18px rgba(120,90,30,0.10);
 }
 
-/* 主题背景图层：浅色基底图 + 组合淡图案（SVG 自托管），玻璃透出层次 */
+/* 主题背景图层：明亮暖白 + 隐约纸张纹理（纸纹是底纹，不抢内容） */
 .zg-inkgold .zg-bgimg {
   display: block !important;
   background-image: url('/bg/inkgold-paper.svg');
-  opacity: 0.9;
+  opacity: 0.5;
 }
-/* 背景光晕：极淡暖色叠层，让纸张纹理成为主角（之前渐变太实盖住了纸纹） */
+/* 背景：明亮暖白渐变 + 极淡暖金光斑（纸纹透出，整体明亮不暗） */
 .zg-inkgold .zg-bg {
   animation: none !important;
   background:
-    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.10), transparent 58%),
-    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.07), transparent 52%),
-    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.06), transparent 55%),
-    linear-gradient(160deg, rgba(250,248,244,0.75) 0%, rgba(245,241,232,0.65) 50%, rgba(239,233,220,0.60) 100%) !important;
+    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.06), transparent 58%),
+    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.04), transparent 52%),
+    linear-gradient(160deg, rgba(255,253,248,0.92) 0%, rgba(252,248,240,0.88) 50%, rgba(248,243,232,0.85) 100%) !important;
 }
 .zg-inkgold .zg-bg::after {
-  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .25;
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .15;
   background-image:
-    radial-gradient(circle at 25% 25%, rgba(255,255,255,.45) 0%, transparent 40%),
-    radial-gradient(circle at 75% 75%, rgba(212,175,55,.05) 0%, transparent 35%);
+    radial-gradient(circle at 25% 25%, rgba(255,255,255,.35) 0%, transparent 40%);
 }
 .zg-inkgold .zg-orb { opacity: 0.22 !important; animation: zgFloat 24s ease-in-out infinite !important; filter: blur(100px) !important; }
 .zg-inkgold .zg-orb.a { width: 520px; height: 520px; background: radial-gradient(circle, rgba(212,175,55,0.26), transparent 70%) !important; top: -160px; left: -120px; }
@@ -1720,47 +1718,69 @@ html.zg-inkgold.zg-inkgold-dark.zg-inkgold-bright {
   --zg-porcelain-3: linear-gradient(158deg, rgba(255,246,224,.058) 0%, rgba(255,246,224,.024) 100%);
 }
 
-/* —— 全站卡片换「真柔光玻璃」材质（在去盒化瓷体系上叠加真实 backdrop-filter 毛玻璃）——
-   透光底色(0.4~0.6 透明度) + 顶部釉光(--zg-glaze) + 负扩散大柔影(--zg-porcelain-shadow) 只浮不框；
-   backdrop-filter 让身后暖金光晕透出 = 真柔光。无硬边、无 1px 金框。
+/* —— Apple/Microsoft 风格柔光玻璃（v8）——
+   核心：高白度(0.65~0.78) + 大模糊(24~36px) + 高饱和(180~200%) + 白色高光边
+   白色高光边框模拟光线折射，是玻璃质感灵魂；不是金边不是透明边
+   外阴影：多层极柔长投影，只浮不框；不是硬边矩形阴影
    【铁律1/2/14】仅墨金作用域；经典模式完全不加载本段。 */
 html.zg-inkgold .glass,
 html.zg-inkgold .glass-strong,
 html.zg-inkgold .el-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,250,240,0.58)) !important;
-  -webkit-backdrop-filter: blur(22px) saturate(165%) !important;
-  backdrop-filter: blur(22px) saturate(165%) !important;
-  border: 1px solid transparent !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 18px 48px -12px rgba(120,90,30,.16), 0 44px 100px -28px rgba(120,90,30,.18) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,252,246,0.62)) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(200%) !important;
+  backdrop-filter: blur(28px) saturate(200%) !important;
+  border: 1px solid rgba(255,255,255,0.80) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    inset 0 -1px 0 rgba(255,255,255,0.25),
+    0 0 0 1px rgba(255,255,255,0.15),
+    0 16px 48px -12px rgba(120,90,30,0.12),
+    0 40px 90px -28px rgba(120,90,30,0.10) !important;
   transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s;
 }
 html.zg-inkgold.zg-inkgold-dark .glass,
 html.zg-inkgold.zg-inkgold-dark .glass-strong,
 html.zg-inkgold.zg-inkgold-dark .el-card {
-  background: linear-gradient(155deg, rgba(48,40,28,0.62), rgba(28,22,14,0.46)) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(175%) !important;
-  backdrop-filter: blur(24px) saturate(175%) !important;
-  border: 1px solid transparent !important;
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.12), 0 20px 56px -12px rgba(0,0,0,.45), 0 48px 110px -28px rgba(0,0,0,.48) !important;
+  background: linear-gradient(155deg, rgba(48,40,28,0.72), rgba(32,26,18,0.60)) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(190%) !important;
+  backdrop-filter: blur(30px) saturate(190%) !important;
+  border: 1px solid rgba(255,243,214,0.15) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,243,214,0.12),
+    inset 0 -1px 0 rgba(255,243,214,0.05),
+    0 20px 56px -12px rgba(0,0,0,0.40),
+    0 48px 100px -28px rgba(0,0,0,0.35) !important;
   transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s;
 }
-/* 提亮档(bright)：玻璃更净更透，背景整体更亮更净（特异性 0,3,1 压过上方 0,2,1） */
+/* 提亮档(bright)：玻璃更净更透 */
 html.zg-inkgold.zg-inkgold-bright .glass,
 html.zg-inkgold.zg-inkgold-bright .glass-strong,
 html.zg-inkgold.zg-inkgold-bright .el-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(253,250,244,0.64)) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 14px 40px -10px rgba(120,90,30,.12), 0 36px 84px -24px rgba(120,90,30,.14) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(255,253,248,0.68)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -1px 0 rgba(255,255,255,0.28),
+    0 12px 36px -10px rgba(120,90,30,0.08),
+    0 32px 72px -22px rgba(120,90,30,0.08) !important;
 }
-/* 卡片 hover：柔影加深 + 金边略显，不做位移过冲（温润不跳脱） */
+/* 卡片 hover：柔影加深 */
 html.zg-inkgold .zg-card:hover {
-  border-color: transparent !important;
-  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+  border-color: rgba(255,255,255,0.90) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -1px 0 rgba(255,255,255,0.28),
+    0 0 0 1px rgba(255,255,255,0.20),
+    0 20px 56px -14px rgba(120,90,30,0.14),
+    0 48px 100px -28px rgba(120,90,30,0.12) !important;
 }
 html.zg-inkgold.zg-inkgold-dark .zg-card:hover {
-  border-color: transparent !important;
-  box-shadow: var(--zg-glaze), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .26), var(--zg-soft-1), var(--zg-soft-2), var(--zg-soft-3) !important;
+  border-color: rgba(255,243,214,0.20) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,243,214,0.15),
+    0 24px 64px -14px rgba(0,0,0,0.45),
+    0 52px 110px -28px rgba(0,0,0,0.40) !important;
 }
-/* 弹窗/抽屉/下拉：同款真玻璃（浮层材质与页面一致，杜绝割裂） */
+/* 弹窗/抽屉/下拉：白色柔光玻璃——高白度0.68，大模糊36px，白色高光边（不是金边！） */
 html.zg-inkgold .el-dialog,
 html.zg-inkgold .el-message-box,
 html.zg-inkgold .el-drawer,
@@ -1768,11 +1788,16 @@ html.zg-inkgold .el-dropdown-menu,
 html.zg-inkgold .el-popover,
 html.zg-inkgold .el-select-dropdown,
 html.zg-inkgold .el-notification {
-  background: linear-gradient(160deg, rgba(255,255,255,0.45), rgba(250,244,232,0.32)) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
-  backdrop-filter: blur(28px) saturate(180%) !important;
-  border: 1px solid rgba(186,117,23,0.18) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 18px 50px -16px rgba(120,90,30,.16) !important;
+  background: linear-gradient(160deg, rgba(255,255,255,0.75), rgba(252,248,240,0.65)) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(210%) !important;
+  backdrop-filter: blur(36px) saturate(210%) !important;
+  border: 1px solid rgba(255,255,255,0.85) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -1px 0 rgba(255,255,255,0.30),
+    0 0 0 1px rgba(255,255,255,0.20),
+    0 24px 64px -16px rgba(120,90,30,0.18),
+    0 56px 120px -32px rgba(120,90,30,0.14) !important;
 }
 html.zg-inkgold.zg-inkgold-dark .el-dialog,
 html.zg-inkgold.zg-inkgold-dark .el-message-box,
@@ -1781,11 +1806,20 @@ html.zg-inkgold.zg-inkgold-dark .el-dropdown-menu,
 html.zg-inkgold.zg-inkgold-dark .el-popover,
 html.zg-inkgold.zg-inkgold-dark .el-select-dropdown,
 html.zg-inkgold.zg-inkgold-dark .el-notification {
-  background: linear-gradient(160deg, rgba(48,40,28,0.55), rgba(26,20,12,0.40)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
-  backdrop-filter: blur(32px) saturate(180%) !important;
-  border: 1px solid rgba(212,175,55,0.18) !important;
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.12), 0 20px 52px -16px rgba(0,0,0,.42) !important;
+  background: linear-gradient(160deg, rgba(52,44,30,0.78), rgba(32,24,16,0.68)) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(200%) !important;
+  backdrop-filter: blur(40px) saturate(200%) !important;
+  border: 1px solid rgba(255,243,214,0.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,243,214,0.14),
+    0 28px 72px -16px rgba(0,0,0,0.50),
+    0 60px 130px -32px rgba(0,0,0,0.42) !important;
+}
+/* 弹窗遮罩层：极淡暖灰（不是死黑！死黑+白玻璃=灰蒙灾难） */
+html.zg-inkgold .el-overlay {
+  background: rgba(43,38,32,0.18) !important;
+  backdrop-filter: blur(4px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(150%) !important;
 }
 /* 瓷面通用工具类：供首页/后台复用（L1/L2/L3 三级材质，叠加真玻璃；bg 走变量自动跟随深浅档） */
 html.zg-inkgold .zg-plate,

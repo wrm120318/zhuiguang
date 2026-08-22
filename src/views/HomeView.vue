@@ -140,8 +140,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
             </div>
 
             <h1 class="hero-title">
-              <span class="hero-greet zg-grad-text">{{ greeting }}，</span>
-              <span class="hero-name zg-grad-text">{{ user.current?.realName || '追光者' }}</span>
+              <span class="hero-greet hero-brand-text">{{ greeting }}，</span>
+              <span class="hero-name hero-brand-text">{{ user.current?.realName || '追光者' }}</span>
               <span class="hero-dot">。</span>
             </h1>
 
@@ -341,14 +341,21 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .hero-dot { color: var(--zg-primary-2); -webkit-text-fill-color: var(--zg-primary-2); }
 .hero-slogan { margin: 0 0 34px; font-size: 19px; line-height: 1.7; max-width: 660px; font-weight: 500; opacity: .82; letter-spacing: .2px; }
 
-/* 标题：墨金模式——与导航栏"追光"同款zg-grad-text金系渐变 + 衬线600字重 */
+/* 标题：墨金模式——衬线字体 */
 .zg-inkgold .hero-title { font-size: 44px; font-weight: 600; letter-spacing: .01em; line-height: 1.22; text-shadow: none; }
-/* "晚上好"与"超级管理员"：与导航栏"追光"完全同款——zg-grad-text渐变（不覆盖zg-grad-text类） */
-.zg-inkgold .hero-greet,
-.zg-inkgold .hero-name {
-  font-weight: 600;
+/* "晚上好，超级管理员"：与导航栏"追光"完全同款——墨色文字夹金色高光（静态，无闪光动画） */
+.zg-inkgold .hero-brand-text {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-weight: 800;
   letter-spacing: .01em;
+  background-image: linear-gradient(90deg, var(--zg-text, #2B2620) 0%, var(--zg-text, #2B2620) 40%, var(--zg-accent, #D4AF37) 50%, var(--zg-text, #2B2620) 60%, var(--zg-text, #2B2620) 100%);
+  background-size: 200% 100%;
+  background-position: 0% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
+.zg-inkgold .hero-greet { opacity: 0.85; font-weight: 600; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
 .zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; font-size: 17px; max-width: 30em; }
 
@@ -376,14 +383,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 
 /* ============================================================
-   墨金学术 ·「柔光玻璃」材质（v8 重写）
-   核心原则：
-   - Hero 完全开放：无背景无边框无圆角无阴影，文字直接浮在纸张纹理上
-   - 玻璃不是降透明度！高白度(0.45~0.65) + 大模糊(22~36px) + 高饱和(200%)
-   - 白色高光边框是玻璃灵魂，模拟光线折射
-   - 阴影是极柔长投影，不是硬边矩形
+   墨金学术 · Apple/Microsoft 柔光玻璃（v8）
+   Hero 完全开放：无背景无边框无圆角无阴影，文字浮在纸面上
+   卡片使用 L2/L3 柔光玻璃（与全站统一）
    ============================================================ */
-/* L1 Hero 区：彻底开放——无卡无边无框无阴影，文字自由呼吸在纸面上 */
+/* L1 Hero 区：彻底开放——无卡无边无框无阴影，文字自由呼吸 */
 .zg-inkgold .hero {
   background: transparent !important;
   -webkit-backdrop-filter: none !important;
@@ -392,28 +396,19 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   border-radius: 0 !important;
   box-shadow: none !important;
   overflow: visible !important;
-  margin: 6px 0 28px !important;
-  padding: 56px 54px 50px !important;
-  min-height: 360px !important;
 }
-/* 深色档 hero：同样开放 */
-.zg-inkgold.zg-inkgold-dark .hero {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-/* 墨金：移除顶部悬浮金线（品牌线由 hero-kicker / hero-accent 承担） */
+/* 墨金：移除顶部悬浮金线 */
 .zg-inkgold .hero::before { display: none !important; }
 .zg-inkgold .hero::after { display: none !important; }
-/* 釉面光泽：顶部/右侧的柔和光感，不是填满矩形的硬边界 */
+/* 釉面光泽：右上角圆形暖金光晕（不是填满矩形的硬边界） */
 .zg-inkgold .hero-glaze {
   display: block; position: absolute; z-index: 1; pointer-events: none;
-  top: -40px; right: -60px; width: 520px; height: 520px; border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .12), rgba(var(--zg-primary-rgb), .05) 40%, transparent 70%);
-  filter: blur(60px);
-  opacity: 0.8;
+  top: -60px; right: -80px; width: 560px; height: 560px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .10), rgba(var(--zg-primary-rgb), .04) 40%, transparent 70%);
+  filter: blur(70px);
+  opacity: 0.9;
 }
-/* 统计条容器：无背景无阴影，让每个数据卡独立 */
+/* 统计条容器：无背景无阴影 */
 .zg-inkgold .hero-stats {
   background: transparent !important;
   border: none !important;
@@ -422,14 +417,16 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   backdrop-filter: none !important;
   padding: 0 !important;
   gap: 12px;
-  border-radius: 0 !important;
 }
-/* 每个数据卡：L3 柔光玻璃小瓷片 */
+/* 每个数据卡：L3 柔光玻璃 */
 .zg-inkgold .hs-item {
-  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
-  border: 1px solid var(--zg-glass-3-border) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,252,246,0.55)) !important;
+  border: 1px solid rgba(255,255,255,0.75) !important;
   border-radius: 18px !important;
-  box-shadow: var(--zg-glass-3-shadow) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.88),
+    inset 0 -1px 0 rgba(255,255,255,0.20),
+    0 10px 30px -10px rgba(120,90,30,0.10) !important;
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   backdrop-filter: blur(24px) saturate(200%);
   padding: 14px 16px !important;
@@ -440,117 +437,103 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 .zg-inkgold .hs-item:hover {
   transform: translateY(-2px);
-  box-shadow: var(--zg-glass-3-shadow), 0 12px 32px -10px rgba(120,90,30,0.14) !important;
-}
-.zg-inkgold.zg-inkgold-dark .hs-item {
-  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
-  border: 1px solid var(--zg-glass-3-border) !important;
-  box-shadow: var(--zg-glass-3-shadow) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    inset 0 -1px 0 rgba(255,255,255,0.24),
+    0 14px 40px -12px rgba(120,90,30,0.12) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
   font-weight: 800 !important;
-  background: none !important;
-  -webkit-text-fill-color: var(--zg-text) !important;
   color: var(--zg-text) !important;
+  -webkit-text-fill-color: var(--zg-text) !important;
   letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
 }
 .zg-inkgold .hs-label { font-size: 11px; letter-spacing: .08em; color: var(--zg-text-dim); opacity: .85; }
-/* 墨金 CTA：按钮使用柔和金系渐变 + 柔光阴影 */
+/* 墨金 CTA：主按钮金系渐变 + 柔光阴影，ghost按钮L3玻璃 */
 .zg-inkgold .cta-primary {
   background: linear-gradient(135deg, rgba(var(--zg-primary-rgb), .95), rgba(var(--zg-primary-2-rgb), .90)) !important;
   box-shadow: 0 8px 24px rgba(var(--zg-primary-rgb), .25), inset 0 1px 0 rgba(255,255,255,.3) !important;
   color: #fff !important;
+  border: none !important;
 }
 .zg-inkgold .cta-primary:hover {
   box-shadow: 0 14px 36px rgba(var(--zg-primary-rgb), .32), inset 0 1px 0 rgba(255,255,255,.35) !important;
   transform: translateY(-2px);
 }
 .zg-inkgold .cta-ghost {
-  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
-  border: 1px solid var(--zg-glass-3-border) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.60), rgba(255,252,246,0.50)) !important;
+  border: 1px solid rgba(255,255,255,0.75) !important;
   color: var(--zg-text) !important;
-  box-shadow: var(--zg-glass-3-shadow) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    0 8px 24px -8px rgba(120,90,30,0.10) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  backdrop-filter: blur(22px) saturate(190%);
 }
 .zg-inkgold .cta-ghost:hover {
-  background: linear-gradient(158deg, rgba(255,253,248,0.58), rgba(255,248,235,0.48)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,252,246,0.60)) !important;
   transform: translateY(-2px);
 }
-/* 美文卡：L2 柔光玻璃 */
+/* 美文卡/快捷入口/学科瓷片：L2/L3 柔光玻璃（覆盖经典模式的实色背景） */
 .zg-inkgold .art-card {
-  background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2)) !important;
-  border: 1px solid var(--zg-glass-2-border) !important;
-  box-shadow: var(--zg-glass-2-shadow) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,252,246,0.60)) !important;
+  border: 1px solid rgba(255,255,255,0.78) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.90),
+    inset 0 -1px 0 rgba(255,255,255,0.22),
+    0 14px 44px -12px rgba(120,90,30,0.10),
+    0 36px 80px -24px rgba(120,90,30,0.08) !important;
   -webkit-backdrop-filter: blur(28px) saturate(200%);
   backdrop-filter: blur(28px) saturate(200%);
   border-radius: 22px !important;
   overflow: hidden;
 }
-/* 深色档美文卡 */
-.zg-inkgold.zg-inkgold-dark .art-card {
-  background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2)) !important;
-  border: 1px solid var(--zg-glass-2-border) !important;
-  box-shadow: var(--zg-glass-2-shadow) !important;
-}
-/* L3 点缀：快捷入口 / 学科瓷片 —— 柔光玻璃 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
-  border: 1px solid var(--zg-glass-3-border) !important;
-  box-shadow: var(--zg-glass-3-shadow) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
-  backdrop-filter: blur(24px) saturate(200%);
+  background: linear-gradient(155deg, rgba(255,255,255,0.62), rgba(255,252,246,0.52)) !important;
+  border: 1px solid rgba(255,255,255,0.72) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    inset 0 -1px 0 rgba(255,255,255,0.18),
+    0 10px 30px -10px rgba(120,90,30,0.08) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  backdrop-filter: blur(24px) saturate(190%);
 }
-.zg-inkgold.zg-inkgold-dark .qr-item,
-.zg-inkgold.zg-inkgold-dark .subj-chip {
-  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
-  border: 1px solid var(--zg-glass-3-border) !important;
-  box-shadow: var(--zg-glass-3-shadow) !important;
-}
-/* L3 公告：细栏柔光边 */
+/* 公告：细栏 */
 .zg-inkgold .announce-bar {
-  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .06), rgba(var(--zg-accent-rgb), .03) 62%, transparent) !important;
+  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .05), rgba(var(--zg-accent-rgb), .02) 62%, transparent) !important;
   border: none !important;
-  border-left: 3px solid rgba(var(--zg-primary-rgb), .50) !important;
+  border-left: 3px solid rgba(var(--zg-primary-rgb), .45) !important;
   box-shadow: none !important;
   border-radius: 0 14px 14px 0 !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
 }
-/* hover：玻璃底色微升 + 柔影加深 */
+/* hover效果 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  background: linear-gradient(158deg, rgba(255,253,248,0.60), rgba(255,248,235,0.50)) !important;
-  border-color: var(--zg-glass-3-border) !important;
-  box-shadow: var(--zg-glass-3-shadow), 0 12px 32px -10px rgba(120,90,30,0.13) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,252,246,0.62)) !important;
+  border-color: rgba(255,255,255,0.82) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.90),
+    0 14px 38px -10px rgba(120,90,30,0.10) !important;
   transform: translateY(-2px);
 }
-.zg-inkgold.zg-inkgold-dark .qr-item:hover,
-.zg-inkgold.zg-inkgold-dark .subj-chip:hover {
-  background: linear-gradient(158deg, rgba(56,48,34,0.62), rgba(34,28,18,0.48)) !important;
-  border-color: var(--zg-glass-3-border) !important;
-  box-shadow: var(--zg-glass-3-shadow), 0 12px 32px -10px rgba(0,0,0,0.35) !important;
-}
 .zg-inkgold .art-card:hover {
-  background: linear-gradient(158deg, rgba(255,253,248,0.64), rgba(255,248,235,0.54)) !important;
-  box-shadow: var(--zg-glass-2-shadow), 0 16px 44px -12px rgba(120,90,30,0.13) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.76), rgba(255,252,246,0.66)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    0 18px 52px -14px rgba(120,90,30,0.12),
+    0 44px 90px -26px rgba(120,90,30,0.10) !important;
   transform: translateY(-4px);
 }
-.zg-inkgold.zg-inkgold-dark .art-card:hover {
-  background: linear-gradient(158deg, rgba(56,48,34,0.62), rgba(34,28,18,0.50)) !important;
-  box-shadow: var(--zg-glass-2-shadow), 0 18px 48px -12px rgba(0,0,0,0.40) !important;
-}
-
-/* 墨金深色档：暗底柔光玻璃 */
+/* 墨金深色档 */
 .zg-inkgold.zg-inkgold-dark .hero-glaze {
-  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .10), rgba(var(--zg-primary-rgb), .04) 40%, transparent 70%);
+  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .08), rgba(var(--zg-primary-rgb), .03) 40%, transparent 70%);
 }
 .zg-inkgold.zg-inkgold-dark .announce-bar {
-  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .10), rgba(var(--zg-accent-rgb), .03) 62%, transparent) !important;
-  border-left-color: rgba(var(--zg-primary-rgb), .55) !important;
+  background: linear-gradient(90deg, rgba(var(--zg-primary-rgb), .08), rgba(var(--zg-accent-rgb), .02) 62%, transparent) !important;
+  border-left-color: rgba(var(--zg-primary-rgb), .50) !important;
 }
 
 /* ===== Hero 视觉资产区（仅墨金）===== */
