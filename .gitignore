@@ -55,6 +55,9 @@ server/uploads/*
 .env.local
 .env.*.local
 
+# wrangler.toml 含明文 JWT_SECRET / SUPABASE_SERVICE_KEY，严禁入库（2026-08-22 加固）
+wrangler.toml
+
 # ===== Deployment archives / temp =====
 zhuiguang-local.zip
 zhuiguang-deploy.tar.gz
