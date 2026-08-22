@@ -438,6 +438,23 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 .zg-inkgold .hs-num { font-family: var(--zg-font); font-weight: 800; }
 .zg-inkgold .hs-label { font-size: 11px; letter-spacing: .06em; color: var(--zg-text-dim); opacity: .9; }
+/* 墨金 CTA：按钮用更沉稳的金系渐变，降低饱和度，避免亮橘突兀 */
+.zg-inkgold .cta-primary {
+  background: linear-gradient(135deg, rgba(var(--zg-primary-rgb), .92), rgba(var(--zg-primary-2-rgb), .88)) !important;
+  box-shadow: 0 8px 22px rgba(var(--zg-primary-rgb), .22) !important;
+  color: #fff !important;
+}
+.zg-inkgold .cta-primary:hover {
+  box-shadow: 0 12px 28px rgba(var(--zg-primary-rgb), .30) !important;
+}
+.zg-inkgold .cta-ghost {
+  background: rgba(var(--zg-primary-rgb), .06) !important;
+  border: 1px solid rgba(var(--zg-primary-rgb), .18) !important;
+  color: var(--zg-text) !important;
+}
+.zg-inkgold .cta-ghost:hover {
+  background: rgba(var(--zg-primary-rgb), .10) !important;
+}
 /* 美文瓷卡：由"硬边白卡"改为清晰瓷面 + 大扩散柔影（只浮不框，阴影是好的设计） */
 .zg-inkgold .art-card {
   background: linear-gradient(158deg, rgba(255,255,255,0.66), rgba(255,250,240,0.50));
@@ -684,12 +701,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
   /* 墨金移动端：hero 更紧凑，标题/数据适配小屏 */
   .zg-inkgold .hero { padding: 24px 18px 22px; border-radius: 24px; }
-  .zg-inkgold .hero-title { font-size: clamp(22px, 6.8vw, 27px); line-height: 1.3; }
+  .zg-inkgold .hero-title { font-size: clamp(20px, 6.2vw, 25px); line-height: 1.32; }
   .zg-inkgold .hero-slogan { font-size: 13px; margin-bottom: 20px; }
-  .zg-inkgold .hero-stats { padding: 0; gap: 8px; }
-  .zg-inkgold .hs-item { padding: 10px 8px; border-radius: 14px; min-width: 64px; }
+  .zg-inkgold .hero-stats { padding: 0; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .zg-inkgold .hs-item { padding: 10px 8px; border-radius: 14px; min-width: 0; }
   .zg-inkgold .hs-num { font-size: 20px; }
-  .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .06em; }
+  .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .05em; }
   /* 资产区收为顶部细光带（瓷盘不占高），并进一步弱化 */
   .zg-inkgold .hero-grid { display: contents; }
   .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(var(--zg-primary-rgb), .10); }
@@ -723,7 +740,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hs-num { font-size: 22px; }
   .quick-row { gap: 8px; }
   .zg-inkgold .hero { padding: 20px 16px 18px; border-radius: 22px; }
-  .zg-inkgold .hs-item { padding: 8px 6px; border-radius: 12px; min-width: 58px; }
+  .zg-inkgold .hero-title { font-size: clamp(19px, 6vw, 23px); }
+  .zg-inkgold .hero-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .zg-inkgold .hs-item { padding: 8px 6px; border-radius: 12px; min-width: 0; }
   .zg-inkgold .hs-num { font-size: 18px; }
   .zg-inkgold .qr-item { padding: 12px 14px; min-height: 50px; }
   .section { margin: 24px 0; }
