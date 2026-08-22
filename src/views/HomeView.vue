@@ -378,25 +378,27 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 
 /* ============================================================
-   墨金学术 · 2026 高端香槟柔光玻璃
-   Hero：L1主角级圆角柔光玻璃容器
-   卡片：L2/L3柔光玻璃（无完整边框，只顶部高光，阴影负spread）
+   墨金学术 · 2026 Liquid Glass 高端设计语言
+   统一设计系统：无完整border，只有顶部高光+多层柔和阴影
+   动效统一用 var(--zg-ease) / var(--zg-spring) 弹性曲线
    ============================================================ */
-/* L1 Hero 区：主角级柔光玻璃容器，大圆角32px - 克制高级感 */
+/* L1 Hero 区：主角级 Liquid Glass */
 .zg-inkgold .hero {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.62)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(160%) !important;
-  backdrop-filter: blur(32px) saturate(160%) !important;
+  background: linear-gradient(155deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(150%) !important;
+  backdrop-filter: blur(32px) saturate(150%) !important;
   border: none !important;
   border-radius: 28px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.7),
-    0 4px 16px -8px rgba(120,90,30,0.04),
-    0 16px 40px -20px rgba(120,90,30,0.05) !important;
+  box-shadow: var(--zg-glass-1-highlight), var(--zg-glass-1-shadow) !important;
   overflow: hidden !important;
   margin: 6px 0 28px !important;
   padding: 56px 54px 50px !important;
   min-height: 360px !important;
+  transition: transform .4s var(--zg-ease), box-shadow .4s var(--zg-ease);
+}
+.zg-inkgold .hero:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--zg-glass-1-highlight), 0 1px 2px rgba(120,90,30,0.05), 0 12px 36px -10px rgba(120,90,30,0.12), 0 32px 72px -24px rgba(120,90,30,0.10) !important;
 }
 /* 移除经典模式的顶部金线 */
 .zg-inkgold .hero::before { display: none !important; }
@@ -419,29 +421,23 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   padding: 0 !important;
   gap: 10px;
 }
-/* 数据卡：L3柔光 - 克制 */
+/* 数据卡：L3柔光 */
 .zg-inkgold .hs-item {
-  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.55)) !important;
+  background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
   border-radius: 16px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 2px 8px -4px rgba(120,90,30,0.03),
-    0 6px 18px -10px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
   padding: 14px 16px !important;
   min-width: 80px;
   flex: 1 1 0;
   text-align: center;
-  transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s;
+  transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease);
 }
 .zg-inkgold .hs-item:hover {
   transform: translateY(-2px);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.7),
-    0 4px 12px -6px rgba(120,90,30,0.04),
-    0 10px 24px -12px rgba(120,90,30,0.05) !important;
+  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 6px 18px -8px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
@@ -464,49 +460,40 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   transform: translateY(-2px);
 }
 .zg-inkgold .cta-ghost {
-  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.55)) !important;
+  background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
   color: var(--zg-text) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 2px 8px -4px rgba(120,90,30,0.03),
-    0 6px 18px -10px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease), background .3s var(--zg-ease);
 }
 .zg-inkgold .cta-ghost:hover {
   background: linear-gradient(155deg, rgba(255,255,255,0.75), rgba(255,253,249,0.65)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.7),
-    0 4px 12px -6px rgba(120,90,30,0.04),
-    0 8px 22px -10px rgba(120,90,30,0.05) !important;
+  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 6px 18px -8px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
   transform: translateY(-2px);
 }
-/* 美文卡：L2柔光 - 克制 */
+/* 美文卡：L2标准柔光 - 无矩形框 */
 .zg-inkgold .art-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.62)) !important;
+  background: linear-gradient(155deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2)) !important;
   border: none !important;
   border-radius: 20px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.65),
-    0 3px 10px -5px rgba(120,90,30,0.03),
-    0 10px 28px -14px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: var(--zg-glass-2-highlight), var(--zg-glass-2-shadow) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   overflow: hidden;
+  transition: transform .35s var(--zg-ease), box-shadow .35s var(--zg-ease);
 }
-/* 快捷入口/学科芯片：L3柔光 - 克制 */
+/* 快捷入口/学科芯片：L3柔光 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.52)) !important;
+  background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
   border-radius: 16px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 2px 8px -4px rgba(120,90,30,0.02),
-    0 6px 16px -8px rgba(120,90,30,0.03) !important;
+  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
+  transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease);
 }
 /* 公告栏 */
 .zg-inkgold .announce-bar {
@@ -516,23 +503,15 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: none !important;
   border-radius: 0 16px 16px 0 !important;
 }
-/* hover - 克制 */
+/* hover - spring弹性浮起 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.60)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.68),
-    0 3px 10px -5px rgba(120,90,30,0.04),
-    0 8px 20px -10px rgba(120,90,30,0.04) !important;
-  transform: translateY(-2px);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 8px 22px -8px rgba(120,90,30,0.08), 0 18px 40px -18px rgba(120,90,30,0.07) !important;
 }
 .zg-inkgold .art-card:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(255,253,249,0.68)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.72),
-    0 5px 14px -6px rgba(120,90,30,0.04),
-    0 14px 32px -16px rgba(120,90,30,0.05) !important;
-  transform: translateY(-3px);
+  transform: translateY(-5px);
+  box-shadow: var(--zg-glass-2-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 12px 32px -10px rgba(120,90,30,0.10), 0 28px 64px -24px rgba(120,90,30,0.10) !important;
 }
 /* 深色档 */
 .zg-inkgold.zg-inkgold-dark .hero {

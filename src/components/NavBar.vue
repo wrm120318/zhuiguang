@@ -283,29 +283,31 @@ function typeLabel(t: string) {
 </template>
 
 <style scoped>
-/* ===== 2026 高端柔光玻璃导航栏 ===== */
+/* ===== 2026 Liquid Glass 导航栏 ===== */
 .nav {
   position: sticky;
   top: 0;
   z-index: 100;
   border-radius: 0;
   border: none !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,253,249,0.82));
-  -webkit-backdrop-filter: blur(32px) saturate(200%);
-  backdrop-filter: blur(32px) saturate(200%);
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,253,249,0.75));
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: blur(40px) saturate(150%);
   box-shadow:
-    inset 0 -1px 0 rgba(255,255,255,0.6),
-    0 1px 0 rgba(120,90,30,0.04),
-    0 4px 20px -8px rgba(120,90,30,0.06);
-  transition: box-shadow .3s ease, background .3s ease;
+    inset 0 0.5px 0.5px rgba(255,255,255,0.9),
+    0 1px 2px rgba(120,90,30,0.03),
+    0 8px 28px -12px rgba(120,90,30,0.06);
+  transition: box-shadow .3s var(--zg-ease), background .3s var(--zg-ease);
 }
 /* 墨金深色模式导航栏 */
 .zg-inkgold-dark .nav {
-  background: linear-gradient(180deg, rgba(56,48,34,0.90), rgba(40,32,22,0.82));
+  background: linear-gradient(180deg, rgba(56,48,34,0.88), rgba(40,32,22,0.78));
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  backdrop-filter: blur(40px) saturate(140%);
   box-shadow:
-    inset 0 -1px 0 rgba(255,243,214,0.08),
-    0 1px 0 rgba(0,0,0,0.20),
-    0 4px 20px -8px rgba(0,0,0,0.25);
+    inset 0 0.5px 0.5px rgba(255,243,214,0.10),
+    0 1px 2px rgba(0,0,0,0.18),
+    0 8px 28px -12px rgba(0,0,0,0.25);
 }
 /* 经典橙色模式导航栏保持兼容 */
 html:not(.zg-inkgold) .nav {

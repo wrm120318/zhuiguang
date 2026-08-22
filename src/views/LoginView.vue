@@ -162,42 +162,46 @@ async function clickFixLoginPage() {
   50% { transform: translate(-20px, -15px) scale(1.08); opacity: 0.3; }
 }
 
-/* 登录卡片：克制的高级感，不用重玻璃 */
+/* 登录卡片：Liquid Glass 高级感 */
 .login-card {
   position: relative;
   z-index: 1;
   width: 400px;
   max-width: 100%;
   padding: 40px 32px 36px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.85);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: blur(40px) saturate(150%);
+  border: none;
   box-shadow:
-    0 0 0 0.5px rgba(0, 0, 0, 0.03),
-    0 20px 50px -12px rgba(0, 0, 0, 0.08),
-    0 4px 12px -4px rgba(0, 0, 0, 0.04);
+    inset 0 0.5px 0.5px rgba(255, 255, 255, 0.9),
+    0 0 0 0.5px rgba(255, 255, 255, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 12px 40px -12px rgba(0, 0, 0, 0.10),
+    0 28px 64px -24px rgba(0, 0, 0, 0.08);
 }
 
 /* 墨金模式登录卡 */
 .zg-inkgold .login-card {
-  background: rgba(255, 253, 249, 0.88);
-  border-color: rgba(201, 168, 76, 0.12);
+  background: rgba(255, 253, 249, 0.85);
   box-shadow:
-    0 0 0 0.5px rgba(120, 90, 30, 0.06),
-    0 24px 60px -16px rgba(120, 90, 30, 0.12),
-    0 4px 12px -4px rgba(120, 90, 30, 0.06);
+    inset 0 0.5px 0.5px rgba(255, 255, 255, 0.9),
+    0 0 0 0.5px rgba(120, 90, 30, 0.08),
+    0 1px 2px rgba(120, 90, 30, 0.04),
+    0 12px 40px -12px rgba(120, 90, 30, 0.10),
+    0 28px 64px -24px rgba(120, 90, 30, 0.08);
 }
 
 /* 深色墨金 */
 .zg-inkgold-dark .login-card {
   background: rgba(40, 34, 24, 0.85);
-  border-color: rgba(255, 243, 214, 0.08);
   box-shadow:
-    0 0 0 0.5px rgba(255, 243, 214, 0.05),
-    0 24px 60px -12px rgba(0, 0, 0, 0.5),
-    0 4px 12px -4px rgba(0, 0, 0, 0.3);
+    inset 0 0.5px 0.5px rgba(255, 243, 214, 0.10),
+    0 0 0 0.5px rgba(255, 243, 214, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.20),
+    0 12px 40px -12px rgba(0, 0, 0, 0.40),
+    0 28px 64px -24px rgba(0, 0, 0, 0.30);
 }
 
 .lc-logo {
