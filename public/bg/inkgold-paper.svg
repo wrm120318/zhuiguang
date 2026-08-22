@@ -13,18 +13,18 @@
     </filter>
     <!-- 斜向丝光渐变 -->
     <linearGradient id="silk" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.75"/>
-      <stop offset="22%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="22%" stop-color="#ffffff" stop-opacity="0.28"/>
       <stop offset="48%" stop-color="#ffffff" stop-opacity="0"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <!-- 淡金光斑 -->
     <radialGradient id="goldA" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.20"/>
+      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.24"/>
       <stop offset="100%" stop-color="#D4AF37" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="goldB" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#C8922E" stop-opacity="0.16"/>
+      <stop offset="0%" stop-color="#C8922E" stop-opacity="0.20"/>
       <stop offset="100%" stop-color="#C8922E" stop-opacity="0"/>
     </radialGradient>
     <!-- 基底暖米白 -->
@@ -35,7 +35,7 @@
     </linearGradient>
     <!-- 细网格图案 -->
     <pattern id="grid" width="46" height="46" patternUnits="userSpaceOnUse">
-      <path d="M46 0 L0 0 0 46" fill="none" stroke="#BA7517" stroke-opacity="0.07" stroke-width="1"/>
+      <path d="M46 0 L0 0 0 46" fill="none" stroke="#BA7517" stroke-opacity="0.09" stroke-width="1"/>
     </pattern>
   </defs>
 

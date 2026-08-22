@@ -10,17 +10,17 @@
       <feGaussianBlur stdDeviation="90"/>
     </filter>
     <linearGradient id="silkD" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FFF3D6" stop-opacity="0.20"/>
-      <stop offset="26%" stop-color="#FFF3D6" stop-opacity="0.07"/>
+      <stop offset="0%" stop-color="#FFF3D6" stop-opacity="0.28"/>
+      <stop offset="26%" stop-color="#FFF3D6" stop-opacity="0.10"/>
       <stop offset="52%" stop-color="#FFF3D6" stop-opacity="0"/>
       <stop offset="100%" stop-color="#FFF3D6" stop-opacity="0"/>
     </linearGradient>
     <radialGradient id="goldAD" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.26"/>
+      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.32"/>
       <stop offset="100%" stop-color="#D4AF37" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="goldBD" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#C8922E" stop-opacity="0.20"/>
+      <stop offset="0%" stop-color="#C8922E" stop-opacity="0.26"/>
       <stop offset="100%" stop-color="#C8922E" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="baseD" x1="0" y1="0" x2="0.6" y2="1">
@@ -29,7 +29,7 @@
       <stop offset="100%" stop-color="#15110A"/>
     </linearGradient>
     <pattern id="gridD" width="46" height="46" patternUnits="userSpaceOnUse">
-      <path d="M46 0 L0 0 0 46" fill="none" stroke="#D4AF37" stroke-opacity="0.08" stroke-width="1"/>
+      <path d="M46 0 L0 0 0 46" fill="none" stroke="#D4AF37" stroke-opacity="0.12" stroke-width="1"/>
     </pattern>
   </defs>
 

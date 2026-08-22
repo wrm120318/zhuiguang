@@ -389,19 +389,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    改为随页面暖底晕开的柔光瓷面（径向渐变边缘化开），overflow 放开让光晕自由呼吸，
    彻底打破"首页=一堆被框住的白卡"旧范式（§创新·敢于打破）。 */
 .zg-inkgold .hero {
-  /* 真柔光玻璃 hero：极低不透明度磨砂 + 1px 亮边（边缘反光）+ 背景图从身后透出 */
-  background: linear-gradient(155deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
-  -webkit-backdrop-filter: blur(18px) saturate(185%);
-  backdrop-filter: blur(18px) saturate(185%);
-  border: 1px solid rgba(255,255,255,0.38);
-  box-shadow: var(--zg-glaze), var(--zg-soft-card);
+  /* 开放釉光区：无填充无边界无阴影，文字直接浮在背景图上，仅顶部极淡釉光似有似无 */
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.50);
   overflow: visible;
 }
-/* 深色档 hero：暗底暖金磨砂玻璃 */
+/* 深色档 hero：暗底开放釉光区 */
 .zg-inkgold.zg-inkgold-dark .hero {
-  background: linear-gradient(155deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
-  border: 1px solid rgba(212,175,55,0.28);
-  box-shadow: var(--zg-glaze), var(--zg-soft-card);
+  background: transparent;
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255,243,214,0.12);
 }
 /* 墨金：无卡边后，顶部悬浮金线失去依附，移除（品牌线已由 hero-kicker / hero-accent 承担） */
 .zg-inkgold .hero::before { display: none; }
@@ -422,10 +423,11 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   gap: 10px;
 }
 .zg-inkgold .hs-item {
-  background: linear-gradient(158deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
-  border: 1px solid rgba(255,255,255,0.34);
+  /* L3 点缀玻璃：磨砂白 0.25 + 亮边 0.3 + 柔影 */
+  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
+  border: 1px solid var(--zg-glass-3-border);
   border-radius: 16px;
-  box-shadow: var(--zg-glaze), var(--zg-soft-1);
+  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   backdrop-filter: blur(16px) saturate(180%);
   padding: 12px 14px;
@@ -434,9 +436,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   text-align: center;
 }
 .zg-inkgold.zg-inkgold-dark .hs-item {
-  background: linear-gradient(158deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
-  border: 1px solid rgba(212,175,55,0.26);
-  box-shadow: var(--zg-glaze), var(--zg-soft-1);
+  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
+  border: 1px solid var(--zg-glass-3-border);
+  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
 }
 .zg-inkgold .hs-num { font-family: var(--zg-font); font-weight: 800; }
 .zg-inkgold .hs-label { font-size: 11px; letter-spacing: .06em; color: var(--zg-text-dim); opacity: .9; }
@@ -457,32 +459,34 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold .cta-ghost:hover {
   background: rgba(var(--zg-primary-rgb), .10) !important;
 }
-/* 美文瓷卡：由"硬边白卡"改为清晰瓷面 + 大扩散柔影（只浮不框，阴影是好的设计） */
+/* 美文瓷卡：L2 卡片玻璃——磨砂白 0.22 + 亮边 0.35 + 柔影（似有似无） */
 .zg-inkgold .art-card {
-  background: linear-gradient(158deg, rgba(255,255,255,0.66), rgba(255,250,240,0.50));
-  border: 1px solid transparent;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 14px 40px -12px rgba(120,90,30,.14), 0 34px 80px -24px rgba(120,90,30,.14);
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
+  background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2));
+  border: 1px solid var(--zg-glass-2-border);
+  box-shadow: var(--zg-glaze), var(--zg-glass-2-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
 }
-/* 深色档美文卡：暗底暖金玻璃 */
+/* 深色档美文卡：L2 暗玻璃 */
 .zg-inkgold.zg-inkgold-dark .art-card {
-  background: linear-gradient(158deg, rgba(48,40,28,0.60), rgba(28,22,14,0.44));
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.12), 0 16px 44px -12px rgba(0,0,0,.45), 0 38px 90px -24px rgba(0,0,0,.48);
+  background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2));
+  border: 1px solid var(--zg-glass-2-border);
+  box-shadow: var(--zg-glaze), var(--zg-glass-2-shadow);
 }
-/* L3 点缀：快捷入口 / 学科瓷片 —— 淡瓷金玻璃底，轻阴影，融进页面但仍有玻璃质感 */
+/* L3 点缀：快捷入口 / 学科瓷片 —— 磨砂白 0.25 + 亮边 0.3 + 柔影 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: linear-gradient(158deg, rgba(255,255,255,0.48), rgba(255,250,240,0.32));
-  border: 1px solid transparent;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 6px 18px -6px rgba(120,90,30,.10);
+  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
+  border: 1px solid var(--zg-glass-3-border);
+  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
   backdrop-filter: blur(12px) saturate(160%);
 }
 .zg-inkgold.zg-inkgold-dark .qr-item,
 .zg-inkgold.zg-inkgold-dark .subj-chip {
-  background: linear-gradient(158deg, rgba(48,40,28,0.42), rgba(28,22,14,0.28));
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.08), 0 6px 18px -6px rgba(0,0,0,.32);
+  background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
+  border: 1px solid var(--zg-glass-3-border);
+  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
 }
 /* L3 公告：去盒化贴顶细栏（不再独立白卡，§3.1） */
 .zg-inkgold .announce-bar {
@@ -494,22 +498,25 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* hover：玻璃底色微升 + 柔影加深（保持玻璃质感） */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  background: linear-gradient(158deg, rgba(255,255,255,0.62), rgba(255,250,240,0.46));
-  border-color: transparent;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 10px 28px -8px rgba(120,90,30,.16);
+  background: linear-gradient(158deg, rgba(255,255,255,0.32), rgba(255,250,240,0.22));
+  border-color: var(--zg-glass-3-border);
+  box-shadow: var(--zg-glaze), 0 8px 20px -6px rgba(120,90,30,0.14);
   transform: translateY(-2px);
 }
 .zg-inkgold.zg-inkgold-dark .qr-item:hover,
 .zg-inkgold.zg-inkgold-dark .subj-chip:hover {
-  background: linear-gradient(158deg, rgba(56,48,34,0.54), rgba(34,28,18,0.38));
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.10), 0 10px 28px -8px rgba(0,0,0,.40);
+  background: linear-gradient(158deg, rgba(56,48,34,0.62), rgba(34,28,18,0.48));
+  border-color: var(--zg-glass-3-border);
+  box-shadow: var(--zg-glaze), 0 8px 20px -6px rgba(0,0,0,0.38);
 }
 .zg-inkgold .art-card:hover {
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .18), 0 18px 52px -14px rgba(120,90,30,.18), 0 42px 100px -26px rgba(120,90,30,.18);
+  background: linear-gradient(158deg, rgba(255,255,255,0.28), rgba(255,250,240,0.18));
+  box-shadow: var(--zg-glaze), 0 10px 28px -8px rgba(120,90,30,0.14);
   transform: translateY(-4px);
 }
 .zg-inkgold.zg-inkgold-dark .art-card:hover {
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.12), inset 0 0 0 1px rgba(var(--zg-primary-rgb), .22), 0 20px 56px -14px rgba(0,0,0,.52), 0 46px 110px -26px rgba(0,0,0,.54);
+  background: linear-gradient(158deg, rgba(56,48,34,0.58), rgba(34,28,18,0.44));
+  box-shadow: var(--zg-glaze), 0 12px 32px -8px rgba(0,0,0,0.42);
 }
 
 /* 墨金深色档：暗底暖金瓷（变量已在 main.css 深档重声明，此处只需补差异项） */
@@ -702,12 +709,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
   .zg-footer { padding: 44px 0 calc(8px + env(safe-area-inset-bottom)); margin-top: 52px; }
 
-  /* 墨金移动端：hero 更紧凑，标题/数据适配小屏 */
-  .zg-inkgold .hero { padding: 24px 18px 22px; border-radius: 24px; }
+  /* 墨金移动端：hero 更紧凑，开放釉光区（无圆角无边界），标题/数据适配小屏 */
+  .zg-inkgold .hero { padding: 24px 18px 22px; border-radius: 0; }
   .zg-inkgold .hero-title { font-size: clamp(20px, 6.2vw, 25px); line-height: 1.32; }
   .zg-inkgold .hero-slogan { font-size: 13px; margin-bottom: 20px; }
-  .zg-inkgold .hero-stats { padding: 0; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .zg-inkgold .hs-item { padding: 10px 8px; border-radius: 14px; min-width: 0; }
+  .zg-inkgold .hero-stats { padding: 0; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .zg-inkgold .hs-item { padding: 12px 10px; border-radius: 16px; min-width: 0; }
   .zg-inkgold .hs-num { font-size: 20px; }
   .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .05em; }
   /* 资产区收为顶部细光带（瓷盘不占高），并进一步弱化 */
@@ -742,10 +749,10 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-stats { gap: 10px; padding: 16px 12px; }
   .hs-num { font-size: 22px; }
   .quick-row { gap: 8px; }
-  .zg-inkgold .hero { padding: 20px 16px 18px; border-radius: 22px; }
+  .zg-inkgold .hero { padding: 20px 16px 18px; border-radius: 0; }
   .zg-inkgold .hero-title { font-size: clamp(19px, 6vw, 23px); }
-  .zg-inkgold .hero-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-  .zg-inkgold .hs-item { padding: 8px 6px; border-radius: 12px; min-width: 0; }
+  .zg-inkgold .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .zg-inkgold .hs-item { padding: 10px 8px; border-radius: 14px; min-width: 0; }
   .zg-inkgold .hs-num { font-size: 18px; }
   .zg-inkgold .qr-item { padding: 12px 14px; min-height: 50px; }
   .section { margin: 24px 0; }
