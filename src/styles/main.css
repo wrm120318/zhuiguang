@@ -716,8 +716,8 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 /* ===== 菜单选中（侧栏 el-menu 若存在）===== */
 .zg-inkgold .el-menu-item.is-active { background: transparent !important; color: var(--zg-primary) !important; border-left: 3px solid var(--zg-primary); border-radius: 0 8px 8px 0; }
 
-/* ===== 焦点态 / 可达性（仅墨金） ===== */
-.zg-inkgold :focus-visible { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* ===== 焦点态 / 可达性（仅墨金，排除输入框/文本域/下拉——它们已有专属内陷柔光 focus 样式，outline 不跟随圆角会渲染成直角矩形框） ===== */
+.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold .el-button,
@@ -1093,8 +1093,8 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 /* ===== 菜单选中（侧栏 el-menu 若存在）===== */
 .zg-inkgold-dark .el-menu-item.is-active { background: transparent !important; color: var(--zg-primary) !important; border-left: 3px solid var(--zg-primary); border-radius: 0 8px 8px 0; }
 
-/* ===== 焦点态 / 可达性（仅墨金） ===== */
-.zg-inkgold-dark :focus-visible { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* ===== 焦点态 / 可达性（仅墨金深档，排除输入框/文本域/下拉——它们已有专属内陷柔光 focus 样式） ===== */
+.zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold-dark .el-button,
