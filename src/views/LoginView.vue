@@ -72,7 +72,6 @@ async function clickFixLoginPage() {
     <div class="login-bg">
       <div class="lb-orb a"></div>
       <div class="lb-orb b"></div>
-      <div class="lb-orb c"></div>
     </div>
     <!-- 🔧 登录页右上角极小的「🔧」修复按钮（不用登录，能看到登录页就能点！） -->
     <button
@@ -82,16 +81,17 @@ async function clickFixLoginPage() {
       :disabled="fixing"
       title="一键修复：网站出问题（1016/530/白屏/点不动）点这里，不用登录！"
     ><ZgGlyph v-if="fixing" emoji="⏳" /><ZgGlyph v-else emoji="🔧" /></button>
-    <div class="login-card glass-strong zg-scale-in">
+    <div class="login-card">
       <div class="lc-logo">
         <LogoMark class="lc-logo-mark" />
-        <h1 class="zg-grad-text">追光</h1>
+        <h1 class="lc-brand">追光</h1>
       </div>
       <p class="lc-subtitle">追光的人，终会身披万丈光芒</p>
 
       <div class="lc-tabs">
         <div class="lc-tab" :class="{ on: mode === 'login' }" @click="mode = 'login'">登录</div>
         <div class="lc-tab" :class="{ on: mode === 'register' }" @click="mode = 'register'">注册</div>
+        <div class="lc-tab-indicator" :style="{ transform: `translateX(${mode === 'login' ? '0' : '100%'})` }"></div>
       </div>
 
       <div class="lc-form">
@@ -103,7 +103,7 @@ async function clickFixLoginPage() {
           <el-input v-model="form.phone" placeholder="手机号（选填）" size="large" :disabled="!regEnabled" />
           <div v-if="!regEnabled" class="reg-disabled-tip">管理员已关闭自助注册，请联系老师</div>
         </template>
-        <el-button type="primary" size="large" round :loading="loading" @click="submit" style="width:100%; height:48px; font-size:16px; font-weight:600;" :disabled="mode === 'register' && !regEnabled">
+        <el-button type="primary" size="large" round :loading="loading" @click="submit" class="lc-submit" :disabled="mode === 'register' && !regEnabled">
           {{ mode === 'login' ? '登 录' : '注 册' }}
         </el-button>
       </div>
@@ -112,77 +112,245 @@ async function clickFixLoginPage() {
 </template>
 
 <style scoped>
-.login-page { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 500; overflow: hidden; }
-.login-bg { position: absolute; inset: 0; z-index: 0; }
-.lb-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.4; animation: zgFloat 18s ease-in-out infinite; }
-.lb-orb.a { width: 400px; height: 400px; background: radial-gradient(circle, var(--zg-accent), transparent 70%); top: -100px; left: -80px; }
-.lb-orb.b { width: 350px; height: 350px; background: radial-gradient(circle, #FB923C, transparent 70%); bottom: -100px; right: -60px; animation-delay: -6s; }
-.lb-orb.c { width: 250px; height: 250px; background: radial-gradient(circle, var(--zg-cream-200), transparent 70%); top: 50%; left: 60%; animation-delay: -12s; opacity: 0.3; }
-.login-card { position: relative; z-index: 1; width: 400px; max-width: 92vw; padding: 36px 32px; border-radius: 24px; box-shadow: 0 2px 8px rgba(120,53,15,0.06), 0 18px 48px rgba(120,53,15,0.14); }
-.lc-logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 6px; }
-.lc-logo-mark { font-size: 40px; filter: drop-shadow(0 0 14px rgba(var(--zg-primary-rgb),0.45)); }
-.zg-inkgold .lc-logo-mark { filter: drop-shadow(0 0 16px rgba(212,175,55,0.5)); }
-.zg-inkgold .lb-orb { opacity: 0.12 !important; filter: blur(90px) !important; }
-.zg-inkgold .lb-orb.a { background: radial-gradient(circle, rgba(212,175,55,0.5), transparent 70%) !important; }
-.zg-inkgold .lb-orb.b { background: radial-gradient(circle, rgba(230,198,110,0.42), transparent 70%) !important; }
-.zg-inkgold .lb-orb.c { background: radial-gradient(circle, rgba(212,175,55,0.32), transparent 70%) !important; opacity: 0.08 !important; }
-/* A5 修复：墨金浅色 → 双层柔和棕金阴影（原先误用深色档的单层重黑影 0 28px 80px rgba(0,0,0,.55)） */
-.zg-inkgold .login-card { border: 1px solid rgba(186,117,23,0.22) !important; box-shadow: 0 2px 8px rgba(120,90,30,0.06), 0 20px 48px rgba(120,90,30,0.16) !important; }
-/* A5 修复：墨金深色 → 收暗双层 + 顶部 1px 高光描边（文档 §A5 规格，避免"黑洞"质感） */
-.zg-inkgold-dark .login-card { border: 1px solid rgba(212,175,55,0.22) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 24px 64px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.08) !important; }
-.lc-logo h1 { font-size: 32px; font-weight: 800; }
-.lc-subtitle { text-align: center; color: var(--zg-text-dim); font-size: var(--zg-fs-sm); margin-bottom: 28px; }
-.lc-tabs { display:flex; gap:8px; margin-bottom: 20px; background: rgba(var(--zg-primary-rgb),.08); padding: 4px; border-radius: 12px; }
-.lc-tab { flex:1; text-align:center; padding: 10px; border-radius: 10px; cursor:pointer; color:var(--zg-text-dim); font-weight:600; transition:all .2s; }
-.lc-tab.on { background: var(--zg-primary); color: #fff; box-shadow: 0 4px 12px rgba(var(--zg-primary-rgb),.3); }
-.lc-form { display:flex; flex-direction:column; gap:14px; }
-.reg-disabled-tip { font-size:13px; color:#ef4444; text-align:center; padding:6px 10px; background:rgba(239,68,68,.08); border-radius:8px; }
-@media (max-width: 768px) {
-  .login-card { padding: 28px 20px; border-radius: 20px; }
-  .lc-emoji { font-size: 30px; }
-  .lc-logo h1 { font-size: 28px; }
-  .lc-subtitle { font-size: var(--zg-fs-xs); margin-bottom: 20px; }
+.login-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  overflow: hidden;
+  padding: 20px;
+}
+.login-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(800px 600px at 20% 20%, rgba(var(--zg-primary-rgb), 0.06), transparent 60%),
+    radial-gradient(600px 500px at 80% 80%, rgba(var(--zg-accent-rgb), 0.05), transparent 60%);
+}
+.lb-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.3;
+  pointer-events: none;
+}
+.lb-orb.a {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(var(--zg-accent-rgb), 0.4), transparent 70%);
+  top: -150px;
+  left: -100px;
+  animation: orbFloatA 20s ease-in-out infinite;
+}
+.lb-orb.b {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(var(--zg-primary-rgb), 0.3), transparent 70%);
+  bottom: -120px;
+  right: -80px;
+  animation: orbFloatB 24s ease-in-out infinite reverse;
+}
+@keyframes orbFloatA {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.25; }
+  50% { transform: translate(30px, 20px) scale(1.05); opacity: 0.35; }
+}
+@keyframes orbFloatB {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.2; }
+  50% { transform: translate(-20px, -15px) scale(1.08); opacity: 0.3; }
 }
 
-@media (min-width: 1024px) {
-  .login-card { width: 460px; padding: 44px 40px; }
-  .lc-emoji { font-size: 44px; }
-  .lc-logo h1 { font-size: 40px; }
-  .lc-subtitle { font-size: 15px; margin-bottom: 36px; }
+/* 登录卡片：克制的高级感，不用重玻璃 */
+.login-card {
+  position: relative;
+  z-index: 1;
+  width: 400px;
+  max-width: 100%;
+  padding: 40px 32px 36px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.03),
+    0 20px 50px -12px rgba(0, 0, 0, 0.08),
+    0 4px 12px -4px rgba(0, 0, 0, 0.04);
 }
 
-/* 🔧 登录页右上角小修复按钮：极小，不挡UI，只有管理员知道用途 */
+/* 墨金模式登录卡 */
+.zg-inkgold .login-card {
+  background: rgba(255, 253, 249, 0.88);
+  border-color: rgba(201, 168, 76, 0.12);
+  box-shadow:
+    0 0 0 0.5px rgba(120, 90, 30, 0.06),
+    0 24px 60px -16px rgba(120, 90, 30, 0.12),
+    0 4px 12px -4px rgba(120, 90, 30, 0.06);
+}
+
+/* 深色墨金 */
+.zg-inkgold-dark .login-card {
+  background: rgba(40, 34, 24, 0.85);
+  border-color: rgba(255, 243, 214, 0.08);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 243, 214, 0.05),
+    0 24px 60px -12px rgba(0, 0, 0, 0.5),
+    0 4px 12px -4px rgba(0, 0, 0, 0.3);
+}
+
+.lc-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.lc-logo-mark {
+  font-size: 38px;
+  filter: drop-shadow(0 2px 10px rgba(var(--zg-primary-rgb), 0.3));
+}
+.lc-brand {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+}
+.lc-subtitle {
+  text-align: center;
+  color: var(--zg-text-dim);
+  font-size: 14px;
+  margin-bottom: 28px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* Tab：克制的滑动指示器，不用实色块 */
+.lc-tabs {
+  position: relative;
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(var(--zg-primary-rgb), 0.06);
+}
+.lc-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--zg-text-dim);
+  font-weight: 500;
+  font-size: 14px;
+  transition: color 0.25s ease;
+  position: relative;
+  z-index: 1;
+}
+.lc-tab.on {
+  color: var(--zg-primary);
+  font-weight: 600;
+}
+.lc-tab-indicator {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(var(--zg-primary-rgb), 0.12);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.zg-inkgold-dark .lc-tab-indicator {
+  background: rgba(255, 243, 214, 0.08);
+}
+
+.lc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lc-submit {
+  width: 100%;
+  height: 46px;
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 4px;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 14px rgba(var(--zg-primary-rgb), 0.25) !important;
+  transition: all 0.25s ease !important;
+}
+.lc-submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(var(--zg-primary-rgb), 0.35) !important;
+}
+.reg-disabled-tip {
+  font-size: 13px;
+  color: #ef4444;
+  text-align: center;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 10px;
+}
+
+/* 修复按钮：用主题色，不用硬编码橘色 */
 .zg-login-fix-btn {
   position: fixed;
-  top: calc(18px + env(safe-area-inset-top)); /* BUG-11: 刘海屏顶部安全区 */
-  right: 20px;
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
   z-index: 99999;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  background: rgba(var(--zg-primary-rgb), 0.18);
-  color: #b45309;
-  font-size: 17px;
+  background: rgba(var(--zg-primary-rgb), 0.1);
+  color: var(--zg-text-dim);
+  font-size: 16px;
   line-height: 1;
-  transition: all .25s cubic-bezier(.2,.8,.2,1);
+  transition: all 0.25s ease;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
 }
 .zg-login-fix-btn:hover {
-  background: linear-gradient(135deg, #ef4444, #f97316);
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.9);
   color: #fff;
-  transform: scale(1.12) rotate(-12deg);
-  box-shadow: 0 6px 18px rgba(239,68,68,.3);
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
 }
 .zg-login-fix-btn:active { transform: scale(0.95); }
 .zg-login-fix-btn:disabled,
-.zg-login-fix-btn.on { background: rgba(100,116,139,.25); color: #475569; cursor: not-allowed; animation: zgSpin 1.4s linear infinite; transform: none; box-shadow: none; }
+.zg-login-fix-btn.on {
+  background: rgba(100, 116, 139, 0.15);
+  color: var(--zg-text-dim);
+  cursor: not-allowed;
+  animation: zgSpin 1.4s linear infinite;
+  transform: none;
+  box-shadow: none;
+  opacity: 0.6;
+}
 @keyframes zgSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-@media (max-width: 640px) {
-  .zg-login-fix-btn { top: 12px; right: 12px; width: 32px; height: 32px; font-size: 15px; }
+
+@media (max-width: 768px) {
+  .login-page { padding: 16px; }
+  .login-card { padding: 32px 22px 28px; border-radius: 18px; }
+  .lc-logo-mark { font-size: 34px; }
+  .lc-brand { font-size: 26px; }
+  .lc-subtitle { font-size: 13px; margin-bottom: 24px; }
+  .zg-login-fix-btn { top: calc(12px + env(safe-area-inset-top)); right: 12px; width: 30px; height: 30px; font-size: 14px; }
 }
 </style>

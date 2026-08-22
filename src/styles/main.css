@@ -649,23 +649,23 @@ html.zg-inkgold {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(600px 400px at 20% 20%, rgba(232,213,163,0.06), transparent 70%),
-    radial-gradient(500px 350px at 80% 70%, rgba(201,168,76,0.04), transparent 70%);
-  animation: zgBgBreath 20s ease-in-out infinite;
+    radial-gradient(500px 350px at 20% 20%, rgba(232,213,163,0.04), transparent 70%),
+    radial-gradient(400px 300px at 80% 70%, rgba(201,168,76,0.03), transparent 70%);
+  animation: zgBgBreath 24s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes zgBgBreath {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.05); }
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.03); }
 }
 .zg-inkgold .zg-bg::after { display: none !important; }
-.zg-inkgold .zg-orb { opacity: 0.18 !important; filter: blur(140px) !important; }
-.zg-inkgold .zg-orb.a { width: 580px; height: 580px; background: radial-gradient(circle, rgba(212,175,55,0.22), transparent 72%) !important; top: -180px; left: -140px; animation: zgFloatA 24s ease-in-out infinite; }
-.zg-inkgold .zg-orb.b { width: 480px; height: 480px; background: radial-gradient(circle, rgba(200,146,46,0.18), transparent 72%) !important; bottom: -180px; right: -120px; animation: zgFloatB 28s ease-in-out infinite reverse; }
-.zg-inkgold .zg-orb.c { width: 400px; height: 400px; background: radial-gradient(circle, rgba(186,140,60,0.12), transparent 72%) !important; top: 38%; left: 58%; opacity: 0.10 !important; animation: zgFloatC 32s ease-in-out infinite; animation-delay: -12s; }
-@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.15; } 50% { transform: translate(30px,20px) scale(1.06); opacity: 0.22; } }
-@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.12; } 50% { transform: translate(-25px,-15px) scale(1.05); opacity: 0.18; } }
-@keyframes zgFloatC { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.08; } 50% { transform: translate(-20px,25px) scale(1.08); opacity: 0.14; } }
+.zg-inkgold .zg-orb { opacity: 0.10 !important; filter: blur(120px) !important; }
+.zg-inkgold .zg-orb.a { width: 480px; height: 480px; background: radial-gradient(circle, rgba(212,175,55,0.16), transparent 72%) !important; top: -140px; left: -100px; animation: zgFloatA 28s ease-in-out infinite; }
+.zg-inkgold .zg-orb.b { width: 380px; height: 380px; background: radial-gradient(circle, rgba(200,146,46,0.12), transparent 72%) !important; bottom: -140px; right: -80px; animation: zgFloatB 32s ease-in-out infinite reverse; }
+.zg-inkgold .zg-orb.c { width: 320px; height: 320px; background: radial-gradient(circle, rgba(186,140,60,0.08), transparent 72%) !important; top: 38%; left: 58%; opacity: 0.06 !important; animation: zgFloatC 36s ease-in-out infinite; animation-delay: -12s; }
+@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.08; } 50% { transform: translate(20px,15px) scale(1.04); opacity: 0.12; } }
+@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.06; } 50% { transform: translate(-15px,-10px) scale(1.04); opacity: 0.10; } }
+@keyframes zgFloatC { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.04; } 50% { transform: translate(-12px,18px) scale(1.06); opacity: 0.08; } }
 
 /* 内容卡：L2 柔光玻璃——高白度 0.55 + 大模糊 28px + 高饱和 200% + 亮白高光边 */
 .zg-inkgold .glass,

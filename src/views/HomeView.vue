@@ -267,26 +267,21 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 <style scoped>
 .home-page { position: relative; overflow-x: clip; overflow-y: visible; }
 
-/* ============================================================
-   首页背景光晕
-   经典：不渲染任何可见内容（铁律1，像素级不动）
-   墨金：§2.3 暖金呼吸光晕——比旧版明显但仍克制（.18~.24 + 更大 blur + 18s 缓动），
-         是"瓷盘后的暖光"，不是霓虹灯。
-   ============================================================ */
+/* 首页背景光晕 - 克制高级，不刺眼 */
 .home-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 .zg-inkgold .home-bg::before {
-  content: ''; position: absolute; top: -240px; right: -200px; width: 820px; height: 820px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--zg-accent-rgb), 0.24), transparent 66%); filter: blur(110px);
-  opacity: 0.85; animation: zgBreath 18s ease-in-out infinite;
+  content: ''; position: absolute; top: -200px; right: -160px; width: 600px; height: 600px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--zg-accent-rgb), 0.12), transparent 66%); filter: blur(100px);
+  opacity: 0.7; animation: zgBreath 22s ease-in-out infinite;
 }
 .zg-inkgold .home-bg::after {
-  content: ''; position: absolute; bottom: -260px; left: -180px; width: 640px; height: 640px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--zg-primary-rgb), 0.14), transparent 68%); filter: blur(120px);
-  opacity: 0.7; animation: zgBreath 22s ease-in-out infinite reverse;
+  content: ''; position: absolute; bottom: -220px; left: -140px; width: 500px; height: 500px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--zg-primary-rgb), 0.08), transparent 68%); filter: blur(110px);
+  opacity: 0.6; animation: zgBreath 26s ease-in-out infinite reverse;
 }
 @keyframes zgBreath {
-  0%,100% { transform: scale(1); opacity: 0.58; }
-  50% { transform: scale(1.07); opacity: 0.86; }
+  0%,100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.05); opacity: 0.7; }
 }
 
 /* ===== HERO 通用结构 ===== */
@@ -387,17 +382,17 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    Hero：L1主角级圆角柔光玻璃容器
    卡片：L2/L3柔光玻璃（无完整边框，只顶部高光，阴影负spread）
    ============================================================ */
-/* L1 Hero 区：主角级柔光玻璃容器，大圆角32px */
+/* L1 Hero 区：主角级柔光玻璃容器，大圆角32px - 克制高级感 */
 .zg-inkgold .hero {
-  background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(255,253,249,0.70)) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(210%) !important;
-  backdrop-filter: blur(36px) saturate(210%) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.62)) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(160%) !important;
+  backdrop-filter: blur(32px) saturate(160%) !important;
   border: none !important;
-  border-radius: 32px !important;
+  border-radius: 28px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.88),
-    0 6px 20px -8px rgba(120,90,30,0.05),
-    0 24px 60px -24px rgba(120,90,30,0.06) !important;
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 4px 16px -8px rgba(120,90,30,0.04),
+    0 16px 40px -20px rgba(120,90,30,0.05) !important;
   overflow: hidden !important;
   margin: 6px 0 28px !important;
   padding: 56px 54px 50px !important;
@@ -424,17 +419,17 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   padding: 0 !important;
   gap: 10px;
 }
-/* 数据卡：L3柔光 */
+/* 数据卡：L3柔光 - 克制 */
 .zg-inkgold .hs-item {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.62)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.55)) !important;
   border: none !important;
-  border-radius: 20px !important;
+  border-radius: 16px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.82),
-    0 3px 10px -5px rgba(120,90,30,0.04),
-    0 8px 24px -12px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
-  backdrop-filter: blur(24px) saturate(200%);
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px -4px rgba(120,90,30,0.03),
+    0 6px 18px -10px rgba(120,90,30,0.04) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
   padding: 14px 16px !important;
   min-width: 80px;
   flex: 1 1 0;
@@ -444,9 +439,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold .hs-item:hover {
   transform: translateY(-2px);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.88),
-    0 6px 16px -6px rgba(120,90,30,0.05),
-    0 14px 32px -14px rgba(120,90,30,0.05) !important;
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 4px 12px -6px rgba(120,90,30,0.04),
+    0 10px 24px -12px rgba(120,90,30,0.05) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
@@ -457,61 +452,61 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   font-variant-numeric: tabular-nums;
 }
 .zg-inkgold .hs-label { font-size: 11px; letter-spacing: .08em; color: var(--zg-text-dim); opacity: .80; }
-/* CTA按钮 */
+/* CTA按钮 - 克制高级 */
 .zg-inkgold .cta-primary {
   background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)) !important;
-  box-shadow: 0 6px 20px rgba(var(--zg-primary-rgb), .22), inset 0 1px 0 rgba(255,255,255,.25) !important;
+  box-shadow: 0 4px 14px rgba(var(--zg-primary-rgb), .18), inset 0 1px 0 rgba(255,255,255,.2) !important;
   color: #fff !important;
   border: none !important;
 }
 .zg-inkgold .cta-primary:hover {
-  box-shadow: 0 10px 28px rgba(var(--zg-primary-rgb), .28), inset 0 1px 0 rgba(255,255,255,.30) !important;
+  box-shadow: 0 6px 20px rgba(var(--zg-primary-rgb), .24), inset 0 1px 0 rgba(255,255,255,.25) !important;
   transform: translateY(-2px);
 }
 .zg-inkgold .cta-ghost {
-  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,253,249,0.58)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.55)) !important;
   border: none !important;
   color: var(--zg-text) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.80),
-    0 3px 10px -5px rgba(120,90,30,0.04),
-    0 8px 24px -12px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
-  backdrop-filter: blur(24px) saturate(200%);
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px -4px rgba(120,90,30,0.03),
+    0 6px 18px -10px rgba(120,90,30,0.04) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
 }
 .zg-inkgold .cta-ghost:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.80), rgba(255,253,249,0.68)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.75), rgba(255,253,249,0.65)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.85),
-    0 6px 16px -6px rgba(120,90,30,0.05),
-    0 12px 30px -12px rgba(120,90,30,0.05) !important;
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 4px 12px -6px rgba(120,90,30,0.04),
+    0 8px 22px -10px rgba(120,90,30,0.05) !important;
   transform: translateY(-2px);
 }
-/* 美文卡：L2柔光 */
+/* 美文卡：L2柔光 - 克制 */
 .zg-inkgold .art-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.80), rgba(255,253,249,0.70)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.62)) !important;
   border: none !important;
-  border-radius: 24px !important;
+  border-radius: 20px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.85),
-    0 4px 14px -6px rgba(120,90,30,0.04),
-    0 14px 36px -16px rgba(120,90,30,0.05) !important;
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
-  backdrop-filter: blur(30px) saturate(200%);
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    0 3px 10px -5px rgba(120,90,30,0.03),
+    0 10px 28px -14px rgba(120,90,30,0.04) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
   overflow: hidden;
 }
-/* 快捷入口/学科芯片：L3柔光 */
+/* 快捷入口/学科芯片：L3柔光 - 克制 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.60)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,253,249,0.52)) !important;
   border: none !important;
-  border-radius: 18px !important;
+  border-radius: 16px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.80),
-    0 3px 10px -5px rgba(120,90,30,0.03),
-    0 8px 22px -10px rgba(120,90,30,0.04) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(190%);
-  backdrop-filter: blur(24px) saturate(190%);
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px -4px rgba(120,90,30,0.02),
+    0 6px 16px -8px rgba(120,90,30,0.03) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
 }
 /* 公告栏 */
 .zg-inkgold .announce-bar {
@@ -521,23 +516,23 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: none !important;
   border-radius: 0 16px 16px 0 !important;
 }
-/* hover */
+/* hover - 克制 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.80), rgba(255,253,249,0.68)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,253,249,0.60)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.85),
-    0 6px 16px -6px rgba(120,90,30,0.05),
-    0 12px 30px -12px rgba(120,90,30,0.05) !important;
+    inset 0 1px 0 rgba(255,255,255,0.68),
+    0 3px 10px -5px rgba(120,90,30,0.04),
+    0 8px 20px -10px rgba(120,90,30,0.04) !important;
   transform: translateY(-2px);
 }
 .zg-inkgold .art-card:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.86), rgba(255,253,249,0.76)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.78), rgba(255,253,249,0.68)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.90),
-    0 8px 22px -8px rgba(120,90,30,0.06),
-    0 20px 48px -18px rgba(120,90,30,0.06) !important;
-  transform: translateY(-4px);
+    inset 0 1px 0 rgba(255,255,255,0.72),
+    0 5px 14px -6px rgba(120,90,30,0.04),
+    0 14px 32px -16px rgba(120,90,30,0.05) !important;
+  transform: translateY(-3px);
 }
 /* 深色档 */
 .zg-inkgold.zg-inkgold-dark .hero {
@@ -663,8 +658,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
   /* 墨金：桌面幅宽放宽到 1360，Hero保持大圆角玻璃 */
   .zg-inkgold .home-page { max-width: 1360px; }
-  /* 墨金 Hero：桌面圆角32px */
-  .zg-inkgold .hero { padding: 64px 60px 58px !important; border-radius: 32px !important; min-height: 400px !important; margin: 6px 0 28px !important; }
+  /* 墨金 Hero：桌面圆角28px */
+  .zg-inkgold .hero { padding: 64px 60px 58px !important; border-radius: 28px !important; min-height: 400px !important; margin: 6px 0 28px !important; }
   /* Hero 两栏：左文案 + 右视觉资产 */
   .zg-inkgold .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 46px; align-items: center; }
   .zg-inkgold .hero-aside::before {
