@@ -140,8 +140,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
             </div>
 
             <h1 class="hero-title">
-              <span class="hero-greet">{{ greeting }}，</span>
-              <span class="hero-name">{{ user.current?.realName || '追光者' }}</span>
+              <span class="hero-greet zg-grad-text">{{ greeting }}，</span>
+              <span class="hero-name zg-grad-text">{{ user.current?.realName || '追光者' }}</span>
               <span class="hero-dot">。</span>
             </h1>
 
@@ -343,17 +343,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
 /* 墨金标题：与"各页 logo 小标题"同款优雅衬线（600 字重 + 舒展字距，不再碑文笨重） */
 .zg-inkgold .hero-title { font-size: 44px; font-weight: 600; letter-spacing: .01em; line-height: 1.22; text-shadow: none; }
-.zg-inkgold .hero-greet { opacity: .74; font-weight: 600; }
-/* 墨金 hero 名字：优雅衬线 + 沉稳金实色（非渐变、非流光、无廉价投影，干净高级）。
-   字体族由 main.css 全局 serif 规则继承，回退链已规避 SimSun（铁律：不退化丑宋体）。 */
+/* "晚上好"与"超级管理员"：导航栏"追光"同款金系渐变文字（.zg-grad-text 全局类），衬线 600 字重 */
+.zg-inkgold .hero-greet,
 .zg-inkgold .hero-name {
-  display: inline;
-  background: none;
-  -webkit-text-fill-color: var(--zg-text);
-  color: var(--zg-text);
-  filter: none;
+  font-weight: 600;
+  letter-spacing: .01em;
 }
-.zg-inkgold .hero-name::after { display: none; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
 @keyframes zgNameShimmer { to { background-position: 220% center; } }
 .zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; font-size: 17px; max-width: 30em; }
@@ -389,20 +384,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    改为随页面暖底晕开的柔光瓷面（径向渐变边缘化开），overflow 放开让光晕自由呼吸，
    彻底打破"首页=一堆被框住的白卡"旧范式（§创新·敢于打破）。 */
 .zg-inkgold .hero {
-  /* 开放釉光区：无填充无边界无阴影，文字直接浮在背景图上，仅顶部极淡釉光似有似无 */
+  /* 开放釉光区：完全无背景无边框无阴影，文字直接浮在背景图上 */
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   border: none;
   border-radius: 0;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.50);
+  box-shadow: none;
   overflow: visible;
 }
 /* 深色档 hero：暗底开放釉光区 */
 .zg-inkgold.zg-inkgold-dark .hero {
   background: transparent;
   border: none;
-  box-shadow: inset 0 1px 0 rgba(255,243,214,0.12);
+  box-shadow: none;
 }
 /* 墨金：无卡边后，顶部悬浮金线失去依附，移除（品牌线已由 hero-kicker / hero-accent 承担） */
 .zg-inkgold .hero::before { display: none; }
@@ -427,9 +422,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
   border: 1px solid var(--zg-glass-3-border);
   border-radius: 16px;
-  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: var(--zg-glass-3-shadow);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
   padding: 12px 14px;
   min-width: 78px;
   flex: 1 1 0;
@@ -438,7 +433,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold.zg-inkgold-dark .hs-item {
   background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
   border: 1px solid var(--zg-glass-3-border);
-  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
+  box-shadow: var(--zg-glass-3-shadow);
 }
 .zg-inkgold .hs-num { font-family: var(--zg-font); font-weight: 800; }
 .zg-inkgold .hs-label { font-size: 11px; letter-spacing: .06em; color: var(--zg-text-dim); opacity: .9; }
@@ -463,24 +458,24 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold .art-card {
   background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2));
   border: 1px solid var(--zg-glass-2-border);
-  box-shadow: var(--zg-glaze), var(--zg-glass-2-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: var(--zg-glass-2-shadow);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
 }
-/* 深色档美文卡：L2 暗玻璃 */
+/* 深色档美文卡：L2 液态暗玻璃 */
 .zg-inkgold.zg-inkgold-dark .art-card {
   background: linear-gradient(158deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2));
   border: 1px solid var(--zg-glass-2-border);
-  box-shadow: var(--zg-glaze), var(--zg-glass-2-shadow);
+  box-shadow: var(--zg-glass-2-shadow);
 }
-/* L3 点缀：快捷入口 / 学科瓷片 —— 磨砂白 0.25 + 亮边 0.3 + 柔影 */
+/* L3 点缀：快捷入口 / 学科瓷片 —— 液态玻璃 0.12 + 亮边 0.6 + 多层高光 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
   background: linear-gradient(158deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2));
   border: 1px solid var(--zg-glass-3-border);
-  box-shadow: var(--zg-glaze), var(--zg-glass-3-shadow);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: var(--zg-glass-3-shadow);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
 }
 .zg-inkgold.zg-inkgold-dark .qr-item,
 .zg-inkgold.zg-inkgold-dark .subj-chip {
