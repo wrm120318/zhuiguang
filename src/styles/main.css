@@ -571,15 +571,32 @@ html.zg-inkgold {
   --el-color-primary-light-8: #f2e7ca;
   --el-color-primary-light-9: #f8f1dd;
   --el-color-primary-dark-2: #9c6112;
+
+  /* —— 真柔光玻璃 token（质感升级 v4）——
+     不透明度降到 0.35，背景图透上来；顶部细高光为灵魂；
+     阴影收敛为「似有似无」的负扩散柔影，移除 56px/130px 重影。 */
+  --zg-glass-bg: rgba(255,255,255,0.35);
+  --zg-glass-bg-2: rgba(255,250,240,0.22);
+  --zg-glass-blur: 22px;
+  --zg-glass-sat: 180%;
+  --zg-glaze: inset 0 1px 0 rgba(255,255,255,0.90);
+  --zg-soft-1: 0 2px 10px -4px rgba(120,90,30,0.10);
+  --zg-soft-2: 0 10px 30px -14px rgba(120,90,30,0.10);
+  --zg-soft-card: 0 12px 36px -18px rgba(120,90,30,0.10);
 }
 
-/* 背景：暖灰白渐变 + 多层淡金光晕 + 微噪点，营造高级层次，让玻璃有东西可透 */
+/* 主题背景图层：浅色基底图 + 组合淡图案（SVG 自托管），玻璃透出层次 */
+.zg-inkgold .zg-bgimg {
+  display: block !important;
+  background-image: url('/bg/inkgold-paper.svg');
+}
+/* 背景光晕：调淡，让背景图成为主角，光晕只补光（不抢戏） */
 .zg-inkgold .zg-bg {
   animation: zgGradientShift 28s ease infinite !important;
   background:
-    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.13), transparent 58%),
-    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.09), transparent 52%),
-    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.08), transparent 55%),
+    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.08), transparent 58%),
+    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.05), transparent 52%),
+    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.05), transparent 55%),
     linear-gradient(160deg, var(--zg-bg-from) 0%, var(--zg-bg-via) 50%, var(--zg-bg-to) 100%) !important;
 }
 .zg-inkgold .zg-bg::after {
@@ -588,33 +605,37 @@ html.zg-inkgold {
     radial-gradient(circle at 25% 25%, rgba(255,255,255,.55) 0%, transparent 45%),
     radial-gradient(circle at 75% 75%, rgba(212,175,55,.06) 0%, transparent 40%);
 }
-.zg-inkgold .zg-orb { opacity: 0.42 !important; animation: zgFloat 24s ease-in-out infinite !important; filter: blur(100px) !important; }
+.zg-inkgold .zg-orb { opacity: 0.22 !important; animation: zgFloat 24s ease-in-out infinite !important; filter: blur(100px) !important; }
 .zg-inkgold .zg-orb.a { width: 520px; height: 520px; background: radial-gradient(circle, rgba(212,175,55,0.26), transparent 70%) !important; top: -160px; left: -120px; }
 .zg-inkgold .zg-orb.b { width: 420px; height: 420px; background: radial-gradient(circle, rgba(200,146,46,0.22), transparent 70%) !important; bottom: -160px; right: -100px; animation-delay: -8s; }
 .zg-inkgold .zg-orb.c { width: 360px; height: 360px; background: radial-gradient(circle, rgba(186,140,60,0.16), transparent 70%) !important; top: 36%; left: 56%; opacity: 0.12 !important; animation-delay: -16s; }
 
-/* 内容卡：暖白玻璃 + 金发丝描边 */
+/* 内容卡：真柔光玻璃（透光 + 顶部细高光 + 极淡柔影，无重投影） */
 .zg-inkgold .glass,
 .zg-inkgold .glass-strong,
 .zg-inkgold .el-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.92), rgba(255,251,242,0.82)) !important;
-  border: 1px solid var(--zg-card-border) !important;
-  box-shadow: var(--zg-shadow) !important;
+  background: linear-gradient(155deg, var(--zg-glass-bg), var(--zg-glass-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  border: 1px solid rgba(255,255,255,0.35) !important;
+  box-shadow: var(--zg-glaze), var(--zg-soft-1) !important;
 }
-.zg-inkgold .zg-card:hover { transform: translateY(-3px); border-color: rgba(186,117,23,0.45) !important; box-shadow: 0 16px 44px rgba(186,117,23,0.18) !important; }
+.zg-inkgold .zg-card:hover { transform: translateY(-3px); border-color: rgba(186,117,23,0.45) !important; box-shadow: var(--zg-glaze), var(--zg-soft-2) !important; }
 
-/* 液态玻璃浮层：弹窗/抽屉 暖白玻璃 + 金描边 */
+/* 液态玻璃浮层：弹窗/抽屉 暖白玻璃 + 极淡金边 + 顶部高光 */
 .zg-inkgold .el-dialog,
 .zg-inkgold .el-message-box {
-  background: linear-gradient(160deg, #FFFBF4 0%, #F5EFE2 100%) !important;
-  border: 1px solid rgba(186,117,23,0.28) !important;
-  box-shadow: 0 20px 60px rgba(120,90,30,0.18), inset 0 1px 0 rgba(255,255,255,0.7) !important;
+  background: linear-gradient(160deg, rgba(255,255,255,0.55), rgba(255,250,240,0.40)) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+  border: 1px solid rgba(186,117,23,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 18px 50px -16px rgba(120,90,30,0.16) !important;
 }
 .zg-inkgold .el-dialog__header,
 .zg-inkgold .el-message-box__header { background: linear-gradient(180deg, rgba(255,251,244,0.8) 0%, transparent 100%) !important; border-bottom: none !important; }
 .zg-inkgold .el-dialog__footer,
 .zg-inkgold .el-message-box__btns { background: linear-gradient(0deg, rgba(255,251,244,0.8) 0%, transparent 100%) !important; border-top: none !important; }
-.zg-inkgold .el-drawer { background: linear-gradient(160deg, #FFFBF4, #F5EFE2) !important; box-shadow: -8px 0 32px rgba(120,90,30,0.14) !important; }
+.zg-inkgold .el-drawer { background: linear-gradient(160deg, rgba(255,255,255,0.58), rgba(255,250,240,0.42)) !important; -webkit-backdrop-filter: blur(24px) saturate(175%); backdrop-filter: blur(24px) saturate(175%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), -8px 0 32px -14px rgba(120,90,30,0.14) !important; }
 .zg-inkgold .el-drawer__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.14) !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__close:hover { color: var(--zg-primary) !important; }
@@ -655,12 +676,12 @@ html.zg-inkgold {
 .zg-inkgold .el-dropdown-menu,
 .zg-inkgold .el-popover,
 .zg-inkgold .el-picker-panel,
-.zg-inkgold .el-select-dropdown { background: linear-gradient(160deg, #FFFBF4, #F5EFE2) !important; border: 1px solid rgba(186,117,23,0.22) !important; color: var(--zg-text) !important; }
+.zg-inkgold .el-select-dropdown { background: linear-gradient(160deg, rgba(255,255,255,0.55), rgba(255,250,240,0.42)) !important; -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(186,117,23,0.20) !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-dropdown-menu__item { color: var(--zg-text) !important; }
 .zg-inkgold .el-select-dropdown__item { color: var(--zg-text) !important; }
 .zg-inkgold .el-select-dropdown__item.is-hovering { background: rgba(186,117,23,0.1) !important; }
 .zg-inkgold .el-select-dropdown__item.is-selected { color: var(--zg-primary) !important; }
-.zg-inkgold .el-notification { background: linear-gradient(160deg, #FFFBF4, #F5EFE2) !important; border: 1px solid rgba(186,117,23,0.24) !important; }
+.zg-inkgold .el-notification { background: linear-gradient(160deg, rgba(255,255,255,0.58), rgba(255,250,240,0.44)) !important; -webkit-backdrop-filter: blur(22px) saturate(175%); backdrop-filter: blur(22px) saturate(175%); border: 1px solid rgba(186,117,23,0.22) !important; }
 
 /* ===== 表格（仅墨金浅色） ===== */
 .zg-inkgold .el-table { border-radius: 16px; border: 1px solid rgba(186,117,23,0.14); overflow: hidden; color: var(--zg-text) !important; }
@@ -919,15 +940,31 @@ html.zg-inkgold.zg-inkgold-dark {
   --el-color-primary-light-8: #473c18;
   --el-color-primary-light-9: #322a12;
   --el-color-primary-dark-2: #e3c157;
+
+  /* —— 真柔光玻璃 token（深档）——
+     暗玻璃透出暖黑背景图；顶部暖白细高光；阴影深但「似有似无」。 */
+  --zg-glass-bg: rgba(40,33,22,0.42);
+  --zg-glass-bg-2: rgba(28,22,14,0.30);
+  --zg-glass-blur: 22px;
+  --zg-glass-sat: 175%;
+  --zg-glaze: inset 0 1px 0 rgba(255,243,214,0.12);
+  --zg-soft-1: 0 2px 10px -4px rgba(0,0,0,0.35);
+  --zg-soft-2: 0 10px 30px -14px rgba(0,0,0,0.38);
+  --zg-soft-card: 0 12px 36px -18px rgba(0,0,0,0.40);
 }
 
+/* 主题背景图层：深档暖黑基底图（SVG 自托管） */
+.zg-inkgold-dark .zg-bgimg {
+  display: block !important;
+  background-image: url('/bg/inkgold-paper-dark.svg');
+}
 /* 背景：暖墨渐变（极缓流动）+ 金芒光斑（柔光提亮，不阴郁） */
 .zg-inkgold-dark .zg-bg {
   animation: zgGradientShift 32s ease infinite !important;
   background:
-    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.18), transparent 58%),
-    radial-gradient(1000px 700px at 110% 5%, rgba(230,198,110,0.12), transparent 52%),
-    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.10), transparent 55%),
+    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.12), transparent 58%),
+    radial-gradient(1000px 700px at 110% 5%, rgba(230,198,110,0.08), transparent 52%),
+    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.06), transparent 55%),
     linear-gradient(160deg, #1B1710, #15110B 50%, #0E0B07) !important;
 }
 .zg-inkgold-dark .zg-bg::after {
@@ -947,30 +984,32 @@ html.zg-inkgold.zg-inkgold-dark {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* 内容卡：暗夜玻璃 + 金发丝描边 + 顶部高光 */
+/* 内容卡：暗夜玻璃（透光 + 顶部暖白细高光 + 极淡柔影） */
 .zg-inkgold-dark .glass,
 .zg-inkgold-dark .glass-strong,
 .zg-inkgold-dark .el-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)) !important;
-  border: 1px solid var(--zg-card-border) !important;
-  box-shadow: var(--zg-shadow) !important;
+  background: linear-gradient(155deg, var(--zg-glass-bg), var(--zg-glass-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  border: 1px solid rgba(212,175,55,0.20) !important;
+  box-shadow: var(--zg-glaze), var(--zg-soft-1) !important;
 }
-.zg-inkgold-dark .zg-card:hover { transform: translateY(-3px); border-color: rgba(212,175,55,0.42) !important; box-shadow: 0 22px 56px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,175,55,0.1) !important; }
+.zg-inkgold-dark .zg-card:hover { transform: translateY(-3px); border-color: rgba(212,175,55,0.42) !important; box-shadow: var(--zg-glaze), var(--zg-soft-2) !important; }
 
-/* 液态玻璃浮层：弹窗/抽屉 暗夜玻璃 + 金描边 */
+/* 液态玻璃浮层：弹窗/抽屉 暗夜玻璃 + 极淡金边 + 顶部高光 */
 .zg-inkgold-dark .el-dialog,
 .zg-inkgold-dark .el-message-box {
-  background: linear-gradient(160deg, rgba(30,26,18,0.92), rgba(22,18,12,0.92)) !important;
+  background: linear-gradient(160deg, rgba(40,33,22,0.58), rgba(28,22,14,0.42)) !important;
   backdrop-filter: blur(26px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(26px) saturate(180%) !important;
-  border: 1px solid rgba(212,175,55,0.28) !important;
-  box-shadow: 0 28px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(212,175,55,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,243,214,0.10), 0 24px 64px -16px rgba(0,0,0,0.50) !important;
 }
 .zg-inkgold-dark .el-dialog__header,
 .zg-inkgold-dark .el-message-box__header { background: transparent !important; border-bottom: none !important; }
 .zg-inkgold-dark .el-dialog__footer,
 .zg-inkgold-dark .el-message-box__btns { background: transparent !important; border-top: none !important; }
-.zg-inkgold-dark .el-drawer { background: linear-gradient(160deg, rgba(28,24,16,0.96), rgba(20,16,10,0.96)) !important; box-shadow: -8px 0 40px rgba(0,0,0,0.5) !important; }
+.zg-inkgold-dark .el-drawer { background: linear-gradient(160deg, rgba(40,33,22,0.60), rgba(28,22,14,0.44)) !important; -webkit-backdrop-filter: blur(24px) saturate(175%); backdrop-filter: blur(24px) saturate(175%); box-shadow: inset 0 1px 0 rgba(255,243,214,0.08), -8px 0 32px -14px rgba(0,0,0,0.40) !important; }
 .zg-inkgold-dark .el-drawer__header { background: transparent !important; border-bottom: 1px solid rgba(212,175,55,0.14) !important; color: var(--zg-text) !important; }
 .zg-inkgold-dark .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
 .zg-inkgold-dark .el-drawer__close:hover { color: var(--zg-primary) !important; }
@@ -1666,11 +1705,11 @@ html.zg-inkgold .el-dropdown-menu,
 html.zg-inkgold .el-popover,
 html.zg-inkgold .el-select-dropdown,
 html.zg-inkgold .el-notification {
-  background: linear-gradient(160deg, rgba(255,255,255,0.78), rgba(250,244,232,0.62)) !important;
-  -webkit-backdrop-filter: blur(30px) saturate(170%) !important;
-  backdrop-filter: blur(30px) saturate(170%) !important;
-  border: 1px solid transparent !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.92), 0 22px 60px -14px rgba(120,90,30,.18), 0 52px 120px -32px rgba(120,90,30,.20) !important;
+  background: linear-gradient(160deg, rgba(255,255,255,0.45), rgba(250,244,232,0.32)) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(186,117,23,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 18px 50px -16px rgba(120,90,30,.16) !important;
 }
 html.zg-inkgold.zg-inkgold-dark .el-dialog,
 html.zg-inkgold.zg-inkgold-dark .el-message-box,
@@ -1679,11 +1718,11 @@ html.zg-inkgold.zg-inkgold-dark .el-dropdown-menu,
 html.zg-inkgold.zg-inkgold-dark .el-popover,
 html.zg-inkgold.zg-inkgold-dark .el-select-dropdown,
 html.zg-inkgold.zg-inkgold-dark .el-notification {
-  background: linear-gradient(160deg, rgba(48,40,28,0.72), rgba(26,20,12,0.56)) !important;
+  background: linear-gradient(160deg, rgba(48,40,28,0.55), rgba(26,20,12,0.40)) !important;
   -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
   backdrop-filter: blur(32px) saturate(180%) !important;
-  border: 1px solid transparent !important;
-  box-shadow: inset 0 1px 0 rgba(255,243,214,.14), 0 24px 64px -14px rgba(0,0,0,.50), 0 56px 130px -32px rgba(0,0,0,.52) !important;
+  border: 1px solid rgba(212,175,55,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,243,214,.12), 0 20px 52px -16px rgba(0,0,0,.42) !important;
 }
 /* 瓷面通用工具类：供首页/后台复用（L1/L2/L3 三级材质，叠加真玻璃；bg 走变量自动跟随深浅档） */
 html.zg-inkgold .zg-plate,

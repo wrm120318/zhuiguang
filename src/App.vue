@@ -60,6 +60,7 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 
 <template>
   <div class="zg-root">
+    <div class="zg-bgimg"></div>
     <div class="zg-bg"></div>
     <div class="zg-orb a"></div>
     <div class="zg-orb b"></div>
@@ -103,6 +104,8 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 
 <style scoped>
 .zg-root { position: relative; }
+/* 主题背景图层：默认隐藏（经典模式不动，铁律1）；仅墨金作用域在 main.css 显示 */
+.zg-bgimg { position: fixed; inset: 0; z-index: -2; pointer-events: none; display: none; background-size: cover; background-position: center; background-repeat: no-repeat; }
 .app-main { min-height: calc(100vh - 64px); min-height: calc(100dvh - 64px); }
 .app-main.public-page { min-height: 100vh; min-height: 100dvh; }
 .has-tabbar { padding-bottom: 64px; }

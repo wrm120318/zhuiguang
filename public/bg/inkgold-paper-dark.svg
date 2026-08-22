@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1024" viewBox="0 0 1440 1024" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <filter id="paperD" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.04"/></feComponentTransfer>
+      <feComposite operator="over" in2="SourceGraphic"/>
+    </filter>
+    <filter id="softD" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="90"/>
+    </filter>
+    <linearGradient id="silkD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF3D6" stop-opacity="0.10"/>
+      <stop offset="26%" stop-color="#FFF3D6" stop-opacity="0.03"/>
+      <stop offset="52%" stop-color="#FFF3D6" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#FFF3D6" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="goldAD" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#D4AF37" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="goldBD" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#C8922E" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#C8922E" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="baseD" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#221C12"/>
+      <stop offset="55%" stop-color="#1B1710"/>
+      <stop offset="100%" stop-color="#15110A"/>
+    </linearGradient>
+    <pattern id="gridD" width="46" height="46" patternUnits="userSpaceOnUse">
+      <path d="M46 0 L0 0 0 46" fill="none" stroke="#D4AF37" stroke-opacity="0.04" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1440" height="1024" fill="url(#baseD)"/>
+  <rect width="1440" height="1024" fill="url(#gridD)"/>
+  <circle cx="180" cy="-40" r="480" fill="url(#goldAD)" filter="url(#softD)"/>
+  <circle cx="1320" cy="120" r="440" fill="url(#goldBD)" filter="url(#softD)"/>
+  <circle cx="980" cy="1040" r="400" fill="url(#goldAD)" filter="url(#softD)"/>
+  <rect width="1440" height="1024" fill="url(#silkD)"/>
+  <rect width="1440" height="1024" filter="url(#paperD)" opacity="0.5"/>
+</svg>
