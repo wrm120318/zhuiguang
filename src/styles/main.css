@@ -587,16 +587,29 @@ html.zg-inkgold {
   --el-color-primary-light-9: #f8f3e8;
   --el-color-primary-dark-2: #a08035;
 
-  /* —— 微光玻璃材质系统 v12（进化极简·Chanel风格轻薄通透）——
+  /* —— 微光玻璃材质系统 v13（进化极简·Awwwards级）——
      原则：高通透、薄填充、大模糊、细描边、柔阴影
-     L1 导航层（dock/nav/modal）：悬浮在内容上，最通透
+     LE 悬浮层（modal/drawer/notification/popover）：完全浮在内容之上，最实+最大blur
+     L1 导航层（dock/nav）：悬浮在滚动内容上，薄填充+大blur
      L2 内容层（cards/sections）：承载内容，稍微实一点
      L3 元素层（chips/buttons/tags）：最小单元，最薄 */
-  /* L1 导航层：极薄填充 + 大模糊 + 1px细描边 + 远距柔影 */
+  /* LE 悬浮层：弹窗/抽屉/通知专用——半实暖白 + 超大blur + 0.5px细描边 + 多层深度影 */
+  --zg-glass-e-bg: rgba(255,253,249,0.48);
+  --zg-glass-e-bg-2: rgba(254,250,242,0.42);
+  --zg-glass-e-blur: 36px;
+  --zg-glass-e-sat: 160%;
+  --zg-glass-e-border: rgba(255,255,255,0.35);
+  --zg-glass-e-shadow:
+    0 0 0 0.5px rgba(255,255,255,0.35),
+    0 1px 1px rgba(100,80,40,0.02),
+    0 4px 12px -4px rgba(100,80,40,0.05),
+    0 12px 36px -12px rgba(100,80,40,0.10),
+    0 32px 64px -24px rgba(100,80,40,0.12);
+  /* L1 导航层：极薄填充 + 大模糊 + 0.5px细描边 + 远距柔影 */
   --zg-glass-1-bg: rgba(255,255,255,0.06);
   --zg-glass-1-bg-2: rgba(255,253,248,0.04);
   --zg-glass-1-highlight: none;
-  --zg-glass-1-border: rgba(255,255,255,0.5);
+  --zg-glass-1-border: rgba(255,255,255,0.3);
   --zg-glass-1-shadow:
     0 0 0 0.5px rgba(255,255,255,0.3),
     0 1px 1px rgba(100,80,40,0.02),
@@ -606,7 +619,7 @@ html.zg-inkgold {
   --zg-glass-2-bg: rgba(255,255,255,0.08);
   --zg-glass-2-bg-2: rgba(255,253,248,0.05);
   --zg-glass-2-highlight: none;
-  --zg-glass-2-border: rgba(255,255,255,0.4);
+  --zg-glass-2-border: rgba(255,255,255,0.25);
   --zg-glass-2-shadow:
     0 0 0 0.5px rgba(255,255,255,0.25),
     0 1px 1px rgba(100,80,40,0.015),
@@ -616,7 +629,7 @@ html.zg-inkgold {
   --zg-glass-3-bg: rgba(255,255,255,0.10);
   --zg-glass-3-bg-2: rgba(255,253,248,0.06);
   --zg-glass-3-highlight: none;
-  --zg-glass-3-border: rgba(255,255,255,0.3);
+  --zg-glass-3-border: rgba(255,255,255,0.2);
   --zg-glass-3-shadow:
     0 0 0 0.5px rgba(255,255,255,0.2),
     0 1px 1px rgba(100,80,40,0.01),
@@ -627,6 +640,9 @@ html.zg-inkgold {
   --zg-glass-sat: 140%;
   --zg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --zg-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  /* 遮罩层 */
+  --zg-overlay-bg: rgba(40,35,28,0.32);
+  --zg-overlay-blur: 10px;
   /* 兼容旧变量 */
   --zg-glass-bg: var(--zg-glass-2-bg);
   --zg-glass-bg-2: var(--zg-glass-2-bg-2);
@@ -693,28 +709,66 @@ html.zg-inkgold {
 .zg-inkgold .zg-card { transition: transform .35s var(--zg-ease), box-shadow .35s var(--zg-ease); }
 .zg-inkgold .zg-card:hover { transform: translateY(-3px); box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.6), 0 1px 2px rgba(120,90,30,0.03), 0 8px 24px -10px rgba(120,90,30,0.08), 0 20px 48px -20px rgba(120,90,30,0.08) !important; }
 
-/* L1 主角玻璃（弹窗/抽屉/导航栏/dock）：导航层厚玻璃 */
+/* LE 悬浮层玻璃（弹窗/抽屉/通知中心/消息框）：半实暖白 + 36px大blur + 多层深度影 */
 .zg-inkgold .el-dialog,
 .zg-inkgold .el-message-box {
-  background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
-  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  background: linear-gradient(160deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
   border: none !important;
-  box-shadow: var(--zg-glass-1-shadow) !important;
+  border-radius: 20px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+  overflow: hidden !important;
+  animation: zgModalEnter .35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+@keyframes zgModalEnter {
+  from { transform: scale(0.94) translateY(16px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
 }
 .zg-inkgold .el-dialog__header,
-.zg-inkgold .el-message-box__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.10) !important; }
+.zg-inkgold .el-message-box__header {
+  background: transparent !important;
+  border-bottom: 0.5px solid rgba(184,148,63,0.10) !important;
+  padding: 22px 26px 14px !important;
+}
+.zg-inkgold .el-dialog__body { padding: 20px 26px !important; }
 .zg-inkgold .el-dialog__footer,
-.zg-inkgold .el-message-box__btns { background: transparent !important; border-top: 1px solid rgba(186,117,23,0.10) !important; }
-.zg-inkgold .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)); backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)); border: none !important; box-shadow: var(--zg-glass-1-shadow) !important; }
-.zg-inkgold .el-drawer__header { background: transparent !important; border-bottom: 0.5px solid rgba(186,117,23,0.08) !important; color: var(--zg-text) !important; }
-.zg-inkgold .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
+.zg-inkgold .el-message-box__btns {
+  background: transparent !important;
+  border-top: 0.5px solid rgba(184,148,63,0.10) !important;
+  padding: 14px 26px 18px !important;
+}
+/* 抽屉：LE悬浮层玻璃 */
+.zg-inkgold .el-drawer {
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+}
+.zg-inkgold .el-drawer__header {
+  background: transparent !important;
+  border-bottom: 0.5px solid rgba(184,148,63,0.08) !important;
+  color: var(--zg-text) !important;
+  padding: 22px 24px 14px !important;
+  margin-bottom: 0 !important;
+}
+.zg-inkgold .el-drawer__body {
+  background: transparent !important;
+  color: var(--zg-text) !important;
+  padding: 16px 24px !important;
+}
 .zg-inkgold .el-drawer__close:hover { color: var(--zg-primary) !important; }
-/* 墨金模式遮罩层：极淡暖色遮罩 */
+/* 遮罩层：暖色调暗化 + 适度模糊，建立焦点 */
 .zg-inkgold .el-overlay {
-  background: rgba(43,38,32,0.20) !important;
-  backdrop-filter: blur(6px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(6px) saturate(140%) !important;
+  background: var(--zg-overlay-bg) !important;
+  backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
+  animation: zgOverlayFade .25s ease-out forwards !important;
+}
+@keyframes zgOverlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ===== 后台侧边栏：悬浮胶囊 暖白玻璃（仅墨金浅色） ===== */
@@ -748,17 +802,33 @@ html.zg-inkgold {
 .zg-inkgold .el-message-box__title { font-family: 'Noto Serif SC','Songti SC','SimSun',serif !important; font-weight: 800; color: var(--zg-text) !important; }
 .zg-inkgold .el-dialog__headerbtn:hover .el-dialog__close,
 .zg-inkgold .el-message-box__headerbtn:hover .el-message-box__close { color: var(--zg-primary) !important; }
-.zg-inkgold .el-dropdown-menu__item:hover { border-radius: 10px; background: rgba(186,117,23,0.08) !important; color: var(--zg-primary) !important; }
-/* 下拉 / 字体面板玻璃化（仅墨金浅色） */
+.zg-inkgold .el-dropdown-menu__item:hover { border-radius: 10px; background: rgba(184,148,63,0.08) !important; color: var(--zg-primary) !important; }
+/* 下拉 / 字体面板 / Popover / 选择器：LE悬浮层玻璃（半实+大blur） */
 .zg-inkgold .el-dropdown-menu,
 .zg-inkgold .el-popover,
 .zg-inkgold .el-picker-panel,
-.zg-inkgold .el-select-dropdown { background: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(255,250,240,0.75)) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: none !important; box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.8), 0 8px 32px -8px rgba(120,90,30,0.12) !important; color: var(--zg-text) !important; border-radius: 14px !important; }
+.zg-inkgold .el-select-dropdown {
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+  color: var(--zg-text) !important;
+}
 .zg-inkgold .el-dropdown-menu__item { color: var(--zg-text) !important; }
 .zg-inkgold .el-select-dropdown__item { color: var(--zg-text) !important; }
-.zg-inkgold .el-select-dropdown__item.is-hovering { background: rgba(186,117,23,0.08) !important; }
+.zg-inkgold .el-select-dropdown__item.is-hovering { background: rgba(184,148,63,0.08) !important; }
 .zg-inkgold .el-select-dropdown__item.is-selected { color: var(--zg-primary) !important; }
-.zg-inkgold .el-notification { background: linear-gradient(160deg, rgba(255,251,244,0.92), rgba(245,239,226,0.88)) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: none !important; box-shadow: inset 0 1px 0.5px rgba(255,255,255,0.85), var(--zg-glass-2-shadow) !important; border-radius: 16px !important; }
+/* 通知Toast：LE悬浮层玻璃 */
+.zg-inkgold .el-notification {
+  background: linear-gradient(160deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  border-radius: 18px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+}
 
 /* ===== 表格（仅墨金浅色） ===== */
 .zg-inkgold .el-table { border-radius: 16px; border: none !important; overflow: hidden; color: var(--zg-text) !important; box-shadow: inset 0 0 0 0.5px rgba(186,117,23,0.10), var(--zg-glass-2-shadow); }
@@ -1012,27 +1082,56 @@ html.zg-inkgold.zg-inkgold-dark {
   --el-color-primary-light-9: #322a12;
   --el-color-primary-dark-2: #e3c157;
 
-  /* —— 液态玻璃材质系统 v7（深档，真正液态玻璃）——
-     暗玻璃几乎透明（0.15~0.25），靠 blur + 暖金亮边 + 多层高光出质感。 */
-  /* L1 主角（弹窗/抽屉）：液态暗玻璃 0.18，暖金亮边 0.5 */
+  /* —— 液态玻璃材质系统 v13（深档，Awwwards级）——
+     LE 悬浮层（modal/drawer/notification）：半实暖黑 + 大blur + 暖金细边
+     L1 导航层（dock/nav）：薄填充 + 大blur
+     L2 内容层（cards）：承载内容
+     L3 元素层（chips/buttons） */
+  /* LE 悬浮层：弹窗/抽屉专用——半实暖黑 + 36px大blur + 暖金细边 + 深影 */
+  --zg-glass-e-bg: rgba(32,27,20,0.55);
+  --zg-glass-e-bg-2: rgba(24,20,14,0.50);
+  --zg-glass-e-blur: 36px;
+  --zg-glass-e-sat: 160%;
+  --zg-glass-e-border: rgba(212,175,55,0.18);
+  --zg-glass-e-shadow:
+    0 0 0 0.5px rgba(212,175,55,0.18),
+    0 1px 1px rgba(0,0,0,0.20),
+    0 4px 16px -4px rgba(0,0,0,0.30),
+    0 16px 48px -16px rgba(0,0,0,0.40),
+    0 32px 72px -24px rgba(0,0,0,0.35);
+  /* L1 主角（导航/dock）：液态暗玻璃 0.18，暖金亮边 */
   --zg-glass-1-bg: rgba(40,33,22,0.18);
   --zg-glass-1-bg-2: rgba(28,22,14,0.10);
-  --zg-glass-1-border: rgba(212,175,55,0.50);
-  --zg-glass-1-shadow: inset 0 1px 0 rgba(255,243,214,0.20), inset 0 -1px 0 rgba(255,243,214,0.05), 0 8px 32px rgba(0,0,0,0.40);
-  /* L2 卡片：液态暗玻璃 0.22，亮边 0.45 */
+  --zg-glass-1-border: rgba(212,175,55,0.15);
+  --zg-glass-1-shadow:
+    0 0 0 0.5px rgba(255,243,214,0.08),
+    0 1px 1px rgba(0,0,0,0.10),
+    0 4px 16px -8px rgba(0,0,0,0.20);
+  /* L2 卡片：液态暗玻璃 0.22，亮边 0.12 */
   --zg-glass-2-bg: rgba(40,33,22,0.22);
   --zg-glass-2-bg-2: rgba(28,22,14,0.14);
-  --zg-glass-2-border: rgba(212,175,55,0.45);
-  --zg-glass-2-shadow: inset 0 1px 0 rgba(255,243,214,0.18), inset 0 -1px 0 rgba(255,243,214,0.04), 0 6px 24px rgba(0,0,0,0.38);
-  /* L3 点缀：液态暗玻璃 0.25，亮边 0.4 */
+  --zg-glass-2-border: rgba(212,175,55,0.12);
+  --zg-glass-2-shadow:
+    0 0 0 0.5px rgba(255,243,214,0.06),
+    0 1px 1px rgba(0,0,0,0.08),
+    0 3px 12px -8px rgba(0,0,0,0.18),
+    0 12px 32px -16px rgba(0,0,0,0.25);
+  /* L3 点缀：液态暗玻璃 0.25，亮边 0.10 */
   --zg-glass-3-bg: rgba(40,33,22,0.25);
   --zg-glass-3-bg-2: rgba(28,22,14,0.18);
-  --zg-glass-3-border: rgba(212,175,55,0.40);
-  --zg-glass-3-shadow: inset 0 1px 0 rgba(255,243,214,0.15), inset 0 -1px 0 rgba(255,243,214,0.03), 0 4px 16px rgba(0,0,0,0.35);
+  --zg-glass-3-border: rgba(212,175,55,0.10);
+  --zg-glass-3-shadow:
+    0 0 0 0.5px rgba(255,243,214,0.05),
+    0 1px 1px rgba(0,0,0,0.06),
+    0 2px 8px -4px rgba(0,0,0,0.15),
+    0 8px 24px -12px rgba(0,0,0,0.20);
   /* 通用参数 */
-  --zg-glass-blur: 12px;
-  --zg-glass-sat: 160%;
-  --zg-glaze: inset 0 1px 0 rgba(255,243,214,0.20);
+  --zg-glass-blur: 24px;
+  --zg-glass-sat: 140%;
+  --zg-glaze: none;
+  /* 遮罩层 */
+  --zg-overlay-bg: rgba(0,0,0,0.45);
+  --zg-overlay-blur: 10px;
   /* 兼容旧变量 */
   --zg-glass-bg: var(--zg-glass-2-bg);
   --zg-glass-bg-2: var(--zg-glass-2-bg-2);
@@ -1040,7 +1139,7 @@ html.zg-inkgold.zg-inkgold-dark {
   --zg-hero-bg-2: var(--zg-glass-1-bg-2);
   --zg-soft-1: 0 2px 10px -4px rgba(0,0,0,0.35);
   --zg-soft-2: 0 10px 30px -14px rgba(0,0,0,0.38);
-  --zg-soft-card: 0 12px 36px -18px rgba(0,0,0,0.40);
+  --zg-soft-card: var(--zg-glass-2-shadow);
 }
 
 /* 主题背景图层：深档暖黑基底图（SVG 自托管） */
@@ -1086,23 +1185,58 @@ html.zg-inkgold.zg-inkgold-dark {
 }
 .zg-inkgold-dark .zg-card:hover { transform: translateY(-3px); border-color: rgba(212,175,55,0.42) !important; box-shadow: var(--zg-glass-2-shadow), 0 10px 28px -8px rgba(0,0,0,0.38) !important; }
 
-/* 液态玻璃浮层：L1 暗夜玻璃——弹窗/抽屉 液态暗玻璃 0.18 + 暖金亮边 0.5 + 多层高光 */
+/* LE 悬浮层暗玻璃（弹窗/抽屉/通知）：半实暖黑 + 36px大blur + 暖金细边 */
 .zg-inkgold-dark .el-dialog,
 .zg-inkgold-dark .el-message-box {
-  background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  backdrop-filter: blur(12px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(160%) !important;
-  border: 1px solid var(--zg-glass-1-border) !important;
-  box-shadow: var(--zg-glass-1-shadow) !important;
+  background: linear-gradient(160deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  border-radius: 20px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+  overflow: hidden !important;
+  animation: zgModalEnter .35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
 }
 .zg-inkgold-dark .el-dialog__header,
-.zg-inkgold-dark .el-message-box__header { background: transparent !important; border-bottom: none !important; }
+.zg-inkgold-dark .el-message-box__header {
+  background: transparent !important;
+  border-bottom: 0.5px solid rgba(212,175,55,0.12) !important;
+  padding: 22px 26px 14px !important;
+}
+.zg-inkgold-dark .el-dialog__body { padding: 20px 26px !important; }
 .zg-inkgold-dark .el-dialog__footer,
-.zg-inkgold-dark .el-message-box__btns { background: transparent !important; border-top: none !important; }
-.zg-inkgold-dark .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%); border-left: 1px solid var(--zg-glass-1-border) !important; box-shadow: var(--zg-glass-1-shadow) !important; }
-.zg-inkgold-dark .el-drawer__header { background: transparent !important; border-bottom: 1px solid rgba(212,175,55,0.14) !important; color: var(--zg-text) !important; }
-.zg-inkgold-dark .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
+.zg-inkgold-dark .el-message-box__btns {
+  background: transparent !important;
+  border-top: 0.5px solid rgba(212,175,55,0.12) !important;
+  padding: 14px 26px 18px !important;
+}
+/* 抽屉：LE悬浮层暗玻璃 */
+.zg-inkgold-dark .el-drawer {
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+}
+.zg-inkgold-dark .el-drawer__header {
+  background: transparent !important;
+  border-bottom: 0.5px solid rgba(212,175,55,0.10) !important;
+  color: var(--zg-text) !important;
+  padding: 22px 24px 14px !important;
+  margin-bottom: 0 !important;
+}
+.zg-inkgold-dark .el-drawer__body {
+  background: transparent !important;
+  color: var(--zg-text) !important;
+  padding: 16px 24px !important;
+}
 .zg-inkgold-dark .el-drawer__close:hover { color: var(--zg-primary) !important; }
+/* 遮罩层 */
+.zg-inkgold-dark .el-overlay {
+  background: var(--zg-overlay-bg) !important;
+  backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
+}
 
 /* ===== 后台侧边栏：悬浮胶囊暗夜玻璃（仅墨金） ===== */
 @media (min-width: 961px) {
@@ -1136,17 +1270,33 @@ html.zg-inkgold.zg-inkgold-dark {
 .zg-inkgold-dark .el-message-box__title { font-family: 'Noto Serif SC','Songti SC','SimSun',serif !important; font-weight: 800; color: var(--zg-text) !important; }
 .zg-inkgold-dark .el-dialog__headerbtn:hover .el-dialog__close,
 .zg-inkgold-dark .el-message-box__headerbtn:hover .el-message-box__close { color: var(--zg-primary) !important; }
-.zg-inkgold-dark .el-dropdown-menu__item:hover { border-radius: 10px; background: rgba(212,175,55,0.1) !important; color: var(--zg-primary) !important; }
-/* 下拉 / 字体面板玻璃化（仅墨金） */
+.zg-inkgold-dark .el-dropdown-menu__item:hover { border-radius: 10px; background: rgba(212,175,55,0.10) !important; color: var(--zg-primary) !important; }
+/* 下拉 / Popover / 选择器：LE悬浮层暗玻璃 */
 .zg-inkgold-dark .el-dropdown-menu,
 .zg-inkgold-dark .el-popover,
 .zg-inkgold-dark .el-picker-panel,
-.zg-inkgold-dark .el-select-dropdown { background: linear-gradient(160deg, rgba(30,26,18,0.96), rgba(20,16,10,0.96)) !important; border: 1px solid rgba(212,175,55,0.22) !important; color: var(--zg-text) !important; }
+.zg-inkgold-dark .el-select-dropdown {
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+  color: var(--zg-text) !important;
+}
 .zg-inkgold-dark .el-dropdown-menu__item { color: var(--zg-text) !important; }
 .zg-inkgold-dark .el-select-dropdown__item { color: var(--zg-text) !important; }
-.zg-inkgold-dark .el-select-dropdown__item.is-hovering { background: rgba(212,175,55,0.1) !important; }
+.zg-inkgold-dark .el-select-dropdown__item.is-hovering { background: rgba(212,175,55,0.10) !important; }
 .zg-inkgold-dark .el-select-dropdown__item.is-selected { color: var(--zg-primary) !important; }
-.zg-inkgold-dark .el-notification { background: linear-gradient(160deg, rgba(30,26,18,0.96), rgba(20,16,10,0.96)) !important; border: 1px solid rgba(212,175,55,0.24) !important; }
+/* 通知Toast：LE悬浮层暗玻璃 */
+.zg-inkgold-dark .el-notification {
+  background: linear-gradient(160deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  border: none !important;
+  border-radius: 18px !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
+}
 
 /* ===== 表格（仅墨金） ===== */
 .zg-inkgold-dark .el-table { border-radius: 16px; border: 1px solid rgba(212,175,55,0.12); overflow: hidden; color: var(--zg-text) !important; }
@@ -1785,42 +1935,40 @@ html.zg-inkgold.zg-inkgold-dark .zg-card:hover {
     0 14px 36px -10px rgba(0,0,0,0.34),
     0 28px 64px -20px rgba(0,0,0,0.24) !important;
 }
-/* 弹窗/抽屉/下拉：L1主角玻璃 */
+/* ===== 全局兜底：确保弹窗/抽屉/下拉/通知使用LE悬浮层玻璃（优先级最高）===== */
 html.zg-inkgold .el-dialog,
 html.zg-inkgold .el-message-box,
 html.zg-inkgold .el-drawer,
 html.zg-inkgold .el-dropdown-menu,
 html.zg-inkgold .el-popover,
+html.zg-inkgold .el-picker-panel,
 html.zg-inkgold .el-select-dropdown,
 html.zg-inkgold .el-notification {
-  background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(150%) !important;
-  backdrop-filter: blur(32px) saturate(150%) !important;
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
   border: none !important;
-  box-shadow: var(--zg-glass-1-highlight), var(--zg-glass-1-shadow) !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
 }
 html.zg-inkgold.zg-inkgold-dark .el-dialog,
 html.zg-inkgold.zg-inkgold-dark .el-message-box,
 html.zg-inkgold.zg-inkgold-dark .el-drawer,
 html.zg-inkgold.zg-inkgold-dark .el-dropdown-menu,
 html.zg-inkgold.zg-inkgold-dark .el-popover,
+html.zg-inkgold.zg-inkgold-dark .el-picker-panel,
 html.zg-inkgold.zg-inkgold-dark .el-select-dropdown,
 html.zg-inkgold.zg-inkgold-dark .el-notification {
-  background: linear-gradient(160deg, rgba(56,48,34,0.84), rgba(36,28,20,0.76)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(140%) !important;
-  backdrop-filter: blur(32px) saturate(140%) !important;
+  background: linear-gradient(165deg, var(--zg-glass-e-bg), var(--zg-glass-e-bg-2)) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-e-blur)) saturate(var(--zg-glass-e-sat)) !important;
   border: none !important;
-  box-shadow:
-    inset 0 1px 0.5px rgba(255,243,214,0.12),
-    0 2px 4px rgba(0,0,0,0.24),
-    0 14px 44px -12px rgba(0,0,0,0.38),
-    0 28px 72px -24px rgba(0,0,0,0.28) !important;
+  box-shadow: var(--zg-glass-e-shadow) !important;
 }
-/* 遮罩：极淡 */
+/* 遮罩层 */
 html.zg-inkgold .el-overlay {
-  background: rgba(43,38,32,0.18) !important;
-  backdrop-filter: blur(6px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(6px) saturate(140%) !important;
+  background: var(--zg-overlay-bg) !important;
+  backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-overlay-blur)) saturate(120%) !important;
 }
 /* 瓷面通用工具类：L1/L2/L3 三级材质，无完整border */
 html.zg-inkgold .zg-plate,
