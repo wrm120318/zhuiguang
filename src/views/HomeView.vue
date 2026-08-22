@@ -265,7 +265,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 </template>
 
 <style scoped>
-.home-page { position: relative; }
+.home-page { position: relative; overflow-x: clip; overflow-y: visible; }
 
 /* ============================================================
    首页背景光晕
@@ -418,15 +418,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   padding: 0 !important;
   gap: 12px;
 }
-/* 每个数据卡：L3 柔光玻璃 */
+/* 每个数据卡：L3 柔光玻璃（无完整边框，只顶部高光） */
 .zg-inkgold .hs-item {
-  background: linear-gradient(155deg, rgba(255,255,255,0.65), rgba(255,252,246,0.55)) !important;
-  border: 1px solid rgba(255,255,255,0.75) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.62), rgba(255,252,246,0.50)) !important;
+  border: none !important;
   border-radius: 18px !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.88),
-    inset 0 -1px 0 rgba(255,255,255,0.20),
-    0 10px 30px -10px rgba(120,90,30,0.10) !important;
+    inset 0 1px 0 rgba(255,255,255,0.82),
+    0 4px 14px -6px rgba(120,90,30,0.07) !important;
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   backdrop-filter: blur(24px) saturate(200%);
   padding: 14px 16px !important;
@@ -438,9 +437,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .zg-inkgold .hs-item:hover {
   transform: translateY(-2px);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.92),
-    inset 0 -1px 0 rgba(255,255,255,0.24),
-    0 14px 40px -12px rgba(120,90,30,0.12) !important;
+    inset 0 1px 0 rgba(255,255,255,0.88),
+    0 8px 24px -8px rgba(120,90,30,0.09) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
@@ -463,28 +461,32 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   transform: translateY(-2px);
 }
 .zg-inkgold .cta-ghost {
-  background: linear-gradient(155deg, rgba(255,255,255,0.60), rgba(255,252,246,0.50)) !important;
-  border: 1px solid rgba(255,255,255,0.75) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.58), rgba(255,252,246,0.46)) !important;
+  border: none !important;
   color: var(--zg-text) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.85),
-    0 8px 24px -8px rgba(120,90,30,0.10) !important;
+    inset 0 1px 0 rgba(255,255,255,0.80),
+    0 4px 14px -6px rgba(120,90,30,0.07) !important;
   -webkit-backdrop-filter: blur(22px) saturate(190%);
   backdrop-filter: blur(22px) saturate(190%);
 }
 .zg-inkgold .cta-ghost:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,252,246,0.60)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.68), rgba(255,252,246,0.56)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    0 8px 22px -8px rgba(120,90,30,0.09) !important;
   transform: translateY(-2px);
 }
-/* 美文卡/快捷入口/学科瓷片：L2/L3 柔光玻璃（覆盖经典模式的实色背景） */
+/* 美文卡/快捷入口/学科瓷片：L2/L3 柔光玻璃（覆盖经典模式的实色背景）
+   关键：只有顶部白色高光，不要完整边框（完整边框=矩形框！）
+   阴影极淡极柔，只浮不框 */
 .zg-inkgold .art-card {
-  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,252,246,0.60)) !important;
-  border: 1px solid rgba(255,255,255,0.78) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.68), rgba(255,252,246,0.56)) !important;
+  border: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.90),
-    inset 0 -1px 0 rgba(255,255,255,0.22),
-    0 14px 44px -12px rgba(120,90,30,0.10),
-    0 36px 80px -24px rgba(120,90,30,0.08) !important;
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    0 6px 20px -8px rgba(120,90,30,0.08),
+    0 20px 50px -20px rgba(120,90,30,0.06) !important;
   -webkit-backdrop-filter: blur(28px) saturate(200%);
   backdrop-filter: blur(28px) saturate(200%);
   border-radius: 22px !important;
@@ -492,12 +494,12 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
-  background: linear-gradient(155deg, rgba(255,255,255,0.62), rgba(255,252,246,0.52)) !important;
-  border: 1px solid rgba(255,255,255,0.72) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.60), rgba(255,252,246,0.48)) !important;
+  border: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.85),
-    inset 0 -1px 0 rgba(255,255,255,0.18),
-    0 10px 30px -10px rgba(120,90,30,0.08) !important;
+    inset 0 1px 0 rgba(255,255,255,0.80),
+    0 4px 14px -6px rgba(120,90,30,0.06),
+    0 12px 32px -14px rgba(120,90,30,0.05) !important;
   -webkit-backdrop-filter: blur(24px) saturate(190%);
   backdrop-filter: blur(24px) saturate(190%);
 }
@@ -512,19 +514,18 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* hover效果 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.72), rgba(255,252,246,0.62)) !important;
-  border-color: rgba(255,255,255,0.82) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.70), rgba(255,252,246,0.58)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.90),
-    0 14px 38px -10px rgba(120,90,30,0.10) !important;
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    0 8px 24px -8px rgba(120,90,30,0.08) !important;
   transform: translateY(-2px);
 }
 .zg-inkgold .art-card:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.76), rgba(255,252,246,0.66)) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.74), rgba(255,252,246,0.62)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.92),
-    0 18px 52px -14px rgba(120,90,30,0.12),
-    0 44px 90px -26px rgba(120,90,30,0.10) !important;
+    inset 0 1px 0 rgba(255,255,255,0.88),
+    0 10px 32px -10px rgba(120,90,30,0.10),
+    0 28px 64px -22px rgba(120,90,30,0.07) !important;
   transform: translateY(-4px);
 }
 /* 墨金深色档 */
