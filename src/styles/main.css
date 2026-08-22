@@ -557,80 +557,76 @@ img { -webkit-user-drag: none; }
    深色档由下方 .zg-inkgold-dark 叠加，config.inkgoldTone==='dark' 时启用。
    ============================================================ */
 html.zg-inkgold {
-  /* —— 2026 高端香槟墨金 调色板（阳光·大气·高端·去塑料感）——
-     背景：接近纯白的暖白，不发黄不发灰
-     金色：优雅香槟金（低饱和高明度），不是橘金不是土黄
-     文字：深墨色，沉稳高级 */
-  --zg-primary: var(--zg-custom-primary, #C9A84C) !important;
-  --zg-primary-2: var(--zg-custom-primary-2, #D4B96A) !important;
-  --zg-accent: var(--zg-custom-accent, #E8D5A3) !important;
-  --zg-primary-rgb: var(--zg-custom-primary-rgb, 201, 168, 76) !important;
-  --zg-primary-2-rgb: var(--zg-custom-primary-2-rgb, 212, 185, 106) !important;
-  --zg-accent-rgb: var(--zg-custom-accent-rgb, 232, 213, 163) !important;
-  --zg-text: #2B2620;
-  --zg-text-dim: #7A7060;
-  --zg-card-bg: rgba(255,255,255,0.82);
-  --zg-card-border: rgba(201,168,76,0.12);
-  --zg-radius: 24px !important;
+  /* —— 2026 进化极简·微光玻璃 香槟墨金调色板 v12
+     设计原则参考：Chanel官网、Apple官网——大面积留白、弱投影、轻薄通透
+     背景：近纯白暖白，只带一丢丢暖调，绝不发黄
+     金色：低饱和雅致香槟金（带灰调，不橘不土黄）
+     玻璃：微光玻璃——轻薄通透，1px细描边，柔影分层，不做厚重毛玻璃 */
+  --zg-primary: var(--zg-custom-primary, #B8943F) !important;
+  --zg-primary-2: var(--zg-custom-primary-2, #C9A95A) !important;
+  --zg-accent: var(--zg-custom-accent, #DFC98A) !important;
+  --zg-primary-rgb: var(--zg-custom-primary-rgb, 184, 148, 63) !important;
+  --zg-primary-2-rgb: var(--zg-custom-primary-2-rgb, 201, 169, 90) !important;
+  --zg-accent-rgb: var(--zg-custom-accent-rgb, 223, 201, 138) !important;
+  --zg-text: #2A2520;
+  --zg-text-dim: #786E60;
+  --zg-card-bg: rgba(255,255,255,0.70);
+  --zg-card-border: rgba(184,148,63,0.08);
+  --zg-radius: 20px !important;
   --zg-blur: 24px !important;
-  --zg-shadow: 0 2px 6px rgba(120,90,30,0.04), 0 12px 36px -8px rgba(120,90,30,0.08);
-  --zg-bg-from: #FFFDF9 !important;
-  --zg-bg-via: #FFFAF3 !important;
-  --zg-bg-to: #FFF7EC !important;
-  /* Element Plus 强调色跟随香槟金 */
-  --el-color-primary: #C9A84C;
-  --el-color-primary-light-3: #d6bc6f;
-  --el-color-primary-light-5: #e2d196;
-  --el-color-primary-light-7: #ede6be;
-  --el-color-primary-light-8: #f3efd4;
-  --el-color-primary-light-9: #f9f7ea;
-  --el-color-primary-dark-2: #b0923d;
+  --zg-shadow: 0 1px 3px rgba(100,80,40,0.02), 0 8px 28px -10px rgba(100,80,40,0.06);
+  --zg-bg-from: #FEFDFB !important;
+  --zg-bg-via: #FEFCF8 !important;
+  --zg-bg-to: #FDFAF5 !important;
+  /* Element Plus 强调色跟随雅致香槟金 */
+  --el-color-primary: #B8943F;
+  --el-color-primary-light-3: #c9ad66;
+  --el-color-primary-light-5: #d9c38e;
+  --el-color-primary-light-7: #e8d8b5;
+  --el-color-primary-light-8: #f0e6cd;
+  --el-color-primary-light-9: #f8f3e8;
+  --el-color-primary-dark-2: #a08035;
 
-  /* —— Liquid Glass 材质系统 v11（严格遵循铁律14 + Apple iOS 26 设计原则）——
-     铁律14：L1=0.08/L2=0.10/L3=0.12（几乎透明）+ 亮边0.6~0.7 + blur10~12px
-     Apple原则：玻璃仅用于导航层（悬浮在内容之上），靠透镜效应而非厚填充
-     关键：
-     1. 极薄填充：0.08~0.12，背景纸纹+光晕真正透出
-     2. 亮边而非边框：0.6~0.7白边（玻璃边缘反光，不是矩形框）
-     3. blur=12px，saturate=180%（透镜感，不是磨砂）
-     4. 禁止inset顶部釉光、禁止inset发丝金边（都是矩形框根因）
-     5. 柔影只"浮"不"框"：近距接触影+远距环境影，无硬边
-     6. spring弹性动效 cubic-bezier(0.34, 1.56, 0.64, 1) */
-  /* L1 主角（导航栏/dock/弹窗）：导航层厚玻璃 */
-  --zg-glass-1-bg: rgba(255,255,255,0.08);
-  --zg-glass-1-bg-2: rgba(255,252,245,0.06);
+  /* —— 微光玻璃材质系统 v12（进化极简·Chanel风格轻薄通透）——
+     原则：高通透、薄填充、大模糊、细描边、柔阴影
+     L1 导航层（dock/nav/modal）：悬浮在内容上，最通透
+     L2 内容层（cards/sections）：承载内容，稍微实一点
+     L3 元素层（chips/buttons/tags）：最小单元，最薄 */
+  /* L1 导航层：极薄填充 + 大模糊 + 1px细描边 + 远距柔影 */
+  --zg-glass-1-bg: rgba(255,255,255,0.06);
+  --zg-glass-1-bg-2: rgba(255,253,248,0.04);
   --zg-glass-1-highlight: none;
-  --zg-glass-1-border: rgba(255,255,255,0.65);
+  --zg-glass-1-border: rgba(255,255,255,0.5);
   --zg-glass-1-shadow:
-    0 0.5px 0 0 rgba(255,255,255,0.65),
-    0 1px 1.5px rgba(120,90,30,0.02),
-    0 4px 12px -6px rgba(120,90,30,0.06),
-    0 16px 40px -16px rgba(120,90,30,0.10);
-  /* L2 卡片（美文/学科/列表）：内容层薄玻璃 */
-  --zg-glass-2-bg: rgba(255,255,255,0.10);
-  --zg-glass-2-bg-2: rgba(255,252,245,0.07);
+    0 0 0 0.5px rgba(255,255,255,0.3),
+    0 1px 1px rgba(100,80,40,0.02),
+    0 4px 16px -8px rgba(100,80,40,0.05),
+    0 20px 48px -20px rgba(100,80,40,0.08);
+  /* L2 内容层：薄填充 + 中模糊 + 细描边 + 中距柔影 */
+  --zg-glass-2-bg: rgba(255,255,255,0.08);
+  --zg-glass-2-bg-2: rgba(255,253,248,0.05);
   --zg-glass-2-highlight: none;
-  --zg-glass-2-border: rgba(255,255,255,0.55);
+  --zg-glass-2-border: rgba(255,255,255,0.4);
   --zg-glass-2-shadow:
-    0 0.5px 0 0 rgba(255,255,255,0.55),
-    0 1px 1px rgba(120,90,30,0.015),
-    0 3px 10px -6px rgba(120,90,30,0.05),
-    0 12px 32px -16px rgba(120,90,30,0.08);
-  /* L3 点缀（瓷片/按钮/标签）：元素级极薄玻璃 */
-  --zg-glass-3-bg: rgba(255,255,255,0.12);
-  --zg-glass-3-bg-2: rgba(255,252,245,0.08);
+    0 0 0 0.5px rgba(255,255,255,0.25),
+    0 1px 1px rgba(100,80,40,0.015),
+    0 3px 12px -8px rgba(100,80,40,0.04),
+    0 12px 32px -16px rgba(100,80,40,0.06);
+  /* L3 元素层：微填充 + 小模糊 + 淡描边 + 近距柔影 */
+  --zg-glass-3-bg: rgba(255,255,255,0.10);
+  --zg-glass-3-bg-2: rgba(255,253,248,0.06);
   --zg-glass-3-highlight: none;
-  --zg-glass-3-border: rgba(255,255,255,0.45);
+  --zg-glass-3-border: rgba(255,255,255,0.3);
   --zg-glass-3-shadow:
-    0 0.5px 0 0 rgba(255,255,255,0.45),
-    0 1px 1px rgba(120,90,30,0.01),
-    0 2px 8px -4px rgba(120,90,30,0.04),
-    0 8px 24px -12px rgba(120,90,30,0.06);
+    0 0 0 0.5px rgba(255,255,255,0.2),
+    0 1px 1px rgba(100,80,40,0.01),
+    0 2px 8px -4px rgba(100,80,40,0.03),
+    0 6px 20px -10px rgba(100,80,40,0.05);
   /* 通用参数 */
-  --zg-glass-blur: 12px;
-  --zg-glass-sat: 180%;
+  --zg-glass-blur: 24px;
+  --zg-glass-sat: 140%;
   --zg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --zg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --zg-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
   /* 兼容旧变量 */
   --zg-glass-bg: var(--zg-glass-2-bg);
   --zg-glass-bg-2: var(--zg-glass-2-bg-2);
@@ -639,50 +635,50 @@ html.zg-inkgold {
   --zg-glaze: none;
   --zg-shadow: var(--zg-glass-2-shadow);
   --zg-shadow-lg: var(--zg-glass-1-shadow);
-  --zg-soft-1: 0 1px 4px -2px rgba(120,90,30,0.04);
-  --zg-soft-2: 0 6px 20px -10px rgba(120,90,30,0.06);
+  --zg-soft-1: 0 1px 3px -1px rgba(100,80,40,0.03);
+  --zg-soft-2: 0 4px 16px -8px rgba(100,80,40,0.05);
   --zg-soft-card: var(--zg-glass-2-shadow);
 }
 
-/* 主题背景图层：暖白纸纹（真正透出，这是玻璃效果的基础） */
+/* 主题背景图层：透明纸纹（只有网格/丝光/噪点，无底色），若隐若现 */
 .zg-inkgold .zg-bgimg {
   display: block !important;
   background-image: url('/bg/inkgold-paper.svg');
-  opacity: 0.9;
+  opacity: 0.4;
 }
-/* 背景：干净暖白基底 + 极淡金色光晕（克制，不抢戏，让纸纹成为主角） */
+/* 背景：近纯白暖白基底 + 几乎不可见的环境光，大面积留白，克制高级 */
 .zg-inkgold .zg-bg {
   animation: none !important;
   background:
-    /* 左上淡金光晕 */
-    radial-gradient(1000px 700px at 0% 0%, rgba(232,213,163,0.10), transparent 60%),
-    /* 右下更淡的暖光 */
-    radial-gradient(800px 600px at 100% 100%, rgba(201,168,76,0.06), transparent 65%),
-    /* 基础暖白 - 更干净，接近白纸 */
-    linear-gradient(165deg, #FFFDF8 0%, #FFFBF4 50%, #FFF9EF 100%) !important;
+    /* 左上极淡暖光 */
+    radial-gradient(800px 600px at 0% 0%, rgba(223,201,138,0.05), transparent 65%),
+    /* 右下几乎不可见 */
+    radial-gradient(600px 500px at 100% 100%, rgba(184,148,63,0.03), transparent 70%),
+    /* 基础：近纯白暖白，绝不发黄 */
+    linear-gradient(165deg, #FEFDFB 0%, #FEFCF8 50%, #FDFAF5 100%) !important;
 }
 .zg-inkgold .zg-bg::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(500px 350px at 30% 20%, rgba(232,213,163,0.04), transparent 70%),
-    radial-gradient(400px 300px at 70% 70%, rgba(201,168,76,0.03), transparent 70%);
-  animation: zgBgBreath 30s ease-in-out infinite;
+    radial-gradient(400px 300px at 25% 15%, rgba(223,201,138,0.025), transparent 70%),
+    radial-gradient(350px 280px at 75% 80%, rgba(184,148,63,0.02), transparent 70%);
+  animation: zgBgBreath 40s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes zgBgBreath {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }
 .zg-inkgold .zg-bg::after { display: none !important; }
-/* 浮动光球：极淡，作为环境光，不喧宾夺主 */
-.zg-inkgold .zg-orb { opacity: 1 !important; filter: blur(120px) !important; }
-.zg-inkgold .zg-orb.a { width: 400px; height: 400px; background: radial-gradient(circle, rgba(212,175,55,0.08), transparent 70%) !important; top: -120px; left: -80px; animation: zgFloatA 30s ease-in-out infinite; }
-.zg-inkgold .zg-orb.b { width: 350px; height: 350px; background: radial-gradient(circle, rgba(232,213,163,0.06), transparent 70%) !important; bottom: -120px; right: -80px; animation: zgFloatB 35s ease-in-out infinite reverse; }
+/* 浮动光球：极其微弱，作为环境色，几乎不可察觉 */
+.zg-inkgold .zg-orb { opacity: 1 !important; filter: blur(140px) !important; }
+.zg-inkgold .zg-orb.a { width: 300px; height: 300px; background: radial-gradient(circle, rgba(201,169,90,0.05), transparent 70%) !important; top: -100px; left: -60px; animation: zgFloatA 40s ease-in-out infinite; }
+.zg-inkgold .zg-orb.b { width: 280px; height: 280px; background: radial-gradient(circle, rgba(223,201,138,0.04), transparent 70%) !important; bottom: -100px; right: -60px; animation: zgFloatB 45s ease-in-out infinite reverse; }
 .zg-inkgold .zg-orb.c { display: none !important; }
-@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.06; } 50% { transform: translate(20px,15px) scale(1.05); opacity: 0.10; } }
-@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.04; } 50% { transform: translate(-15px,-10px) scale(1.04); opacity: 0.08; } }
+@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.03; } 50% { transform: translate(15px,10px) scale(1.03); opacity: 0.06; } }
+@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.02; } 50% { transform: translate(-10px,-8px) scale(1.02); opacity: 0.05; } }
 
 /* 内容卡：L2 标准柔光玻璃——亮边+多层柔影，无矩形框 */
 .zg-inkgold .glass,
@@ -956,15 +952,9 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
   }
 }
 
-/* ===== 移动底栏（仅墨金浅色）：暖白玻璃 + 金指示 ===== */
-.zg-inkgold .tabbar {
-  background: linear-gradient(180deg, rgba(255,251,244,0.92), rgba(245,239,226,0.96)) !important;
-  border-top: 1px solid rgba(186,117,23,0.2) !important;
-  box-shadow: 0 -4px 20px rgba(186,117,23,0.1) !important;
-}
-.zg-inkgold .tab.on .t-icon { filter: drop-shadow(0 4px 8px rgba(186,117,23,0.4)); }
+/* ===== 移动端底栏样式完全由 MobileTabBar.vue 组件管理，全局不做任何覆盖 ===== */
 
-/* ===== 首页点缀（仅墨金浅色）：沉稳金 ===== */
+/* ===== 首页点缀（仅墨金浅色）：沉稳香槟金 ===== */
 .zg-inkgold .hero-bg { background: linear-gradient(135deg, rgba(186,117,23,0.12), rgba(200,146,46,0.06)) !important; }
 .zg-inkgold .hero-tag { background: rgba(186,117,23,0.14) !important; border-color: rgba(186,117,23,0.32) !important; color: #7A4A10 !important; box-shadow: 0 0 12px rgba(186,117,23,0.08) !important; }
 .zg-inkgold .announce-bar { border-color: rgba(186,117,23,0.28) !important; }
@@ -1336,15 +1326,9 @@ html.zg-inkgold.zg-inkgold-dark .hero-name {
   }
 }
 
-/* ===== 移动底栏（仅墨金）：暗夜玻璃 + 金指示 ===== */
-.zg-inkgold-dark .tabbar {
-  background: linear-gradient(180deg, rgba(20,16,10,0.92), rgba(14,11,7,0.96)) !important;
-  border-top: 1px solid rgba(212,175,55,0.2) !important;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.45) !important;
-}
-.zg-inkgold-dark .tab.on .t-icon { filter: drop-shadow(0 4px 8px rgba(212,175,55,0.45)); }
+/* ===== 移动端底栏样式完全由 MobileTabBar.vue 组件管理，全局不做任何覆盖 ===== */
 
-/* ===== 首页点缀（仅墨金）：琥珀→流光金 ===== */
+/* ===== 首页点缀（仅墨金深色）：琥珀流光金 ===== */
 .zg-inkgold-dark .hero-bg { background: linear-gradient(135deg, rgba(212,175,55,0.12), rgba(230,198,110,0.06)) !important; }
 .zg-inkgold-dark .hero-tag { background: rgba(212,175,55,0.14) !important; border-color: rgba(212,175,55,0.3) !important; color: var(--zg-accent) !important; }
 .zg-inkgold-dark .announce-bar { border-color: rgba(212,175,55,0.28) !important; }

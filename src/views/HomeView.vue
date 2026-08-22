@@ -378,27 +378,27 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 
 /* ============================================================
-   墨金学术 · 2026 Liquid Glass 高端设计语言 v11
-   严格遵循铁律14：L1=0.08/L2=0.10/L3=0.12，亮边0.55~0.65，blur=12px
+   墨金学术 · 2026 进化极简·微光玻璃设计语言 v12
+   原则：高通透、薄填充、大模糊、细描边、柔阴影
    动效统一用 var(--zg-ease) / var(--zg-spring) 弹性曲线
    ============================================================ */
-/* L1 Hero 区：主角级导航层玻璃 */
+/* L1 Hero 区：主角级导航层微光玻璃 */
 .zg-inkgold .hero {
   background: linear-gradient(155deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
   -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
   backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
   border: none !important;
-  border-radius: 24px !important;
+  border-radius: 20px !important;
   box-shadow: var(--zg-glass-1-shadow) !important;
   overflow: hidden !important;
   margin: 8px 0 24px !important;
-  padding: 48px 44px 42px !important;
-  min-height: 320px !important;
+  padding: 44px 40px 38px !important;
+  min-height: 300px !important;
   transition: transform .4s var(--zg-spring), box-shadow .4s var(--zg-ease);
 }
 .zg-inkgold .hero:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.7), 0 1px 2px rgba(120,90,30,0.03), 0 8px 24px -8px rgba(120,90,30,0.08), 0 24px 56px -20px rgba(120,90,30,0.10) !important;
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.35), 0 1px 2px rgba(100,80,40,0.03), 0 6px 20px -8px rgba(100,80,40,0.06), 0 24px 56px -20px rgba(100,80,40,0.08) !important;
 }
 /* 移除经典模式的顶部金线 */
 .zg-inkgold .hero::before { display: none !important; }
@@ -437,7 +437,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 .zg-inkgold .hs-item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.5), 0 1px 1px rgba(120,90,30,0.02), 0 4px 12px -4px rgba(120,90,30,0.05), 0 12px 28px -14px rgba(120,90,30,0.06) !important;
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.25), 0 1px 1px rgba(100,80,40,0.02), 0 3px 10px -4px rgba(100,80,40,0.04), 0 10px 24px -12px rgba(100,80,40,0.05) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
@@ -469,8 +469,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease), background .3s var(--zg-ease);
 }
 .zg-inkgold .cta-ghost:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.18), rgba(255,252,245,0.12)) !important;
-  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.55), 0 1px 1px rgba(120,90,30,0.02), 0 4px 12px -4px rgba(120,90,30,0.05), 0 12px 28px -14px rgba(120,90,30,0.06) !important;
+  background: linear-gradient(155deg, rgba(255,255,255,0.14), rgba(255,253,248,0.08)) !important;
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.3), 0 1px 1px rgba(100,80,40,0.02), 0 3px 10px -4px rgba(100,80,40,0.04), 0 10px 24px -12px rgba(100,80,40,0.05) !important;
   transform: translateY(-1px);
 }
 /* 美文卡：L2薄玻璃 - 无矩形框 */
@@ -503,15 +503,15 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: none !important;
   border-radius: 0 16px 16px 0 !important;
 }
-/* hover - spring弹性浮起，克制 */
+/* hover - 弹性浮起，克制高级 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.55), 0 1px 1px rgba(120,90,30,0.02), 0 5px 16px -6px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.3), 0 1px 1px rgba(100,80,40,0.02), 0 4px 14px -6px rgba(100,80,40,0.05), 0 12px 28px -14px rgba(100,80,40,0.06) !important;
 }
 .zg-inkgold .art-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.6), 0 1px 2px rgba(120,90,30,0.02), 0 6px 20px -8px rgba(120,90,30,0.07), 0 20px 44px -20px rgba(120,90,30,0.08) !important;
+  box-shadow: 0 0 0 0.5px rgba(255,255,255,0.35), 0 1px 2px rgba(100,80,40,0.02), 0 5px 16px -8px rgba(100,80,40,0.06), 0 16px 40px -18px rgba(100,80,40,0.07) !important;
 }
 /* 深色档 */
 .zg-inkgold.zg-inkgold-dark .hero {
