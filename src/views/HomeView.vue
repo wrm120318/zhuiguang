@@ -617,8 +617,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-name { font-weight: 700; }
   .hero-slogan { font-size: 14px; line-height: 1.75; margin-bottom: 24px; color: var(--zg-text-dim); }
   .zg-inkgold .hero-slogan { font-size: 14px; }
-  .hero-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 18px 16px; border-radius: 20px; }
-  .hs-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .hero-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 12px 8px; padding: 18px 16px; border-radius: 20px; }
+  .hs-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .hs-divider { display: none; }
   .hs-num { font-size: 24px; line-height: 1.1; }
   .hs-label { font-size: 11px; letter-spacing: .08em; }
