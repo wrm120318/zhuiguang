@@ -572,13 +572,15 @@ html.zg-inkgold {
   --el-color-primary-light-9: #f8f1dd;
   --el-color-primary-dark-2: #9c6112;
 
-  /* —— 真柔光玻璃 token（质感升级 v4）——
-     不透明度降到 0.35，背景图透上来；顶部细高光为灵魂；
-     阴影收敛为「似有似无」的负扩散柔影，移除 56px/130px 重影。 */
-  --zg-glass-bg: rgba(255,255,255,0.35);
-  --zg-glass-bg-2: rgba(255,250,240,0.22);
-  --zg-glass-blur: 22px;
+  /* —— 真柔光玻璃 token（质感升级 v5）——
+     卡片玻璃降到 0.22（磨砂质感，非全透明）；Hero 专用更透 0.12 让背景图透出；
+     顶部 1px 细高光为灵魂；阴影收敛为「似有似无」的负扩散柔影。 */
+  --zg-glass-bg: rgba(255,255,255,0.22);
+  --zg-glass-bg-2: rgba(255,250,240,0.16);
+  --zg-glass-blur: 20px;
   --zg-glass-sat: 180%;
+  --zg-hero-bg: rgba(255,255,255,0.12);
+  --zg-hero-bg-2: rgba(255,250,240,0.06);
   --zg-glaze: inset 0 1px 0 rgba(255,255,255,0.90);
   --zg-soft-1: 0 2px 10px -4px rgba(120,90,30,0.10);
   --zg-soft-2: 0 10px 30px -14px rgba(120,90,30,0.10);
@@ -941,13 +943,15 @@ html.zg-inkgold.zg-inkgold-dark {
   --el-color-primary-light-9: #322a12;
   --el-color-primary-dark-2: #e3c157;
 
-  /* —— 真柔光玻璃 token（深档）——
-     暗玻璃透出暖黑背景图；顶部暖白细高光；阴影深但「似有似无」。 */
-  --zg-glass-bg: rgba(40,33,22,0.42);
-  --zg-glass-bg-2: rgba(28,22,14,0.30);
-  --zg-glass-blur: 22px;
+  /* —— 真柔光玻璃 token（深档 v5）——
+     暗玻璃降透到 0.55（磨砂）；Hero 更透 0.42 让暗纹透出；暖金亮边；浅高光。 */
+  --zg-glass-bg: rgba(40,33,22,0.55);
+  --zg-glass-bg-2: rgba(28,22,14,0.42);
+  --zg-glass-blur: 20px;
   --zg-glass-sat: 175%;
-  --zg-glaze: inset 0 1px 0 rgba(255,243,214,0.12);
+  --zg-hero-bg: rgba(40,33,22,0.42);
+  --zg-hero-bg-2: rgba(28,22,14,0.30);
+  --zg-glaze: inset 0 1px 0 rgba(255,243,214,0.14);
   --zg-soft-1: 0 2px 10px -4px rgba(0,0,0,0.35);
   --zg-soft-2: 0 10px 30px -14px rgba(0,0,0,0.38);
   --zg-soft-card: 0 12px 36px -18px rgba(0,0,0,0.40);

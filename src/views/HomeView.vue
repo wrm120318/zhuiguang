@@ -389,17 +389,18 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
    改为随页面暖底晕开的柔光瓷面（径向渐变边缘化开），overflow 放开让光晕自由呼吸，
    彻底打破"首页=一堆被框住的白卡"旧范式（§创新·敢于打破）。 */
 .zg-inkgold .hero {
-  /* 真柔光玻璃 hero：透光 + 顶部细高光 + 极淡柔影（似有似无，无矩形重投影） */
-  background: linear-gradient(155deg, var(--zg-glass-bg), var(--zg-glass-bg-2));
-  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
-  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
-  border: 1px solid transparent;
+  /* 真柔光玻璃 hero：极低不透明度磨砂 + 1px 亮边（边缘反光）+ 背景图从身后透出 */
+  background: linear-gradient(155deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
+  -webkit-backdrop-filter: blur(18px) saturate(185%);
+  backdrop-filter: blur(18px) saturate(185%);
+  border: 1px solid rgba(255,255,255,0.38);
   box-shadow: var(--zg-glaze), var(--zg-soft-card);
   overflow: visible;
 }
-/* 深色档 hero：暗底暖金玻璃 */
+/* 深色档 hero：暗底暖金磨砂玻璃 */
 .zg-inkgold.zg-inkgold-dark .hero {
-  background: linear-gradient(155deg, var(--zg-glass-bg), var(--zg-glass-bg-2));
+  background: linear-gradient(155deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
+  border: 1px solid rgba(212,175,55,0.28);
   box-shadow: var(--zg-glaze), var(--zg-soft-card);
 }
 /* 墨金：无卡边后，顶部悬浮金线失去依附，移除（品牌线已由 hero-kicker / hero-accent 承担） */
@@ -421,19 +422,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   gap: 10px;
 }
 .zg-inkgold .hs-item {
-  background: linear-gradient(158deg, var(--zg-glass-bg), var(--zg-glass-bg-2));
-  border: 1px solid rgba(255,255,255,0.30);
+  background: linear-gradient(158deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
+  border: 1px solid rgba(255,255,255,0.34);
   border-radius: 16px;
   box-shadow: var(--zg-glaze), var(--zg-soft-1);
-  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
-  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
   padding: 12px 14px;
   min-width: 78px;
   flex: 1 1 0;
   text-align: center;
 }
 .zg-inkgold.zg-inkgold-dark .hs-item {
-  background: linear-gradient(158deg, var(--zg-glass-bg), var(--zg-glass-bg-2));
+  background: linear-gradient(158deg, var(--zg-hero-bg), var(--zg-hero-bg-2));
+  border: 1px solid rgba(212,175,55,0.26);
   box-shadow: var(--zg-glaze), var(--zg-soft-1);
 }
 .zg-inkgold .hs-num { font-family: var(--zg-font); font-weight: 800; }
