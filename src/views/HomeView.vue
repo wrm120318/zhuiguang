@@ -734,7 +734,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .ac-body { padding: 13px 15px 15px; }
   .ac-title { font-size: 15px; line-height: 1.45; }
 
-  .zg-footer { padding: 44px 0 calc(8px + env(safe-area-inset-bottom)); margin-top: 52px; }
+  .zg-footer { padding: 44px 0 calc(100px + env(safe-area-inset-bottom)); margin-top: 52px; }
 
   /* 墨金移动端：hero 圆角24px玻璃 */
   .zg-inkgold .hero { padding: 28px 20px 24px !important; border-radius: 24px !important; margin: 0 0 18px !important; min-height: auto !important; }
