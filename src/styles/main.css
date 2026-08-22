@@ -572,29 +572,46 @@ html.zg-inkgold {
   --el-color-primary-light-9: #f8f1dd;
   --el-color-primary-dark-2: #9c6112;
 
-  /* —— 液态玻璃材质系统 v7（真正液态玻璃，非磨砂塑料）——
-     核心：背景几乎透明（0.06~0.12），靠 blur + 明显亮边 + 多层高光出质感；
-     blur 轻微（8~12px），保持通透；边框明显（0.6~0.8）是玻璃边缘反光灵魂；
-     多层结构：::before 高光层 + ::after 流光层 + 内阴影 + 外阴影。 */
-  /* L1 主角（弹窗/抽屉）：液态玻璃 0.08，强亮边 0.7 */
-  --zg-glass-1-bg: rgba(255,255,255,0.08);
-  --zg-glass-1-bg-2: rgba(255,250,240,0.04);
-  --zg-glass-1-border: rgba(255,255,255,0.70);
-  --zg-glass-1-shadow: inset 0 1px 0 rgba(255,255,255,0.70), inset 0 -1px 0 rgba(255,255,255,0.10), 0 8px 32px rgba(120,90,30,0.20);
-  /* L2 卡片（美文/学科/排行榜/后台表单）：液态玻璃 0.10，亮边 0.65 */
-  --zg-glass-2-bg: rgba(255,255,255,0.10);
-  --zg-glass-2-bg-2: rgba(255,250,240,0.06);
-  --zg-glass-2-border: rgba(255,255,255,0.65);
-  --zg-glass-2-shadow: inset 0 1px 0 rgba(255,255,255,0.65), inset 0 -1px 0 rgba(255,255,255,0.08), 0 6px 24px rgba(120,90,30,0.18);
-  /* L3 点缀（快捷入口/学科瓷片/标签）：液态玻璃 0.12，亮边 0.6 */
-  --zg-glass-3-bg: rgba(255,255,255,0.12);
-  --zg-glass-3-bg-2: rgba(255,250,240,0.08);
-  --zg-glass-3-border: rgba(255,255,255,0.60);
-  --zg-glass-3-shadow: inset 0 1px 0 rgba(255,255,255,0.60), inset 0 -1px 0 rgba(255,255,255,0.06), 0 4px 16px rgba(120,90,30,0.15);
+  /* —— 柔光玻璃材质系统 v8（Apple/Windows 11 Mica 风格，真正可读的柔美玻璃）——
+     核心原则：
+     1. 不是降透明度！玻璃需要足够的白底（0.45~0.68）让文字清晰可读
+     2. 大 blur（24~40px）+ 高 saturate（180~210%）才能出柔和的磨砂通透感
+     3. 边框是顶部/左部的白色高光亮边（0.75~0.9），模拟光线折射
+     4. 多层内发光：顶部1px亮白高光 + 底部微弱暖色反射
+     5. 外阴影：极柔长投影（大blur半径+低透明度），不是硬边矩形阴影
+     6. 渐变带135deg微妙暖色偏移，不是死白一片 */
+  /* L1 主角（弹窗/抽屉/对话框）：柔光玻璃 0.65 白度，36px 大模糊，强亮边 */
+  --zg-glass-1-bg: rgba(255,253,248,0.68);
+  --zg-glass-1-bg-2: rgba(255,248,235,0.58);
+  --zg-glass-1-border: rgba(255,255,255,0.85);
+  --zg-glass-1-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.90),
+    inset 0 -1px 0 rgba(255,255,255,0.25),
+    0 0 0 1px rgba(255,255,255,0.15),
+    0 20px 60px -12px rgba(120,90,30,0.18),
+    0 8px 24px -8px rgba(120,90,30,0.10);
+  /* L2 卡片（美文/学科/排行榜/后台表单/统计条）：柔光玻璃 0.55 白度，28px 模糊 */
+  --zg-glass-2-bg: rgba(255,253,248,0.58);
+  --zg-glass-2-bg-2: rgba(255,248,235,0.48);
+  --zg-glass-2-border: rgba(255,255,255,0.75);
+  --zg-glass-2-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.82),
+    inset 0 -1px 0 rgba(255,255,255,0.20),
+    0 16px 48px -14px rgba(120,90,30,0.15),
+    0 4px 16px -6px rgba(120,90,30,0.08);
+  /* L3 点缀（快捷入口/学科瓷片/标签/小胶囊）：柔光玻璃 0.48 白度，22px 模糊 */
+  --zg-glass-3-bg: rgba(255,253,248,0.50);
+  --zg-glass-3-bg-2: rgba(255,248,235,0.40);
+  --zg-glass-3-border: rgba(255,255,255,0.70);
+  --zg-glass-3-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.75),
+    inset 0 -1px 0 rgba(255,255,255,0.15),
+    0 10px 30px -10px rgba(120,90,30,0.12),
+    0 2px 10px -4px rgba(120,90,30,0.06);
   /* 通用参数 */
-  --zg-glass-blur: 10px;
-  --zg-glass-sat: 150%;
-  --zg-glaze: inset 0 1px 0 rgba(255,255,255,0.90);
+  --zg-glass-blur: 28px;
+  --zg-glass-sat: 200%;
+  --zg-glaze: inset 0 1px 0 rgba(255,255,255,0.92);
   /* 兼容旧变量（防漏改） */
   --zg-glass-bg: var(--zg-glass-2-bg);
   --zg-glass-bg-2: var(--zg-glass-2-bg-2);
@@ -609,28 +626,29 @@ html.zg-inkgold {
 .zg-inkgold .zg-bgimg {
   display: block !important;
   background-image: url('/bg/inkgold-paper.svg');
+  opacity: 0.9;
 }
-/* 背景光晕：调淡，让背景图成为主角，光晕只补光（不抢戏） */
+/* 背景光晕：极淡暖色叠层，让纸张纹理成为主角（之前渐变太实盖住了纸纹） */
 .zg-inkgold .zg-bg {
-  animation: zgGradientShift 28s ease infinite !important;
+  animation: none !important;
   background:
-    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.08), transparent 58%),
-    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.05), transparent 52%),
-    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.05), transparent 55%),
-    linear-gradient(160deg, var(--zg-bg-from) 0%, var(--zg-bg-via) 50%, var(--zg-bg-to) 100%) !important;
+    radial-gradient(1200px 800px at 12% -10%, rgba(212,175,55,0.10), transparent 58%),
+    radial-gradient(1000px 700px at 110% 5%, rgba(200,146,46,0.07), transparent 52%),
+    radial-gradient(800px 500px at 70% 110%, rgba(186,140,60,0.06), transparent 55%),
+    linear-gradient(160deg, rgba(250,248,244,0.75) 0%, rgba(245,241,232,0.65) 50%, rgba(239,233,220,0.60) 100%) !important;
 }
 .zg-inkgold .zg-bg::after {
-  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .35;
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .25;
   background-image:
-    radial-gradient(circle at 25% 25%, rgba(255,255,255,.55) 0%, transparent 45%),
-    radial-gradient(circle at 75% 75%, rgba(212,175,55,.06) 0%, transparent 40%);
+    radial-gradient(circle at 25% 25%, rgba(255,255,255,.45) 0%, transparent 40%),
+    radial-gradient(circle at 75% 75%, rgba(212,175,55,.05) 0%, transparent 35%);
 }
 .zg-inkgold .zg-orb { opacity: 0.22 !important; animation: zgFloat 24s ease-in-out infinite !important; filter: blur(100px) !important; }
 .zg-inkgold .zg-orb.a { width: 520px; height: 520px; background: radial-gradient(circle, rgba(212,175,55,0.26), transparent 70%) !important; top: -160px; left: -120px; }
 .zg-inkgold .zg-orb.b { width: 420px; height: 420px; background: radial-gradient(circle, rgba(200,146,46,0.22), transparent 70%) !important; bottom: -160px; right: -100px; animation-delay: -8s; }
 .zg-inkgold .zg-orb.c { width: 360px; height: 360px; background: radial-gradient(circle, rgba(186,140,60,0.16), transparent 70%) !important; top: 36%; left: 56%; opacity: 0.12 !important; animation-delay: -16s; }
 
-/* 内容卡：L2 液态玻璃——几乎透明 0.10 + 明显亮边 0.65 + 多层高光 */
+/* 内容卡：L2 柔光玻璃——高白度 0.55 + 大模糊 28px + 高饱和 200% + 亮白高光边 */
 .zg-inkgold .glass,
 .zg-inkgold .glass-strong,
 .zg-inkgold .el-card {
@@ -640,25 +658,31 @@ html.zg-inkgold {
   border: 1px solid var(--zg-glass-2-border) !important;
   box-shadow: var(--zg-glass-2-shadow) !important;
 }
-.zg-inkgold .zg-card:hover { transform: translateY(-3px); border-color: rgba(186,117,23,0.45) !important; box-shadow: var(--zg-glass-2-shadow), 0 10px 28px -8px rgba(120,90,30,0.14) !important; }
+.zg-inkgold .zg-card:hover { transform: translateY(-3px); border-color: rgba(186,117,23,0.35) !important; box-shadow: var(--zg-glass-2-shadow), 0 14px 40px -12px rgba(120,90,30,0.12) !important; }
 
-/* 液态玻璃浮层：L1 主角玻璃——弹窗/抽屉 液态玻璃 0.08 + 亮边 0.7 + 多层高光 */
+/* 柔光玻璃浮层：L1 主角玻璃——弹窗/抽屉 高白度 0.65 + 大模糊 36px + 强亮边 0.85 */
 .zg-inkgold .el-dialog,
 .zg-inkgold .el-message-box {
   background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
-  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(36px) saturate(210%);
+  backdrop-filter: blur(36px) saturate(210%);
   border: 1px solid var(--zg-glass-1-border) !important;
   box-shadow: var(--zg-glass-1-shadow) !important;
 }
 .zg-inkgold .el-dialog__header,
-.zg-inkgold .el-message-box__header { background: transparent !important; border-bottom: none !important; }
+.zg-inkgold .el-message-box__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.10) !important; }
 .zg-inkgold .el-dialog__footer,
-.zg-inkgold .el-message-box__btns { background: transparent !important; border-top: none !important; }
-.zg-inkgold .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(12px) saturate(150%); backdrop-filter: blur(12px) saturate(150%); border-left: 1px solid var(--zg-glass-1-border) !important; box-shadow: var(--zg-glass-1-shadow) !important; }
-.zg-inkgold .el-drawer__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.14) !important; color: var(--zg-text) !important; }
+.zg-inkgold .el-message-box__btns { background: transparent !important; border-top: 1px solid rgba(186,117,23,0.10) !important; }
+.zg-inkgold .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(36px) saturate(210%); backdrop-filter: blur(36px) saturate(210%); border-left: 1px solid var(--zg-glass-1-border) !important; box-shadow: var(--zg-glass-1-shadow) !important; }
+.zg-inkgold .el-drawer__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.10) !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__close:hover { color: var(--zg-primary) !important; }
+/* 墨金模式遮罩层：极淡暖色遮罩（不是死黑！黑色遮罩+白玻璃=灰蒙灾难） */
+.zg-inkgold .el-overlay {
+  background: rgba(43,38,32,0.22) !important;
+  backdrop-filter: blur(6px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(160%) !important;
+}
 
 /* ===== 后台侧边栏：悬浮胶囊 暖白玻璃（仅墨金浅色） ===== */
 @media (min-width: 961px) {
@@ -782,11 +806,11 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
   max-width: 1240px !important;
   margin: 14px auto 0 !important;
   border-radius: 999px !important;
-  border: 1px solid rgba(186,117,23,0.22) !important;
-  background: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(250,244,232,0.82)) !important;
-  backdrop-filter: blur(18px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
-  box-shadow: 0 14px 48px rgba(186,117,23,0.12);
+  border: 1px solid var(--zg-glass-3-border) !important;
+  background: linear-gradient(160deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  box-shadow: var(--zg-glass-3-shadow) !important;
 }
 .zg-inkgold .nav-inner { height: 60px !important; padding: 0 18px !important; }
 .zg-inkgold .nav-link { border-radius: 999px !important; color: var(--zg-text-dim) !important; }

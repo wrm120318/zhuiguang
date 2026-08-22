@@ -82,3 +82,4 @@ dist/
 # ===== AI 临时生成产物 =====
 .trae-html-share-packages/
 .screenshots/
+.uploads/
