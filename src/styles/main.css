@@ -509,9 +509,11 @@ img { -webkit-user-drag: none; }
   .page { padding: 10px 0 calc(80px + env(safe-area-inset-bottom)); }
 }
 
-/* ===== 安全区域适配（刘海屏/底部横条）===== */
+/* ===== 安全区域适配（刘海屏/底部横条）=====
+   注意：tabbar和nav的padding由组件自身管理，这里只处理root的safe area */
 @supports (padding: max(0px)) {
-  .tabbar { padding-bottom: env(safe-area-inset-bottom) !important; }
+  .zg-inkgold .nav, .zg-inkgold-dark .nav { padding-top: env(safe-area-inset-top); }
+  .zg-inkgold .zg-root, .zg-inkgold-dark .zg-root { padding-top: env(safe-area-inset-top); }
 }
 
 /* ===== PC 桌面端宽屏适配 (1280px+) ===== */
@@ -584,43 +586,49 @@ html.zg-inkgold {
   --el-color-primary-light-9: #f9f7ea;
   --el-color-primary-dark-2: #b0923d;
 
-  /* —— 柔光玻璃材质系统 v9（Apple iOS 26 Liquid Glass 风格，去矩形框）——
-     核心原则：
-     1. 无完整border！只有顶部1px内高光模拟玻璃边缘反光（inset 0 1px 0 rgba(255,255,255,x)）
-     2. 阴影=近距接触阴影(小blur近) + 远距环境阴影(大blur远)，模拟物理光学
-     3. 饱和度140-160%（不是200%！高饱和=塑料感）
-     4. 玻璃底色0.5-0.7白度保证文字可读
-     5. 所有动效用iOS spring弹性曲线 cubic-bezier(0.34, 1.56, 0.64, 1) */
-  /* L1 主角（弹窗/抽屉/Hero）：最高级柔光玻璃 */
-  --zg-glass-1-bg: rgba(255,253,249,0.72);
-  --zg-glass-1-bg-2: rgba(255,249,238,0.62);
-  --zg-glass-1-highlight: inset 0 1px 0.5px rgba(255,255,255,0.9);
+  /* —— Liquid Glass 材质系统 v11（严格遵循铁律14 + Apple iOS 26 设计原则）——
+     铁律14：L1=0.08/L2=0.10/L3=0.12（几乎透明）+ 亮边0.6~0.7 + blur10~12px
+     Apple原则：玻璃仅用于导航层（悬浮在内容之上），靠透镜效应而非厚填充
+     关键：
+     1. 极薄填充：0.08~0.12，背景纸纹+光晕真正透出
+     2. 亮边而非边框：0.6~0.7白边（玻璃边缘反光，不是矩形框）
+     3. blur=12px，saturate=180%（透镜感，不是磨砂）
+     4. 禁止inset顶部釉光、禁止inset发丝金边（都是矩形框根因）
+     5. 柔影只"浮"不"框"：近距接触影+远距环境影，无硬边
+     6. spring弹性动效 cubic-bezier(0.34, 1.56, 0.64, 1) */
+  /* L1 主角（导航栏/dock/弹窗）：导航层厚玻璃 */
+  --zg-glass-1-bg: rgba(255,255,255,0.08);
+  --zg-glass-1-bg-2: rgba(255,252,245,0.06);
+  --zg-glass-1-highlight: none;
+  --zg-glass-1-border: rgba(255,255,255,0.65);
   --zg-glass-1-shadow:
-    0 0 0 0.5px rgba(255,255,255,0.3),
-    0 1px 2px rgba(120,90,30,0.04),
-    0 8px 24px -8px rgba(120,90,30,0.08),
-    0 24px 56px -20px rgba(120,90,30,0.10);
-  /* L2 卡片（美文/学科/列表卡）：标准柔光玻璃 */
-  --zg-glass-2-bg: rgba(255,253,249,0.62);
-  --zg-glass-2-bg-2: rgba(255,249,238,0.52);
-  --zg-glass-2-highlight: inset 0 1px 0.5px rgba(255,255,255,0.82);
+    0 0.5px 0 0 rgba(255,255,255,0.65),
+    0 1px 1.5px rgba(120,90,30,0.02),
+    0 4px 12px -6px rgba(120,90,30,0.06),
+    0 16px 40px -16px rgba(120,90,30,0.10);
+  /* L2 卡片（美文/学科/列表）：内容层薄玻璃 */
+  --zg-glass-2-bg: rgba(255,255,255,0.10);
+  --zg-glass-2-bg-2: rgba(255,252,245,0.07);
+  --zg-glass-2-highlight: none;
+  --zg-glass-2-border: rgba(255,255,255,0.55);
   --zg-glass-2-shadow:
-    0 0 0 0.5px rgba(255,255,255,0.25),
-    0 1px 2px rgba(120,90,30,0.03),
-    0 6px 20px -8px rgba(120,90,30,0.07),
-    0 20px 48px -20px rgba(120,90,30,0.08);
-  /* L3 点缀（瓷片/按钮/标签）：轻薄玻璃 */
-  --zg-glass-3-bg: rgba(255,253,249,0.55);
-  --zg-glass-3-bg-2: rgba(255,249,238,0.45);
-  --zg-glass-3-highlight: inset 0 1px 0.5px rgba(255,255,255,0.75);
+    0 0.5px 0 0 rgba(255,255,255,0.55),
+    0 1px 1px rgba(120,90,30,0.015),
+    0 3px 10px -6px rgba(120,90,30,0.05),
+    0 12px 32px -16px rgba(120,90,30,0.08);
+  /* L3 点缀（瓷片/按钮/标签）：元素级极薄玻璃 */
+  --zg-glass-3-bg: rgba(255,255,255,0.12);
+  --zg-glass-3-bg-2: rgba(255,252,245,0.08);
+  --zg-glass-3-highlight: none;
+  --zg-glass-3-border: rgba(255,255,255,0.45);
   --zg-glass-3-shadow:
-    0 0 0 0.5px rgba(255,255,255,0.2),
-    0 1px 2px rgba(120,90,30,0.03),
-    0 4px 16px -8px rgba(120,90,30,0.06),
-    0 12px 32px -16px rgba(120,90,30,0.06);
+    0 0.5px 0 0 rgba(255,255,255,0.45),
+    0 1px 1px rgba(120,90,30,0.01),
+    0 2px 8px -4px rgba(120,90,30,0.04),
+    0 8px 24px -12px rgba(120,90,30,0.06);
   /* 通用参数 */
-  --zg-glass-blur: 24px;
-  --zg-glass-sat: 150%;
+  --zg-glass-blur: 12px;
+  --zg-glass-sat: 180%;
   --zg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --zg-ease: cubic-bezier(0.22, 1, 0.36, 1);
   /* 兼容旧变量 */
@@ -628,56 +636,55 @@ html.zg-inkgold {
   --zg-glass-bg-2: var(--zg-glass-2-bg-2);
   --zg-hero-bg: var(--zg-glass-1-bg);
   --zg-hero-bg-2: var(--zg-glass-1-bg-2);
-  --zg-glass-1-border: transparent;
-  --zg-glass-2-border: transparent;
-  --zg-glass-3-border: transparent;
-  --zg-glaze: var(--zg-glass-1-highlight);
+  --zg-glaze: none;
   --zg-shadow: var(--zg-glass-2-shadow);
   --zg-shadow-lg: var(--zg-glass-1-shadow);
-  --zg-soft-1: 0 2px 8px -4px rgba(120,90,30,0.06);
-  --zg-soft-2: 0 8px 24px -12px rgba(120,90,30,0.08);
+  --zg-soft-1: 0 1px 4px -2px rgba(120,90,30,0.04);
+  --zg-soft-2: 0 6px 20px -10px rgba(120,90,30,0.06);
   --zg-soft-card: var(--zg-glass-2-shadow);
 }
 
-/* 主题背景图层：明亮暖白 + 极淡纸张纹理（底纹若隐若现） */
+/* 主题背景图层：暖白纸纹（真正透出，这是玻璃效果的基础） */
 .zg-inkgold .zg-bgimg {
   display: block !important;
   background-image: url('/bg/inkgold-paper.svg');
-  opacity: 0.3;
+  opacity: 0.9;
 }
-/* 背景：接近纯白暖白 + 多层香槟金呼吸光晕（2026高端阳光感） */
+/* 背景：干净暖白基底 + 极淡金色光晕（克制，不抢戏，让纸纹成为主角） */
 .zg-inkgold .zg-bg {
   animation: none !important;
   background:
-    radial-gradient(1600px 1000px at 8% -10%, rgba(232,213,163,0.12), transparent 62%),
-    radial-gradient(1300px 900px at 108% 5%, rgba(201,168,76,0.08), transparent 58%),
-    radial-gradient(900px 700px at 50% 110%, rgba(232,213,163,0.08), transparent 60%),
-    linear-gradient(165deg, rgba(255,253,249,0.98) 0%, rgba(255,251,245,0.96) 45%, rgba(255,248,238,0.94) 100%) !important;
+    /* 左上淡金光晕 */
+    radial-gradient(1000px 700px at 0% 0%, rgba(232,213,163,0.10), transparent 60%),
+    /* 右下更淡的暖光 */
+    radial-gradient(800px 600px at 100% 100%, rgba(201,168,76,0.06), transparent 65%),
+    /* 基础暖白 - 更干净，接近白纸 */
+    linear-gradient(165deg, #FFFDF8 0%, #FFFBF4 50%, #FFF9EF 100%) !important;
 }
 .zg-inkgold .zg-bg::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(500px 350px at 20% 20%, rgba(232,213,163,0.04), transparent 70%),
-    radial-gradient(400px 300px at 80% 70%, rgba(201,168,76,0.03), transparent 70%);
-  animation: zgBgBreath 24s ease-in-out infinite;
+    radial-gradient(500px 350px at 30% 20%, rgba(232,213,163,0.04), transparent 70%),
+    radial-gradient(400px 300px at 70% 70%, rgba(201,168,76,0.03), transparent 70%);
+  animation: zgBgBreath 30s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes zgBgBreath {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.03); }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 .zg-inkgold .zg-bg::after { display: none !important; }
-.zg-inkgold .zg-orb { opacity: 0.10 !important; filter: blur(120px) !important; }
-.zg-inkgold .zg-orb.a { width: 480px; height: 480px; background: radial-gradient(circle, rgba(212,175,55,0.16), transparent 72%) !important; top: -140px; left: -100px; animation: zgFloatA 28s ease-in-out infinite; }
-.zg-inkgold .zg-orb.b { width: 380px; height: 380px; background: radial-gradient(circle, rgba(200,146,46,0.12), transparent 72%) !important; bottom: -140px; right: -80px; animation: zgFloatB 32s ease-in-out infinite reverse; }
-.zg-inkgold .zg-orb.c { width: 320px; height: 320px; background: radial-gradient(circle, rgba(186,140,60,0.08), transparent 72%) !important; top: 38%; left: 58%; opacity: 0.06 !important; animation: zgFloatC 36s ease-in-out infinite; animation-delay: -12s; }
-@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.08; } 50% { transform: translate(20px,15px) scale(1.04); opacity: 0.12; } }
-@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.06; } 50% { transform: translate(-15px,-10px) scale(1.04); opacity: 0.10; } }
-@keyframes zgFloatC { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.04; } 50% { transform: translate(-12px,18px) scale(1.06); opacity: 0.08; } }
+/* 浮动光球：极淡，作为环境光，不喧宾夺主 */
+.zg-inkgold .zg-orb { opacity: 1 !important; filter: blur(120px) !important; }
+.zg-inkgold .zg-orb.a { width: 400px; height: 400px; background: radial-gradient(circle, rgba(212,175,55,0.08), transparent 70%) !important; top: -120px; left: -80px; animation: zgFloatA 30s ease-in-out infinite; }
+.zg-inkgold .zg-orb.b { width: 350px; height: 350px; background: radial-gradient(circle, rgba(232,213,163,0.06), transparent 70%) !important; bottom: -120px; right: -80px; animation: zgFloatB 35s ease-in-out infinite reverse; }
+.zg-inkgold .zg-orb.c { display: none !important; }
+@keyframes zgFloatA { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.06; } 50% { transform: translate(20px,15px) scale(1.05); opacity: 0.10; } }
+@keyframes zgFloatB { 0%,100% { transform: translate(0,0) scale(1); opacity: 0.04; } 50% { transform: translate(-15px,-10px) scale(1.04); opacity: 0.08; } }
 
-/* 内容卡：L2 标准柔光玻璃——无完整边框，只有顶部高光+多层柔和阴影 */
+/* 内容卡：L2 标准柔光玻璃——亮边+多层柔影，无矩形框 */
 .zg-inkgold .glass,
 .zg-inkgold .glass-strong,
 .zg-inkgold .el-card {
@@ -685,25 +692,25 @@ html.zg-inkgold {
   -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   border: none !important;
-  box-shadow: var(--zg-glass-2-highlight), var(--zg-glass-2-shadow) !important;
+  box-shadow: var(--zg-glass-2-shadow) !important;
 }
 .zg-inkgold .zg-card { transition: transform .35s var(--zg-ease), box-shadow .35s var(--zg-ease); }
-.zg-inkgold .zg-card:hover { transform: translateY(-4px); box-shadow: var(--zg-glass-2-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 12px 32px -10px rgba(120,90,30,0.10), 0 28px 64px -24px rgba(120,90,30,0.10) !important; }
+.zg-inkgold .zg-card:hover { transform: translateY(-3px); box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.6), 0 1px 2px rgba(120,90,30,0.03), 0 8px 24px -10px rgba(120,90,30,0.08), 0 20px 48px -20px rgba(120,90,30,0.08) !important; }
 
-/* L1 主角玻璃（弹窗/抽屉/Hero） */
+/* L1 主角玻璃（弹窗/抽屉/导航栏/dock）：导航层厚玻璃 */
 .zg-inkgold .el-dialog,
 .zg-inkgold .el-message-box {
   background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(150%);
-  backdrop-filter: blur(32px) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   border: none !important;
-  box-shadow: var(--zg-glass-1-highlight), var(--zg-glass-1-shadow) !important;
+  box-shadow: var(--zg-glass-1-shadow) !important;
 }
 .zg-inkgold .el-dialog__header,
 .zg-inkgold .el-message-box__header { background: transparent !important; border-bottom: 1px solid rgba(186,117,23,0.10) !important; }
 .zg-inkgold .el-dialog__footer,
 .zg-inkgold .el-message-box__btns { background: transparent !important; border-top: 1px solid rgba(186,117,23,0.10) !important; }
-.zg-inkgold .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(32px) saturate(150%); backdrop-filter: blur(32px) saturate(150%); border: none !important; box-shadow: var(--zg-glass-1-highlight), -8px 0 32px -8px rgba(120,90,30,0.12) !important; }
+.zg-inkgold .el-drawer { background: linear-gradient(160deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important; -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)); backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)); border: none !important; box-shadow: var(--zg-glass-1-shadow) !important; }
 .zg-inkgold .el-drawer__header { background: transparent !important; border-bottom: 0.5px solid rgba(186,117,23,0.08) !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__body { background: transparent !important; color: var(--zg-text) !important; }
 .zg-inkgold .el-drawer__close:hover { color: var(--zg-primary) !important; }
@@ -1483,10 +1490,8 @@ html.zg-inkgold-dark {
 }
 .zg-inkgold .el-form-item.is-error, .zg-inkgold-dark .el-form-item.is-error { animation: zgShake .42s ease; }
 
-/* B8 移动端：安全区（刘海/底部 Home 条） */
+/* B8 移动端：安全区（刘海/底部 Home 条） - tabbar padding由组件自身管理 */
 @supports (padding: env(safe-area-inset-bottom)) {
-  .zg-inkgold .tabbar, .zg-inkgold-dark .tabbar { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
-  .zg-inkgold .nav, .zg-inkgold-dark .nav { padding-top: env(safe-area-inset-top); }
   .zg-inkgold .zg-root, .zg-inkgold-dark .zg-root { padding-top: env(safe-area-inset-top); }
 }
 

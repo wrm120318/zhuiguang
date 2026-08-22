@@ -108,7 +108,7 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 .zg-bgimg { position: fixed; inset: 0; z-index: -2; pointer-events: none; display: none; background-size: cover; background-position: center; background-repeat: no-repeat; }
 .app-main { min-height: calc(100vh - 64px); min-height: calc(100dvh - 64px); }
 .app-main.public-page { min-height: 100vh; min-height: 100dvh; }
-.has-tabbar { padding-bottom: 64px; }
+.has-tabbar { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .zg-splash { display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh; height:80dvh; gap:14px; }
 .public-page .zg-splash { height:100vh; height:100dvh; }
 .zg-splash-logo { font-size:56px; filter: drop-shadow(0 0 16px rgba(var(--zg-primary-rgb),0.4)); animation: zgBreath 3.2s ease-in-out infinite; }
@@ -118,5 +118,7 @@ onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTim
 @keyframes zgSplashMove { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
 @media (max-width: 768px) {
   .app-main:not(.public-page) { min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }
+  /* 移动端：悬浮dock高58px + 底部32px留白 = 90px */
+  .has-tabbar { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 }
 </style>

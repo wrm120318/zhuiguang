@@ -378,38 +378,38 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 }
 
 /* ============================================================
-   墨金学术 · 2026 Liquid Glass 高端设计语言
-   统一设计系统：无完整border，只有顶部高光+多层柔和阴影
+   墨金学术 · 2026 Liquid Glass 高端设计语言 v11
+   严格遵循铁律14：L1=0.08/L2=0.10/L3=0.12，亮边0.55~0.65，blur=12px
    动效统一用 var(--zg-ease) / var(--zg-spring) 弹性曲线
    ============================================================ */
-/* L1 Hero 区：主角级 Liquid Glass */
+/* L1 Hero 区：主角级导航层玻璃 */
 .zg-inkgold .hero {
   background: linear-gradient(155deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(150%) !important;
-  backdrop-filter: blur(32px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
   border: none !important;
-  border-radius: 28px !important;
-  box-shadow: var(--zg-glass-1-highlight), var(--zg-glass-1-shadow) !important;
+  border-radius: 24px !important;
+  box-shadow: var(--zg-glass-1-shadow) !important;
   overflow: hidden !important;
-  margin: 6px 0 28px !important;
-  padding: 56px 54px 50px !important;
-  min-height: 360px !important;
-  transition: transform .4s var(--zg-ease), box-shadow .4s var(--zg-ease);
+  margin: 8px 0 24px !important;
+  padding: 48px 44px 42px !important;
+  min-height: 320px !important;
+  transition: transform .4s var(--zg-spring), box-shadow .4s var(--zg-ease);
 }
 .zg-inkgold .hero:hover {
   transform: translateY(-2px);
-  box-shadow: var(--zg-glass-1-highlight), 0 1px 2px rgba(120,90,30,0.05), 0 12px 36px -10px rgba(120,90,30,0.12), 0 32px 72px -24px rgba(120,90,30,0.10) !important;
+  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.7), 0 1px 2px rgba(120,90,30,0.03), 0 8px 24px -8px rgba(120,90,30,0.08), 0 24px 56px -20px rgba(120,90,30,0.10) !important;
 }
 /* 移除经典模式的顶部金线 */
 .zg-inkgold .hero::before { display: none !important; }
 .zg-inkgold .hero::after { display: none !important; }
-/* 右上角光晕：在玻璃容器内 */
+/* 右上角光晕：在玻璃容器内，极淡 */
 .zg-inkgold .hero-glaze {
   display: block; position: absolute; z-index: 1; pointer-events: none;
-  top: -80px; right: -100px; width: 500px; height: 500px; border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .18), rgba(var(--zg-primary-rgb), .06) 40%, transparent 70%);
-  filter: blur(80px);
-  opacity: 0.8;
+  top: -60px; right: -80px; width: 400px; height: 400px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .08), rgba(var(--zg-primary-rgb), .03) 40%, transparent 70%);
+  filter: blur(100px);
+  opacity: 0.7;
 }
 /* 统计条容器 */
 .zg-inkgold .hero-stats {
@@ -421,23 +421,23 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   padding: 0 !important;
   gap: 10px;
 }
-/* 数据卡：L3柔光 */
+/* 数据卡：L3极薄玻璃 */
 .zg-inkgold .hs-item {
   background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
-  border-radius: 16px !important;
-  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  backdrop-filter: blur(20px) saturate(140%);
-  padding: 14px 16px !important;
+  border-radius: 14px !important;
+  box-shadow: var(--zg-glass-3-shadow) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  padding: 12px 14px !important;
   min-width: 80px;
   flex: 1 1 0;
   text-align: center;
   transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease);
 }
 .zg-inkgold .hs-item:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 6px 18px -8px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.5), 0 1px 1px rgba(120,90,30,0.02), 0 4px 12px -4px rgba(120,90,30,0.05), 0 12px 28px -14px rgba(120,90,30,0.06) !important;
 }
 .zg-inkgold .hs-num {
   font-family: var(--zg-font) !important;
@@ -463,36 +463,36 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
   color: var(--zg-text) !important;
-  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  backdrop-filter: blur(20px) saturate(140%);
+  box-shadow: var(--zg-glass-3-shadow) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease), background .3s var(--zg-ease);
 }
 .zg-inkgold .cta-ghost:hover {
-  background: linear-gradient(155deg, rgba(255,255,255,0.75), rgba(255,253,249,0.65)) !important;
-  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 6px 18px -8px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
-  transform: translateY(-2px);
+  background: linear-gradient(155deg, rgba(255,255,255,0.18), rgba(255,252,245,0.12)) !important;
+  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.55), 0 1px 1px rgba(120,90,30,0.02), 0 4px 12px -4px rgba(120,90,30,0.05), 0 12px 28px -14px rgba(120,90,30,0.06) !important;
+  transform: translateY(-1px);
 }
-/* 美文卡：L2标准柔光 - 无矩形框 */
+/* 美文卡：L2薄玻璃 - 无矩形框 */
 .zg-inkgold .art-card {
   background: linear-gradient(155deg, var(--zg-glass-2-bg), var(--zg-glass-2-bg-2)) !important;
   border: none !important;
-  border-radius: 20px !important;
-  box-shadow: var(--zg-glass-2-highlight), var(--zg-glass-2-shadow) !important;
+  border-radius: 18px !important;
+  box-shadow: var(--zg-glass-2-shadow) !important;
   -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   overflow: hidden;
   transition: transform .35s var(--zg-ease), box-shadow .35s var(--zg-ease);
 }
-/* 快捷入口/学科芯片：L3柔光 */
+/* 快捷入口/学科芯片：L3极薄玻璃 */
 .zg-inkgold .qr-item,
 .zg-inkgold .subj-chip {
   background: linear-gradient(155deg, var(--zg-glass-3-bg), var(--zg-glass-3-bg-2)) !important;
   border: none !important;
-  border-radius: 16px !important;
-  box-shadow: var(--zg-glass-3-highlight), var(--zg-glass-3-shadow) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  backdrop-filter: blur(20px) saturate(140%);
+  border-radius: 14px !important;
+  box-shadow: var(--zg-glass-3-shadow) !important;
+  -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
+  backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat));
   transition: transform .3s var(--zg-ease), box-shadow .3s var(--zg-ease);
 }
 /* 公告栏 */
@@ -503,23 +503,20 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   box-shadow: none !important;
   border-radius: 0 16px 16px 0 !important;
 }
-/* hover - spring弹性浮起 */
+/* hover - spring弹性浮起，克制 */
 .zg-inkgold .qr-item:hover,
 .zg-inkgold .subj-chip:hover {
-  transform: translateY(-3px) scale(1.01);
-  box-shadow: var(--zg-glass-3-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 8px 22px -8px rgba(120,90,30,0.08), 0 18px 40px -18px rgba(120,90,30,0.07) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.55), 0 1px 1px rgba(120,90,30,0.02), 0 5px 16px -6px rgba(120,90,30,0.06), 0 14px 32px -16px rgba(120,90,30,0.06) !important;
 }
 .zg-inkgold .art-card:hover {
-  transform: translateY(-5px);
-  box-shadow: var(--zg-glass-2-highlight), 0 1px 2px rgba(120,90,30,0.04), 0 12px 32px -10px rgba(120,90,30,0.10), 0 28px 64px -24px rgba(120,90,30,0.10) !important;
+  transform: translateY(-3px);
+  box-shadow: 0 0.5px 0 0 rgba(255,255,255,0.6), 0 1px 2px rgba(120,90,30,0.02), 0 6px 20px -8px rgba(120,90,30,0.07), 0 20px 44px -20px rgba(120,90,30,0.08) !important;
 }
 /* 深色档 */
 .zg-inkgold.zg-inkgold-dark .hero {
-  background: linear-gradient(155deg, rgba(56,48,34,0.78), rgba(40,32,22,0.68)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,243,214,0.10),
-    0 8px 24px -8px rgba(0,0,0,0.28),
-    0 24px 60px -24px rgba(0,0,0,0.22) !important;
+  background: linear-gradient(155deg, rgba(40,33,22,0.18), rgba(28,22,14,0.10)) !important;
+  box-shadow: var(--zg-glass-1-shadow) !important;
 }
 .zg-inkgold.zg-inkgold-dark .hero-glaze {
   background: radial-gradient(circle at 50% 50%, rgba(var(--zg-accent-rgb), .10), rgba(var(--zg-primary-rgb), .04) 40%, transparent 70%);

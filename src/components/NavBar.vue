@@ -283,35 +283,38 @@ function typeLabel(t: string) {
 </template>
 
 <style scoped>
-/* ===== 2026 Liquid Glass 导航栏 ===== */
+/* ===== 2026 Liquid Glass 导航栏 - L1导航层薄玻璃（铁律14）===== */
 .nav {
   position: sticky;
   top: 0;
   z-index: 100;
   border-radius: 0;
   border: none !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,253,249,0.75));
-  -webkit-backdrop-filter: blur(40px) saturate(150%);
-  backdrop-filter: blur(40px) saturate(150%);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,252,245,0.06));
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(180%);
   box-shadow:
-    inset 0 0.5px 0.5px rgba(255,255,255,0.9),
-    0 1px 2px rgba(120,90,30,0.03),
-    0 8px 28px -12px rgba(120,90,30,0.06);
+    0 0.5px 0 0 rgba(255,255,255,0.65),
+    0 1px 1.5px rgba(120,90,30,0.02),
+    0 6px 20px -8px rgba(120,90,30,0.06);
   transition: box-shadow .3s var(--zg-ease), background .3s var(--zg-ease);
 }
 /* 墨金深色模式导航栏 */
 .zg-inkgold-dark .nav {
-  background: linear-gradient(180deg, rgba(56,48,34,0.88), rgba(40,32,22,0.78));
-  -webkit-backdrop-filter: blur(40px) saturate(140%);
-  backdrop-filter: blur(40px) saturate(140%);
+  background: linear-gradient(180deg, rgba(40,33,22,0.18), rgba(28,22,14,0.10));
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  backdrop-filter: blur(12px) saturate(180%);
   box-shadow:
-    inset 0 0.5px 0.5px rgba(255,243,214,0.10),
-    0 1px 2px rgba(0,0,0,0.18),
-    0 8px 28px -12px rgba(0,0,0,0.25);
+    0 0.5px 0 0 rgba(255,243,214,0.15),
+    0 1px 2px rgba(0,0,0,0.10),
+    0 6px 20px -8px rgba(0,0,0,0.20);
 }
-/* 经典橙色模式导航栏保持兼容 */
+/* 经典橙色模式导航栏保持兼容 - 不动经典 */
 html:not(.zg-inkgold) .nav {
   background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,248,240,0.82));
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: 0 1px 3px rgba(245,158,11,0.08);
 }
 .nav-inner { display: flex; align-items: center; height: 64px; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 10px 6px 4px; border-radius: 16px; transition: background .2s ease; }
