@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- 追光 · 经典暖橙标记（报告 §8.2）
+       母题：暖光核心 + 极简追光弧 + 点缀光斑；透明底、无方块，现代化高级。 -->
+  <defs>
+    <linearGradient id="arc" x1="10" y1="78" x2="92" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F59E0B" stop-opacity=".55"/>
+      <stop offset=".45" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+    <radialGradient id="core" cx="38%" cy="32%" r="72%">
+      <stop offset="0" stop-color="#FFF7E0"/>
+      <stop offset=".42" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#FBBF24" stop-opacity=".42"/>
+      <stop offset=".62" stop-color="#FBBF24" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#FBBF24" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- 柔光晕：营造"发光"高级感，透明底不成块 -->
+  <circle cx="52" cy="41" r="41" fill="url(#halo)"/>
+  <!-- 追光轨迹：下凸光弧，圆头收笔（象征追光的轨迹与地平线光带） -->
+  <path d="M11 70 Q50 97 91 55" fill="none" stroke="url(#arc)" stroke-width="12" stroke-linecap="round"/>
+  <!-- 光核：主体，小尺寸下仍清晰可辨 -->
+  <circle cx="52" cy="41" r="19" fill="url(#core)"/>
+  <!-- 点缀光斑 -->
+  <circle cx="84" cy="21" r="5.2" fill="#FBBF24"/>
+</svg>

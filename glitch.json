@@ -1,0 +1,4 @@
+{
+  "install": "npm ci --omit=dev",
+  "start": "tsx server/index.ts"
+}

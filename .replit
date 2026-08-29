@@ -1,0 +1,16 @@
+# ============================================================
+# 追光学科共享平台 · Replit零绑卡部署配置 (v1.0 2026-08-06)
+# 官方文档: https://docs.replit.com/programming-ide/configuring-repl
+# 启动命令: npm run start  (即 tsx server/index.ts)
+# Node版本要求: >=20  (用 replit.nix 里的 nodePackages.nodejs-20_x)
+# ============================================================
+
+entrypoint = "server/index.ts"
+run = ["npm", "run", "start"]
+
+[nix]
+channel = "stable-24.05"
+
+[env]
+XDG_CONFIG_HOME = "/home/runner/.config"
+PATH = "/home/runner/$REPL_SLUG/.node_modules/bin:/var/run/nix/current/sw/bin:$PATH"

@@ -1,0 +1,44 @@
+# ===== 追光 · 学科共享平台 —— Render.com 一键部署配置 =====
+# 使用方法：
+#   1. 把代码推送到 GitHub 仓库
+#   2. 登录 https://dashboard.render.com → New → Web Service → 连接你的仓库
+#   3. Render 自动识别本文件，然后在 Environment Variables 里填入 Turso+Supabase 凭据
+#   4. Create Web Service → 等 2-5 分钟自动构建部署
+#   5. 首次启动自动建表 + 创建超管 admin / admin123456
+services:
+  - type: web
+    name: zhuiguang
+    runtime: node
+    region: singapore
+    plan: free
+    numInstances: 1
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/pages/guide
+    autoDeploy: yes
+    # Render 会自动缓存 node_modules，加速下一次构建
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NODE_ENV
+        value: production
+      # —— 应用基础（JWT_SECRET 由 Render 自动生成随机值）——
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES
+        value: 7d
+      # —— Turso 数据库（免费 9GB）——
+      #   注册 https://turso.tech → Create DB → 把下方两项在 Render 控制台手动填入
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      # —— Supabase Storage（免费 1GB）——
+      #   注册 https://supabase.com → New project → Storage → 创建名为 zhuiguang-files 的 Public Bucket
+      #   Settings → API → 把 Project URL 和 service_role key 在 Render 控制台手动填入
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: zhuiguang

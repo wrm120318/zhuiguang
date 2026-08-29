@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- 追光 · 墨金学术标记（报告 §8.2）
+       与经典档同一母题（光核 + 追光弧 + 光斑），仅换沉稳金调；透明底、无方块。 -->
+  <defs>
+    <linearGradient id="arcG" x1="10" y1="78" x2="92" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BA7517" stop-opacity=".55"/>
+      <stop offset=".45" stop-color="#BA7517"/>
+      <stop offset="1" stop-color="#D4AF37"/>
+    </linearGradient>
+    <radialGradient id="coreG" cx="38%" cy="32%" r="72%">
+      <stop offset="0" stop-color="#FBF3DC"/>
+      <stop offset=".42" stop-color="#D4AF37"/>
+      <stop offset="1" stop-color="#BA7517"/>
+    </radialGradient>
+    <radialGradient id="haloG" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#D4AF37" stop-opacity=".40"/>
+      <stop offset=".62" stop-color="#D4AF37" stop-opacity=".11"/>
+      <stop offset="1" stop-color="#D4AF37" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- 柔金光晕 -->
+  <circle cx="52" cy="41" r="41" fill="url(#haloG)"/>
+  <!-- 追光轨迹：下凸光弧，圆头收笔 -->
+  <path d="M11 70 Q50 97 91 55" fill="none" stroke="url(#arcG)" stroke-width="12" stroke-linecap="round"/>
+  <!-- 光核 -->
+  <circle cx="52" cy="41" r="19" fill="url(#coreG)"/>
+  <!-- 发丝金边：墨金专属"釉光"细节 -->
+  <circle cx="52" cy="41" r="19" fill="none" stroke="#F3E3B4" stroke-opacity=".5" stroke-width="1.1"/>
+  <!-- 点缀光斑 -->
+  <circle cx="84" cy="21" r="5.2" fill="#D4AF37"/>
+</svg>
