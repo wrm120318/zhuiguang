@@ -458,7 +458,7 @@ app.get('/api/users/search', auth, async (req, res) => {
   const like = `%${q.replace(/[%_]/g, ch => '\\' + ch)}%`
   const rows = await all<any>(
     `SELECT id, username, real_name FROM users
-     WHERE status='ACTIVE' AND (username LIKE ? OR real_name LIKE ?)
+     WHERE status='active' AND (username LIKE ? OR real_name LIKE ?)
      ORDER BY
        CASE WHEN username=? THEN 0
             WHEN username LIKE ? THEN 1
