@@ -5,6 +5,57 @@
 
 ---
 
+## [v4.2.4] - 2026-08-29
+
+> @提及点击跳对方主页 + 下载提速 + 评论发送即时反馈
+
+### Bug 修复
+
+**1. @用户后在阅读界面点击用户跳自己主页**（v4.2.3 引入的链路断点）
+- 修前：`MarkdownEditor` 的 `mention` 扩展正确生成 `<a href="/profile?uid=12">`，但 `ProfileView` 完全没读 URL `?uid=` 参数——`onMounted` 只调 `user.fetchProfile()` 取当前登录用户，所以无论点谁 @提及都跳**自己主页**
+- 修后：
+  - 后端新增 `GET /api/users/:id`（登录即可访问，仅返回 active 用户；含真实经验值）
+  - 前端 `ProfileView` 新增 `?uid=` 解析：自己模式保留原行为；他人模式只读展示（头像/姓名/角色/用户名/经验值，**隐藏邮箱/手机/私人数据/编辑按钮**）
+  - `api.getUser(id)` 包装
+  - mention 扩展代码无需改动——href 一直是对的，问题只在 ProfileView
+
+**2. 下载反应过慢**（用户反馈）
+- 修前：`SubjectView.downloadResource` 用 axios `responseType: 'blob'` 拉文件——必须**等所有字节从 Workers → Supabase → Workers → 浏览器全部缓冲到 JS 内存**才触发 `<a>.click()`，1MB 文件体感 2-3 秒延迟
+- 修后：改为浏览器原生 `<a href="/file/r/:id?token=xxx" target="_blank">`——后端 `/file/r/:id` 已设 `Content-Disposition: attachment` + HOT 内存缓存 + JWT/D1 鉴权，浏览器立即开始流式下载，**视觉反馈即时**
+- 兜底：仅在 token 缺失时回退到 axios blob 走错误提示路径
+
+**3. 评论发完无视觉反馈**（v4.2.0 引入的隐性 bug）
+- 修前：
+  - `CommentTree.submitTop` 把 `topText.value = ''` 放在 `await onSubmit()` 之后——若父组件抛错会跳过清空逻辑；用户提交后看到"输入框还在"误以为没成功
+  - 三个详情页（ArticleView/BlogDetailView/SubjectForumPostView）的 `onCommentSubmit` **没 try-catch**，内部静默失败（嵌套子评论 push 到原数组可能丢失响应式）
+  - 成功后虽有 `ElMessage.success`，但列表刷新**没保证**——若后端偶发返回不带 id 的对象（如 401 重定向），`unshift(undefined)` 静默失败
+- 修后：
+  - `CommentTree.submitTop/submitReply`：**先清空输入框**给用户即时视觉反馈（已点击），失败时 `catch` 恢复输入框内容，throw 让上层处理
+  - 三个详情页 `onCommentSubmit` 加 try-catch + ElMessage 错误提示 + throw
+  - 嵌套子评论 push 改用「**新数组赋值**」（`comments.value[idx] = { ...parent, children }`）确保 Vue 响应式触发
+  - 后端返回无 id 时兜底 reload 整个列表
+
+### 部署
+
+- 后端：`wrangler deploy` → version `03ddcc36-89b3-4346-8345-4a2e1753391e`（含 `GET /api/users/:id`）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建（2-3 分钟）
+- 验证：`npm run build` 通过；`GET /api/users/1` 生产验证返回完整 admin 对象；`/api/users/999` 返回 404
+
+### 文件清单
+
+**修改**：
+- `worker-api.ts`（+28 行：GET /api/users/:id）
+- `server/index.ts`（+27 行：同步 GET /api/users/:id）
+- `src/api/index.ts`（+1 行：api.getUser）
+- `src/views/ProfileView.vue`（+45 行：他人主页只读模式 + viewUser 切换 + watch 路由 ?uid）
+- `src/views/SubjectView.vue`（downloadResource 重写为 <a href> 直跳）
+- `src/views/ArticleView.vue`（onCommentSubmit 加 try-catch + 嵌套子评论新数组赋值）
+- `src/views/BlogDetailView.vue`（同上）
+- `src/views/SubjectForumPostView.vue`（同上）
+- `src/components/CommentTree.vue`（submitTop/submitReply 先清输入框，失败恢复）
+
+---
+
 ## [v4.2.3] - 2026-08-29
 
 > 编辑器扩展 9 项功能落地 + 预览/详情渲染一致性 + @提及 选择器（用户只写一个字段）
