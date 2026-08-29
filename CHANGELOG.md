@@ -79,11 +79,11 @@
 - **【编辑器】粘贴 HTML 被吞成纯文本**：`MarkdownEditor.vue` 的 `onPaste` 原只处理图片粘贴，富文本 HTML 被浏览器按 `text/plain` 脱标签写入，粘进来成了纯文本。现改为：① 图片文件优先（保留原粘贴上传）；② 若剪贴板含 `text/html`，用 `sanitizeHtml`（现有白名单）清洗后按 HTML 源码插入；③ 平凡包裹（单个 `<div>文字</div>` 且无其它标签）回落浏览器默认纯文本粘贴，避免误插。复用并导出 `marked-extensions.ts` 的 `sanitizeHtml`，避免重复白名单。
 - **【论坛编辑】编辑帖子时误加载本地草稿、覆盖原帖**：`SubjectForumEditView.vue` 的 `onMounted` 在拉取原帖内容后无条件调用 `tryRestoreDraft()`，而 `tryRestoreDraft` 的编辑分支会先用 `useAutoSave.restoreDraft()` 把表单覆盖成本地草稿（即便用户点"放弃草稿"，`clear()` 只删 localStorage、并不还原表单），导致打开编辑页看到的是草稿而非原帖。`ArticleEditView` 同类流程是对的（编辑分支只 `loadForEdit()`、不恢复草稿）。修复：编辑模式分支直接跳过草稿恢复，始终以原帖内容为准；新建模式仍保留草稿恢复。`useAutoSave` 的 `restoreDraft()` 会直接改写表单且无"只检测不写入"接口，故采用"编辑模式不调用"的最小修复。
 - **【题库报告】学生报告看不到单题得分**：`QuizReportView.vue` 学生个人报告每题头部只渲染了题目满分 `q.score`，从未渲染学生该题实际得分。后端 `my_report` 返回的 `submission.answers.graded[qid].score` 一直存在（客观题提交即自动评分、主观题教师批改后更新；教师批改视图 `QuizSubmissionsView.vue` 早已用同一字段），属纯前端漏渲染。修复：每题头部改为显示「本题 X 分 · 你的得分 Y 分」，并按对错/待批改着色（客观题对绿错红、主观题待批改/已得分用主题色）。
-- **【通知】博客/论坛的评论/点赞作者收不到提醒（有的评论点赞漏通知）**：`pages` 表无 `user_id` 列（作者存于 `author_id`），但页面点赞/评论通知查询写的是 `SELECT user_id ... FROM pages`，该列不存在 → `p.user_id` 为 `undefined` → `Number(undefined)=NaN` → 通知被写入 `notices.user_id=NaN/0`，真实作者永远收不到。v4.2.1 引入博客/论坛通知时即埋下此根因（当时"核对确认无需改"但漏看了表结构）。修复：通知查询改为 `SELECT author_id AS user_id, ...`，并用相关子查询 `(SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug` 修正论坛通知点击跳转 URL（`pages` 无 `slug` 列，论坛路由 `/subject/:slug/forum/post/:id` 需要学科 slug）。`worker-api.ts` 与 `server/index.ts` 同步修复。文章（`articles.user_id`）与资料（`resources.user_id`）各自有该列，本就正常，故表现为"有的评论点赞收不到"。
+- **【通知】博客/论坛的评论/点赞作者收不到提醒（有的评论点赞漏通知）**：`pages` 表无 `user_id` 列（作者存于 `author_id`），但页面点赞/评论通知查询写的是 `SELECT user_id ... FROM pages`，该列不存在 → `p.user_id` 为 `undefined` → `Number(undefined)=NaN` → 通知被写入 `notices.user_id=NaN/0`，真实作者永远收不到。v4.2.1 引入博客/论坛通知时即埋下此根因（当时"核对确认无需改"但漏看了表结构）。修复：通知查询改为 `SELECT author_id AS user_id, ...`，并用相关子查询 `(SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug` 修正论坛通知点击跳转 URL（`pages` 无 `slug` 列，论坛路由 `/subject/:slug/forum/post/:id` 需要学科 slug）。`worker-api.ts` 与 `server/index.ts` 同步修复。文章（`articles.user_id`）与资料（`resources.user_id`）各自有该列，本就正常，故表现为"有的评论点赞收不到"。**【部署状态】后端已部署（`worker-api.ts`，version `272a001b-11d8-49e0-966d-75d84274032e`）；生产 D1 验证：论坛帖子收件人 `author_id=69`、博客帖子 `author_id=1` 均正确解析（修复前为 `NaN`）。**
 
 ### 部署
 
-- 后端：`wrangler deploy` → `https://zhuiguang-api.wangruiming-0318.workers.dev` v4.2.2 已部署
+- 后端：`wrangler deploy` → `https://zhuiguang-api.wangruiming-0318.workers.dev` 当前版本 `272a001b`（含本次通知修复）
 - 前端：`git push origin main` → Cloudflare Pages 自动 build 部署
 - 验证：`npm run build` 通过（vue-tsc 类型检查 + vite 构建）
 - 沙箱 curl 验证 PATCH /api/articles/:id 路由已生效
