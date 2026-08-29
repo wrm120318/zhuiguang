@@ -55,7 +55,7 @@
 - **禁止**使用 `:before-upload`（异步失败被静默吞，用户无感知）。
 - **>100KB** 的文件**必须**前端直传 Supabase presign URL，不走后端。
 - **禁止**改回 `POST /api/upload/file` multipart 方式。
-- 涉及上传的页面改一个都不能漏（清单见交接文档 7.4 章）。
+- 涉及上传的页面改一个都不能漏（清单见交接文档第 7.2 节）。
 
 ### 1.5 命名规范
 
@@ -275,7 +275,7 @@ SQLite 返回的 lastInsertRowid 为 BigInt，JSON.stringify 报错。
 | 位置 | 内容 | 禁止操作 |
 |---|---|---|
 | 角色名常量 | `SUPER_ADMIN` / `TEACHER` / `STUDENT` | 禁止改名、禁止新增角色 |
-| schema.sql | 23 张表结构 | 禁止随意 ALTER 表/删表 |
+| schema.sql | 24 张表结构 | 禁止随意 ALTER 表/删表 |
 | 权限中间件 | `requireRole('SUPER_ADMIN')` 敏感接口保护 | 禁止降级为 `requireStaff` |
 
 ### 6.4 业务逻辑

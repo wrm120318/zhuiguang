@@ -27,7 +27,7 @@ npx wrangler d1 create zhuiguang-db
 ### 第二步：建表 + 写入种子数据
 
 ```bash
-# 建表（23 张表 + 索引）
+# 建表（24 张表 + 索引，幂等 IF NOT EXISTS）
 npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql
 
 # 验证

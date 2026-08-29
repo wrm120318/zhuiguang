@@ -268,7 +268,7 @@ npx wrangler d1 execute zhuiguang-db --remote --command="SELECT * FROM users WHE
 
 ### 数据库结构
 
-共 23 张表，建表脚本见 `schema.sql`。表清单见 `README.md` 技术架构总览章节。**禁止**随意 ALTER 表或删表。
+共 24 张表，建表脚本见 `schema.sql`。表清单见 `README.md` 技术架构总览章节。**禁止**随意 ALTER 表或删表。
 
 ---
 

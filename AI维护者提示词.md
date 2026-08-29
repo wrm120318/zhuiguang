@@ -12,9 +12,10 @@ ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT
 必读文档（按顺序，缺一不可）：
 
 1. 【必读 #1】/workspace/交接文档.md  
-   这是最核心的文档，包含19个章节，涵盖凭证、架构、Bug清单、运维手册。  
-   重点看：第2章（凭证/环境变量）、第3章（部署架构）、第7章（文件上传架构）、  
-   第10章（已修复Bug清单，绝对不能改回去！）、第15章（维护者严格约束）。  
+   这是最核心的文档，包含16个章节，涵盖凭证、架构、Bug清单、运维手册。  
+   重点看：第2章（凭证/环境变量）、第3章（部署架构）、第5章（数据库结构 + 24 张表 + 在线 ALTER + 一致性自检）、
+   第7章（文件上传架构）、第9章（业务规则铁律 9 条，禁止修改）、
+   第10章（已修复Bug清单，绝对不能改回去！）、第13章（运维指南）、第15章（维护者严格约束）。  
    ⚠️ v3.0.0 新增：第6.2节 main.css 已写明墨金双主题/液态玻璃作用域，第10章已补 Bug14~17。
 2. 【必读 #2】/workspace/README.md  
    项目首页文档，包含功能清单、技术架构、当前进度。
@@ -74,7 +75,7 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 
 - 前端：Vue 3 + TypeScript + Vite + Element Plus + Pinia + Vue Router + ECharts 5
 - 后端：Hono 框架（Cloudflare Workers 原生），nodejs_compat 运行时
-- 数据库：Cloudflare D1（23张表，建表脚本 schema.sql）
+- 数据库：Cloudflare D1（24 张表，建表脚本 schema.sql）
 - 文件存储：Supabase Storage（前端直传 presign URL，>100KB 文件不走后端）
 - 认证：JWT（jsonwebtoken）+ bcryptjs，Bearer Token，7 天过期
 
@@ -112,8 +113,8 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 ================================================================================  
 === 第四部分：开始干活前必须做的3件事 ===
 
-✅ 第一件：完整读一遍上面"必读文档清单"里的8个文档  
-→ 重点：第10章（已修复Bug清单）、第15章（维护者约束）、第7章（文件上传架构）
+✅ 第一件：完整读一遍上面"必读文档清单"里的7个文档（原「给新AI维护者的提示词.txt」已废弃删除，内容以本文件为准）  
+→ 重点：第10章（已修复Bug清单）、第15章（维护者约束）、第7章（文件上传架构）、第5章（数据库结构 + 一致性自检）
 
 ✅ 第二件：检查服务当前状态，确保能跑通  
 → 执行以下命令，确认都返回 HTTP 200：  
@@ -391,7 +392,7 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 - 后端改 `worker-api.ts` + `server/index.ts` 双同步
 - 前端改完 → `git push origin main`（Cloudflare Pages 自动 build）
 - 后端改完 → `npx wrangler deploy`
-- 部署完 → 更新 `CHANGELOG.md` + `交接文档.md` + `工作日志_追光学科共享平台.md` + `README.md` + `AI维护者提示词.md` + `给新AI维护者的提示词.txt`
+- 部署完 → 更新 `CHANGELOG.md` + `交接文档.md` + `工作日志_追光学科共享平台.md` + `README.md` + `AI维护者提示词.md`
 
 ## 严禁事项
 

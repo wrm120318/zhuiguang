@@ -7,7 +7,30 @@
 
 ## [v4.2.2] - 2026-08-29
 
-> 通用 Markdown 富文本编辑器 + 美文/公告可多次编辑 + 统一渲染样式
+> 通用 Markdown 富文本编辑器 + 美文/公告可多次编辑 + 统一渲染样式 + 文档/schema 一致性梳理
+
+### 文档与 schema 一致性（v4.2.2-doc）
+
+本轮为**纯文档 + schema.sql 维护**，零业务代码改动。
+
+**1）`schema.sql` 与生产 D1 对齐（修真隐患，非 cosmetic）**
+- 生产 D1 实测 **24 张业务表**，而 `schema.sql` 只有 **23 张**，且 5 个字段在生产有、schema 里完全没有：
+  - 缺表：`forum_topics`（v4.1.0 学科论坛）
+  - 缺字段：`pages.subject_id`、`pages.topic_ids`、`page_comments.parent_id`、`article_comments.parent_id`、`subjects.forum_auto_approve_threshold`
+- 后果：这些在生产是通过历次**在线 ALTER** 补上的，但 schema.sql 一直没同步 → **新环境照 schema.sql 建库会少表少字段，论坛功能直接 500**。现已全部补入，所有 `CREATE TABLE`/`CREATE INDEX` 均为 `IF NOT EXISTS`，幂等可重复执行。
+- **顺带修掉一个原版自带的语法错误**：`article_comments.created_at` 写作 `DEFAULT datetime('now','+8 hours')`（**缺括号**），SQLite 直接报 `near "(": syntax error`，导致建表脚本执行到该条即中断、表建不出来。已改为与生产一致的 `DEFAULT CURRENT_TIMESTAMP`。
+
+**2）文档全面对账（表数 / 路由数 / 版本号 / 章节引用）**
+- 统一「23 张表 → 24 张表」：README、交接文档、FAQ、CONTRIBUTING、AI维护者提示词、DEPLOY_CHECKLIST 全部同步
+- 统一「136+ 路由 → 154 路由」：README、交接文档（实测 `grep -E "app\.(get|post|put|patch|delete)\(" worker-api.ts | wc -l` = 154）
+- README 当前版本 `v4.1.6` → `v4.2.2`，版本表补 v4.2.2 行、去掉 v4.2.0 的「（当前）」、v4.0.0 归位到 v4.1.0 之后
+- CONTRIBUTING「清单见交接文档 7.4 章」→ **7.2 节**（第7章只有 7.1/7.2/7.3，无 7.4）
+- 交接文档章节编号乱码修复：原为 `十 → 十二 → 十一 → 十二 → 十三…`（两个「十二」且「十一」排在「十二」后），已按出现位置重排为 `十 → 十一 → 十二 → 十三 → 十四 → 十五 → 十六` 连续编号
+- 交接文档第5章补 **5.1 常用数据库操作 / 5.2 在线 ALTER（v4.1.0~v4.2.1 历次命令）/ 5.3 一致性自检**；6.2 补 5 个编辑视图与 MarkdownEditor、CommentTree 组件；第9章铁律补第 9 条「schema.sql 必须与生产 D1 一致」
+- AI维护者提示词：必读 #1 重点章节补第 5/9/13 章，章节数 19 → 16
+- **删除 `给新AI维护者的提示词.txt`**：该文件早已在交接文档标注【已废弃】v2.1.19 旧版，内容已并入 `AI维护者提示词.md`，保留只会误导新维护者（历史日志中的引用属既往记录，未改动）
+
+**部署**：本次无业务代码改动，`npm run build` 不受影响；`schema.sql` 为建表脚本，生产 D1 字段已齐备，无需执行迁移。
 
 ### 新增功能
 

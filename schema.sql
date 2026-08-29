@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS subjects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
   icon TEXT, color TEXT, description TEXT, display_order INTEGER DEFAULT 0,
-  modules TEXT DEFAULT '{}', announcement TEXT DEFAULT ''
+  modules TEXT DEFAULT '{}', announcement TEXT DEFAULT '',
+  forum_auto_approve_threshold INTEGER DEFAULT 0  -- v4.1.1 论坛免审阈值（按学科，0=全部需审；>0 表示字数≤该值免审）
 );
 
 -- 美文表
@@ -193,6 +194,8 @@ CREATE TABLE IF NOT EXISTS pages (
   title TEXT NOT NULL, content TEXT NOT NULL,
   cover TEXT, images TEXT DEFAULT '[]', attachments TEXT DEFAULT '[]',
   author_id INTEGER, author_name TEXT,
+  subject_id INTEGER DEFAULT NULL,  -- v4.1.0 学科论坛：非空即表示该帖属于某学科论坛（ptype='forum'）
+  topic_ids TEXT DEFAULT '[]',      -- v4.1.0 论坛话题 id 列表（JSON 数组字符串）
   status TEXT DEFAULT 'published',
   views INTEGER DEFAULT 0,
   likes INTEGER DEFAULT 0,
@@ -208,6 +211,7 @@ CREATE TABLE IF NOT EXISTS page_comments (
   page_id INTEGER NOT NULL,
   user_id INTEGER NOT NULL, user_name TEXT, avatar TEXT,
   content TEXT NOT NULL,
+  parent_id INTEGER DEFAULT NULL,  -- v4.2.0 二级回复：NULL=主评论，否则指向父评论 id
   created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
@@ -216,7 +220,20 @@ CREATE TABLE IF NOT EXISTS article_comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
   user_name TEXT, avatar TEXT, content TEXT NOT NULL,
-  created_at TEXT DEFAULT datetime('now','+8 hours')
+  parent_id INTEGER DEFAULT NULL,  -- v4.2.0 二级回复：NULL=主评论，否则指向父评论 id（生产 D1 该列为 INTEGER）
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP  -- 原写法 DEFAULT datetime('now','+8 hours') 缺括号，SQLite 语法报错（v4.2.2 修正，与生产 D1 一致）
+);
+
+-- 论坛话题表（v4.1.0 学科论坛）
+CREATE TABLE IF NOT EXISTS forum_topics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#F59E0B',      -- 与生产 D1 一致
+  created_by INTEGER NOT NULL,       -- 与生产 D1 一致
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  FOREIGN KEY(subject_id) REFERENCES subjects(id),
+  FOREIGN KEY(created_by) REFERENCES users(id)
 );
 
 -- 站内信表
@@ -241,6 +258,12 @@ CREATE TABLE IF NOT EXISTS feature_flags (
 );
 
 -- ====== 索引 ======
+-- v4.2.0 二级回复
+CREATE INDEX IF NOT EXISTS idx_art_c_p ON article_comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
+-- v4.1.0 学科论坛
+CREATE INDEX IF NOT EXISTS idx_forum_topics_subject ON forum_topics(subject_id);
+CREATE INDEX IF NOT EXISTS idx_pages_subject ON pages(subject_id);
 CREATE INDEX IF NOT EXISTS idx_art_c_a ON article_comments(article_id);
 CREATE INDEX IF NOT EXISTS idx_articles_subject ON articles(subject_id);
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);

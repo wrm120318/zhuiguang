@@ -15,7 +15,7 @@
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
 | 默认超管账号 | `admin` / `admin123456` |
 | 开源协议 | MIT |
-| 当前版本 | v4.1.6（个人主页经验值进度条 bug 修复：用 helpers.expProgress 替代错算法） |
+| 当前版本 | v4.2.2（通用 Markdown 富文本编辑器 MarkdownEditor + marked 8 类扩展 + KaTeX 公式；美文/公告可多次编辑；编辑器与学科论坛移动端 H5 深度适配；博客/论坛评论点赞漏通知修复） |
 
 ---
 
@@ -82,7 +82,7 @@
         |
         | API 请求（同源模式：/api/xxx → Worker）
         v
-+---------------------------+     后端 API（Hono 框架，136+ 路由）
++---------------------------+     后端 API（Hono 框架，154 路由）
 |   Cloudflare Workers      |     worker-api.ts 部署
 |   (Hono + JWT Auth)       |     全球边缘运行，10 万请求/天免费
 +---------------------------+
@@ -92,7 +92,7 @@
 | Cloudflare|   |  Supabase Storage |
 |   D1      |   |  (文件存储)        |
 | (数据库)  |   |  前端直传 presign   |
-| 23 张表   |   |  >100KB 直传       |
+| 24 张表   |   |  >100KB 直传       |
 +-----------+   +-------------------+
 ```
 
@@ -116,7 +116,7 @@
 
 ### 数据库（Cloudflare D1）
 
-数据库共 **23 张表**，建表脚本见 `schema.sql`：
+数据库共 **24 张表**，建表脚本见 `schema.sql`：
 
 | # | 表名 | 用途 |
 |---|---|---|
@@ -143,6 +143,7 @@
 | 21 | feature_flags | 功能开关表（KV 结构，如注册开关） |
 | 22 | themes | 主题表（配色配置） |
 | 23 | settings | 全局设置表（KV 结构） |
+| 24 | forum_topics | **【v4.1.0 新增】** 论坛话题表（学科论坛的话题/标签，按学科隔离） |
 
 ---
 
@@ -206,7 +207,7 @@ npx wrangler d1 create zhuiguang-db
 ### 第二步：建表 + 迁移数据
 
 ```bash
-# 建表（23 张表 + 索引）
+# 建表（24 张表 + 索引）
 npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql
 
 # 从本地 SQLite 迁移数据到 D1（如已有存量数据）
@@ -272,7 +273,7 @@ zhuiguang/
 │   ├── auth.ts / db.ts / helpers.ts / storage.ts
 │   └── local.db                  # 本地 SQLite 数据库（不入库）
 ├── worker-api.ts                 # Cloudflare Workers 后端（Hono，生产用，136 路由）
-├── schema.sql                    # D1 完整建表脚本（23 张表 + 索引）
+├── schema.sql                    # D1 完整建表脚本（24 张表 + 索引）
 ├── wrangler.toml                 # Cloudflare Workers 配置（D1 binding + 环境变量）
 ├── scripts/                      # 运维脚本
 │   ├── migrate-to-d1.sh          # SQLite → D1 数据迁移
@@ -340,15 +341,16 @@ zhuiguang/
 | v2.1.19 | 文档全面完善 + 域名统一 + 版本同步 | 已上线 |
 | v3.0.0 | 墨金学术双主题 + 全站液态玻璃 v7 + Bug14~17 修复 | 已上线 |
 | v3.0.10 | 通知中心 direction 枚举值修复 | 已上线 |
+| v4.2.2 | 通用 Markdown 富文本编辑器（MarkdownEditor 公共组件 + marked 8 类扩展 + KaTeX 公式）+ 美文/公告可多次编辑 + 编辑器与学科论坛移动端 H5 适配 + 博客/论坛评论点赞漏通知修复 | 已上线（当前） |
 | v4.2.1 | 通知中心：收到评论/点赞 → 自动入通知中心，可一键跳转到对应评论位置 | 已上线 |
-| v4.0.0 | 15+ 业务 bug 集中修复 + 兼容模式 + 学科教师权限收紧 | 已上线 |
-| v4.2.0 | 评论二级回复（朋友圈折叠树）+ 抽公共 CommentTree 组件（美文/博客/论坛统一接入） | 已上线（当前） |
+| v4.2.0 | 评论二级回复（朋友圈折叠树）+ 抽公共 CommentTree 组件（美文/博客/论坛统一接入） | 已上线 |
 | v4.1.5 | 经验值说明页「发布论坛帖」漏加中文文案 bug 修复（用户面两处 RULE_DESC 补齐） | 已上线 |
 | v4.1.4 | 论坛侧栏：最新→最热（views×0.4 + comments×0.6 加权 + 奖牌 Top3） | 已上线 |
 | v4.1.3 | 论坛预览后空白 v-show 根治 + 免审阈值 UI 内嵌到论坛模块卡 | 已上线 |
 | v4.1.2 | 论坛发帖独立页（/forum/new + /forum/post/:id/edit）+ 草稿自动保存（useAutoSave）+ 桌面两栏中央阅读 + 修复预览后编辑器空白 | 已上线 |
 | v4.1.1 | 论坛体验补完：模块显隐 + 桌面适配 + 复用美文审核流 + <1000 字免审（按学科可配）+ 富文本发帖 | 已上线 |
 | v4.1.0 | 学科论坛板块上线：每学科独立论坛 + 话题标签 + 11 个新 API + 2 个新页面 | 已上线 |
+| v4.0.0 | 15+ 业务 bug 集中修复 + 兼容模式 + 学科教师权限收紧 | 已上线 |
 
 ---
 
@@ -439,8 +441,8 @@ zhuiguang/
 | 本地路径 | 云端服务 | 部署方式 | 说明 |
 |---|---|---|---|
 | `dist/` | Cloudflare Pages | Git 连接仓库自动构建 | 前端生产包，构建命令 `npm run build`，输出目录 `dist` |
-| `worker-api.ts` | Cloudflare Workers | `npx wrangler deploy` | 后端 API（Hono，136+ 路由） |
-| `schema.sql` | Cloudflare D1 | `npx wrangler d1 execute --file=schema.sql` | 建表脚本（23 张表 + 索引） |
+| `worker-api.ts` | Cloudflare Workers | `npx wrangler deploy` | 后端 API（Hono，154 路由） |
+| `schema.sql` | Cloudflare D1 | `npx wrangler d1 execute --file=schema.sql` | 建表脚本（24 张表 + 索引） |
 | `wrangler.toml` | Cloudflare Workers | 配置文件（不单独部署） | D1 binding + 环境变量 |
 | `public/_headers` `public/_redirects` | Cloudflare Pages | 随构建部署 | CDN 头部与 SPA fallback 重定向 |
 | `server/` | （本地开发用） | 不部署到云端 | 本地 Express 后端，生产已迁移至 Worker |
