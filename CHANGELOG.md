@@ -57,6 +57,24 @@
 - 前端：`git push origin main` → Cloudflare Pages 自动构建
 - 验证：`npm run build` 通过（vue-tsc + vite）；marked 扩展自动化测试 21 / 21 通过、0 处 `<p><div>` 非法嵌套、9 / 9 安全项拦截
 
+### 部署教训（务必记下，下次推送前先做）
+
+> **推送前必查 `git ls-remote origin` 确认 Pages 跟踪的是哪个分支**——本轮 v4.2.3 第一次 `git push origin master` 是**无效部署**，因为 Pages 实际跟踪的是 `main` 分支（远程 main HEAD = `9326e3e` 仍是 v4.2.2-doc，不含 v4.2.3 代码）。用户反馈"一个都没生效"才定位到根因。
+
+**复盘链**：
+1. 沙箱内 `npm run build` 通过、本地 `npx tsx _test_ext.ts` 21/21、Worker `wrangler deploy` 后 `/api/users/search` 生产验证可用 → **代码完全没问题**
+2. 但 Pages 拉不到 → 用户访问的还是老 dist（`index-CPJZ0jSE.js` 不含 `searchUsers`/`/api/users/search` 标识）
+3. `git ls-remote origin` 暴露真相：`main` 分支 HEAD = `9326e3e`（8-29 上午的 v4.2.2-doc 提交），`master` 分支 HEAD = `e09ffeb`（v4.2.3 + status 大小写修复）
+
+**修复**：`git branch -f main origin/master && git push origin main`（`main` fast-forward 到 `e09ffeb`），约 90 秒后 Pages 拉到新 dist `index-C05PYcpK.js`，新 dist 验证含全部 6 类扩展样式 + `searchUsers` / `/api/users/search` 标识。
+
+**三秒自检命令**（下次推送前必跑）：
+```bash
+git ls-remote origin | grep -E "HEAD|main|master"
+# 输出举例：e09ffeb HEAD  refs/heads/main  refs/heads/master
+# 重点看 HEAD 指哪个分支（= GitHub 默认分支，Pages 通常跟它）
+```
+
 ### 文件清单
 
 **修改**：
