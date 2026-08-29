@@ -57,24 +57,26 @@ app.directive('swipe-action', vSwipeAction)
 
 app.mount('#app')
 
-// 【v4.2.8 紧急回退】v4.2.7 试图用 Service Worker 拦截 /api/download/* 但被 CF Pages
-//   SPA fallback 截到 index.html，导致用户下载到 HTML。
-//   1) 立即清理已注册的旧 SW（防止用户浏览器里残留的 SW 继续拦截下载）
-//   2) 停用 SW 注册逻辑
-//   3) public/sw-download.js 文件保留但不再注册，等后续彻底修复 SW 路径再做
-if ('serviceWorker' in navigator) {
-  // 1. 清理所有已注册的 SW（解决用户浏览器里残留 v4.2.7 SW 的问题）
-  navigator.serviceWorker.getRegistrations().then((regs) => {
-    regs.forEach((reg) => {
-      reg.unregister().catch(() => {})
-    })
-  }).catch(() => {})
-  // 2. 清理 SW 缓存（v4.2.7 SW 可能缓存了错误响应）
-  if ('caches' in window) {
-    caches.keys().then((names) => {
-      names.forEach((name) => {
-        caches.delete(name).catch(() => {})
+// 【v4.2.9 SW 清理强化】v4.2.7 注册的 sw-download.js 残留 SW 干扰上传。
+//   1) 物理文件已删（public/sw-download.js 不再随部署发布）
+//   2) 强化 unregister 流程：等所有 SW 真正 unregister 后才解除阻塞
+//   3) 防御性：旧 SW 在 unregister 完成前仍可能拦截 fetch，给用户一次强刷提示
+async function cleanupLegacySW(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations()
+    if (!regs.length) return
+    console.info(`[zg-cleanup] 发现 ${regs.length} 个遗留 Service Worker，正在清理...`)
+    // 等待所有 unregister 真正完成
+    await Promise.all(
+      regs.map(async (reg) => {
+        try { await reg.unregister() } catch { /* noop */ }
       })
-    }).catch(() => {})
+    )
+    console.info('[zg-cleanup] 所有遗留 Service Worker 已清理完毕')
+  } catch (e) {
+    console.warn('[zg-cleanup] SW 清理失败（非阻塞）:', e)
   }
 }
+// 不阻塞主流程：异步执行 SW 清理
+cleanupLegacySW().catch(() => {})

@@ -12,6 +12,55 @@
 
 ---
 
+---
+
+## [v4.2.9] - 2026-08-29
+
+> 上传失败修复：彻底移除 v4.2.7 残留 Service Worker
+
+### 现象（用户反馈）
+> 现在无法上传文件，就是稍大一些的文件
+
+### 根因分析（已用实测排除 Supabase 限制）
+- curl 直传 Supabase：50KB / 1MB / 5MB 三个不同大小文件全部 200 OK
+- `/api/upload/presign` 接口正常返回 signedUrl
+- 后端 `/api/auth/login` 正常
+- **Supabase 没有任何大小限制**（免费套餐 1GB 存储）
+
+**真正根因**：
+- v4.2.7 部署过的 Service Worker（`public/sw-download.js`）在用户浏览器中已注册
+- v4.2.8 试图用 `navigator.serviceWorker.getRegistrations().unregister()` 清理
+- **但 SW 卸载是异步的**——旧 SW 在 unregister 真正完成前仍会响应 fetch 事件
+- 旧 SW 的 `event.respondWith()` 对 `api.xkzg.dpdns.org/api/upload/presign` POST 没处理，但**它仍会被触发**，可能因 SW 接管而**延迟或卡住大文件上传**（小文件不受影响）
+
+### 修法（双管齐下）
+
+**1. 物理删除 `public/sw-download.js`**
+- 不再让浏览器能 fetch 到这个文件
+- 部署后，新打开的标签页不会重新激活 SW
+
+**2. 强化 `main.ts` 的 SW 清理逻辑**
+- 之前：`getRegistrations().then(regs => regs.forEach(reg => reg.unregister().catch(()=>{})))`
+  - 没 await，promise 静默失败
+  - 不知道是否真的清理完成
+- 现在：`async function cleanupLegacySW()`，**await 所有 unregister 真正完成**才解除阻塞
+- console.info 输出清理进度，便于用户/我们验证
+
+### 部署
+- 后端：无须部署
+- 前端：git push origin main → CF Pages 自动构建
+- **用户必须硬刷新一次**（Ctrl+Shift+R / Cmd+Shift+R）—— 浏览器才能 fetch 新的 `index-*.js` 执行新清理逻辑
+
+### 文件清单
+
+**删除**：
+- `public/sw-download.js`（物理移除，避免再次被 fetch）
+
+**修改**：
+- `src/main.ts`（cleanupLegacySW 强化：await 全部 unregister + console 进度）
+
+---
+
 ## [v4.2.8] - 2026-08-29
 
 > 紧急回退：v4.2.7 SW 拦截方案失败，所有下载被 SPA fallback 截到 index.html

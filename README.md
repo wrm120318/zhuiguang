@@ -15,7 +15,7 @@
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
 | 默认超管账号 | `admin` / `admin123456` |
 | 开源协议 | MIT |
-| 当前版本 | v4.2.8（紧急回退：v4.2.7 SW 拦截失败，回 v4.2.6 fetch+blob + 清理旧 SW） |
+| 当前版本 | v4.2.9（上传失败修复：彻底移除 v4.2.7 残留 Service Worker 物理文件 + 强化 main.ts unregister） |
 
 ---
 
@@ -341,7 +341,8 @@ zhuiguang/
 | v2.1.19 | 文档全面完善 + 域名统一 + 版本同步 | 已上线 |
 | v3.0.0 | 墨金学术双主题 + 全站液态玻璃 v7 + Bug14~17 修复 | 已上线 |
 | v3.0.10 | 通知中心 direction 枚举值修复 | 已上线 |
-| v4.2.8 | 紧急回退：v4.2.7 的 SW 拦截方案失败（CF Pages SPA fallback 把 `/api/download/*` 截到 index.html，导致下载 HTML 文件），回退到 v4.2.6 fetch+blob 稳定方案；`main.ts` 加 `serviceWorker.unregister()` + `caches.delete()` 清理残留旧 SW | 已上线（当前） |
+| v4.2.9 | 上传失败修复：物理删除 `public/sw-download.js`（避免被 fetch 重新激活）+ 强化 `main.ts` 的 `cleanupLegacySW`：await 全部 `unregister()` 真正完成。v4.2.7 残留 SW 是用户上传"稍大一些的文件"失败的真正原因（curl 实测 Supabase 50KB/1MB/5MB 全部 200 OK） | 已上线（当前） |
+| v4.2.8 | 紧急回退：v4.2.7 的 SW 拦截方案失败（CF Pages SPA fallback 把 `/api/download/*` 截到 index.html，导致下载 HTML 文件），回退到 v4.2.6 fetch+blob 稳定方案；`main.ts` 加 `serviceWorker.unregister()` + `caches.delete()` 清理残留旧 SW | 已上线 |
 | v4.2.7 | 【已回退】下载终极修复终极版：新增 Service Worker (`public/sw-download.js`) 拦截 `/api/download/*` 路径，通过 MessageChannel 异步从 page 端拿 zg_token 注入 Authorization Header | 已回退（v4.2.8） |
 | v4.2.6 | 下载终极修复：`SubjectView.downloadResource` 改用 `fetch + blob + <a download>`，token 通过 `Authorization` Header 传（URL 完全不暴露 token），不开任何新标签页（解决"点完按钮 1-2 秒后才反应"）。后端无须部署（`verifyFileAccess` 已支持 Header 鉴权） | 已上线 |
 | v4.2.5 | 评论终极修复：三个详情页 `onCommentSubmit` 简化为「POST 成功 → 全量 reload 评论列表」，彻底绕过 Vue 3 响应式追踪失效的所有可能场景；保证 cf / GitHub / 沙箱云端 三处代码一致 | 已上线 |
