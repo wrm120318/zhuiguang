@@ -3785,6 +3785,187 @@ app.get('/api/messages/:peerId', auth, async (c) => {
 // ============ 存储监控 & 文件轻量化优化 API（仅超管） ============
 // ==============================================================================
 
+// ------------------------------------------------------------------------------
+// 【v4.3.1】文件溯源：反查 D1 各业务表，判断一个 Supabase 文件是从哪个界面上传的
+// ------------------------------------------------------------------------------
+// 背景：storage 的 object key 只有 3 种前缀（avatar_ / img_ / file_），
+//   file_ 被资料上传、编辑器附件、题库附件等共用，光看文件名无法区分来源。
+//   实测生产 20 个文件里只有 4 个能关联到 resources，其余全是孤儿 ——
+//   溯源的核心价值就是告诉超管「这个文件有没有人引用、能不能删」。
+// 做法：把要查的 key 列表拼成 LIKE 条件，让 D1 侧过滤；
+//   再把命中的候选记录拉回来，在内存里逐个 key 精确确认归属（避免误判）。
+// 复杂度：查询次数 = 固定 7 张表，与文件数量无关。
+// ------------------------------------------------------------------------------
+interface FileOrigin {
+  type: string        // resource / avatar / article / page_blog / page_forum / page_announce / page_guide / quiz / message / comment / orphan
+  label: string       // 中文来源名，如「资料上传」
+  icon: string
+  refId: number | null
+  refTitle: string
+  detailUrl: string   // 前端可跳转的详情地址
+  uploader: string    // 上传人姓名
+  subjectName: string
+  createdAt: string
+  status: string
+  confident: boolean  // true = 数据库精确命中；false = 仅按文件名前缀推测
+}
+
+async function traceFileOrigins(keys: string[]): Promise<Map<string, FileOrigin>> {
+  const out = new Map<string, FileOrigin>()
+  const validKeys = (keys || []).filter(Boolean)
+  if (!validKeys.length) return out
+
+  // 构造「任意 key 命中任意列」的 WHERE 条件
+  const where = (cols: string[]) => cols.map(c => validKeys.map(() => `${c} LIKE ?`).join(' OR ')).join(' OR ')
+  const args = (cols: string[]) => cols.flatMap(() => validKeys.map(k => `%${k}%`))
+
+  // 命中后回填：遍历 keys 精确确认是哪一个，避免 LIKE 误判
+  const mark = (rec: any, blob: string, o: Omit<FileOrigin, 'refId' | 'refTitle'>, title: string) => {
+    if (!blob) return
+    for (const k of validKeys) {
+      if (out.has(k)) continue          // 先命中的来源优先（下面按可信度顺序查）
+      if (blob.includes(k)) out.set(k, { ...o, refId: rec.id ?? null, refTitle: title || '' })
+    }
+  }
+
+  // 按「可信度从高到低」查，先查到的优先占位
+  try {
+    // 1) 资料上传（file_path 直接等于 key，最可信）
+    const rows = await all<any>(
+      `SELECT r.id, r.title, r.file_path, r.status, r.created_at, u.real_name, s.name AS subject_name
+       FROM resources r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN subjects s ON s.id=r.subject_id
+       WHERE ${where(['r.file_path'])}`, ...args(['r.file_path']))
+    for (const r of rows) mark(r, r.file_path || '', {
+      type: 'resource', label: '资料上传', icon: '📦', detailUrl: `/resource/${r.id}`,
+      uploader: r.real_name || '', subjectName: r.subject_name || '',
+      createdAt: r.created_at || '', status: r.status || '', confident: true,
+    }, r.title)
+  } catch {}
+
+  try {
+    // 2) 用户头像
+    if (out.size < validKeys.length) {
+      const rows = await all<any>(`SELECT id, real_name, avatar, created_at FROM users WHERE ${where(['avatar'])}`, ...args(['avatar']))
+      for (const r of rows) mark(r, r.avatar || '', {
+        type: 'avatar', label: '用户头像', icon: '👤', detailUrl: `/profile/${r.id}`,
+        uploader: r.real_name || '', subjectName: '', createdAt: r.created_at || '',
+        status: '', confident: true,
+      }, r.real_name || `用户#${r.id}`)
+    }
+  } catch {}
+
+  // 3) 页面类（博客 / 学科论坛 / 公告 / 使用指南 / 班级页面）
+  if (out.size < validKeys.length) {
+    try {
+      const rows = await all<any>(
+        `SELECT p.id, p.ptype, p.title, p.cover, p.images, p.content, p.attachments, p.status, p.created_at, p.author_name, s.name AS subject_name
+         FROM pages p LEFT JOIN subjects s ON s.id=p.subject_id
+         WHERE ${where(['p.cover', 'p.images', 'p.content', 'p.attachments'])}`,
+        ...args(['p.cover', 'p.images', 'p.content', 'p.attachments']))
+      const pageMeta: Record<string, { label: string; icon: string; url: string }> = {
+        blog: { label: '博客', icon: '✍️', url: '/blog' },
+        forum: { label: '学科论坛', icon: '💬', url: '/subject' },
+        announcement: { label: '公告', icon: '📢', url: '/announcement' },
+        guide: { label: '使用指南', icon: '📖', url: '/guide' },
+        class: { label: '班级页面', icon: '🏫', url: '/class' },
+      }
+      for (const r of rows) {
+        const blob = `${r.cover || ''}|${r.images || ''}|${r.content || ''}|${r.attachments || ''}`
+        const meta = pageMeta[r.ptype] || { label: `页面(${r.ptype})`, icon: '📄', url: '/pages' }
+        mark(r, blob, {
+          type: `page_${r.ptype}`, label: meta.label, icon: meta.icon, detailUrl: meta.url,
+          uploader: r.author_name || '', subjectName: r.subject_name || '',
+          createdAt: r.created_at || '', status: r.status || '', confident: true,
+        }, r.title)
+      }
+    } catch {}
+  }
+
+  // 4) 美文（封面 / 配图 / 正文内嵌）
+  if (out.size < validKeys.length) {
+    try {
+      const rows = await all<any>(
+        `SELECT a.id, a.title, a.cover, a.images, a.content, a.status, a.created_at, u.real_name, s.name AS subject_name
+         FROM articles a LEFT JOIN users u ON u.id=a.user_id LEFT JOIN subjects s ON s.id=a.subject_id
+         WHERE ${where(['a.cover', 'a.images', 'a.content'])}`,
+        ...args(['a.cover', 'a.images', 'a.content']))
+      for (const r of rows) {
+        const blob = `${r.cover || ''}|${r.images || ''}|${r.content || ''}`
+        mark(r, blob, {
+          type: 'article', label: '美文', icon: '📝', detailUrl: `/article/${r.id}`,
+          uploader: r.real_name || '', subjectName: r.subject_name || '',
+          createdAt: r.created_at || '', status: r.status || '', confident: true,
+        }, r.title)
+      }
+    } catch {}
+  }
+
+  // 5) 题库 / 习题附件
+  if (out.size < validKeys.length) {
+    try {
+      const rows = await all<any>(`SELECT id, content, attachments FROM quiz_questions WHERE ${where(['content', 'attachments'])}`, ...args(['content', 'attachments']))
+      for (const r of rows) mark(r, `${r.content || ''}|${r.attachments || ''}`, {
+        type: 'quiz', label: '题库题目', icon: '❓', detailUrl: '/quiz',
+        uploader: '', subjectName: '', createdAt: '', status: '', confident: true,
+      }, (r.content || '').slice(0, 30))
+    } catch {}
+    try {
+      const rows2 = await all<any>(`SELECT id, content, attachments FROM subject_questions WHERE ${where(['content', 'attachments'])}`, ...args(['content', 'attachments']))
+      for (const r of rows2) mark(r, `${r.content || ''}|${r.attachments || ''}`, {
+        type: 'quiz', label: '练习题库', icon: '❓', detailUrl: '/quiz',
+        uploader: '', subjectName: '', createdAt: '', status: '', confident: true,
+      }, (r.content || '').slice(0, 30))
+    } catch {}
+  }
+
+  // 6) 站内信附件
+  if (out.size < validKeys.length) {
+    try {
+      const rows = await all<any>(`SELECT id, content, attachments, created_at FROM messages WHERE ${where(['content', 'attachments'])}`, ...args(['content', 'attachments']))
+      for (const r of rows) mark(r, `${r.content || ''}|${r.attachments || ''}`, {
+        type: 'message', label: '站内信', icon: '✉️', detailUrl: '/messages',
+        uploader: '', subjectName: '', createdAt: r.created_at || '', status: '', confident: true,
+      }, (r.content || '').slice(0, 30))
+    } catch {}
+  }
+
+  // 7) 评论附件（美文评论 / 页面评论）
+  if (out.size < validKeys.length) {
+    try {
+      const rows = await all<any>(`SELECT id, content, attachments FROM article_comments WHERE ${where(['content', 'attachments'])}`, ...args(['content', 'attachments']))
+      for (const r of rows) mark(r, `${r.content || ''}|${r.attachments || ''}`, {
+        type: 'comment', label: '美文评论', icon: '💭', detailUrl: '/article',
+        uploader: '', subjectName: '', createdAt: '', status: '', confident: true,
+      }, (r.content || '').slice(0, 30))
+    } catch {}
+    try {
+      const rows2 = await all<any>(`SELECT id, content, attachments FROM page_comments WHERE ${where(['content', 'attachments'])}`, ...args(['content', 'attachments']))
+      for (const r of rows2) mark(r, `${r.content || ''}|${r.attachments || ''}`, {
+        type: 'comment', label: '页面评论', icon: '💭', detailUrl: '/blog',
+        uploader: '', subjectName: '', createdAt: '', status: '', confident: true,
+      }, (r.content || '').slice(0, 30))
+    } catch {}
+  }
+
+  // 兜底：数据库里完全查不到 → 按文件名前缀推测，并标记为「未关联」
+  const guessByPrefix = (k: string): { label: string; icon: string; type: string } => {
+    if (/^avatar_/.test(k)) return { label: '头像（未关联）', icon: '👤', type: 'avatar_orphan' }
+    if (/^img_/.test(k)) return { label: '编辑器图片（未关联）', icon: '🖼️', type: 'img_orphan' }
+    if (/^file_/.test(k)) return { label: '上传文件（未关联）', icon: '📄', type: 'file_orphan' }
+    return { label: '未知来源', icon: '❓', type: 'unknown' }
+  }
+  for (const k of validKeys) {
+    if (out.has(k)) continue
+    const g = guessByPrefix(k)
+    out.set(k, {
+      type: g.type, label: g.label, icon: g.icon, refId: null, refTitle: '',
+      detailUrl: '', uploader: '', subjectName: '', createdAt: '', status: '',
+      confident: false,
+    })
+  }
+  return out
+}
+
 // 存储监控：Supabase 存储用量 + 大文件排行 + 优化建议
 app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const t0 = Date.now()
@@ -3802,20 +3983,31 @@ app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c
       const key = extractKey(r.file_path || '')
       if (key) resourceByKey.set(key, r)
     }
-    const topFiles = [...storageData.files]
+    const topRaw = [...storageData.files]
       .sort((a, b) => (b.size || 0) - (a.size || 0))
       .slice(0, 20)
-      .map(f => {
-        const linked = resourceByKey.get(f.name)
-        return {
-          ...f,
-          sizeFmt: fmtBytes(f.size || 0),
-          resourceId: linked?.id || null,
-          resourceTitle: linked?.title || '',
-          resourceStatus: linked?.status || '',
-          hasResource: !!linked,
-        }
-      })
+    // 【v4.3.1】文件溯源：一次性反查这些文件是从哪个界面上传的
+    const originMap = await traceFileOrigins(topRaw.map(f => f.name))
+    const topFiles = topRaw.map(f => {
+      const linked = resourceByKey.get(f.name)
+      const origin = originMap.get(f.name) || null
+      return {
+        ...f,
+        sizeFmt: fmtBytes(f.size || 0),
+        resourceId: linked?.id || null,
+        resourceTitle: linked?.title || '',
+        resourceStatus: linked?.status || '',
+        hasResource: !!linked,
+        origin,
+        // 便于前端直接展示的一句话溯源
+        originText: origin
+          ? (origin.confident && origin.refTitle
+              ? `${origin.icon} ${origin.label} · ${origin.refTitle}`
+              : `${origin.icon} ${origin.label}`)
+          : '❓ 未知来源',
+        isOrphan: !origin?.confident,   // 数据库里查不到归属 = 可清理的残留文件
+      }
+    })
 
     // 高频访问文件 TOP 20（按下载量排序）
     const hotResources = resources
@@ -3906,7 +4098,9 @@ app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c
         uploadSize: todayUploadSize,
         uploadSizeFmt: fmtBytes(todayUploadSize),
       },
-      supabaseDbStats,
+      // 【v4.3.1 修复】原写 supabaseDbStats（未定义）→ ReferenceError → 整个监控接口 500，
+      //   自 worker-api.ts 创建起就存在，存储监控页从未成功加载过。解构变量名是 supaDbStats。
+      supabaseDbStats: supaDbStats,
       alerts,
       _debug: { totalMs: Date.now() - t0 },
     })
@@ -4140,19 +4334,29 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
     const key = extractKey(r.file_path || '')
     if (key) monitorResourceByKey.set(key, r)
   }
-  const topStorageFiles = [...(storageData.files || [])]
+  const topRawFiles = [...(storageData.files || [])]
     .sort((a, b) => (b.size || 0) - (a.size || 0))
     .slice(0, 10)
-    .map(f => {
-      const linked = monitorResourceByKey.get(f.name)
-      return {
-        name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0),
-        resourceId: linked?.id || null,
-        resourceTitle: linked?.title || '',
-        resourceStatus: linked?.status || '',
-        hasResource: !!linked,
-      }
-    })
+  // 【v4.3.1】文件溯源：反查这些文件是从哪个界面上传的（超管监控页「大体积文件 TOP 10」用）
+  const monitorOriginMap = await traceFileOrigins(topRawFiles.map(f => f.name))
+  const topStorageFiles = topRawFiles.map(f => {
+    const linked = monitorResourceByKey.get(f.name)
+    const origin = monitorOriginMap.get(f.name) || null
+    return {
+      name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0),
+      resourceId: linked?.id || null,
+      resourceTitle: linked?.title || '',
+      resourceStatus: linked?.status || '',
+      hasResource: !!linked,
+      origin,
+      originText: origin
+        ? (origin.confident && origin.refTitle
+            ? `${origin.icon} ${origin.label} · ${origin.refTitle}`
+            : `${origin.icon} ${origin.label}`)
+        : '❓ 未知来源',
+      isOrphan: !origin?.confident,
+    }
+  })
 
   // 高频访问资源 TOP 10
   const hotDownloadResources = await all<any>(

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -169,6 +170,47 @@ const previewUrl = ref('')
 const previewLoading = ref(false)
 const deletingFile = ref<any>(null)
 const deleteLoading = ref(false)
+
+// ===== 【v4.3.1】文件溯源 =====
+const onlyOrphan = ref(false)
+const router = useRouter()
+
+const topFiles = computed<any[]>(() => data.value?.supabaseStorage?.topFiles || [])
+const orphanFiles = computed<any[]>(() => topFiles.value.filter(f => f.isOrphan))
+const orphanCount = computed(() => orphanFiles.value.length)
+const visibleTopFiles = computed<any[]>(() => onlyOrphan.value ? orphanFiles.value : topFiles.value)
+
+function fmtBytes(n: number): string {
+  if (!n) return '0 B'
+  if (n < 1024) return n + ' B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + ' MB'
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+}
+const orphanSizeFmt = computed(() => fmtBytes(orphanFiles.value.reduce((s, f) => s + (f.size || 0), 0)))
+
+/** 溯源信息的完整悬浮提示 */
+function originTooltip(f: any): string {
+  const o = f.origin
+  if (!o) return f.name
+  const parts: string[] = []
+  parts.push(o.confident ? `来源：${o.label}` : `${o.label}（数据库未查到引用记录）`)
+  if (o.refTitle) parts.push(`标题：${o.refTitle}`)
+  if (o.uploader) parts.push(`上传人：${o.uploader}`)
+  if (o.subjectName) parts.push(`学科：${o.subjectName}`)
+  if (o.status) parts.push(`状态：${o.status}`)
+  if (o.createdAt) parts.push(`时间：${o.createdAt}`)
+  if (!o.confident) parts.push('该文件可能已随内容删除，属残留文件，可安全清理')
+  return parts.join('\n')
+}
+
+/** 跳转到溯源到的内容详情页 */
+function goOrigin(f: any) {
+  const o = f.origin
+  if (!o?.detailUrl) return
+  if (o.type === 'resource' && o.refId) router.push(`/subject/${o.refId}`).catch(() => {})
+  else router.push(o.detailUrl).catch(() => {})
+}
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
 const PDF_EXTS = ['pdf']
@@ -417,36 +459,73 @@ onBeforeUnmount(() => {
                 <div class="ip-title">
                   <ZgGlyph emoji="📈" /> 大体积文件 TOP 10
                   <span class="ip-hint">点击文件名预览，点击 <ZgGlyph emoji="🗑️" /> 删除</span>
+                  <!-- 【v4.3.1】孤儿文件筛选开关 -->
+                  <el-switch
+                    v-model="onlyOrphan"
+                    size="small"
+                    active-text="仅看未关联"
+                    style="margin-left:12px;"
+                  />
                 </div>
                 <div class="top-list">
-                  <div v-for="(f, i) of data.supabaseStorage.topFiles" :key="i" class="top-row file-mgmt-row">
-                    <span class="top-rank">{{ i + 1 }}</span>
-                    <span
-                      class="top-name file-name-clickable"
-                      :class="{ 'previewable': isPreviewable(f.name) }"
-                      :title="isPreviewable(f.name) ? '点击预览' : f.name"
-                      @click="isPreviewable(f.name) && openPreview(f)"
-                    >
-                      {{ f.name }}
-                      <span
-                        v-if="f.hasResource"
-                        class="resource-tag"
-                        :title="`关联资源: ${f.resourceTitle || '未命名'}（状态: ${f.resourceStatus || '未知'}）`"
-                      ><ZgGlyph emoji="🔗" /></span>
-                    </span>
-                    <span class="top-size">{{ f.sizeFmt }}</span>
-                    <el-button
-                      size="small"
-                      type="danger"
-                      text
-                      class="delete-btn"
-                      @click="startDelete(f)"
-                      :loading="deleteLoading && deletingFile?.name === f.name"
-                    >
-                      <span style="font-size:14px;"><ZgGlyph emoji="🗑️" /></span>
-                    </el-button>
+                  <template v-for="(f, i) of visibleTopFiles" :key="f.name">
+                    <div class="top-row file-mgmt-row file-trace-row">
+                      <span class="top-rank">{{ i + 1 }}</span>
+                      <div class="ft-main">
+                        <div class="ft-line1">
+                          <span
+                            class="top-name file-name-clickable"
+                            :class="{ 'previewable': isPreviewable(f.name) }"
+                            :title="isPreviewable(f.name) ? '点击预览' : f.name"
+                            @click="isPreviewable(f.name) && openPreview(f)"
+                          >{{ f.name }}</span>
+                          <span class="top-size">{{ f.sizeFmt }}</span>
+                        </div>
+                        <!-- 【v4.3.1】文件溯源：从哪个界面上传的 -->
+                        <div class="ft-line2">
+                          <span
+                            class="origin-tag"
+                            :class="{ 'orphan': f.isOrphan }"
+                            :title="originTooltip(f)"
+                          >
+                            <ZgGlyph :emoji="f.origin?.icon || '❓'" />
+                            {{ f.origin?.label || '未知来源' }}
+                            <template v-if="f.origin?.refTitle">· <b>{{ f.origin.refTitle }}</b></template>
+                          </span>
+                          <span v-if="f.origin?.uploader" class="origin-meta">
+                            <ZgGlyph emoji="👤" /> {{ f.origin.uploader }}
+                          </span>
+                          <span v-if="f.origin?.subjectName" class="origin-meta">
+                            <ZgGlyph :emoji="f.origin.subjectName ? '📚' : ''" /> {{ f.origin.subjectName }}
+                          </span>
+                          <span v-if="f.origin?.createdAt" class="origin-meta">{{ f.origin.createdAt }}</span>
+                          <el-button
+                            v-if="f.origin?.confident && f.origin?.detailUrl"
+                            size="small" text class="origin-jump"
+                            @click="goOrigin(f)"
+                          >前往</el-button>
+                        </div>
+                      </div>
+                      <el-button
+                        size="small"
+                        type="danger"
+                        text
+                        class="delete-btn"
+                        @click="startDelete(f)"
+                        :loading="deleteLoading && deletingFile?.name === f.name"
+                      >
+                        <span style="font-size:14px;"><ZgGlyph emoji="🗑️" /></span>
+                      </el-button>
+                    </div>
+                  </template>
+                  <div v-if="!visibleTopFiles.length" class="empty-hint">
+                    {{ onlyOrphan ? '没有未关联的残留文件' : '暂无文件' }}
                   </div>
-                  <div v-if="!data.supabaseStorage.topFiles?.length" class="empty-hint">暂无文件</div>
+                </div>
+                <div v-if="orphanCount > 0" class="orphan-summary">
+                  <ZgGlyph emoji="⚠️" />
+                  检测到 <b>{{ orphanCount }}</b> 个未关联文件（数据库查无归属，疑似残留），
+                  合计 <b>{{ orphanSizeFmt }}</b>，可安全清理
                 </div>
               </div>
             </template>
@@ -873,6 +952,29 @@ onBeforeUnmount(() => {
 .ip-hint { font-size:11px; color:var(--zg-text-dim); font-weight:400; margin-left:8px; }
 .file-mgmt-row { padding:6px 8px; }
 .file-mgmt-row:hover { background:rgba(var(--zg-primary-rgb),.1); }
+
+/* ===== 【v4.3.1】文件溯源 ===== */
+.file-trace-row { align-items:flex-start; }
+.ft-main { flex:1; min-width:0; }
+.ft-line1 { display:flex; align-items:center; gap:8px; }
+.ft-line1 .top-size { margin-left:auto; flex-shrink:0; }
+.ft-line2 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:3px; }
+.origin-tag {
+  display:inline-flex; align-items:center; gap:3px;
+  padding:1px 7px; border-radius:6px; font-size:11px; font-weight:600; cursor:help;
+  background:rgba(var(--zg-primary-rgb),.12); color:var(--zg-primary);
+}
+.origin-tag b { font-weight:700; }
+/* 孤儿文件（数据库查无归属）用警示色，提醒可清理 */
+.origin-tag.orphan { background:rgba(239,68,68,.12); color:#dc2626; }
+.origin-tag.orphan b { color:#b91c1c; }
+.origin-meta { font-size:11px; color:var(--zg-text-dim); }
+.origin-jump { padding:0 4px; height:18px; font-size:11px; }
+.orphan-summary {
+  margin-top:10px; padding:8px 10px; border-radius:8px; font-size:12px;
+  background:rgba(239,68,68,.08); color:#b91c1c; line-height:1.6;
+}
+.orphan-summary b { font-weight:700; }
 .file-name-clickable { cursor:default; }
 .file-name-clickable.previewable { cursor:pointer; color:var(--zg-accent); text-decoration:underline; text-decoration-style:dotted; }
 .file-name-clickable.previewable:hover { color:var(--zg-primary); }
