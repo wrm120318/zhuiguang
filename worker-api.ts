@@ -1094,6 +1094,30 @@ app.get('/api/users/search', auth, async (c) => {
   })))
 })
 
+// 单个用户公开信息（@提及点击跳转目标用户主页用）
+// 登录即可访问，仅返回 active 用户；含真实经验值（与 /api/users 一致）
+// 注意：路由顺序必须放在通配 /:id 之前（不在本文件里都是查单条，这条独立无冲突）
+app.get('/api/users/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id) || id <= 0) return c.json({ message: '无效的用户 ID' }, 400)
+  const u = await get<any>(
+    `SELECT u.*, cm.class_id,
+            COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=u.id), 0) AS exp_total
+     FROM users u
+     LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE role_in_class=?) cm ON u.id=cm.user_id
+     WHERE u.id=?`,
+    'STUDENT', id
+  )
+  if (!u) return c.json({ message: '用户不存在' }, 404)
+  if (u.status !== 'active') return c.json({ message: '用户已停用' }, 403)
+  const base = pub(u)
+  base.exp = Number(u.exp_total || 0)
+  base.level = Math.floor(base.exp / 60) + 1
+  // 不返回 username 等敏感字段给其他用户？看一眼：search 已返回 username，且 username 本就是登录名，
+  // 公开主页展示 username 让别人能搜索找到你是有意义的，故保留
+  return c.json(base)
+})
+
 app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { username, realName, role, email, classId, password, subjectId } = await c.req.json()
   if (await get('SELECT id FROM users WHERE username=?', username)) return c.json({ message: '用户名已存在' }, 400)

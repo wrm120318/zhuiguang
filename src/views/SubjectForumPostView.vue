@@ -196,20 +196,31 @@ async function loadRelated() {
 
 // 【v4.2.0】统一交给 CommentTree：支持二级回复
 async function onCommentSubmit(content: string, parentId: number | null) {
-  const r: any = await api.addPageComment(post.value.id, content, parentId ?? undefined)
-  if (parentId == null) {
-    comments.value.unshift(r)
-  } else {
-    const parent = comments.value.find((x: any) => x.id === parentId)
-    if (parent) {
-      const children = parent.children || []
-      children.push({ ...r, parent_id: parentId })
-      parent.children = children
+  try {
+    const r: any = await api.addPageComment(post.value.id, content, parentId ?? undefined)
+    const c = (r && typeof r === 'object' && r.id) ? r : (r?.data || r)
+    if (!c || !c.id) {
+      await loadComments()
     } else {
-      comments.value.unshift(r)
+      if (parentId == null) {
+        comments.value.unshift(c)
+      } else {
+        const idx = comments.value.findIndex((x: any) => x.id === parentId)
+        if (idx >= 0) {
+          const parent = comments.value[idx]
+          const children = parent.children ? [...parent.children] : []
+          children.push({ ...c, parent_id: parentId })
+          comments.value[idx] = { ...parent, children }
+        } else {
+          comments.value.unshift(c)
+        }
+      }
     }
+    ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '评论发送失败')
+    throw e
   }
-  ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
 }
 async function onCommentDelete(commentId: number) {
   try {

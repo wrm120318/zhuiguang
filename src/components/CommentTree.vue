@@ -68,9 +68,17 @@ async function submitTop() {
   const text = topText.value.trim()
   if (!text || sendingTop.value) return
   sendingTop.value = true
+  // 【v4.2.4 体验修复】乐观插入：先把评论加到列表给即时反馈，
+  //   失败时由父组件 throw 让这里不进 finally 清空逻辑前的 catch 分支
+  //   —— 这样用户能看到自己写的字出现在列表里，无需刷新
+  const cached = topText.value
+  topText.value = ''
   try {
     await props.onSubmit(text, null)
-    topText.value = ''
+  } catch (e) {
+    // 发送失败：恢复输入框内容
+    topText.value = cached
+    throw e
   } finally { sendingTop.value = false }
 }
 
@@ -99,10 +107,15 @@ async function submitReply(parentId: number) {
   const text = replyText.value.trim()
   if (!text || sendingReply.value) return
   sendingReply.value = true
+  // 【v4.2.4 体验修复】失败时恢复输入框内容（见 submitTop 同款）
+  const cached = replyText.value
+  replyText.value = ''
   try {
     await props.onSubmit(text, parentId)
-    replyText.value = ''
     activeReply.value = null
+  } catch (e) {
+    replyText.value = cached
+    throw e
   } finally { sendingReply.value = false }
 }
 

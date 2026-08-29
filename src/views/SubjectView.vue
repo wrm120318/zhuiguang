@@ -216,58 +216,26 @@ async function downloadResource(r: any) {
   // 防止重复点击
   if (downloadingIds.value.has(r.id)) return
   downloadingIds.value.add(r.id)
-  try {
-    // downloadResource 使用独立 axios 实例（responseType: 'blob'），
-    // 返回的是完整 axios 响应对象，包含 .data(Blob) / .headers / .status
-    const resp: any = await api.downloadResource(r.id)
-    const contentType = resp.headers['content-type'] || ''
-    // 后端在出错时可能仍以 application/json 返回错误信息
-    if (contentType.includes('application/json')) {
-      const errMsg = await readBlobError(resp.data)
-      ElMessage.error(errMsg || '下载失败')
-      return
-    }
-    // resp.data 已是 Blob，无需再次包装；兼容非 Blob 的边界情况
-    const blob = resp.data instanceof Blob
-      ? resp.data
-      : new Blob([resp.data], { type: contentType || 'application/octet-stream' })
-    // 构建下载文件名并保留扩展名
-    let fileName = r.file_name || r.title || 'download'
-    // 优先从 content-disposition 获取真实文件名
-    const disposition = resp.headers['content-disposition']
-    if (disposition) {
-      const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(disposition)
-      if (m && m[1]) {
-        try { fileName = decodeURIComponent(m[1]) } catch { fileName = m[1] }
-      }
-    }
-    // 若文件名无扩展名，则根据 contentType 推断补全，确保扩展名被保留
-    if (!/\.[^./\\]+$/.test(fileName)) {
-      const ext = mimeToExt(contentType)
-      if (ext) fileName = `${fileName}.${ext}`
-    }
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-    r.downloads = (r.downloads || 0) + 1
-    ElMessage.success('下载开始')
-  } catch (e: any) {
-    // responseType: 'blob' 时，错误响应的 data 也是 Blob，需读取后解析
-    let msg = '下载失败，请重试'
-    const parsed = await readBlobError(e?.response?.data)
-    if (parsed) {
-      msg = parsed
-    } else if (e?.message) {
-      msg = e.message
-    }
-    ElMessage.error(msg)
-  } finally {
-    downloadingIds.value.delete(r.id)
+  // 【v4.2.4 性能修复】优先用浏览器原生 <a href> 直跳后端 /file/r/:id，
+  //   Content-Disposition: attachment 让浏览器立即开始下载，避开 axios+blob
+  //   模式下"全部缓冲到内存才触发 a.click"的等待（用户反馈下载反应过慢）。
+  //   仅在 token 缺失（极端情况）时回退到 axios blob 走错误提示路径。
+  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+  const token = localStorage.getItem('zg_token') || ''
+  const directUrl = `${baseURL}/file/r/${r.id}?token=${encodeURIComponent(token)}`
+  const a = document.createElement('a')
+  a.href = directUrl
+  a.target = '_blank'
+  a.rel = 'noopener'
+  // 不用 a.download —— 浏览器按后端 Content-Disposition 处理（attachment + 文件名）
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  r.downloads = (r.downloads || 0) + 1
+  ElMessage.success('下载开始')
+  downloadingIds.value.delete(r.id)
+  if (!token) {
+    try { await api.downloadResource(r.id) } catch { ElMessage.error('下载失败：缺少登录凭证') }
   }
 }
 

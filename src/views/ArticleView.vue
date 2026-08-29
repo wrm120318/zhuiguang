@@ -45,23 +45,34 @@ async function toggleFav() {
 
 // 【v4.2.0】统一交给 CommentTree：支持二级回复
 async function onCommentSubmit(content: string, parentId: number | null) {
-  const r: any = await api.addArticleComment(article.value.id, content, parentId ?? undefined)
-  const c = r.data || r
-  if (parentId == null) {
-    comments.value.unshift(c)
-  } else {
-    // 找到父评论并 push 子评论
-    const parent = comments.value.find((x: any) => x.id === parentId)
-    if (parent) {
-      const children = parent.children || []
-      children.push({ ...c, parent_id: parentId })
-      parent.children = children
-      // 给父评论打标记，CommentTree 会用 children 字段
+  try {
+    const r: any = await api.addArticleComment(article.value.id, content, parentId ?? undefined)
+    // axios 拦截器已 unwrap res.data，这里 r 即后端返回对象
+    const c = (r && typeof r === 'object' && r.id) ? r : (r?.data || r)
+    if (!c || !c.id) {
+      // 后端真的没返回新评论对象（极端情况）→ 走 reload 兜底
+      comments.value = (await api.articleComments(article.value.id)) as any
     } else {
-      comments.value.unshift(c)
+      if (parentId == null) {
+        comments.value.unshift(c)
+      } else {
+        // 找到父评论并 push 子评论（用新数组赋值确保响应式）
+        const idx = comments.value.findIndex((x: any) => x.id === parentId)
+        if (idx >= 0) {
+          const parent = comments.value[idx]
+          const children = parent.children ? [...parent.children] : []
+          children.push({ ...c, parent_id: parentId })
+          comments.value[idx] = { ...parent, children }
+        } else {
+          comments.value.unshift(c)
+        }
+      }
     }
+    ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '评论发送失败')
+    throw e  // 让 CommentTree 知道失败，不要清空输入框
   }
-  ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
 }
 async function onCommentDelete(commentId: number) {
   try {

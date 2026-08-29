@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { expProgress } from '@/utils/helpers'
 
 const router = useRouter()
+const route = useRoute()
 const user = useUserStore()
 const expLogs = ref<any[]>([])
 const myArticles = ref<any[]>([])
@@ -14,6 +15,30 @@ const myResources = ref<any[]>([])
 const pendingStudentArticles = ref<any[]>([])  // 需求3：待我（学生）确认的代发美文
 const editing = ref(false)
 const form = ref({ realName: '', email: '', phone: '', avatar: '' })
+
+// ===== @提及跳转：URL 带 ?uid=xxx 时进入「他人主页」只读模式 =====
+// profileUser 是当前正在展示的用户（自己 或 ?uid 指定的他 人）
+const profileUser = ref<any>(null)
+const isOthersProfile = computed(() => {
+  const uid = Number(route.query.uid)
+  return Number.isFinite(uid) && uid > 0 && uid !== user.current?.id
+})
+
+async function loadProfileUser() {
+  if (!isOthersProfile.value) {
+    // 自己模式：保持 ProfileView 原有行为不动（user.current 由 store 维护）
+    profileUser.value = null
+    return
+  }
+  const uid = Number(route.query.uid)
+  try {
+    const u: any = await api.getUser(uid)
+    profileUser.value = u
+  } catch (e: any) {
+    ElMessage.error(e?.message || '用户不存在或已停用')
+    profileUser.value = null
+  }
+}
 
 async function load() {
   try {
@@ -33,10 +58,23 @@ async function load() {
     } catch { /* */ }
   }
 }
+
+// 当前展示用户：是他人则用 profileUser，否则用 user.current
+const viewUser = computed<any>(() => profileUser.value || user.current)
+
 onMounted(async () => {
   await user.fetchProfile()
-  form.value = { realName: user.current?.realName || '', email: user.current?.email || '', phone: user.current?.phone || '', avatar: user.current?.avatar || '' }
-  await load()
+  await loadProfileUser()
+  // 编辑表单只在自己模式初始化（避免覆盖）
+  if (!isOthersProfile.value) {
+    form.value = { realName: user.current?.realName || '', email: user.current?.email || '', phone: user.current?.phone || '', avatar: user.current?.avatar || '' }
+    await load()
+  }
+})
+
+// 监听路由 ?uid 变化，切换目标用户
+watch(() => route.query.uid, async () => {
+  await loadProfileUser()
 })
 
 async function saveProfile() {
@@ -73,41 +111,46 @@ async function rejectArticle(a: any) {
 // 进度直接用 helpers.expProgress(exp)：exp % 60 / 60，避免再写错算法
 // 距离下一级差值 = 60 - (exp % 60)，若整除则为 60
 const expLeftToNext = computed(() => {
-  const cur = Number(user.current?.exp || 0)
+  const cur = Number(viewUser.value?.exp || 0)
   return 60 - (cur % 60)
 })
 </script>
 
 <template>
-  <div class="page zg-container" v-if="user.current">
+  <!-- 他人主页只读模式：profileUser 必须加载到；自己模式走 user.current -->
+  <div class="page zg-container" v-if="viewUser">
     <!-- 个人信息卡 -->
     <div class="profile-hero glass-strong zg-slide-up">
       <div class="ph-bg"></div>
       <div class="ph-content">
         <div class="ph-avatar-wrap">
-          <img :src="user.current.avatar" class="ph-avatar" />
-          <div class="ph-level-badge">Lv.{{ user.current.level }}</div>
+          <img :src="viewUser.avatar" class="ph-avatar" />
+          <div class="ph-level-badge">Lv.{{ viewUser.level }}</div>
         </div>
         <div class="ph-info">
           <div class="ph-name-row">
-            <h1 class="ph-name">{{ user.current.realName }}</h1>
-            <span class="ph-role">{{ user.current.role === 'SUPER_ADMIN' ? '超级管理员' : user.current.role === 'TEACHER' ? '教师' : '学生' }}</span>
+            <h1 class="ph-name">{{ viewUser.realName }}</h1>
+            <span class="ph-role">{{ viewUser.role === 'SUPER_ADMIN' ? '超级管理员' : viewUser.role === 'TEACHER' ? '教师' : '学生' }}</span>
+            <!-- 他人主页：用户名作为「可搜索 ID」显示，方便反向回查 -->
+            <span v-if="isOthersProfile && viewUser.username" class="ph-username">@{{ viewUser.username }}</span>
           </div>
           <div class="ph-contact">
-            <span v-if="user.current.email"><ZgGlyph emoji="📧" /> {{ user.current.email }}</span>
-            <span v-if="user.current.phone"><ZgGlyph emoji="📱" /> {{ user.current.phone }}</span>
+            <!-- 邮箱/手机仅自己可见，他人不显示（隐私） -->
+            <span v-if="!isOthersProfile && viewUser.email"><ZgGlyph emoji="📧" /> {{ viewUser.email }}</span>
+            <span v-if="!isOthersProfile && viewUser.phone"><ZgGlyph emoji="📱" /> {{ viewUser.phone }}</span>
           </div>
           <div class="ph-exp-bar">
-            <div class="ph-exp-fill" :style="{ width: expProgress(user.current.exp) + '%' }"></div>
+            <div class="ph-exp-fill" :style="{ width: expProgress(viewUser.exp) + '%' }"></div>
           </div>
-          <div class="ph-exp-text">{{ user.current.exp }} EXP · 距下一级 {{ expLeftToNext }} EXP</div>
+          <div class="ph-exp-text">{{ viewUser.exp }} EXP · 距下一级 {{ expLeftToNext }} EXP</div>
         </div>
-        <el-button text circle class="ph-edit" @click="editing = true"><ZgGlyph emoji="✏️" /></el-button>
+        <!-- 编辑按钮仅自己可见 -->
+        <el-button v-if="!isOthersProfile" text circle class="ph-edit" @click="editing = true"><ZgGlyph emoji="✏️" /></el-button>
       </div>
     </div>
 
-    <!-- 数据概览 -->
-    <div class="stat-grid">
+    <!-- 数据概览（仅自己可见，他人主页隐藏） -->
+    <div v-if="!isOthersProfile" class="stat-grid">
       <div class="stat-card glass zg-card">
         <div class="stat-icon" style="background:linear-gradient(135deg,var(--zg-accent),var(--zg-primary))"><ZgGlyph emoji="📝" /></div>
         <div class="stat-info"><div class="stat-num">{{ myArticles.length }}</div><div class="stat-label">我的美文</div></div>
@@ -122,8 +165,8 @@ const expLeftToNext = computed(() => {
       </div>
     </div>
 
-    <!-- 经验日志 -->
-    <div class="section">
+    <!-- 经验日志（仅自己可见） -->
+    <div v-if="!isOthersProfile" class="section">
       <div class="section-title">经验记录</div>
       <div class="exp-list">
         <div v-for="log in expLogs.slice(0, 10)" :key="log.id" class="exp-item glass">
@@ -137,8 +180,8 @@ const expLeftToNext = computed(() => {
       </div>
     </div>
 
-    <!-- 需求3：待我（学生）确认的代发美文 -->
-    <div class="section" v-if="user.isStudent">
+    <!-- 需求3：待我（学生）确认的代发美文（仅自己可见） -->
+    <div v-if="!isOthersProfile && user.isStudent" class="section">
       <div class="section-title">
         待我确认的代发美文
         <el-tag v-if="pendingStudentArticles.length" size="small" type="warning" style="margin-left:8px">{{ pendingStudentArticles.length }} 篇待确认</el-tag>
@@ -163,8 +206,8 @@ const expLeftToNext = computed(() => {
       <el-empty v-else description="暂无待确认的代发美文" :image-size="80" />
     </div>
 
-    <!-- 我的美文 -->
-    <div class="section" v-if="myArticles.length">
+    <!-- 我的美文（仅自己可见） -->
+    <div v-if="!isOthersProfile && myArticles.length" class="section">
       <div class="section-title">我的美文</div>
       <div class="my-art-list">
         <div v-for="a in myArticles" :key="a.id" class="my-art-item glass zg-card" @click="router.push(`/article/${a.id}`)">
@@ -178,8 +221,8 @@ const expLeftToNext = computed(() => {
       </div>
     </div>
 
-    <!-- 我的资料 -->
-    <div class="section" v-if="myResources.length">
+    <!-- 我的资料（仅自己可见） -->
+    <div v-if="!isOthersProfile && myResources.length" class="section">
       <div class="section-title">我的资料</div>
       <div class="my-art-list">
         <div v-for="r in myResources" :key="r.id" class="my-art-item glass zg-card">
@@ -194,8 +237,13 @@ const expLeftToNext = computed(() => {
       </div>
     </div>
 
-    <!-- 编辑弹窗 -->
-    <el-dialog v-model="editing" title="编辑个人信息" width="440px">
+    <!-- 他人主页提示 -->
+    <div v-if="isOthersProfile" class="section">
+      <el-empty :description="`这是 ${viewUser.realName} 的公开主页 · 邮箱/手机/经验记录为隐私`" />
+    </div>
+
+    <!-- 编辑弹窗（仅自己） -->
+    <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="440px">
       <el-form label-width="80px">
         <el-form-item label="头像URL"><el-input v-model="form.avatar" /></el-form-item>
         <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
@@ -218,6 +266,7 @@ const expLeftToNext = computed(() => {
 .ph-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ph-name { font-size: var(--zg-fs-xl); font-weight: 800; }
 .ph-role { font-size: var(--zg-fs-xs); padding: 2px 10px; border-radius: 6px; background: rgba(var(--zg-primary-rgb),.2); color: #92400e; font-weight: 600; }
+.ph-username { font-size: var(--zg-fs-xs); color: var(--zg-text-dim); font-family: 'JetBrains Mono', Consolas, monospace; }
 .ph-contact { display: flex; gap: 16px; margin-top: 6px; font-size: var(--zg-fs-xs); color: var(--zg-text-dim); flex-wrap: wrap; }
 .ph-exp-bar { height: 8px; border-radius: 8px; background: rgba(var(--zg-primary-rgb),.12); margin-top: 14px; overflow: hidden; }
 .ph-exp-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--zg-accent), var(--zg-primary)); transition: width .5s; }

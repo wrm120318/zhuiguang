@@ -475,6 +475,27 @@ app.get('/api/users/search', auth, async (req, res) => {
   })))
 })
 
+// 单个用户公开信息（@提及点击跳转目标用户主页用）
+// 登录即可访问，仅返回 active 用户；含真实经验值（与 /api/users 一致）
+app.get('/api/users/:id', auth, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: '无效的用户 ID' })
+  const u = await get<any>(
+    `SELECT u.*, cm.class_id,
+            COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=u.id), 0) AS exp_total
+     FROM users u
+     LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE role_in_class=?) cm ON u.id=cm.user_id
+     WHERE u.id=?`,
+    'STUDENT', id
+  )
+  if (!u) return res.status(404).json({ message: '用户不存在' })
+  if (u.status !== 'active') return res.status(403).json({ message: '用户已停用' })
+  const base = pub(u)
+  base.exp = Number(u.exp_total || 0)
+  base.level = Math.floor(base.exp / 60) + 1
+  return res.json(base)
+})
+
 app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
   const { username, realName, role, email, classId, password, subjectId } = req.body
   if (await get('SELECT id FROM users WHERE username=?', username)) return res.status(400).json({ message: '用户名已存在' })
