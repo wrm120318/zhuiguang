@@ -74,6 +74,17 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 - **删除失败静默无提示**：`deleteArticleItem` 原来 `catch {}` 空吞，
   403 时用户点了没反应，现在弹出后端错误原因
 
+### 🔧 Express 本地后端同步（双后端规则）
+
+`server/index.ts` 此前已落后于 Worker 端，本次一并补齐：
+
+| 项 | 同步前（本地） | 同步后（与生产一致） |
+|---|---|---|
+| 美文审核权限 | 写死「只有超管可以审核美文」 | 超管放行任意学科 + 学科教师审本学科 |
+| 审核通过经验值 | 缺失（注释称"仅创建时发放"） | 补 `addExp`，含 `exp_logs` 防重复检查 |
+| 代发通知文案 | 「已通过超管审核」 | 「已通过审核」（教师也能审，措辞不再限定超管） |
+| 列表 `subject_name` | 无 | LEFT JOIN `subjects` 补学科名/图标 |
+
 ### 部署状态
 
 - 后端：已部署（`zhuiguang-api` v4.3.0）
@@ -88,6 +99,18 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 | teacher 69 审历史美文 41（跨学科） | ✅ `403 无权限审核该学科的美文` |
 | teacher 69 删历史美文 41（跨学科） | ✅ `403 无权限删除` |
 | 列表 `subject_name` | ✅ 语文 / 历史 / 数学 |
+
+### 验证结果（本地 Express 实测，双后端行为已对齐）
+
+本地起 `tsx server/index.ts`，建语文教师（subject_id=1）+ 语文/数学各一篇待审美文：
+
+| 场景 | 生产 Worker | 本地 Express |
+|---|---|---|
+| 语文教师审语文明文（本学科） | `ok` | `ok` ✅ |
+| 语文教师审数学美文（跨学科） | `403 无权限审核该学科的美文` | 同左 ✅ |
+| 语文教师删语文明文（本学科） | `ok` | `ok` ✅ |
+| 语文教师删数学美文（跨学科） | `403 无权限删除` | 同左 ✅ |
+| 列表 `subject_name` | 语文/历史/数学 | 数学 ✅ |
 
 ---
 

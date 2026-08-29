@@ -815,10 +815,13 @@ app.get('/api/articles', async (req, res) => {
   }
 
   // 构建主SQL：JOIN users 取 creator_name / actual_user_name
-  let sql = `SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name
+  // 【v4.3.0 同步 Worker 端】补 subject_name / subject_icon，供审核界面显示学科
+  let sql = `SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name,
+    s.name AS subject_name, s.icon AS subject_icon
     FROM articles a
     JOIN users u ON u.id = a.user_id
     LEFT JOIN users au ON au.id = a.actual_user_id
+    LEFT JOIN subjects s ON s.id = a.subject_id
     WHERE 1=1`
   const args: any[] = []
 
@@ -983,18 +986,27 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
   if (!a) return res.status(404).json({ message: '不存在' })
   const reviewerId = (req as any).user.id
   const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', reviewerId)
-  // 需求4：只有 SUPER_ADMIN 可以审核美文（教师发布的不需要审核，直接approved，不经过这里）
-  if (u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '只有超级管理员可以审核美文' })
+  // 【v4.3.0 同步 Worker 端】原逻辑写死「只有超管可以审核美文」，与生产不一致。
+  // 现改为：超管放行任意学科；学科教师可审本学科（canManageSubject 已含 subject_id 兜底）
+  if (u?.role !== 'SUPER_ADMIN' && !(await canManageSubject(u, a.subject_id, reviewerId))) {
+    return res.status(403).json({ message: '无权限审核该学科的美文' })
+  }
+  const newStatus = req.body.status
   // Bug1: 确认此处不更新 user_id（当前是对的，只改 status）
-  await run('UPDATE articles SET status=? WHERE id=?', req.body.status, req.params.id)
-  if (req.body.status === 'approved' && a.status !== 'approved') {
-    // 经验值仅在美文创建时发放（POST 端点），审核通过不再重复加经验
+  await run('UPDATE articles SET status=? WHERE id=?', newStatus, req.params.id)
+  if (newStatus === 'approved' && a.status !== 'approved') {
+    // 【v4.3.0 同步 Worker 端】审核通过给实际作者发经验值（防重复：检查是否已发放过）
+    const expUid = Number(a.actual_user_id) || Number(a.user_id)
+    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='article' AND description LIKE ?", expUid, `%${a.title}%`)
+    if (!already) {
+      await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`)
+    }
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
     // 如果是代发的，也通知实际作者学生
     if (a.actual_user_id) {
-      await addNotice(Number(a.actual_user_id), '你的美文审核通过', `《${a.title}》已通过超管审核，已公开展示，经验值已加给你。`, 'audit')
+      await addNotice(Number(a.actual_user_id), '你的美文审核通过', `《${a.title}》已通过审核，已公开展示。`, 'audit')
     }
-  } else if (req.body.status === 'rejected') {
+  } else if (newStatus === 'rejected') {
     await addNotice(a.user_id, '美文未通过审核', `《${a.title}》未通过审核，请修改后重新提交。`, 'audit')
     if (a.actual_user_id) {
       await addNotice(Number(a.actual_user_id), '你的美文未通过审核', `代发的《${a.title}》未通过审核。`, 'audit')
@@ -1214,7 +1226,12 @@ app.get('/api/resources', async (req, res) => {
     const meRow = await get<any>('SELECT subject_id FROM users WHERE id=?', myId)
     if (meRow?.subject_id && !teachSidList.includes(meRow.subject_id)) teachSidList.push(meRow.subject_id)
   }
-  let sql = 'SELECT r.*, u.real_name AS creator_name FROM resources r LEFT JOIN users u ON r.user_id = u.id WHERE 1=1'
+  // 【v4.3.0 同步 Worker 端】补 subject_name / subject_icon，供审核界面显示学科
+  let sql = `SELECT r.*, u.real_name AS creator_name, s.name AS subject_name, s.icon AS subject_icon
+    FROM resources r
+    LEFT JOIN users u ON r.user_id = u.id
+    LEFT JOIN subjects s ON s.id = r.subject_id
+    WHERE 1=1`
   const args: any[] = []
   if (subjectId) { sql += ' AND r.subject_id=?'; args.push(subjectId) }
   if (status && myRole === 'SUPER_ADMIN') { sql += ' AND r.status=?'; args.push(status) }
