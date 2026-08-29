@@ -1516,6 +1516,21 @@ app.delete('/api/query/tasks/:id', auth, requireStaff, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ============ 【v4.3.2】超管按存储 key 预览/下载文件 ============
+// 与 worker-api.ts 的 GET /api/admin/storage/file 路由对齐，保证双后端路由一致。
+// 注意：本地 Express 后端未接入 Supabase Storage（不引入额外依赖），
+//       此处返回明确的 501 提示，避免前端在本地开发时收到 404 而难以排查。
+app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
+  const key = String(req.query.key || '').trim()
+  if (!key) return res.status(400).json({ message: '缺少文件 key' })
+  if (key.includes('..') || key.startsWith('/') || key.startsWith('\\')) {
+    return res.status(400).json({ message: '非法的文件路径' })
+  }
+  return res.status(501).json({
+    message: '本地开发后端未接入对象存储，文件的查看/下载请使用线上环境（Cloudflare Worker）',
+  })
+})
+
 // ============ 小白一键修复：SUPER_ADMIN点按钮就自动跑fix.sh（10分钟互斥锁 · 和/__zg_fix共用同一个锁） ============
 app.post('/api/admin/self-repair', auth, requireRole('SUPER_ADMIN'), async (_req, res) => {
   const now = Date.now()

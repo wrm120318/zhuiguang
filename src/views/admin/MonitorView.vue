@@ -170,6 +170,11 @@ const previewUrl = ref('')
 const previewLoading = ref(false)
 const deletingFile = ref<any>(null)
 const deleteLoading = ref(false)
+// 【v4.3.2】Blob 预览：记录当前 objectURL 以便及时回收，避免内存泄漏
+const blobUrl = ref('')
+// 【v4.3.2】下载中标记（按文件名区分，避免整列按钮一起转圈）
+const downloadingFile = ref('')
+const downloading = ref(false)
 
 // ===== 【v4.3.1】文件溯源 =====
 const onlyOrphan = ref(false)
@@ -228,23 +233,60 @@ function isPreviewable(name: string): boolean {
   return isImage(name) || isPdf(name)
 }
 
-function openPreview(file: any) {
+/**
+ * 【v4.3.2】预览文件
+ * 旧实现走 /file/raw/:key?token=xxx，token 明文出现在浏览器地址栏与历史记录里，不安全。
+ * 改为后端取流 + Blob：token 走 Authorization header，URL 中不再出现 token。
+ */
+async function openPreview(file: any) {
   previewFile.value = file
   previewVisible.value = true
   previewLoading.value = true
-  // 使用 /file/raw/:key 路由预览（带 token）
-  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
-  const token = localStorage.getItem('zg_token') || ''
-  const encodedKey = encodeURIComponent(file.name)
-  previewUrl.value = `${baseURL}/file/raw/${encodedKey}?token=${encodeURIComponent(token)}`
-  // 图片加载完成后关闭 loading
-  if (isImage(file.name)) {
-    const img = new Image()
-    img.onload = () => { previewLoading.value = false }
-    img.onerror = () => { previewLoading.value = false }
-    img.src = previewUrl.value
-  } else {
-    setTimeout(() => { previewLoading.value = false }, 800)
+  previewUrl.value = ''
+  try {
+    const blob = await api.getStorageFile(file.name, 'preview') as unknown as Blob
+    if (!(blob instanceof Blob)) throw new Error('返回内容不是文件流')
+    if (blobUrl.value) URL.revokeObjectURL(blobUrl.value)
+    blobUrl.value = URL.createObjectURL(blob)
+    previewUrl.value = blobUrl.value
+    if (isImage(file.name)) {
+      const img = new Image()
+      img.onload = () => { previewLoading.value = false }
+      img.onerror = () => { previewLoading.value = false }
+      img.src = previewUrl.value
+    } else {
+      setTimeout(() => { previewLoading.value = false }, 800)
+    }
+  } catch (e: any) {
+    previewLoading.value = false
+    // 4xx/5xx 已由 http 拦截器统一提示，这里只兜底「返回内容异常」的情况
+    if (e?.message === '返回内容不是文件流') ElMessage.error('预览失败：服务器未返回文件流')
+    else if (!e?.response) ElMessage.error('预览失败：' + (e?.message || '未知错误'))
+  }
+}
+
+/** 【v4.3.2】下载文件到本地（同样走 Blob，URL 不含 token） */
+async function downloadStorageFile(file: any) {
+  downloading.value = true
+  downloadingFile.value = file.name
+  try {
+    const blob = await api.getStorageFile(file.name, 'download') as unknown as Blob
+    if (!(blob instanceof Blob)) throw new Error('返回内容不是文件流')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name || 'download'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 3000)
+    ElMessage.success('已开始下载')
+  } catch (e: any) {
+    if (e?.message === '返回内容不是文件流') ElMessage.error('下载失败：服务器未返回文件流')
+    else if (!e?.response) ElMessage.error('下载失败：' + (e?.message || '未知错误'))
+  } finally {
+    downloading.value = false
+    downloadingFile.value = ''
   }
 }
 
@@ -269,7 +311,7 @@ async function confirmDeleteFile() {
     ElMessage.success(res.message || '文件已删除')
     previewVisible.value = false
     deletingFile.value = null
-    previewUrl.value = ''
+    revokeBlobUrl()
     // 刷新监控数据
     await Promise.all([load(), loadStorage()])
   } catch (e: any) {
@@ -289,10 +331,19 @@ function startDelete(file: any) {
   }
 }
 
+/** 释放当前预览占用的 Blob URL */
+function revokeBlobUrl() {
+  if (blobUrl.value) {
+    URL.revokeObjectURL(blobUrl.value)
+    blobUrl.value = ''
+  }
+  previewUrl.value = ''
+}
+
 function handleClosePreview(done?: () => void) {
   previewVisible.value = false
   deletingFile.value = null
-  previewUrl.value = ''
+  revokeBlobUrl()
   if (done) done()
 }
 
@@ -317,6 +368,7 @@ onBeforeUnmount(() => {
   if (renderRetryTimer) clearTimeout(renderRetryTimer)
   window.removeEventListener('resize', resize)
   c1?.dispose(); c2?.dispose()
+  revokeBlobUrl() // 【v4.3.2】离开页面时释放 Blob，避免内存泄漏
 })
 </script>
 
@@ -458,7 +510,7 @@ onBeforeUnmount(() => {
               <div class="glass info-panel" style="margin-top:16px;">
                 <div class="ip-title">
                   <ZgGlyph emoji="📈" /> 大体积文件 TOP 10
-                  <span class="ip-hint">点击文件名预览，点击 <ZgGlyph emoji="🗑️" /> 删除</span>
+                  <span class="ip-hint">点击 <ZgGlyph emoji="👁️" /> 查看，<ZgGlyph emoji="⬇️" /> 下载，<ZgGlyph emoji="🗑️" /> 删除</span>
                   <!-- 【v4.3.1】孤儿文件筛选开关 -->
                   <el-switch
                     v-model="onlyOrphan"
@@ -506,6 +558,28 @@ onBeforeUnmount(() => {
                           >前往</el-button>
                         </div>
                       </div>
+                      <!-- 【v4.3.2】查看：在线预览文件内容（图片直接看图，PDF 内嵌阅读） -->
+                      <el-button
+                        size="small"
+                        text
+                        class="file-act-btn view-btn"
+                        title="查看文件内容"
+                        @click="openPreview(f)"
+                        :loading="previewLoading && previewFile?.name === f.name"
+                      >
+                        <span style="font-size:14px;"><ZgGlyph emoji="👁️" /></span>
+                      </el-button>
+                      <!-- 【v4.3.2】下载：原文件保存到本地 -->
+                      <el-button
+                        size="small"
+                        text
+                        class="file-act-btn dl-btn"
+                        title="下载到本地"
+                        @click="downloadStorageFile(f)"
+                        :loading="downloading && downloadingFile === f.name"
+                      >
+                        <span style="font-size:14px;"><ZgGlyph emoji="⬇️" /></span>
+                      </el-button>
                       <el-button
                         size="small"
                         type="danger"
@@ -980,6 +1054,14 @@ onBeforeUnmount(() => {
 .file-name-clickable.previewable:hover { color:var(--zg-primary); }
 .resource-tag { font-size:12px; margin-left:4px; cursor:help; }
 .delete-btn { padding:4px 6px; flex-shrink:0; }
+
+/* ===== 【v4.3.2】文件操作按钮：查看 / 下载 ===== */
+.file-act-btn { padding:4px 5px; flex-shrink:0; margin-left:2px; transition:color .18s ease; }
+.file-act-btn.view-btn:hover { color:var(--zg-accent); }
+.file-act-btn.dl-btn:hover { color:var(--zg-primary); }
+/* 墨金主题下沿用主题强调色，不入侵经典暖橘 :root */
+html.zg-inkgold .file-act-btn.view-btn:hover { color:var(--zg-accent); }
+html.zg-inkgold.zg-inkgold-dark .file-act-btn.view-btn:hover { color:var(--zg-accent); }
 
 /* ===== 文件预览弹窗 ===== */
 .preview-container { min-height:300px; display:flex; align-items:center; justify-content:center; }

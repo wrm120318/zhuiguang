@@ -266,6 +266,9 @@ export const api = {
   storageMonitor: () => http.get('/api/admin/storage/monitor'),
   storageOptimize: (action: string) => http.post('/api/admin/storage/optimize', { action }),
   deleteStorageFile: (fileName: string) => http.delete('/api/admin/storage/file', { data: { fileName } }),
+  // 【v4.3.2】超管按存储 key 预览/下载文件：返回 Blob，token 走 header，URL 里不含 token
+  getStorageFile: (key: string, mode: 'preview' | 'download' = 'preview') =>
+    http.get('/api/admin/storage/file', { params: { key, mode }, responseType: 'blob' }),
   cacheStats: () => http.get('/api/admin/cache/stats'),
   // 经验 & 排行
   expLogs: (userId?: number) => http.get('/api/exp/logs', { params: { userId } }),

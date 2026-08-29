@@ -573,7 +573,9 @@ function apiCacheKey(c: Context): string | null {
   if (c.req.method !== 'GET') return null
   const p = new URL(c.req.url).pathname
   if (!p.startsWith('/api/')) return null
+  // 【v4.3.2】/api/admin/storage/file 返回二进制流，若被当作字符串塞进 Map 会损坏文件且撑爆缓存
   if (p.includes('/upload/') || p.includes('/download/') || p.includes('/comments') || p.includes('/export')) return null
+  if (p.includes('/storage/file')) return null
   const auth = (c.req.header('authorization') || '').slice(0, 200)
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
@@ -3965,6 +3967,54 @@ async function traceFileOrigins(keys: string[]): Promise<Map<string, FileOrigin>
   }
   return out
 }
+
+// ==============================================================================
+// 【v4.3.2】GET /api/admin/storage/file?key=xxx&mode=preview|download
+//   超管专用：直接按存储 key 预览/下载文件（含「数据库查不到归属」的孤儿文件）
+//   与下面的 DELETE /api/admin/storage/file 同路径不同 method，Hono 按 method 分发，互不干扰。
+//   前端用 fetch + Blob 方式取流，token 走 Authorization header，URL 里不会出现 token。
+// ==============================================================================
+app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const rawKey = (c.req.query('key') || '').trim()
+  const mode = c.req.query('mode') === 'download' ? 'download' : 'preview'
+  if (!rawKey) return c.json({ message: '缺少文件 key' }, 400)
+  // 防路径穿越：禁止 .. 与绝对路径
+  if (rawKey.includes('..') || rawKey.startsWith('/') || rawKey.startsWith('\\')) {
+    return c.json({ message: '非法的文件路径' }, 400)
+  }
+  const safeKey = extractKey(rawKey)
+  if (!safeKey) return c.json({ message: '非法的文件路径' }, 400)
+  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+
+  const file = await downloadFile(safeKey)
+  if (!file) return c.json({ message: '文件不存在或已被删除' }, 404)
+
+  // 体积保护：Workers 内存有限，超过 50MB 不予在线取流
+  const size = file.buffer.byteLength
+  const MAX_SIZE = 50 * 1024 * 1024
+  if (size > MAX_SIZE) {
+    return c.json({ message: `文件过大（${(size / 1024 / 1024).toFixed(1)}MB），超过 50MB 无法在线预览/下载` }, 413)
+  }
+
+  const ct = file.contentType || guessContentType(safeKey)
+  const filename = (safeKey.split('/').pop() || safeKey).replace(/"/g, '')
+  const encoded = encodeURIComponent(filename)
+  const disposition = mode === 'download'
+    ? `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`
+    : `inline; filename="${encoded}"; filename*=UTF-8''${encoded}`
+
+  return new Response(file.buffer, {
+    headers: {
+      'Content-Type': ct,
+      'Content-Disposition': disposition,
+      'Content-Length': String(size),
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': c.req.header('Origin') || '*',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length',
+    },
+  })
+})
 
 // 存储监控：Supabase 存储用量 + 大文件排行 + 优化建议
 app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {

@@ -5,6 +5,63 @@
 
 ---
 
+## [v4.3.2] - 2026-08-29
+
+> 大体积文件 TOP 10 增加「查看 / 下载」+ 消除预览 URL 中的明文 token
+
+### ✨ 新增功能：文件查看与下载
+
+**需求**
+> 超级管理员运行监控界面的大体积文件 TOP 10，再加一个可以下载查看的功能
+
+**实现**
+
+新增超管专用接口 `GET /api/admin/storage/file?key=xxx&mode=preview|download`：
+
+- `mode=preview` → `Content-Disposition: inline`（图片直接看图、PDF 内嵌阅读）
+- `mode=download` → `Content-Disposition: attachment`（原文件保存到本地）
+- 覆盖**全部文件**，包括数据库里查不到归属的孤儿文件（旧逻辑只能预览有资源记录的文件）
+
+TOP 10 每行新增 👁️ 查看 / ⬇️ 下载 两个按钮。
+
+### 🔒 顺带修复 1：预览 URL 里的明文 token
+
+旧实现走 `/file/raw/:key?token=xxx`，token 明文出现在浏览器地址栏、历史记录和 Referer 里。
+改为后端取流 + `URL.createObjectURL(blob)`：token 走 `Authorization` header，**URL 中不再出现 token**。
+同时补上 Blob 的及时回收（关闭弹窗 / 离开页面时 revoke），避免内存泄漏。
+
+### 🐛 顺带修复 2：二进制文件被塞进字符串缓存
+
+`apiCacheKey()` 只对 `/upload/`、`/download/`、`/comments`、`/export` 跳过缓存，
+新接口返回的是二进制流，若被当作字符串写进内存 Map，会导致文件损坏并撑爆 500 条上限的缓存。
+已把 `/storage/file` 加入排除名单。
+
+### 🔧 顺带修复 3：本地 main 分支跟踪错了远端分支
+
+本地 `main` 的 upstream 被配成了 `origin/master`（一个落后 14 个提交的旧分支），
+而 GitHub 仓库 HEAD 实际是 `main`。已修正为 `origin/main`。
+
+### ✅ 生产验证
+
+| 场景 | 结果 |
+| --- | --- |
+| 缺少 key / 路径穿越 `../` / 绝对路径 | 400 已拦截 |
+| 文件不存在 | 404 |
+| 未登录 | 401 |
+| 学生账号（id=9） | 403 无权限 |
+| 同一学生 token 访问普通接口 | 200（证明 403 是真的被拦，不是 token 失效） |
+| 超管下载 2.73MB PDF | 200，2,860,266 字节，`%PDF-` 开头 `%%EOF` 结尾，文件完整 |
+| preview 与 download 两种模式内容 | 字节级一致 |
+
+### 📁 改动文件
+
+- `worker-api.ts`：新增 `GET /api/admin/storage/file` 路由；`apiCacheKey` 排除二进制接口
+- `server/index.ts`：同步同名路由（本地后端未接对象存储，返回 501 明确提示，不引入新依赖）
+- `src/api/index.ts`：新增 `getStorageFile()`
+- `src/views/admin/MonitorView.vue`：查看/下载按钮、Blob 预览改造、Blob 回收
+
+---
+
 ## [v4.3.1] - 2026-08-29
 
 > 大体积文件 TOP 10 增加「文件溯源」+ 修复存储监控接口 500
