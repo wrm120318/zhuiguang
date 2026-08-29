@@ -57,24 +57,24 @@ app.directive('swipe-action', vSwipeAction)
 
 app.mount('#app')
 
-// 【v4.2.7】注册 Service Worker：拦截 /api/download/* 路径，
-//   实现「浏览器原生流式下载 + URL 完全不暴露 token + 不开新标签页」
+// 【v4.2.8 紧急回退】v4.2.7 试图用 Service Worker 拦截 /api/download/* 但被 CF Pages
+//   SPA fallback 截到 index.html，导致用户下载到 HTML。
+//   1) 立即清理已注册的旧 SW（防止用户浏览器里残留的 SW 继续拦截下载）
+//   2) 停用 SW 注册逻辑
+//   3) public/sw-download.js 文件保留但不再注册，等后续彻底修复 SW 路径再做
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw-download.js')
-      .then((reg) => {
-        // 监听 SW 消息：收到 'zg_download:get_token' 时把 zg_token 传回去
-        navigator.serviceWorker.addEventListener('message', (event) => {
-          if (event.data?.type === 'zg_download:get_token') {
-            const port = event.ports?.[0]
-            const token = localStorage.getItem('zg_token') || ''
-            try { port?.postMessage({ token }) } catch { /* SW 已 close */ }
-          }
-        })
-        console.info('[zg-download] SW registered', reg.scope)
+  // 1. 清理所有已注册的 SW（解决用户浏览器里残留 v4.2.7 SW 的问题）
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => {
+      reg.unregister().catch(() => {})
+    })
+  }).catch(() => {})
+  // 2. 清理 SW 缓存（v4.2.7 SW 可能缓存了错误响应）
+  if ('caches' in window) {
+    caches.keys().then((names) => {
+      names.forEach((name) => {
+        caches.delete(name).catch(() => {})
       })
-      .catch((err) => {
-        console.warn('[zg-download] SW register failed, fallback to v4.2.6 fetch+blob', err)
-      })
-  })
+    }).catch(() => {})
+  }
 }

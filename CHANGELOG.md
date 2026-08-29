@@ -9,6 +9,42 @@
 
 ---
 
+
+---
+
+## [v4.2.8] - 2026-08-29
+
+> 紧急回退：v4.2.7 SW 拦截方案失败，所有下载被 SPA fallback 截到 index.html
+
+### 现象（用户反馈）
+> 现在什么都下不了，全下成 htm 了，啥也没有！！！
+
+### 根因（定位 + 教学）
+- `public/sw-download.js` 写完后我**没在 `_redirects` 中配 `/api/download/*` 不被 SPA fallback 吞掉**
+- Cloudflare Pages 默认会把所有找不到的路径 fallback 到 `index.html`，状态 200
+- 用户首次访问 SW 还没注册激活，浏览器直接请求 `/api/download/12`，CF Pages 找不到，返回 `<!DOCTYPE html>...`
+- 浏览器把 HTML 当成下载文件保存 → **用户下了一堆 HTML 文件**
+- 我的「500ms 兜底降级到 v4.2.6」**没生效**，因为 `<a href>` 一旦触发，浏览器立刻 GET，500ms 后 SW 才接管已经晚了
+
+### 紧急止血
+- `SubjectView.downloadResource` **完全回退到 v4.2.6** 的 `fetch + blob + <a download>`
+- `main.ts` 取消 SW 注册代码，**改为清理旧 SW**（`getRegistrations().unregister()` + `caches.keys().delete()`）
+- 公共文件 `public/sw-download.js` 保留不删，下次彻底修再加
+
+### 后续（不在本版本范围）
+- v4.2.7 的 SW 思路方向是对的，但需要先在 `_redirects` 加：
+  ```
+  /api/download/* /api/download/:splat 404
+  ```
+  让 CF Pages 不要 fallback 到 index.html
+- 或者改用 Cloudflare Functions 在边缘代理下载请求
+- **本次不做**，先止血
+
+### 部署
+- 后端：无须部署
+- 前端：git push origin main → CF Pages 自动构建
+- 用户浏览器**必须刷新**一次（带 SW 的浏览器，旧的 v4.2.7 SW 不 unregister 会继续拦截），所以 `main.ts` 里加了 unregister 代码——只要用户访问主页，旧 SW 就被注销
+
 ## [v4.2.7] - 2026-08-29
 
 > 下载终极修复（终极版）：Service Worker 拦截下载请求 + 浏览器原生流式
