@@ -175,6 +175,8 @@ const blobUrl = ref('')
 // 【v4.3.2】下载中标记（按文件名区分，避免整列按钮一起转圈）
 const downloadingFile = ref('')
 const downloading = ref(false)
+// 【v4.3.2】预览弹窗的来源：true=从「删除」进入（footer 显示删除按钮），false=从「查看」进入
+const previewFromDelete = ref(false)
 
 // ===== 【v4.3.1】文件溯源 =====
 const onlyOrphan = ref(false)
@@ -238,7 +240,8 @@ function isPreviewable(name: string): boolean {
  * 旧实现走 /file/raw/:key?token=xxx，token 明文出现在浏览器地址栏与历史记录里，不安全。
  * 改为后端取流 + Blob：token 走 Authorization header，URL 中不再出现 token。
  */
-async function openPreview(file: any) {
+async function openPreview(file: any, fromDelete = false) {
+  previewFromDelete.value = fromDelete
   previewFile.value = file
   previewVisible.value = true
   previewLoading.value = true
@@ -325,7 +328,7 @@ function startDelete(file: any) {
   deletingFile.value = file
   // 如果可预览，先打开预览；否则直接确认删除
   if (isPreviewable(file.name)) {
-    openPreview(file)
+    openPreview(file, true)
   } else {
     confirmDeleteFile()
   }
@@ -343,6 +346,7 @@ function revokeBlobUrl() {
 function handleClosePreview(done?: () => void) {
   previewVisible.value = false
   deletingFile.value = null
+  previewFromDelete.value = false
   revokeBlobUrl()
   if (done) done()
 }
@@ -883,7 +887,9 @@ onBeforeUnmount(() => {
             </div>
             <div v-else class="file-info-resource" style="color:var(--zg-primary);"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联任何资源记录）</div>
           </div>
-          <div class="preview-tip">该文件类型不支持在线预览，可直接删除</div>
+          <div class="preview-tip">
+            {{ previewFromDelete ? '该文件类型不支持在线预览，确认无误后可删除' : '该文件类型不支持在线预览，可下载到本地查看' }}
+          </div>
         </div>
       </div>
       <!-- 预览弹窗底部：文件信息 + 删除按钮 -->
@@ -898,8 +904,17 @@ onBeforeUnmount(() => {
             <el-tag v-else size="small" type="danger">孤立文件</el-tag>
           </div>
           <div class="preview-footer-actions">
-            <el-button @click="handleClosePreview">取消</el-button>
+            <el-button @click="handleClosePreview">{{ previewFromDelete ? '取消' : '关闭' }}</el-button>
+            <!-- 【v4.3.2】不管从哪个入口进来，都能顺手把文件下载到本地 -->
             <el-button
+              v-if="previewFile"
+              @click="downloadStorageFile(previewFile)"
+              :loading="downloading && downloadingFile === previewFile?.name"
+            >
+              <span style="margin-right:4px;"><ZgGlyph emoji="⬇️" /></span> 下载
+            </el-button>
+            <el-button
+              v-if="previewFromDelete"
               type="danger"
               @click="confirmDeleteFile"
               :loading="deleteLoading"
