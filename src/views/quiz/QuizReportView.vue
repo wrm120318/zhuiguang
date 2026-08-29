@@ -41,6 +41,17 @@ function resultClass(q: any) { return { correct: q.qtype !== 'subjective', subje
 function resultText(q: any) { return q.qtype === 'subjective' ? '主观题' : '' }
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
 
+// 单题实际得分（来自后端 graded[qid].score，客观题提交即出，主观题教师批改后更新）
+function earnedScore(q: any) { return graded.value[q.id]?.score ?? 0 }
+function scoreClass(q: any) {
+  if (q.qtype === 'subjective') return sub.value?.status === 'graded' ? 'subj' : 'pending'
+  return earnedScore(q) > 0 ? 'right' : 'wrong'
+}
+function scoreText(q: any) {
+  if (q.qtype === 'subjective' && sub.value?.status !== 'graded') return '待批改'
+  return `你的得分 ${earnedScore(q)} 分`
+}
+
 // 教师报告计算属性
 const tSummary = computed(() => teacherData.value?.summary || {})
 const tQuestions = computed(() => teacherData.value?.questions || [])
@@ -207,7 +218,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
         <div class="q-head">
           <span class="q-no">{{ i + 1 }}.</span>
           <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
-          <span class="q-score">本题 {{ q.score }} 分</span>
+          <span class="q-score" :class="scoreClass(q)">本题 {{ q.score }} 分 · {{ scoreText(q) }}</span>
           <span class="q-result" :class="resultClass(q)">{{ resultText(q) }}</span>
         </div>
         <div class="q-content" v-html="renderMd(q.content)"></div>
@@ -288,6 +299,9 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
 .q-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .q-no { font-weight: 800; font-size: 17px; }
 .q-score { margin-left: auto; color: var(--zg-accent); font-size: 13px; }
+.q-score.right { color: #10b981; font-weight: 700; }
+.q-score.wrong { color: #ef4444; font-weight: 700; }
+.q-score.pending, .q-score.subj { color: var(--zg-accent); font-weight: 600; }
 .q-result.correct { color: #10b981; font-size: 13px; font-weight: 600; }
 .q-result.subjective { color: var(--zg-text-dim); font-size: 13px; }
 .q-content { font-size: 15px; line-height: 1.8; margin-bottom: 14px; }
