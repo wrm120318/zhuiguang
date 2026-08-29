@@ -77,6 +77,7 @@
 ### Bug 修复（2026-08-29 补）
 
 - **【编辑器】粘贴 HTML 被吞成纯文本**：`MarkdownEditor.vue` 的 `onPaste` 原只处理图片粘贴，富文本 HTML 被浏览器按 `text/plain` 脱标签写入，粘进来成了纯文本。现改为：① 图片文件优先（保留原粘贴上传）；② 若剪贴板含 `text/html`，用 `sanitizeHtml`（现有白名单）清洗后按 HTML 源码插入；③ 平凡包裹（单个 `<div>文字</div>` 且无其它标签）回落浏览器默认纯文本粘贴，避免误插。复用并导出 `marked-extensions.ts` 的 `sanitizeHtml`，避免重复白名单。
+- **【论坛编辑】编辑帖子时误加载本地草稿、覆盖原帖**：`SubjectForumEditView.vue` 的 `onMounted` 在拉取原帖内容后无条件调用 `tryRestoreDraft()`，而 `tryRestoreDraft` 的编辑分支会先用 `useAutoSave.restoreDraft()` 把表单覆盖成本地草稿（即便用户点"放弃草稿"，`clear()` 只删 localStorage、并不还原表单），导致打开编辑页看到的是草稿而非原帖。`ArticleEditView` 同类流程是对的（编辑分支只 `loadForEdit()`、不恢复草稿）。修复：编辑模式分支直接跳过草稿恢复，始终以原帖内容为准；新建模式仍保留草稿恢复。`useAutoSave` 的 `restoreDraft()` 会直接改写表单且无"只检测不写入"接口，故采用"编辑模式不调用"的最小修复。
 
 ### 部署
 

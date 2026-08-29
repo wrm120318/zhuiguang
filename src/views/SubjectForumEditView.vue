@@ -258,15 +258,7 @@ const draftTimeText = computed(() => {
 
 function tryRestoreDraft() {
   if (isEdit.value) {
-    const ok = restoreDraft()
-    if (ok) {
-      restored.value = true
-      ElMessageBox.confirm(
-        '检测到未提交的草稿，是否恢复？（将覆盖当前编辑内容）',
-        '恢复草稿',
-        { confirmButtonText: '恢复', cancelButtonText: '放弃草稿' }
-      ).then(() => { /* 已自动恢复 */ }).catch(() => { clear(); restored.value = false })
-    }
+    // 编辑已有帖子：始终以原帖内容为准，不自动恢复本地草稿（避免草稿覆盖原帖内容）
     return
   }
   const ok = restoreDraft()
