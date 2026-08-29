@@ -9,7 +9,7 @@
 
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { renderExtendedMarkdown } from '@/utils/marked-extensions'
+import { renderExtendedMarkdown, sanitizeHtml } from '@/utils/marked-extensions'
 import { ensureKatexCss } from '@/utils/markdown'
 import { api } from '@/api'
 
@@ -292,9 +292,10 @@ async function onDrop(e: DragEvent) {
   }
 }
 async function onPaste(e: ClipboardEvent) {
-  const items = e.clipboardData?.items
-  if (!items) return
-  for (const item of Array.from(items)) {
+  const cd = e.clipboardData
+  if (!cd) return
+  // 1) 图片文件优先（保留原粘贴上传行为：图片自动入文）
+  for (const item of Array.from(cd.items)) {
     if (item.kind === 'file' && item.type.startsWith('image/')) {
       e.preventDefault()
       const file = item.getAsFile()
@@ -302,6 +303,35 @@ async function onPaste(e: ClipboardEvent) {
       return
     }
   }
+  // 2) 复制的是富文本 HTML → 识别为 HTML 源码插入，避免浏览器按 text/plain
+  //    把标签全脱掉、粘进来成了纯文本（历史根因）
+  const html = cd.getData('text/html')
+  if (html && html.trim()) {
+    const cleaned = sanitizeHtml(html)
+    if (isMeaningfulHtml(cleaned)) {
+      e.preventDefault()
+      insertAtCursor(normalizeClipboardHtml(cleaned))
+      ElMessage.success('已识别为 HTML 并插入，可在预览中查看效果')
+      return
+    }
+  }
+  // 3) 纯文本 / 代码 → 走浏览器默认粘贴
+}
+
+// 判断清理后的 HTML 是否“有意义”：避免把单个 <div>文字</div> 平凡包裹误当 HTML 插入
+function isMeaningfulHtml(cleaned: string): boolean {
+  const t = cleaned.trim()
+  const singleWrap = /^<(div|span|p|section|article)>(.*)<\/\1>$/is.exec(t)
+  if (singleWrap) {
+    const inner = singleWrap[2]
+    if (!/<\/?[a-z]/i.test(inner)) return false // 内部已无其它标签 → 平凡包裹
+  }
+  return /<[a-z][\s\S]*>/i.test(cleaned)
+}
+
+// 归一化粘贴 HTML 的换行符（剪贴板常见 \r\n）
+function normalizeClipboardHtml(s: string): string {
+  return s.replace(/\r\n?/g, '\n').trim()
 }
 
 // ===== 全屏 =====

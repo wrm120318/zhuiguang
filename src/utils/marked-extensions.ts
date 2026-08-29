@@ -251,7 +251,7 @@ function sanitizeAttrValue(name: string, value: string): string {
   return value
 }
 
-function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string): string {
   // 移除 script / style 标签及其内容
   html = html.replace(/<script[\s\S]*?<\/script>/gi, '')
   html = html.replace(/<style[\s\S]*?<\/style>/gi, '')

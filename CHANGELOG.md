@@ -74,6 +74,10 @@
 - **同时支持 Markdown 和 HTML 粘贴**：用户在编辑器粘贴 HTML，marked 透传；粘贴纯文本，marked 渲染 Markdown 语法。
 - **统一渲染**：所有详情页（美文 / 公告 / 博客 / 论坛帖子 / 网站说明）都用 `renderMarkdown()` 渲染，**用户粘贴 HTML 也能渲染，Markdown 也能渲染**。
 
+### Bug 修复（2026-08-29 补）
+
+- **【编辑器】粘贴 HTML 被吞成纯文本**：`MarkdownEditor.vue` 的 `onPaste` 原只处理图片粘贴，富文本 HTML 被浏览器按 `text/plain` 脱标签写入，粘进来成了纯文本。现改为：① 图片文件优先（保留原粘贴上传）；② 若剪贴板含 `text/html`，用 `sanitizeHtml`（现有白名单）清洗后按 HTML 源码插入；③ 平凡包裹（单个 `<div>文字</div>` 且无其它标签）回落浏览器默认纯文本粘贴，避免误插。复用并导出 `marked-extensions.ts` 的 `sanitizeHtml`，避免重复白名单。
+
 ### 部署
 
 - 后端：`wrangler deploy` → `https://zhuiguang-api.wangruiming-0318.workers.dev` v4.2.2 已部署
