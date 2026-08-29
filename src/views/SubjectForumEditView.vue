@@ -346,12 +346,18 @@ onBeforeUnmount(() => { try { saveDraftNow() } catch { /* */ } })
 
 @media (max-width: 980px) {
   .sfe-grid { grid-template-columns: 1fr; }
-  .sfe-side { order: -1; flex-direction: row; flex-wrap: wrap; }
-  .sfe-side-card { flex: 1 1 240px; }
+  .sfe-side { flex-direction: column; }
 }
 @media (max-width: 640px) {
-  .sfe-main { padding: 16px; }
+  .sfe-main { padding: 14px; }
   .sfe-row.two { grid-template-columns: 1fr; }
   .sfe-side { flex-direction: column; }
+  .sfe-title { font-size: 19px; }
+  .sfe-foot { flex-direction: column; align-items: stretch; gap: 12px; }
+  .sfe-btns { justify-content: stretch; flex-wrap: wrap; }
+  .sfe-btns :deep(.el-button) { flex: 1 1 auto; min-height: 40px; }
+  .sfe-row :deep(.el-input__inner),
+  .sfe-row :deep(.el-textarea__inner) { font-size: 16px; }
+  .sfe-side-card { padding: 14px; }
 }
 </style>

@@ -2869,4 +2869,17 @@ html, body { overflow-x: clip; }
 .markdown-body figure { margin: 1em 0; text-align: center; }
 .markdown-body figcaption { color: var(--zg-text-dim); font-size: 13px; margin-top: 6px; }
 
+/* 移动端：markdown 内容响应式（字号微调、内边距收紧、媒体高度适配，表格/代码块靠 overflow:auto 横向滚动） */
+@media (max-width: 640px) {
+  .markdown-body { font-size: 15px; line-height: 1.8; word-break: break-word; }
+  .markdown-body h1 { font-size: 1.5em; }
+  .markdown-body h2 { font-size: 1.3em; }
+  .markdown-body h3 { font-size: 1.15em; }
+  .markdown-body pre { font-size: 13px; padding: 12px; }
+  .markdown-body table { font-size: 13px; }
+  .markdown-body th, .markdown-body td { padding: 6px 8px; }
+  .markdown-body img { border-radius: 8px; }
+  .markdown-body .zg-bili-wrap { padding-bottom: 56.25%; }
+  .markdown-body .zg-video, .markdown-body .zg-pdf-iframe { max-height: 320px; }
+}
 

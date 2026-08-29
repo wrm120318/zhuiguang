@@ -430,5 +430,48 @@ const tools = computed(() => [
 }
 @media (max-width: 768px) {
   .zg-editor-body.mode-split { grid-template-columns: 1fr; }
+  .zg-edit-pane, .zg-preview-pane { min-height: 200px; }
+}
+@media (max-width: 640px) {
+  .zg-editor { padding: 6px; gap: 6px; }
+  .zg-editor-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 6px 8px;
+  }
+  /* 工具栏在手机上改为横向滚动，避免按钮挤成一团换行 */
+  .zg-tools {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 3px;
+    flex: 1 1 100%;
+  }
+  .zg-tools::-webkit-scrollbar { display: none; }
+  /* 移动端隐藏分组标签，节省横向空间 */
+  .zg-tool-group { display: none; }
+  .zg-tool {
+    padding: 7px 10px;
+    font-size: 14px;
+    min-width: 38px;
+    flex: 0 0 auto;
+  }
+  .zg-viewmode { flex-shrink: 0; }
+  .zg-viewmode :deep(.el-radio-group) { flex-wrap: nowrap; }
+  .zg-viewmode :deep(.el-radio-button__inner) { padding: 4px 9px; font-size: 12px; }
+  /* 16px 避免 iOS 聚焦时自动缩放 */
+  .zg-textarea { font-size: 16px; line-height: 1.7; padding: 4px; }
+  .zg-edit-pane, .zg-preview-pane { padding: 10px; min-height: 200px; }
+  .zg-preview-content { font-size: 15px; }
+  .zg-editor-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 11px;
+  }
+  /* 全屏态下工具栏允许换行，保证可点 */
+  .zg-editor.fullscreen .zg-editor-bar { flex-wrap: wrap; }
+  .zg-editor.fullscreen .zg-tools { flex-wrap: nowrap; }
 }
 </style>

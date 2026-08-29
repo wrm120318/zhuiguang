@@ -48,7 +48,7 @@
             >{{ topicNameMap[tid] || '#'+tid }}</span>
           </div>
 
-          <div class="sfp-content" v-html="renderMd(post.content)"></div>
+          <div class="sfp-content markdown-body" v-html="md(post.content)"></div>
 
           <div v-if="post.review_note" class="sfp-review-note">
             <ZgGlyph emoji="⚠️" /> 审核意见：{{ post.review_note }}
@@ -126,6 +126,7 @@ import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import ZgGlyph from '@/components/ZgGlyph.vue'
 import CommentTree from '@/components/CommentTree.vue'
+import { renderMarkdown } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -250,25 +251,9 @@ function goBack() {
   else router.push('/subjects')
 }
 
-function renderMd(s: string) {
-  if (!s) return ''
-  let html = s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  html = html
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-  html = html
-    .split(/\n\n+/)
-    .map(p => /^\s*<(h\d|ul|ol|pre|blockquote)/.test(p) ? p : '<p>' + p.replace(/\n/g, '<br>') + '</p>')
-    .join('\n')
-  return html
+// 统一使用项目渲染管线（CommonMark + GFM + HTML 子集 + KaTeX + 提及 + 高亮 + 视频/PDF/B站）
+function md(s: string): string {
+  return renderMarkdown(s)
 }
 
 onMounted(load)
@@ -299,18 +284,10 @@ watch(() => route.params.id, load)
 .sfp-title { font-size: 26px; font-weight: 800; margin: 16px 0 12px; line-height: 1.35; }
 .sfp-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
 .sfp-tag { padding: 3px 10px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }
+/* 排版复用全局 .markdown-body（main.css 已含标题/段落/列表/表格/代码/引用/图片/公式/提及/视频等完整样式） */
 .sfp-content { font-size: 15px; line-height: 1.85; color: var(--zg-text); }
-.sfp-content :deep(h1) { font-size: 22px; margin: 1em 0 0.5em; }
-.sfp-content :deep(h2) { font-size: 19px; margin: 1em 0 0.5em; }
-.sfp-content :deep(h3) { font-size: 16px; margin: 1em 0 0.5em; }
-.sfp-content :deep(p) { margin: 0.8em 0; }
-.sfp-content :deep(img) { max-width: 100%; border-radius: 12px; margin: 12px 0; }
-.sfp-content :deep(code) { background: rgba(148, 163, 184, 0.2); padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 0.92em; }
-.sfp-content :deep(pre) { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 10px; overflow-x: auto; }
-.sfp-content :deep(blockquote) { border-left: 4px solid var(--zg-primary); padding: 6px 14px; background: rgba(var(--zg-primary-rgb), 0.05); margin: 10px 0; color: var(--zg-text-sub); }
-.sfp-content :deep(strong) { font-weight: 700; }
-.sfp-content :deep(a) { color: var(--zg-primary); }
-.sfp-content :deep(ul), .sfp-content :deep(ol) { padding-left: 1.5em; }
+.sfp-content :deep(img) { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+.sfp-content :deep(a) { word-break: break-word; }
 .sfp-review-note { margin-top: 14px; padding: 10px 14px; background: #FEF3C7; color: #92400E; border-radius: 10px; font-size: 13px; }
 
 .sfp-comments { padding: 24px 28px; border-radius: 20px; }
@@ -350,9 +327,16 @@ watch(() => route.params.id, load)
   .sfp-side-card { flex: 1 1 220px; }
 }
 @media (max-width: 640px) {
-  .sfp-page { padding: 0 14px; }
-  .sfp-card { padding: 18px 18px; }
-  .sfp-title { font-size: 21px; }
-  .sfp-side { flex-direction: column; }
+  .sfp-page { padding: 0 12px; }
+  .sfp-card { padding: 16px 14px; border-radius: 16px; }
+  .sfp-title { font-size: 20px; margin: 12px 0 10px; }
+  .sfp-head { gap: 8px; }
+  .avatar { width: 36px; height: 36px; }
+  .sfp-tags { margin-bottom: 12px; }
+  .sfp-side { flex-direction: column; gap: 12px; }
+  .sfp-side-card { padding: 14px; }
+  .sfp-comments { padding: 16px 14px; }
+  .sfp-comment-input :deep(.el-button),
+  .sfp-comments :deep(.el-button) { min-height: 38px; }
 }
 </style>

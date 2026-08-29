@@ -403,8 +403,21 @@ watch(() => route.params.slug, load)
   .sf-side-card { flex: 1 1 220px; }
 }
 @media (max-width: 640px) {
-  .sf-page { padding: 0 14px; }
+  .sf-page { padding: 0 12px; }
+  .sf-header { padding: 16px; }
+  .sf-title { font-size: 19px; }
+  .sf-sub { font-size: 12px; }
+  .sf-topics { padding: 10px 12px; }
+  .sf-topics-left { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .sf-topics-left::-webkit-scrollbar { display: none; }
+  .sf-chip { flex: 0 0 auto; min-height: 34px; }
+  .sf-actions { flex-wrap: wrap; gap: 8px; }
+  .sf-actions :deep(.el-button) { min-height: 38px; }
+  .sf-list { grid-template-columns: 1fr; gap: 10px; }
+  .sf-card { padding: 16px; }
+  .sf-card-title { font-size: 16px; }
   .sf-side { flex-direction: column; }
-  .sf-list { grid-template-columns: 1fr; }
+  .sf-side-card { padding: 14px; }
+  .sf-card-actions :deep(.el-button) { min-height: 34px; }
 }
 </style>
