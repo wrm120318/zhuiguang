@@ -3414,7 +3414,7 @@ app.post('/api/pages/:id/like', auth, async (c) => {
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'page', id)
   await run('UPDATE pages SET likes = likes + 1 WHERE id=?', id)
   // 【v4.2.1】通知作者收到点赞（兼容博客/论坛帖子）
-  const p = await get<any>('SELECT user_id, title, ptype, subject_id, slug FROM pages WHERE id=?', id)
+  const p = await get<any>('SELECT author_id AS user_id, title, ptype, subject_id, (SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug FROM pages WHERE id=?', id)
   if (p && Number(p.user_id) !== uid) {
     const u = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
     const tUrl = p.ptype === 'blog' ? `/blog/${id}` : `/subject/${p.slug || ''}/forum/post/${id}`
@@ -3456,7 +3456,7 @@ app.post('/api/pages/:id/comments', auth, async (c) => {
   )
   const newCommentId = Number(r.lastInsertRowid)
   // 【v4.2.1】通知：主评论通知作者，子评论通知被回复人
-  const p = await get<any>('SELECT user_id, title, ptype, subject_id, slug FROM pages WHERE id=?', id)
+  const p = await get<any>('SELECT author_id AS user_id, title, ptype, subject_id, (SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug FROM pages WHERE id=?', id)
   if (p) {
     const tUrl = p.ptype === 'blog' ? `/blog/${id}` : `/subject/${p.slug || ''}/forum/post/${id}`
     const tName = p.ptype === 'blog' ? '博客' : '论坛帖子'

@@ -1108,8 +1108,10 @@ app.post('/api/articles/:id/comments', auth, async (req, res) => {
   const newCommentId = Number(r.lastInsertRowid)
   if (a) {
     if (parentId == null) {
-      if (Number(a.user_id) !== uid) {
-        await addNotice(Number(a.user_id), '美文收到新评论', `${u?.real_name || '有人'} 评论了你的美文《${a.title}》：${content.slice(0, 40)}${content.length > 40 ? '…' : ''}`, 'comment', `/article/${req.params.id}#comment-${newCommentId}`)
+      // 代发文章：真实作者 = actual_user_id，须与点赞/经验保持一致，否则真实作者收不到评论通知
+      const owner = Number(a.actual_user_id) || Number(a.user_id)
+      if (owner !== uid) {
+        await addNotice(owner, '美文收到新评论', `${u?.real_name || '有人'} 评论了你的美文《${a.title}》：${content.slice(0, 40)}${content.length > 40 ? '…' : ''}`, 'comment', `/article/${req.params.id}#comment-${newCommentId}`)
       }
     } else {
       const parent = await get<any>('SELECT user_id FROM article_comments WHERE id=?', parentId)
@@ -2520,7 +2522,7 @@ app.post('/api/pages/:id/like', auth, async (req, res) => {
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'page', req.params.id)
   await run('UPDATE pages SET likes = likes + 1 WHERE id=?', req.params.id)
   // v4.2.1：通知作者收到点赞（兼容博客/论坛帖子）
-  const p = await get<any>('SELECT user_id, title, ptype, subject_id, slug FROM pages WHERE id=?', req.params.id)
+  const p = await get<any>('SELECT author_id AS user_id, title, ptype, subject_id, (SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug FROM pages WHERE id=?', req.params.id)
   if (p && Number(p.user_id) !== uid) {
     const u = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
     const tUrl = p.ptype === 'blog' ? `/blog/${req.params.id}` : `/subject/${p.slug || ''}/forum/post/${req.params.id}`
@@ -2560,7 +2562,7 @@ app.post('/api/pages/:id/comments', auth, async (req, res) => {
   )
   const newCommentId = Number(r.lastInsertRowid)
   // v4.2.1：通知 - 主评论通知作者，子评论通知被回复人
-  const p = await get<any>('SELECT user_id, title, ptype, subject_id, slug FROM pages WHERE id=?', req.params.id)
+  const p = await get<any>('SELECT author_id AS user_id, title, ptype, subject_id, (SELECT slug FROM subjects WHERE id = pages.subject_id) AS slug FROM pages WHERE id=?', req.params.id)
   if (p) {
     const tUrl = p.ptype === 'blog' ? `/blog/${req.params.id}` : `/subject/${p.slug || ''}/forum/post/${req.params.id}`
     const tName = p.ptype === 'blog' ? '博客' : '论坛帖子'
