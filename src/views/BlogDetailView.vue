@@ -43,25 +43,9 @@ async function like() {
 // 【v4.2.0】统一交给 CommentTree
 async function onCommentSubmit(content: string, parentId: number | null) {
   try {
-    const r: any = await api.addPageComment(blog.value.id, content, parentId ?? undefined)
-    const c = (r && typeof r === 'object' && r.id) ? r : (r?.data || r)
-    if (!c || !c.id) {
-      await loadComments()
-    } else {
-      if (parentId == null) {
-        comments.value.unshift(c)
-      } else {
-        const idx = comments.value.findIndex((x: any) => x.id === parentId)
-        if (idx >= 0) {
-          const parent = comments.value[idx]
-          const children = parent.children ? [...parent.children] : []
-          children.push({ ...c, parent_id: parentId })
-          comments.value[idx] = { ...parent, children }
-        } else {
-          comments.value.unshift(c)
-        }
-      }
-    }
+    await api.addPageComment(blog.value.id, content, parentId ?? undefined)
+    // 【v4.2.5 终极修复】全量 reload 兜底，绕过所有 Vue 响应式追踪失效场景
+    await loadComments()
     ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '评论发送失败')

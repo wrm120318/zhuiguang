@@ -1,5 +1,5 @@
 ===============================================================================  
-追光学科共享平台 · AI 维护者提示词（v4.2.3）  
+追光学科共享平台 · AI 维护者提示词（v4.2.5）  
 ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT  
 最后更新：2026-08-29
 ===============
@@ -36,7 +36,7 @@ ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT
 === 第二部分：项目基本情况 ===
 
 项目名称：追光 · 学科共享平台（zhuiguang）  
-当前版本：v4.2.3  
+当前版本：v4.2.5  
 项目类型：中学校园师生学科学习共享站
 
 用户访问域名：<https://xkzg.de5.net>  
@@ -321,7 +321,7 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 - D1 查询命令：npx wrangler d1 execute zhuiguang-db --remote --command="SQL"
 - Workers 实时日志：cd /workspace && npx wrangler tail
 - 凭证文件：/workspace/.env（被 .gitignore 排除，不入库）
-- 当前版本：v4.2.3（编辑器 9 项扩展落地 + 预览 vs 发布后渲染一致性 + @提及单字段选择器 + 安全回归 9/9）
+- 当前版本：v4.2.5（评论终极修复：onCommentSubmit 全量 reload 兜底）
 
 ================================================================================  
 === 第十一部分：现在，请先做这个 ===
@@ -339,6 +339,36 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 一切正常的话，再开始我真正要你做的任务。
 
 ===============================================================================  
+
+================================================================================
+【v4.2.5 重要变更摘要】你必须先知道（2026-08-29）
+=================================
+
+## 评论终极修复（v4.2.5）
+
+v4.2.4 用 `unshift(c)` + `comments.value[idx] = { ...parent, children }` 触发响应式，
+但用户在三个详情页（ArticleView / BlogDetailView / SubjectForumPostView）仍报告
+「评论发送成功但看不到，必须强制刷新」。
+
+**v4.2.5 一刀切兜底**：三个详情页 `onCommentSubmit` 全部统一为「成功 POST 后**无条件全量 reload 评论列表**」——
+  - 列表规模可控（单页评论 ≤ 几百条），reload 成本可接受
+  - 绕过所有 Vue 3 响应式追踪失效的可能场景（嵌套数组浅拷贝丢引用、props 不可变数组更新不触发 computed 等）
+  - 用户体验：评论立即出现
+
+**修改文件**：
+- `src/views/ArticleView.vue`
+- `src/views/BlogDetailView.vue`
+- `src/views/SubjectForumPostView.vue`
+
+## v4.2.4（已发布）
+
+@提及点击跳对方主页 + 下载提速 + 评论发送即时反馈：
+- 后端新增 `GET /api/users/:id`
+- `ProfileView` 读 `route.query.uid`：他人模式只读
+- `SubjectView.downloadResource` 改 `<a href>` 流式下载
+- `CommentTree.submitTop/submitReply` 先清空输入框给视觉反馈
+
+
 【v4.2.3 重要变更摘要】你必须先知道（2026-08-29）
 =================================
 

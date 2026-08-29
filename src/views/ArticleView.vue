@@ -46,32 +46,17 @@ async function toggleFav() {
 // 【v4.2.0】统一交给 CommentTree：支持二级回复
 async function onCommentSubmit(content: string, parentId: number | null) {
   try {
-    const r: any = await api.addArticleComment(article.value.id, content, parentId ?? undefined)
-    // axios 拦截器已 unwrap res.data，这里 r 即后端返回对象
-    const c = (r && typeof r === 'object' && r.id) ? r : (r?.data || r)
-    if (!c || !c.id) {
-      // 后端真的没返回新评论对象（极端情况）→ 走 reload 兜底
-      comments.value = (await api.articleComments(article.value.id)) as any
-    } else {
-      if (parentId == null) {
-        comments.value.unshift(c)
-      } else {
-        // 找到父评论并 push 子评论（用新数组赋值确保响应式）
-        const idx = comments.value.findIndex((x: any) => x.id === parentId)
-        if (idx >= 0) {
-          const parent = comments.value[idx]
-          const children = parent.children ? [...parent.children] : []
-          children.push({ ...c, parent_id: parentId })
-          comments.value[idx] = { ...parent, children }
-        } else {
-          comments.value.unshift(c)
-        }
-      }
-    }
+    await api.addArticleComment(article.value.id, content, parentId ?? undefined)
+    // 【v4.2.5 终极修复】无论后端返回什么对象结构、成功/部分成功，都走全量 reload 兜底，
+    //   彻底绕过 Vue 响应式追踪失效的所有可能场景（嵌套对象浅拷贝丢引用、
+    //   props 不可变数组更新不触发 computed、Map/Set 内部 mutation 不触发等）。
+    //   列表不长（单篇美文评论数 ≤ 几百条），reload 成本可接受；用户感知是"评论立刻出现"。
+    const fresh = (await api.articleComments(article.value.id)) as any
+    comments.value = fresh
     ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '评论发送失败')
-    throw e  // 让 CommentTree 知道失败，不要清空输入框
+    throw e
   }
 }
 async function onCommentDelete(commentId: number) {

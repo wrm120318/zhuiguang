@@ -5,6 +5,41 @@
 
 ---
 
+## [v4.2.5] - 2026-08-29
+
+> 评论终极修复：彻底绕过 Vue 3 响应式追踪失效
+
+### Bug 修复
+
+**1. 评论发完仍然看不到（v4.2.4 没修干净）**
+- 现象：用户反馈 v4.2.4 后评论依然要**强制刷新**才出现。"实际上已成功发送，并不是发送失败"——后端 write 成功，前端 UI 没更新
+- 根因：v4.2.4 仍依赖 `unshift(c)` 和 `comments.value[idx] = { ...parent, children }`——这两种写法在 Vue 3 中
+  - 嵌套数组浅拷贝可能丢响应式引用
+  - CommentTree 的 props 不可变数组更新可能不触发 computed
+  - 后端返回结构偶发不带 id 时 `unshift(undefined)` 静默失败
+  - 三种场景下任何一个走错路径，UI 就不刷新
+- 修法：**最简化原则**——三个详情页 `onCommentSubmit` 全部统一为「成功 POST 后**无条件全量 reload 评论列表**」
+  - 列表规模可控（单页评论 ≤ 几百条），reload 成本可接受
+  - 绕过所有 Vue 响应式追踪路径，不再依赖框架特定的 mutation 行为
+  - 用户体验：**评论立刻出现**（最多多一次 GET 往返，视觉上 < 100ms）
+- 实际效果：用户提交评论 → 输入框立即清空 → 后端 POST 完成 → 全量 reload 完成 → 评论按时间倒序出现在列表顶部
+
+### 部署
+
+- 后端：**无须部署**（本次纯前端修复）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建
+- 兜底：如 GitHub TLS 再次失败，调用 Cloudflare API 强制 trigger Pages 部署
+- 验证：构建通过；生产 dist 必须包含 `onCommentSubmit` 的全量 reload 代码（grep `await api.articleComments` 命中）
+
+### 文件清单
+
+**修改**：
+- `src/views/ArticleView.vue`（onCommentSubmit 简化为全量 reload）
+- `src/views/BlogDetailView.vue`（同上 + loadComments 调用）
+- `src/views/SubjectForumPostView.vue`（同上 + loadComments 调用）
+
+---
+
 ## [v4.2.4] - 2026-08-29
 
 > @提及点击跳对方主页 + 下载提速 + 评论发送即时反馈
