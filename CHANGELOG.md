@@ -5,6 +5,98 @@
 
 ---
 
+## [v4.3.1] - 2026-08-29
+
+> 大体积文件 TOP 10 增加「文件溯源」+ 修复存储监控接口 500
+
+### ✨ 新增功能：文件溯源
+
+**需求**
+> 超级管理员运行监控界面的大体积文件 TOP 10，可以看到文件溯源（就是哪里来的，从哪个界面上传的）
+
+**难点：光看文件名判断不出来源**
+
+实测生产 bucket，object key 只有 3 种前缀：
+
+| 前缀 | 数量 | 问题 |
+|---|---|---|
+| `file_` | 12 | 资料上传、编辑器附件、题库附件**共用**，无法区分 |
+| `img_` | 7 | 编辑器图片（美文/页面/头像都可能用） |
+| `avatar_` | 1 | 头像 |
+
+所以必须**反查数据库**，而不是猜文件名。
+
+**实现：`traceFileOrigins(keys[])`**
+
+反查 D1 七类业务表，按可信度从高到低依次匹配：
+
+| 顺序 | 来源 | 匹配字段 |
+|---|---|---|
+| 1 | 资料上传 | `resources.file_path` |
+| 2 | 用户头像 | `users.avatar` |
+| 3 | 页面类 | `pages.cover/images/content/attachments`（按 ptype 细分博客/论坛/公告/指南/班级页） |
+| 4 | 美文 | `articles.cover/images/content` |
+| 5 | 题库附件 | `quiz_questions` / `subject_questions.attachments` |
+| 6 | 站内信 | `messages.content/attachments` |
+| 7 | 评论附件 | `article_comments` / `page_comments.attachments` |
+
+都查不到 → 按 key 前缀推测并标记 **`confident: false`**（未关联 = 可清理的残留文件）。
+
+**性能设计**：把 key 列表拼成 `LIKE` 条件交给 D1 侧过滤，再把命中的候选记录拉回内存
+逐个 key 精确确认（避免 LIKE 误判）。**查询次数固定 7 张表，与文件数量无关**。
+
+**返回字段**
+`type` / `label` / `icon` / `refId` / `refTitle` / `detailUrl` /
+`uploader` / `subjectName` / `createdAt` / `status` / `confident`
+
+**UI 改动**
+- 每行文件名下方新增溯源标签：来源 + 标题 + 上传人 + 学科 + 时间（hover 看完整信息）
+- 有归属的显示「前往」按钮，可跳转到对应内容详情页
+- **孤儿文件用红色警示标记**
+- 顶部新增「仅看未关联」开关
+- 底部汇总：`检测到 N 个未关联文件，合计 X MB，可安全清理`
+
+### 🐛 顺带修复：存储监控接口一直 500
+
+排查过程中发现 `/api/admin/storage/monitor` 返回
+`存储监控数据获取失败: supabaseDbStats is not defined`：
+
+```typescript
+const [storageData, resources, supaDbStats] = await Promise.all([...])  // 3793 行
+...
+supabaseDbStats,   // 3909 行 ← 变量名拼错，未定义
+```
+
+`ReferenceError` 导致整个接口 500。该 bug 自 worker-api.ts 创建起就存在
+（commit `80313b9`），也就是说**这个页面从未成功加载过**。
+
+### 生产实测结果
+
+20 个文件：4 个关联到资料，16 个为未关联残留。
+TOP 10 中 **7 个未关联、合计 12.08 MB** 可直接清理。
+
+```
+ 1.   5.00 MB  [未关联] 📄 上传文件（未关联）
+ 2.   4.49 MB  [未关联] 📄 上传文件（未关联）
+ 3.   2.73 MB  [有归属] 📦 资料上传 · 【化学笔记】认识化学实验仪器  上传人=超级管理员 学科=化学
+ 4.   1.00 MB  [未关联] 📄 上传文件（未关联）
+ 5.   1.00 MB  [未关联] 📄 上传文件（未关联）
+ 6.  858.5 KB  [有归属] 📦 资料上传 · SCP2026 J1 全卷           上传人=王瑞明     学科=语文
+ 7.  338.6 KB  [未关联] 🖼️ 编辑器图片（未关联）
+ 8.  307.8 KB  [有归属] 📦 资料上传 · 四冲程内燃机工作原理         上传人=语文测试   学科=语文
+ 9.  157.7 KB  [未关联] 🖼️ 编辑器图片（未关联）
+10.  108.6 KB  [未关联] 🖼️ 编辑器图片（未关联）
+```
+
+### 遗留待确认
+
+Express 本地后端**没有 Supabase Storage 集成**（全文件 0 处引用），
+它的 `/api/admin/monitor` 是简化版，压根没有 `supabaseStorage` 字段。
+这属于**功能缺失**而非"同步落后"，补齐需要新引入 Supabase 客户端 +
+实现 `listSupabaseFiles` / `getSupabaseStorageUsage`。涉及新增依赖，待用户确认后再动。
+
+---
+
 ## [v4.3.0] - 2026-08-29
 
 > 审核中心：修复「本学科教师无法审核/删除」致命 bug + 学科显示 + 详情/下载预览
