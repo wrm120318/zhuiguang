@@ -470,7 +470,7 @@ async function submitResource() {
             <span class="pc-author" v-if="q.creator_name"><ZgGlyph emoji="👤" /> {{ q.creator_name }}</span>
             <el-button v-if="user.isStaff" text type="danger" size="small" @click="deleteQuestion(q.id)">删除</el-button>
           </div>
-          <div class="pc-content q-content" v-html="md(q.content)"></div>
+          <div class="pc-content q-content markdown-body" v-html="md(q.content)"></div>
           <div class="pc-actions">
             <el-button v-if="user.isStudent" type="primary" size="small" round @click="router.push(`/practice/${q.id}`)">开始训练</el-button>
             <el-button v-if="user.isStaff" size="small" type="success" round @click="router.push(`/practice/stats/${q.id}`)"><ZgGlyph emoji="📊" /> 统计</el-button>

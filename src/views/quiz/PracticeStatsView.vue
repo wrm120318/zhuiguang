@@ -106,7 +106,7 @@ onMounted(load)
     <!-- 题目内容 -->
     <div v-if="question" class="glass question-view">
       <div class="q-label"><ZgGlyph emoji="📖" /> 题目</div>
-      <div class="q-content q-content-lg" v-html="md(question.content)"></div>
+      <div class="q-content q-content-lg markdown-body" v-html="md(question.content)"></div>
       <!-- 正确答案（教师可见） -->
       <div v-if="isTeacher && question.qtype !== 'subjective'" class="q-answer-reveal">
         <div class="q-label"><ZgGlyph emoji="✅" /> 正确答案</div>

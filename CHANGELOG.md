@@ -5,6 +5,71 @@
 
 ---
 
+## [v4.2.3] - 2026-08-29
+
+> 编辑器扩展 9 项功能落地 + 预览/详情渲染一致性 + @提及 选择器（用户只写一个字段）
+
+### 编辑器扩展 9 项功能（v4.2.2 文档说明 vs 实际实现的偏差）
+
+> v4.2.2 文档声明 `MarkdownEditor` 支持 9 类扩展，但实际只有 4 类有效，其余存在严重问题。本轮一次性修齐。
+
+**1. KaTeX 公式**
+- 修前：CSS 从 jsdelivr CDN 加载 `katex@0.16.11`，与本地 npm 包 `katex@0.18.4` 版本不符，CDN 不可达即退化成裸 LaTeX
+- 修后：CSS 改为在 `src/styles/main.css` 顶部 `@import 'katex/dist/katex.min.css'`，由 Vite 随 woff2 字体本地打包（**零 CDN 依赖**，符合铁律"禁止 Google Fonts CDN"精神）
+- 附：行内 `$...$` 之前会误吞金额（`$100`、`$5.00`），新增"首尾不能是空白 / 内容不能是纯数字金额"两条硬过滤；并新增 `(?!\d)` 闭合负向断言避开 `$5 and $10`
+
+**2. `@[name](/user/uid)` 用户提及**
+- 修前：要求用户**同时填 UID 和显示名**两次 prompt
+- 修后：弹搜索框，输入用户名/姓名 → 调 `/api/users/search?q=...` → 点选一个用户 → **自动写完整语法 `@[name](/user/uid)`**，存库与渲染零破坏（用户只感知"选人"动作）
+- 后端新增 `GET /api/users/search`（登录用户可用，按 `username/real_name` 模糊查 `status='ACTIVE'` 用户，上限 10 条，按"完全匹配 → 前缀匹配 → 真实名匹配"排序）
+
+**3. `==text==` 高亮** — 本轮验证通过，无需改动
+
+**4. `![alt](url =100x100)` 图片尺寸** — 本轮验证通过，无需改动
+
+**5. `@[video](url)` 视频嵌入**
+- 修前：文档说 `@[video](url)` 是正式语法，**实际代码只实现 `@\`url\`` 旧反引号写法**——正式语法完全无效；嵌入容器用 `<div>`，inline 扩展结果被 marked 包进 `<p>`，`<p><div>` 非法嵌套，浏览器自动打断段落造成排版错乱
+- 修后：① 真正实现 `@[video](https://.../a.mp4)` 正式语法；② 旧反引号写法作为兼容保留；③ 容器改为 `<span>` + `display:block`（CSS 已就位）
+
+**6. `@[bilibili](BVxxx)` 站外视频** — 验证通过；容器同步改 `<span>` 修嵌套
+
+**7. `@[pdf](url)` PDF 嵌入** — 与视频同理修齐
+
+**8. `file://文件名` 附件引用** — 本轮验证通过
+
+**9. HTML 全标签支持**
+- 修前：白名单约 85 个标签，`<svg>` / `<input>` / `<button>` / `<form>` / `<label>` / `<details>` 等大量常用标签被静默删除，与"支持全部 HTML 标签"的能力说明不符
+- 修后：改为**黑名单**（仅拦截 `script/style/link/meta/base/noscript/html/head/body/title/doctype/frameset/frame`），其余全部放行；属性白名单从约 60 项扩到 120+ 项（新增 SVG/MathML/表单全套/图像映射等），`data-*` / `aria-*` 一律放行
+
+### 预览 vs 发布后渲染一致性
+
+- 修前：编辑预览（包在 `.markdown-body`）看着样式齐全，发布后的详情页（`.ad-content` / `.d-content` / `.q-content` 等）**没有 `markdown-body` 类**，所以 h1-h6、blockquote、表格、code、扩展产物样式全部丢失——"预览好看、发布后样式错乱"
+- 修后：① 全部 14 处 `v-html="md(...)"` 渲染位统一加上 `markdown-body` 类（覆盖 ArticleView / BlogDetailView / AnnouncementDetailView / GuideView / SubjectForumPostView / AuditView / 5 处 QuizReport/QuizTake/QuizSubmissions / PracticeTakeView 6 处 / PracticeRecordsView / PracticeStatsView / QuizListView 2 处 / SubjectView）；② 在 `main.css` 末尾追加 **扩展产物全局兜底样式**（`.zg-mention`、`.zg-video-wrap`、`.zg-pdf-wrap`、`.zg-katex-*`、`.zg-highlight`、`.zg-file-link`、`.zg-img` 全部脱离 `.markdown-body` 作用域）——万一日后有自定义容器漏加类也能保留基本视觉
+
+### 安全性（v4.2.3 同步回归）
+
+新增 1 项拦截修复 + 完整 9 项回归全过：
+- **【已修】`data:text/html;base64,...` 的 `href`**：`sanitizeAttrValue` 之前没剥引号直接 `/^\s*data:/i.test(value)`，带引号字符串首字符是 `"`，永远不命中，**漏判**。修复：先 `value.replace(/^["']|["']$/g, '')` 剥引号再判断。9/9 拦截项全过（script 标签、img onerror、svg onload、a/iframe `javascript:`、style 标签、`data:text/html`、style `expression()`、iframe `srcdoc`）
+
+### 部署
+
+- 后端：`wrangler deploy`（worker-api.ts 新增 `/api/users/search`，双后端同步）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建
+- 验证：`npm run build` 通过（vue-tsc + vite）；marked 扩展自动化测试 21 / 21 通过、0 处 `<p><div>` 非法嵌套、9 / 9 安全项拦截
+
+### 文件清单
+
+**修改**：
+- `worker-api.ts`（+19 行：GET /api/users/search）
+- `server/index.ts`（+20 行：同步 GET /api/users/search）
+- `src/utils/marked-extensions.ts`（重写 sanitizer：白名单 → 黑名单、扩属性表、`data:` 校验剥引号）
+- `src/components/MarkdownEditor.vue`（重写 `insertMention` → 搜索选择器 + 弹窗 + 列表样式）
+- `src/api/index.ts`（+1 行：api.searchUsers）
+- `src/styles/main.css`（顶部 `@import 'katex/dist/katex.min.css'`、扩展产物全局兜底样式）
+- 14 个详情页 `.vue`（v-html 容器统一加 `markdown-body` 类）
+
+---
+
 ## [v4.2.2] - 2026-08-29
 
 > 通用 Markdown 富文本编辑器 + 美文/公告可多次编辑 + 统一渲染样式 + 文档/schema 一致性梳理

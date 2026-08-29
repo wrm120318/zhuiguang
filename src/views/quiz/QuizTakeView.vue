@@ -144,7 +144,7 @@ async function submit() {
         <el-tag size="small">{{ q.qtype === 'single' ? '单选' : q.qtype === 'multiple' ? '多选' : q.qtype === 'judge' ? '判断' : '主观' }}</el-tag>
         <span class="q-score">{{ q.score }} 分</span>
       </div>
-      <div class="q-content" v-html="renderMd(q.content)"></div>
+      <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="q-attachments">
         <a v-for="(a, idx) in q.attachments" :key="idx" :href="`/api/resources/${a.url}/download`" target="_blank" class="qa-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>

@@ -93,9 +93,9 @@ async function submitGrade() {
               <span class="pp-time">{{ p.submitted_at?.slice(0, 16) }}</span>
               <el-button type="primary" size="small" round @click="openGrade(p)">批改</el-button>
             </div>
-            <div class="pp-q q-content" v-html="md(p.qcontent)"></div>
+            <div class="pp-q q-content markdown-body" v-html="md(p.qcontent)"></div>
             <div class="pp-ans-label">学生作答：</div>
-            <div class="pp-ans" v-html="md(p.answer || '未作答')"></div>
+            <div class="pp-ans markdown-body" v-html="md(p.answer || '未作答')"></div>
             <div class="pp-max">满分：{{ p.max_score }} 分</div>
           </div>
           <el-empty v-if="!practiceLoading && !pendingPractice.length" description="暂无待批单题训练" />
@@ -159,9 +159,9 @@ async function submitGrade() {
       <template #header><span style="font-weight:700">批改单题训练</span></template>
       <template v-if="gradeItem">
         <div class="gd-stu"><ZgGlyph emoji="👤" /> {{ gradeItem.real_name }} · {{ gradeItem.subject_name }}</div>
-        <div class="gd-q q-content" v-html="md(gradeItem.qcontent)"></div>
+        <div class="gd-q q-content markdown-body" v-html="md(gradeItem.qcontent)"></div>
         <div class="gd-label">学生作答：</div>
-        <div class="gd-ans" v-html="md(gradeItem.answer || '未作答')"></div>
+        <div class="gd-ans markdown-body" v-html="md(gradeItem.answer || '未作答')"></div>
         <div class="gd-row">
           <span>给分：</span>
           <el-input-number v-model="gradeScore" :min="0" :max="gradeItem.max_score" />

@@ -180,7 +180,7 @@ async function batchApprove() {
               </el-tag>
             </div>
             <div class="au-rec">{{ a.recommendation }}</div>
-            <div class="au-content" v-html="md(a.content)"></div>
+            <div class="au-content markdown-body" v-html="md(a.content)"></div>
           </div>
           <div class="au-actions">
             <template v-if="a.status === 'pending'">
@@ -238,7 +238,7 @@ async function batchApprove() {
               话题：
               <span v-for="(tid, i) in p.topic_ids" :key="tid" class="topic-chip">#{{ tid }}{{ i < p.topic_ids.length - 1 ? ' ' : '' }}</span>
             </div>
-            <div class="au-content" v-html="md(p.content)"></div>
+            <div class="au-content markdown-body" v-html="md(p.content)"></div>
             <div v-if="p.review_note" class="au-rec" style="color:#B91C1C">驳回原因：{{ p.review_note }}</div>
           </div>
           <div class="au-actions">

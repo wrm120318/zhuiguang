@@ -79,7 +79,7 @@ onMounted(() => load(1))
           <span class="rc-score waiting" v-else>待批</span>
         </div>
 
-        <div class="rc-question q-content" v-html="md(rec.qcontent)"></div>
+        <div class="rc-question q-content markdown-body" v-html="md(rec.qcontent)"></div>
 
         <!-- 附件 -->
         <div v-if="rec.qattachments?.length" class="rc-atts">

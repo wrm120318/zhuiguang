@@ -133,7 +133,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
               {{ q.qtype === 'subjective' ? `平均 ${q.avgScore} 分` : `正确率 ${q.correctRate}%` }}
             </span>
           </div>
-          <div class="qana-content" v-html="renderMd(q.content)"></div>
+          <div class="qana-content markdown-body" v-html="renderMd(q.content)"></div>
           <div class="qana-detail" v-if="q.qtype !== 'subjective'">
             正确答案：<b>{{ q.answer }}</b> · 答对 {{ q.correctCnt }} / {{ q.answeredCnt }} 人
           </div>
@@ -221,7 +221,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
           <span class="q-score" :class="scoreClass(q)">本题 {{ q.score }} 分 · {{ scoreText(q) }}</span>
           <span class="q-result" :class="resultClass(q)">{{ resultText(q) }}</span>
         </div>
-        <div class="q-content" v-html="renderMd(q.content)"></div>
+        <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
 
         <template v-if="q.qtype === 'single' || q.qtype === 'multiple' || q.qtype === 'judge'">
           <div class="q-options">
@@ -240,9 +240,9 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
         </template>
         <template v-else>
           <div class="q-line">你的作答：</div>
-          <div class="q-answer" v-html="renderMd(sub?.answers?.answers?.[q.id] || '未作答')"></div>
+          <div class="q-answer markdown-body" v-html="renderMd(sub?.answers?.answers?.[q.id] || '未作答')"></div>
           <div class="q-line" v-if="q.answer">参考答案：</div>
-          <div class="q-ref" v-if="q.answer" v-html="renderMd(q.answer)"></div>
+          <div class="q-ref markdown-body" v-if="q.answer" v-html="renderMd(q.answer)"></div>
           <div class="q-line" v-if="graded[q.id]?.comment">教师评语：{{ graded[q.id]?.comment }}</div>
         </template>
       </div>

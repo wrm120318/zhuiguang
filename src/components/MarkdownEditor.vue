@@ -216,11 +216,46 @@ function insertKatexBlock() {
 }
 
 // ===== 提及 =====
+const mentionPickerVisible = ref(false)
+const mentionKeyword = ref('')
+const mentionResults = ref<Array<{ id: number; username: string; realName: string }>>([])
+const mentionLoading = ref(false)
+let mentionSearchTimer: any = null
+
+async function searchUsers(kw: string) {
+  mentionLoading.value = true
+  try {
+    const r: any = await api.searchUsers(kw)
+    mentionResults.value = Array.isArray(r) ? r : []
+  } catch (e) {
+    mentionResults.value = []
+  } finally {
+    mentionLoading.value = false
+  }
+}
+
+function onMentionKeywordInput(v: string) {
+  mentionKeyword.value = v
+  if (mentionSearchTimer) clearTimeout(mentionSearchTimer)
+  if (!v.trim()) {
+    mentionResults.value = []
+    return
+  }
+  mentionSearchTimer = setTimeout(() => searchUsers(v.trim()), 250)
+}
+
+function pickMention(u: { id: number; username: string; realName: string }) {
+  // 选中一个用户 → 自动拼接完整语法（带 ID），保证后续渲染与通知触发都不变
+  insertAtCursor(`@[${u.realName || u.username}](/user/${u.id}) `)
+  mentionPickerVisible.value = false
+  mentionKeyword.value = ''
+  mentionResults.value = []
+}
+
 function insertMention() {
-  const uid = window.prompt('请输入用户 ID（数字）：', '1')
-  const name = window.prompt('请输入用户显示名：', '某某')
-  if (!uid || !name) return
-  insertAtCursor(`@[${name}](/user/${uid}) `)
+  mentionPickerVisible.value = true
+  mentionKeyword.value = ''
+  mentionResults.value = []
 }
 
 // ===== 高级：图片 =====
@@ -393,6 +428,35 @@ const tools = computed(() => [
 
     <input ref="fileInputRef" type="file" accept="image/*" multiple style="display:none" @change="onFilePicked" />
 
+    <!-- @提及选择器：输入关键词 → 调 /api/users/search → 点选自动写完整语法 -->
+    <el-dialog v-model="mentionPickerVisible" title="@ 提及用户" width="420px" append-to-body>
+      <el-input
+        v-model="mentionKeyword"
+        placeholder="输入用户名或姓名搜索"
+        clearable
+        :prefix-icon="'Search' as any"
+        @input="onMentionKeywordInput"
+        autofocus
+      />
+      <div class="zg-mention-list" v-loading="mentionLoading">
+        <div
+          v-for="u in mentionResults"
+          :key="u.id"
+          class="zg-mention-item"
+          @click="pickMention(u)"
+        >
+          <span class="zg-mention-name">{{ u.realName || u.username }}</span>
+          <span class="zg-mention-uid">@{{ u.username }} · #{{ u.id }}</span>
+        </div>
+        <div v-if="!mentionLoading && mentionKeyword && !mentionResults.length" class="zg-mention-empty">
+          未找到匹配用户
+        </div>
+        <div v-if="!mentionKeyword && !mentionResults.length" class="zg-mention-empty">
+          输入关键词开始搜索（按用户名或姓名模糊匹配）
+        </div>
+      </div>
+    </el-dialog>
+
     <div class="zg-editor-foot">
       <span class="zg-stat">字数 {{ content.length }} · 行 {{ content.split('\n').length }}</span>
       <span class="zg-tip">支持 Markdown + HTML 子集 + KaTeX 公式 + 视频/PDF 嵌入 · 可拖拽图片到此</span>
@@ -503,5 +567,19 @@ const tools = computed(() => [
   /* 全屏态下工具栏允许换行，保证可点 */
   .zg-editor.fullscreen .zg-editor-bar { flex-wrap: wrap; }
   .zg-editor.fullscreen .zg-tools { flex-wrap: nowrap; }
+}
+
+/* @提及选择器列表 */
+.zg-mention-list { margin-top: 12px; max-height: 360px; overflow-y: auto; }
+.zg-mention-item {
+  padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+  transition: background .15s;
+}
+.zg-mention-item:hover { background: rgba(var(--zg-primary-rgb), .1); }
+.zg-mention-name { font-weight: 600; font-size: 14px; color: var(--zg-text); }
+.zg-mention-uid { font-size: 12px; color: var(--zg-text-dim); }
+.zg-mention-empty {
+  text-align: center; padding: 24px 12px; font-size: 13px; color: var(--zg-text-dim);
 }
 </style>

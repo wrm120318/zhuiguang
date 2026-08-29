@@ -1069,6 +1069,31 @@ app.get('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
   }))
 })
 
+// 用户搜索（@提及选择器用）：登录用户即可调用，仅返回活跃用户的最小信息
+// 返回 { id, username, realName }，上限 10 条
+app.get('/api/users/search', auth, async (c) => {
+  const q = (c.req.query('q') || '').trim()
+  if (!q) return c.json([])
+  const like = `%${q.replace(/[%_]/g, ch => '\\' + ch)}%`
+  const rows = await all<any>(
+    `SELECT id, username, real_name FROM users
+     WHERE status='ACTIVE' AND (username LIKE ? OR real_name LIKE ?)
+     ORDER BY
+       CASE WHEN username=? THEN 0
+            WHEN username LIKE ? THEN 1
+            WHEN real_name=? THEN 2
+            ELSE 3 END,
+       id
+     LIMIT 10`,
+    like, like, q, `${q}%`, q
+  )
+  return c.json(rows.map((r: any) => ({
+    id: Number(r.id),
+    username: r.username,
+    realName: r.real_name || r.username,
+  })))
+})
+
 app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { username, realName, role, email, classId, password, subjectId } = await c.req.json()
   if (await get('SELECT id FROM users WHERE username=?', username)) return c.json({ message: '用户名已存在' }, 400)

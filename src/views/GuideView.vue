@@ -110,7 +110,7 @@ function levelExp(level: number) { return (level - 1) * 60 }
           <div class="g-meta" v-if="guideDate !== '暂无' || guide.author_name">
             最后更新：{{ guideDate }} · 作者：{{ guide.author_name }}
           </div>
-          <div class="g-content" v-html="md(guide.content)"></div>
+          <div class="g-content markdown-body" v-html="md(guide.content)"></div>
           <div class="g-foot">
             <el-button v-if="user.isSuperAdmin" type="primary" round @click="router.push('/admin/guide')">
               <ZgGlyph emoji="✏️" /> 编辑此说明

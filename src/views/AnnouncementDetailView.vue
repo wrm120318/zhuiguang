@@ -55,7 +55,7 @@ function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed
         <span><ZgGlyph emoji="👁" /> {{ ann.views }} 次阅读</span>
         <span><ZgGlyph emoji="📅" /> {{ ann.created_at?.slice(0, 16) }}</span>
       </div>
-      <div class="d-content" v-html="md(ann.content)"></div>
+      <div class="d-content markdown-body" v-html="md(ann.content)"></div>
 
       <div v-if="ann.attachments?.length" class="d-attachments">
         <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ ann.attachments.length }}）</div>

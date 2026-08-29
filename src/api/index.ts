@@ -136,6 +136,7 @@ export const api = {
   me: () => http.get('/api/auth/me'),
   // 用户
   users: () => http.get('/api/users'),
+  searchUsers: (q: string) => http.get(`/api/users/search?q=${encodeURIComponent(q)}`),
   createUser: (data: any) => http.post('/api/users', data),
   importUsers: (users: any[]) => http.post('/api/users/import', { users }),
   toggleUser: (id: number, status: string) => http.patch(`/api/users/${id}/status`, { status }),

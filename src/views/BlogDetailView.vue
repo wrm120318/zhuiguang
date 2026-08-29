@@ -101,7 +101,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
         <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="primary" size="small" @click="edit"><ZgGlyph emoji="✏️" /> 编辑</el-button>
         <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="danger" size="small" @click="del"><ZgGlyph emoji="🗑" /> 删除</el-button>
       </div>
-      <div class="d-content" v-html="md(blog.content)"></div>
+      <div class="d-content markdown-body" v-html="md(blog.content)"></div>
 
       <div v-if="blog.attachments?.length" class="d-attachments">
         <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ blog.attachments.length }}）</div>

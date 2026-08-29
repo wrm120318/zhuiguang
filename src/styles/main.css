@@ -1,3 +1,9 @@
+/* ===== KaTeX 样式（本地打包，零 CDN 依赖） =====
+   原实现在 marked-extensions.ts 里运行时向 head 插入 jsdelivr CDN 的 katex@0.16.11，
+   与本地安装的 katex 0.18.4 版本不符，且 CDN 不可达时公式会退化成无样式的裸 LaTeX。
+   改为在此处引入后，由 Vite 连同 woff2 字体一起打包，版本始终与 package.json 一致。 */
+@import 'katex/dist/katex.min.css';
+
 /* ===== 自托管 Noto Serif SC（零 Google Fonts CDN 依赖） ===== */
 @font-face {
   font-family: 'Noto Serif SC';
@@ -2806,8 +2812,12 @@ html, body { overflow-x: clip; }
 .markdown-body .zg-katex-block { display: block; margin: 1em 0; padding: 8px 0; overflow-x: auto; }
 .markdown-body .katex-error { color: #ef4444; font-family: monospace; }
 
-/* 视频嵌入 */
+/* 视频嵌入
+   注：容器是 <span> 而非 <div>——嵌入扩展注册在 inline 层，marked 会把结果包进 <p>，
+   而 <p> 内嵌 <div> 属非法嵌套，浏览器解析时会自动打断 <p> 造成排版错乱。
+   故容器用 span + display:block 保持块级表现。 */
 .markdown-body .zg-video-wrap, .markdown-body .zg-bili-wrap {
+  display: block;
   position: relative;
   width: 100%;
   margin: 1em 0;
@@ -2821,8 +2831,9 @@ html, body { overflow-x: clip; }
   position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;
 }
 
-/* PDF 嵌入 */
+/* PDF 嵌入（同上使用 span 容器 + display:block） */
 .markdown-body .zg-pdf-wrap {
+  display: block;
   margin: 1em 0;
   border: 1px solid rgba(var(--zg-primary-rgb), 0.2);
   border-radius: 10px;
@@ -2838,6 +2849,57 @@ html, body { overflow-x: clip; }
 .markdown-body .zg-pdf-icon { font-size: 18px; }
 .markdown-body .zg-pdf-head a { color: var(--zg-primary); font-weight: 600; }
 .markdown-body .zg-pdf-iframe {
+  width: 100%; height: 540px; border: 0; display: block;
+}
+
+/* 扩展产物兜底：万一作者自定义容器没加 markdown-body，也能保留基本视觉
+   （markdown-body 作用域样式优先级更高，自定义 .ad-content 等不会受影响） */
+img.zg-img { /* 用户自定义尺寸 */ }
+mark.zg-highlight {
+  background: linear-gradient(180deg, transparent 60%, rgba(250, 204, 21, 0.5) 60%);
+  color: inherit; padding: 0 2px; font-weight: 600;
+}
+a.zg-mention {
+  display: inline-block;
+  background: rgba(var(--zg-primary-rgb), 0.12);
+  color: var(--zg-primary, #6366f1);
+  font-weight: 600; padding: 1px 6px; border-radius: 4px;
+  border: 0; text-decoration: none;
+}
+a.zg-mention:hover { background: rgba(var(--zg-primary-rgb), 0.22); }
+a.zg-file-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(59, 130, 246, 0.1); color: #1e40af;
+  padding: 2px 8px; border-radius: 6px; font-weight: 500;
+  border: 0;
+}
+.zg-katex-inline { display: inline-block; padding: 0 2px; }
+.zg-katex-block { display: block; margin: 1em 0; padding: 8px 0; overflow-x: auto; }
+.katex-error { color: #ef4444; font-family: monospace; }
+.zg-video-wrap, .zg-bili-wrap {
+  display: block; position: relative; width: 100%; margin: 1em 0;
+  border-radius: 10px; overflow: hidden; background: #0f172a;
+}
+.zg-video { width: 100%; display: block; max-height: 540px; }
+.zg-bili-wrap { padding-bottom: 56.25%; height: 0; }
+.zg-bili-iframe {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;
+}
+.zg-pdf-wrap {
+  display: block; margin: 1em 0;
+  border: 1px solid rgba(var(--zg-primary-rgb), 0.2);
+  border-radius: 10px; overflow: hidden;
+}
+.zg-pdf-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: rgba(var(--zg-primary-rgb), 0.05);
+  border-bottom: 1px solid rgba(var(--zg-primary-rgb), 0.1);
+  font-size: 13px;
+}
+.zg-pdf-icon { font-size: 18px; }
+.zg-pdf-head a { color: var(--zg-primary); font-weight: 600; }
+.zg-pdf-iframe {
   width: 100%; height: 540px; border: 0; display: block;
 }
 

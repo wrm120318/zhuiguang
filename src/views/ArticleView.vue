@@ -110,7 +110,7 @@ async function deleteArticleItem() {
           <span>{{ article.created_at || article.createdAt }}</span><span class="dot">·</span><span><ZgGlyph emoji="👁" /> {{ article.views }}</span>
         </div>
         <div class="ad-recommend glass" v-if="article.recommendation"><ZgGlyph emoji="💡" /> {{ article.recommendation }}</div>
-        <div class="ad-content" v-html="md(article.content)"></div>
+        <div class="ad-content markdown-body" v-html="md(article.content)"></div>
         <div class="ad-gallery" v-if="article.images?.length">
           <img v-for="(im, i) in article.images" :key="i" :src="im" class="ad-img" />
         </div>

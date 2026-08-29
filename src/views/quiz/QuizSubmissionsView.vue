@@ -122,7 +122,7 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
           <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
           <span class="q-score">{{ q.score }} 分</span>
         </div>
-        <div class="q-content" v-html="renderMd(q.content)"></div>
+        <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
 
         <template v-if="q.qtype !== 'subjective'">
           <div class="q-line">学生答案：<b>{{ activeSub.answers?.answers?.[q.id] || '未作答' }}</b></div>
@@ -136,9 +136,9 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
         </template>
         <template v-else>
           <div class="q-line">学生作答：</div>
-          <div class="q-answer" v-html="renderMd(activeSub.answers?.answers?.[q.id] || '未作答')"></div>
+          <div class="q-answer markdown-body" v-html="renderMd(activeSub.answers?.answers?.[q.id] || '未作答')"></div>
           <div class="q-line" v-if="q.answer">参考答案：</div>
-          <div class="q-ref" v-if="q.answer" v-html="renderMd(q.answer)"></div>
+          <div class="q-ref markdown-body" v-if="q.answer" v-html="renderMd(q.answer)"></div>
           <div class="grade-row">
             <span>给分：</span>
             <el-input-number v-model="grades[q.id].score" :min="0" :max="q.score" size="small" />
