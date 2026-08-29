@@ -5,7 +5,89 @@
 
 ---
 
----
+## [v4.3.0] - 2026-08-29
+
+> 审核中心：修复「本学科教师无法审核/删除」致命 bug + 学科显示 + 详情/下载预览
+
+### 🔴 致命 Bug 修复：本学科教师无法使用任何审核功能
+
+**现象（用户反馈）**
+> 本学科教师无法使用管理界面的各项审核功能，也无法删除本学科的相关内容
+
+**根因（一行 SQL 漏查字段）**
+
+```typescript
+// worker-api.ts:1552 —— 漏查 id！
+const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', reviewerId)
+if (u?.role !== 'SUPER_ADMIN' && !(await canManageSubject(u, a.subject_id))) return 403
+```
+
+`canManageSubject` 内部要用 `user.id` 去查任教学科：
+
+```typescript
+const sids = await teachingSubjects(user.id)   // user.id === undefined
+```
+
+→ `teachingSubjects(undefined)` → D1 `bind(undefined)` → **`D1_TYPE_ERROR: Type 'undefined' not supported`** → HTTP 500
+
+**为什么超管一直没暴露？**
+`canManageSubject` 第 515 行 `if (user.role === 'SUPER_ADMIN') return true` **直接短路返回**，
+永远走不到 `teachingSubjects`。这个 bug 从 v1.x 潜伏至今，只有教师角色会触发。
+
+**实测证据（部署前，生产环境直测）**
+
+| 调用者 | 目标 | 响应 |
+|---|---|---|
+| admin | article 40 | `{"ok":true}` |
+| teacher 69 | article 40 | `500 D1_TYPE_ERROR` |
+| teacher 69 | article 41 | `500 D1_TYPE_ERROR` |
+
+**修复（双管齐下）**
+1. 治本：11 处 `SELECT role, subject_id` 补成 `SELECT id, role, subject_id`
+2. 防御：`canManageSubject(user, subjectId, fallbackUserId?)` 增加兜底参数，
+   `user.id` 缺失时改用 `fallbackUserId`，都没有则**安全返回 false（拒绝）而非抛 500**
+
+**连带修复**：`GET /api/quizzes/:id/submissions` 的 SQL 只查 `subject_id`，
+连 `role` 都没有 → 教师永远无法查看考试提交（静默 403）。一并补 `id, role`。
+
+**受影响接口（教师此前全部 500）**
+美文审核 / 美文删除 / 资料审核 / 资料删除 / 待审资料下载 / 资料预览 /
+题库编辑 / 题库删除 / 试卷批改 / 考试提交查看 / 考试报告
+
+### ✨ 新增功能
+
+1. **审核条目显示学科**：美文、资料、论坛三类卡片均在元信息行首位显示
+   `📚 学科名`（超管与学科教师都能看到）
+   - 后端：`/api/articles`、`/api/resources` 列表 LEFT JOIN `subjects` 补
+     `subject_name` / `subject_icon`
+2. **美文审核可查看完整详情**：单击卡片正文区或封面即跳转到 `/article/:id`，
+   操作区另加「查看详情」按钮
+3. **资料审核可先下载查看**：操作区新增「下载查看」按钮，
+   走 `fetch + Blob + <a download>`，URL 不暴露 token
+
+### 🐛 其他 Bug 修复
+
+- **跨学科教师能看到删除按钮**：三类卡片删除按钮统一加 `v-if="canManage(subject_id)"`，
+  超管全放行，教师仅本学科显示
+- **教师列表过滤形同虚设**：旧逻辑 `if (isTeacher && teachingSubjects.length)` 在
+  任教列表为空时**放行全部学科（越权）**，改为无条件按本学科过滤
+- **删除失败静默无提示**：`deleteArticleItem` 原来 `catch {}` 空吞，
+  403 时用户点了没反应，现在弹出后端错误原因
+
+### 部署状态
+
+- 后端：已部署（`zhuiguang-api` v4.3.0）
+- 前端：已推送 Pages
+- 数据库：无变更
+
+### 验证结果（生产实测）
+
+| 场景 | 结果 |
+|---|---|
+| teacher 69（语文）审语文美文 40 | ✅ `{"ok":true}` |
+| teacher 69 审历史美文 41（跨学科） | ✅ `403 无权限审核该学科的美文` |
+| teacher 69 删历史美文 41（跨学科） | ✅ `403 无权限删除` |
+| 列表 `subject_name` | ✅ 语文 / 历史 / 数学 |
 
 ---
 

@@ -510,13 +510,19 @@ function setDownloadHeaders(c: Context, filename: string) {
  *       改为 async + 复用 teachingSubjects（已正确从 class_members 聚合），
  *       并对 user.subject_id 兜底（兼容老数据：教师只在 users 表里指了主学科、没进 class_members 的场景）
  */
-async function canManageSubject(user: any, subjectId: any): Promise<boolean> {
+async function canManageSubject(user: any, subjectId: any, fallbackUserId?: number): Promise<boolean> {
   if (!user) return false
   if (user.role === 'SUPER_ADMIN') return true
   if (user.role === 'TEACHER') {
     const sid = Number(subjectId)
     if (!sid) return false
-    const sids = await teachingSubjects(user.id)
+    // 【v4.3.0 修复】user.id 缺失会导致 teachingSubjects(undefined) → D1_TYPE_ERROR: Type 'undefined' not supported
+    // 历史 bug：多处 'SELECT role, subject_id FROM users WHERE id=?' 漏查 id 字段，
+    // 超管因第 515 行短路返回 true 而长期掩盖，只有教师会触发 500。
+    // 这里 double 保险：SQL 已补 id；若仍缺失则用 fallbackUserId，都没有则安全拒绝（返回 false 而非抛 500）。
+    const uid = user.id ?? user.user_id ?? fallbackUserId
+    if (uid === undefined || uid === null) return false
+    const sids = await teachingSubjects(Number(uid))
     if (!sids.includes(sid) && user.subject_id && Number(user.subject_id) === sid) {
       sids.push(Number(user.subject_id))
     }
@@ -863,9 +869,10 @@ async function serveFileWithCache(c: Context, resourceId: string, mode: 'downloa
 
   // ===== 第二层：资源权限校验 =====
   if (r.status !== 'approved') {
-    const me = await get<any>('SELECT role, subject_id FROM users WHERE id=?', user.id)
+    // 【v4.3.0】必须查 id，否则 canManageSubject 内 teachingSubjects(undefined) 会抛 D1_TYPE_ERROR
+    const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', user.id)
     const isOwner = Number(r.user_id) === Number(user.id)
-    if (!isOwner && !(await canManageSubject(me, r.subject_id))) {
+    if (!isOwner && !(await canManageSubject(me, r.subject_id, user.id))) {
       return c.json({ message: '该资料尚未通过审核' }, 403)
     }
   }
@@ -1408,10 +1415,13 @@ app.get('/api/articles', async (c) => {
     else { statusClauses.push("a.status='approved'") }
   }
 
-  let sql = `SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name
+  // 【v4.3.0】审核界面需要显示学科：补 subject_name / subject_icon
+  let sql = `SELECT a.*, u.real_name AS creator_name, au.real_name AS actual_user_name,
+    s.name AS subject_name, s.icon AS subject_icon
     FROM articles a
     JOIN users u ON u.id = a.user_id
     LEFT JOIN users au ON au.id = a.actual_user_id
+    LEFT JOIN subjects s ON s.id = a.subject_id
     WHERE 1=1`
   const args: any[] = []
   if (statusClauses.length) { sql += ' AND (' + statusClauses.join(') AND (') + ')'; args.push(...statusArgs) }
@@ -1549,8 +1559,9 @@ app.patch('/api/articles/:id/status', auth, async (c) => {
   const a = await get<any>('SELECT title, user_id, status, subject_id, actual_user_id FROM articles WHERE id=?', id)
   if (!a) return c.json({ message: '不存在' }, 404)
   const reviewerId = c.get('user').id
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', reviewerId)
-  if (u?.role !== 'SUPER_ADMIN' && !(await canManageSubject(u, a.subject_id))) return c.json({ message: '无权限审核该学科的美文' }, 403)
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师审核任何美文都 500 D1_TYPE_ERROR（超管因短路掩盖，一直没暴露）
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', reviewerId)
+  if (u?.role !== 'SUPER_ADMIN' && !(await canManageSubject(u, a.subject_id, reviewerId))) return c.json({ message: '无权限审核该学科的美文' }, 403)
   await run('UPDATE articles SET status=? WHERE id=?', newStatus, id)
   if (newStatus === 'approved' && a.status !== 'approved') {
     // 审核通过后，给实际作者发放经验值奖励（防重复：检查是否已发放过）
@@ -1577,11 +1588,13 @@ app.delete('/api/articles/:id', auth, async (c) => {
   const id = c.req.param('id')
   const a = await get<any>('SELECT user_id, subject_id, title, actual_user_id, status FROM articles WHERE id=?', id)
   if (!a) return c.json({ message: '不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
-  const isOwner = a.user_id === c.get('user').id
-  const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number(c.get('user').id)
+  const myId = c.get('user').id
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师删除美文 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
+  const isOwner = a.user_id === myId
+  const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number(myId)
   // 允许：发布者、实际作者（代发美文的学生）、超管、对应学科教师删除
-  if (!isOwner && !isActualUser && !(await canManageSubject(u, a.subject_id))) return c.json({ message: '无权限删除' }, 403)
+  if (!isOwner && !isActualUser && !(await canManageSubject(u, a.subject_id, myId))) return c.json({ message: '无权限删除' }, 403)
   // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关/评论相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
@@ -1816,7 +1829,12 @@ app.get('/api/resources', async (c) => {
     const meRow = await get<any>('SELECT subject_id FROM users WHERE id=?', myId)
     if (meRow?.subject_id && !teachSidList.includes(meRow.subject_id)) teachSidList.push(meRow.subject_id)
   }
-  let sql = 'SELECT r.*, u.real_name AS creator_name FROM resources r LEFT JOIN users u ON r.user_id = u.id WHERE 1=1'
+  // 【v4.3.0】审核界面需要显示学科：补 subject_name / subject_icon
+  let sql = `SELECT r.*, u.real_name AS creator_name, s.name AS subject_name, s.icon AS subject_icon
+    FROM resources r
+    LEFT JOIN users u ON r.user_id = u.id
+    LEFT JOIN subjects s ON s.id = r.subject_id
+    WHERE 1=1`
   const args: any[] = []
   if (subjectId) { sql += ' AND r.subject_id=?'; args.push(subjectId) }
   if (mine === '1') {
@@ -1869,8 +1887,10 @@ app.patch('/api/resources/:id/status', auth, async (c) => {
   const { status: newStatus } = await c.req.json()
   const r = await get<any>('SELECT title, user_id, status, subject_id FROM resources WHERE id=?', id)
   if (!r) return c.json({ message: '不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
-  if (!(await canManageSubject(u, r.subject_id))) return c.json({ message: '无权限审核该学科的资料' }, 403)
+  const myId = c.get('user').id
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师审核资料 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
+  if (!(await canManageSubject(u, r.subject_id, myId))) return c.json({ message: '无权限审核该学科的资料' }, 403)
   await run('UPDATE resources SET status=? WHERE id=?', newStatus, id)
   if (newStatus === 'approved' && r.status !== 'approved') {
     await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`)
@@ -1883,9 +1903,11 @@ app.delete('/api/resources/:id', auth, async (c) => {
   const id = c.req.param('id')
   const r = await get<any>('SELECT user_id, file_path, subject_id, title, status FROM resources WHERE id=?', id)
   if (!r) return c.json({ message: '不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
-  const isOwner = r.user_id === c.get('user').id
-  if (!isOwner && !(await canManageSubject(u, r.subject_id))) return c.json({ message: '无权限删除' }, 403)
+  const myId = c.get('user').id
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师删除资料 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
+  const isOwner = r.user_id === myId
+  if (!isOwner && !(await canManageSubject(u, r.subject_id, myId))) return c.json({ message: '无权限删除' }, 403)
   // 删除前直接删除相关的经验值记录
   if (r.user_id && r.title) {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
@@ -1907,9 +1929,10 @@ app.post('/api/resources/:id/download', auth, async (c) => {
   if (!r) return c.json({ message: '不存在' }, 404)
   // 权限：已通过的资料所有人可下载；未通过的仅上传者本人和超管/对应学科教师可下载
   if (r.status !== 'approved') {
-    const me = await get<any>('SELECT role, subject_id FROM users WHERE id=?', uid)
+    // 【v4.3.0 修复】必须查 id —— 漏查导致教师下载待审资料 500 D1_TYPE_ERROR
+    const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', uid)
     const isOwner = Number(r.user_id) === Number(uid)
-    if (!isOwner && !(await canManageSubject(me, r.subject_id))) {
+    if (!isOwner && !(await canManageSubject(me, r.subject_id, uid))) {
       return c.json({ message: '该资料尚未通过审核' }, 403)
     }
   }
@@ -2682,8 +2705,10 @@ app.patch('/api/quizzes/:id', auth, requireStaff, async (c) => {
   const id = c.req.param('id')
   const q = await get<any>('SELECT creator_id, subject_id FROM quizzes WHERE id=?', id)
   if (!q) return c.json({ message: '不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
-  if (!(await canManageSubject(u, q.subject_id))) return c.json({ message: '无权限' }, 403)
+  const myId = c.get('user').id
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师编辑题库 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
+  if (!(await canManageSubject(u, q.subject_id, myId))) return c.json({ message: '无权限' }, 403)
   const b = await c.req.json()
   if (b.title !== undefined) await run('UPDATE quizzes SET title=? WHERE id=?', b.title, id)
   if (b.description !== undefined) await run('UPDATE quizzes SET description=? WHERE id=?', b.description, id)
@@ -2697,8 +2722,10 @@ app.delete('/api/quizzes/:id', auth, requireStaff, async (c) => {
   const id = c.req.param('id')
   const q = await get<any>('SELECT creator_id, subject_id FROM quizzes WHERE id=?', id)
   if (!q) return c.json({ message: '不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', c.get('user').id)
-  if (!(await canManageSubject(u, q.subject_id))) return c.json({ message: '无权限' }, 403)
+  const myId = c.get('user').id
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师删除题库 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
+  if (!(await canManageSubject(u, q.subject_id, myId))) return c.json({ message: '无权限' }, 403)
   await run('DELETE FROM quiz_questions WHERE quiz_id=?', id)
   await run('DELETE FROM quiz_submissions WHERE quiz_id=?', id)
   await run('DELETE FROM quizzes WHERE id=?', id)
@@ -2766,8 +2793,9 @@ app.post('/api/quizzes/:id/submissions/:sid/grade', auth, requireStaff, async (c
   const reviewerId = c.get('user').id
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', quizId)
   if (!quiz) return c.json({ message: '题库不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', reviewerId)
-  if (!(await canManageSubject(u, quiz.subject_id))) return c.json({ message: '无权限批改' }, 403)
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师批改试卷 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', reviewerId)
+  if (!(await canManageSubject(u, quiz.subject_id, reviewerId))) return c.json({ message: '无权限批改' }, 403)
   const sub = await get<any>('SELECT * FROM quiz_submissions WHERE id=? AND quiz_id=?', sid, quizId)
   if (!sub) return c.json({ message: '提交记录不存在' }, 404)
   const data = j(sub.answers) || {}
@@ -2803,8 +2831,10 @@ app.get('/api/quizzes/:id/submissions', auth, async (c) => {
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', id)
   if (!quiz) return c.json({ message: '不存在' }, 404)
   if (role === 'TEACHER') {
-    const u = await get<any>('SELECT subject_id FROM users WHERE id=?', uid)
-    if (!(await canManageSubject(u, quiz.subject_id))) return c.json({ message: '无权限查看该考试' }, 403)
+    // 【v4.3.0 修复】原 SQL 只查 subject_id，缺 id 和 role →
+    // canManageSubject 内 user.role==='TEACHER' 不成立，直接 return false，教师永远无法查看考试提交
+    const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', uid)
+    if (!(await canManageSubject(u, quiz.subject_id, uid))) return c.json({ message: '无权限查看该考试' }, 403)
   }
   let list
   if (role === 'STUDENT') {
@@ -2836,8 +2866,9 @@ app.get('/api/quizzes/:id/report', auth, requireStaff, async (c) => {
   const id = c.req.param('id')
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', id)
   if (!quiz) return c.json({ message: '题库不存在' }, 404)
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', uid)
-  if (!(await canManageSubject(u, quiz.subject_id)) && quiz.creator_id !== uid) {
+  // 【v4.3.0 修复】必须查 id —— 漏查导致教师查看考试报告 500 D1_TYPE_ERROR
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', uid)
+  if (!(await canManageSubject(u, quiz.subject_id, uid)) && quiz.creator_id !== uid) {
     return c.json({ message: '无权限查看' }, 403)
   }
   const questions = await all<any>('SELECT * FROM quiz_questions WHERE quiz_id=? ORDER BY sort,id', id)

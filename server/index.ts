@@ -359,13 +359,19 @@ function setDownloadHeaders(res: express.Response, filename: string) {
 // 注意：原实现只看 user.subject_id（用户的"主学科"单一字段），不支持多学科任教；
 // 改为异步 + 复用 helpers.teachingSubjects（已正确从 class_members 聚合），
 // 并对 user.subject_id 兜底（兼容老数据：教师只在 users 表里指了主学科、没进 class_members 的场景）
-async function canManageSubject(user: any, subjectId: any): Promise<boolean> {
+async function canManageSubject(user: any, subjectId: any, fallbackUserId?: number): Promise<boolean> {
   if (!user) return false
   if (user.role === 'SUPER_ADMIN') return true
   if (user.role === 'TEACHER') {
     const sid = Number(subjectId)
     if (!sid) return false
-    const sids = await teachingSubjects(user.id)
+    // 【v4.3.0 修复】user.id 缺失会导致 teachingSubjects(undefined) → SQL 绑定 undefined 报错
+    // 历史 bug：多处 'SELECT role, subject_id FROM users WHERE id=?' 漏查 id 字段，
+    // 超管因第 364 行短路返回 true 而长期掩盖，只有教师会触发 500。
+    // 这里 double 保险：SQL 已补 id；若仍缺失则用 fallbackUserId，都没有则安全拒绝（返回 false 而非抛 500）。
+    const uid = user.id ?? user.user_id ?? fallbackUserId
+    if (uid === undefined || uid === null) return false
+    const sids = await teachingSubjects(Number(uid))
     if (!sids.includes(sid) && user.subject_id && Number(user.subject_id) === sid) {
       sids.push(Number(user.subject_id))
     }
@@ -976,7 +982,7 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
   const a = await get<any>('SELECT title, user_id, status, subject_id, actual_user_id FROM articles WHERE id=?', req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
   const reviewerId = (req as any).user.id
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', reviewerId)
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', reviewerId)
   // 需求4：只有 SUPER_ADMIN 可以审核美文（教师发布的不需要审核，直接approved，不经过这里）
   if (u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '只有超级管理员可以审核美文' })
   // Bug1: 确认此处不更新 user_id（当前是对的，只改 status）
@@ -1000,10 +1006,10 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
 app.delete('/api/articles/:id', auth, async (req, res) => {
   const a = await get<any>('SELECT user_id, subject_id, title, actual_user_id, status FROM articles WHERE id=?', req.params.id)
   if (!a) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const isOwner = a.user_id === (req as any).user.id
   const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number((req as any).user.id)
-  if (!isOwner && !isActualUser && !(await canManageSubject(u, a.subject_id))) return res.status(403).json({ message: '无权限删除' })
+  if (!isOwner && !isActualUser && !(await canManageSubject(u, a.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限删除' })
   // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关/评论相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
@@ -1034,7 +1040,7 @@ app.patch('/api/articles/:id', auth, async (req, res) => {
   if (!a) return res.status(404).json({ message: '美文不存在' })
   const isOwner = Number(a.user_id) === Number(u.id)
   const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number(u.id)
-  const isManage = u.role === 'SUPER_ADMIN' || u.role === 'ADMIN' || (await canManageSubject(u, a.subject_id))
+  const isManage = u.role === 'SUPER_ADMIN' || u.role === 'ADMIN' || (await canManageSubject(u, a.subject_id, (req as any).user.id))
   if (!isOwner && !isActualUser && !isManage) {
     return res.status(403).json({ message: '无权限编辑该美文' })
   }
@@ -1234,7 +1240,7 @@ app.get('/api/resources', async (req, res) => {
 
 app.post('/api/resources', auth, async (req, res) => {
   const id = (req as any).user.id
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', id)
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', id)
   const b = req.body
   // 【v4.0.1】教师上传资料时必须选自己任教的学科
   if (u?.role === 'TEACHER' && !(await canManageSubject({ id, role: u.role, subject_id: u.subject_id }, b.subjectId))) {
@@ -1255,8 +1261,8 @@ app.post('/api/resources', auth, async (req, res) => {
 app.patch('/api/resources/:id/status', auth, async (req, res) => {
   const r = await get<any>('SELECT title, user_id, status, subject_id FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!(await canManageSubject(u, r.subject_id))) return res.status(403).json({ message: '无权限审核该学科的资料' })
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  if (!(await canManageSubject(u, r.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限审核该学科的资料' })
   await run('UPDATE resources SET status=? WHERE id=?', req.body.status, req.params.id)
   if (req.body.status === 'approved' && r.status !== 'approved') {
     await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`)
@@ -1268,9 +1274,9 @@ app.patch('/api/resources/:id/status', auth, async (req, res) => {
 app.delete('/api/resources/:id', auth, async (req, res) => {
   const r = await get<any>('SELECT user_id, file_path, subject_id, title FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const isOwner = r.user_id === (req as any).user.id
-  if (!isOwner && !(await canManageSubject(u, r.subject_id))) return res.status(403).json({ message: '无权限删除' })
+  if (!isOwner && !(await canManageSubject(u, r.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限删除' })
   // 删除前直接删除相关的经验值记录
   if (r.user_id && r.title) {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
@@ -1288,9 +1294,9 @@ app.post('/api/resources/:id/download', auth, async (req, res) => {
   const r = await get<any>('SELECT * FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
   if (r.status !== 'approved') {
-    const me = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
+    const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
     const isOwner = Number(r.user_id) === Number((req as any).user.id)
-    if (!isOwner && !(await canManageSubject(me, r.subject_id))) {
+    if (!isOwner && !(await canManageSubject(me, r.subject_id, (req as any).user.id))) {
       return res.status(403).json({ message: '该资料尚未通过审核' })
     }
   }
@@ -1847,8 +1853,8 @@ app.post('/api/quizzes', auth, requireSubjectStaff('body', 'subjectId'), async (
 app.patch('/api/quizzes/:id', auth, async (req, res) => {
   const q = await get<any>('SELECT creator_id, subject_id FROM quizzes WHERE id=?', req.params.id)
   if (!q) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!(await canManageSubject(u, q.subject_id))) return res.status(403).json({ message: '无权限' })
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  if (!(await canManageSubject(u, q.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限' })
   const b = req.body
   if (b.title !== undefined) await run('UPDATE quizzes SET title=? WHERE id=?', b.title, req.params.id)
   if (b.description !== undefined) await run('UPDATE quizzes SET description=? WHERE id=?', b.description, req.params.id)
@@ -1861,8 +1867,8 @@ app.patch('/api/quizzes/:id', auth, async (req, res) => {
 app.delete('/api/quizzes/:id', auth, async (req, res) => {
   const q = await get<any>('SELECT creator_id, subject_id FROM quizzes WHERE id=?', req.params.id)
   if (!q) return res.status(404).json({ message: '不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!(await canManageSubject(u, q.subject_id))) return res.status(403).json({ message: '无权限' })
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  if (!(await canManageSubject(u, q.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限' })
   await run('DELETE FROM quiz_questions WHERE quiz_id=?', req.params.id)
   await run('DELETE FROM quiz_submissions WHERE quiz_id=?', req.params.id)
   await run('DELETE FROM quizzes WHERE id=?', req.params.id)
@@ -1931,8 +1937,8 @@ app.post('/api/quizzes/:id/submit', auth, async (req, res) => {
 app.post('/api/quizzes/:id/submissions/:sid/grade', auth, requireStaff, async (req, res) => {
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', req.params.id)
   if (!quiz) return res.status(404).json({ message: '题库不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!(await canManageSubject(u, quiz.subject_id))) return res.status(403).json({ message: '无权限批改' })
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  if (!(await canManageSubject(u, quiz.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限批改' })
 
   const sub = await get<any>('SELECT * FROM quiz_submissions WHERE id=? AND quiz_id=?', req.params.sid, req.params.id)
   if (!sub) return res.status(404).json({ message: '提交记录不存在' })
@@ -1975,8 +1981,10 @@ app.get('/api/quizzes/:id/submissions', auth, async (req, res) => {
   if (!quiz) return res.status(404).json({ message: '不存在' })
   // 教师只能查看本学科考试的提交（超管不限）
   if (role === 'TEACHER') {
-    const u = await get<any>('SELECT subject_id FROM users WHERE id=?', uid)
-    if (!(await canManageSubject(u, quiz.subject_id))) return res.status(403).json({ message: '无权限查看该考试' })
+    // 【v4.3.0 修复】原 SQL 只查 subject_id，缺 id 和 role →
+    // canManageSubject 内 user.role==='TEACHER' 不成立，直接 return false，教师永远无法查看考试提交
+    const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', uid)
+    if (!(await canManageSubject(u, quiz.subject_id, uid))) return res.status(403).json({ message: '无权限查看该考试' })
   }
   let list
   if (role === 'STUDENT') {
@@ -2005,8 +2013,8 @@ app.get('/api/quizzes/:id/my_report', auth, async (req, res) => {
 app.get('/api/quizzes/:id/report', auth, requireStaff, async (req, res) => {
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', req.params.id)
   if (!quiz) return res.status(404).json({ message: '题库不存在' })
-  const u = await get<any>('SELECT role, subject_id FROM users WHERE id=?', (req as any).user.id)
-  if (!(await canManageSubject(u, quiz.subject_id)) && quiz.creator_id !== (req as any).user.id) {
+  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
+  if (!(await canManageSubject(u, quiz.subject_id, (req as any).user.id)) && quiz.creator_id !== (req as any).user.id) {
     return res.status(403).json({ message: '无权限查看' })
   }
   const questions = await all<any>('SELECT * FROM quiz_questions WHERE quiz_id=? ORDER BY sort,id', req.params.id)

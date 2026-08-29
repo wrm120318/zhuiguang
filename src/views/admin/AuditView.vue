@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
@@ -7,7 +8,16 @@ import { useUserStore } from '@/store/user'
 import ZgGlyph from '@/components/ZgGlyph.vue'
 
 const user = useUserStore()
+const router = useRouter()
 const isSuperAdmin = computed(() => user.isSuperAdmin)
+
+// 【v4.3.0】教师只能管理自己任教学科的内容：超管全放行，教师按 teachingSubjects 判定
+function canManage(subjectId: any): boolean {
+  if (isSuperAdmin.value) return true
+  const sid = Number(subjectId)
+  if (!sid) return false
+  return (user.teachingSubjects || []).map(Number).includes(sid)
+}
 
 const tab = ref<'article' | 'resource' | 'forum'>('article')
 const articles = ref<any[]>([])
@@ -48,10 +58,12 @@ async function load() {
   let resList = ress || []
   let fpList = fps || []
   // 教师仅审核本学科美文和资料（按 teachingSubjects 客户端过滤）
-  if (user.isTeacher && !user.isSuperAdmin && user.teachingSubjects.length) {
-    artList = artList.filter((a: any) => user.teachingSubjects.includes(Number(a.subject_id)))
-    resList = resList.filter((r: any) => user.teachingSubjects.includes(Number(r.subject_id)))
-    fpList = fpList.filter((p: any) => user.teachingSubjects.includes(Number(p.subject_id)))
+  // 【v4.3.0】去掉 `&& user.teachingSubjects.length` 前置条件：
+  //   若教师任教列表为空，旧逻辑会放行全部学科（越权），改为直接过滤到空列表更安全
+  if (user.isTeacher && !user.isSuperAdmin) {
+    artList = artList.filter((a: any) => canManage(a.subject_id))
+    resList = resList.filter((r: any) => canManage(r.subject_id))
+    fpList = fpList.filter((p: any) => canManage(p.subject_id))
   }
   articles.value = artList
   resources.value = resList
@@ -86,7 +98,34 @@ async function deleteArticleItem(id: number) {
     await api.deleteArticle(id)
     articles.value = articles.value.filter(a => a.id !== id)
     ElMessage.success('已删除')
-  } catch { /* */ }
+  } catch (e: any) {
+    // 【v4.3.0】原来静默吞掉 403，教师点了没反应还以为坏了
+    const msg = e?.response?.data?.message || e?.message
+    if (msg) ElMessage.error(msg)
+  }
+}
+
+// 【v4.3.0】审核前先单击卡片进入美文详情页查看完整内容
+function openArticleDetail(id: number) {
+  router.push(`/article/${id}`)
+}
+
+// 【v4.3.0】资料审核：先下载查看再决定通过/驳回
+async function downloadResourceForReview(r: any) {
+  try {
+    const resp: any = await api.downloadResource(r.id)
+    const blob = resp?.data instanceof Blob ? resp.data : new Blob([resp?.data ?? resp])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = r.file_name || r.title || 'download'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '下载失败，请稍后重试')
+  }
 }
 async function approveResource(id: number) {
   await api.auditResource(id, 'approved')
@@ -167,10 +206,15 @@ async function batchApprove() {
     <div class="audit-list">
       <template v-if="tab==='article'">
         <div v-for="a in articles" :key="a.id" class="audit-card glass" :class="{ 'au-proxy-card': a.actual_user_id }">
-          <img :src="a.cover" class="au-cover" />
-          <div class="au-body">
+          <img :src="a.cover" class="au-cover" @click="openArticleDetail(a.id)" />
+          <div class="au-body au-clickable" @click="openArticleDetail(a.id)" :title="'单击查看《' + a.title + '》完整内容'">
             <div class="au-title">{{ a.title }}</div>
-            <div class="au-meta">{{ a.author }} · {{ a.category }} · {{ a.created_at }}
+            <div class="au-meta">
+              <!-- 【v4.3.0】审核条目上显示学科（超管 / 学科教师都能看到） -->
+              <span class="au-subject">
+                <ZgGlyph :emoji="a.subject_icon || '📚'" /> {{ a.subject_name || ('学科#' + a.subject_id) }}
+              </span>
+              · {{ a.author }} · {{ a.category }} · {{ a.created_at }}
               <span v-if="a.actual_user_id" class="au-proxy">
                 <ZgGlyph emoji="🧑‍" /><ZgGlyph emoji="🎓" /> 实际作者：<b>{{ a.actual_user_name || '学生#'+a.actual_user_id }}</b>
                 · 代发教师：{{ a.creator_name }}
@@ -183,6 +227,7 @@ async function batchApprove() {
             <div class="au-content markdown-body" v-html="md(a.content)"></div>
           </div>
           <div class="au-actions">
+            <el-button size="small" @click="openArticleDetail(a.id)">查看详情</el-button>
             <template v-if="a.status === 'pending'">
               <el-button type="primary" size="small" @click="approveArticle(a.id)">通过 +20EXP</el-button>
               <el-button size="small" @click="rejectArticle(a.id)">驳回</el-button>
@@ -191,7 +236,8 @@ async function batchApprove() {
               <el-tag type="info" size="small" effect="dark">等待学生确认</el-tag>
               <el-button v-if="isSuperAdmin" type="warning" size="small" @click="adminConfirmArticle(a.id)">超管代确认</el-button>
             </template>
-            <el-button size="small" type="danger" plain @click="deleteArticleItem(a.id)">删除</el-button>
+            <!-- 【v4.3.0】跨学科教师不该看到删除按钮 -->
+            <el-button v-if="canManage(a.subject_id)" size="small" type="danger" plain @click="deleteArticleItem(a.id)">删除</el-button>
           </div>
         </div>
         <el-empty v-if="!articles.length" description="暂无美文" />
@@ -202,7 +248,12 @@ async function batchApprove() {
           <div class="au-icon"><ZgGlyph v-if="r.file_type === 'pdf'" emoji="📄" /><ZgGlyph v-else-if="r.file_type === 'ppt'" emoji="📊" /><ZgGlyph v-else-if="r.file_type === 'word'" emoji="📝" /><ZgGlyph v-else-if="r.file_type === 'excel'" emoji="📗" /><ZgGlyph v-else-if="r.file_type === 'video'" emoji="🎬" /><ZgGlyph v-else emoji="📦" /></div>
           <div class="au-body">
             <div class="au-title">{{ r.title }}</div>
-            <div class="au-meta">{{ r.category }} · {{ r.file_name }} · 上传人：{{ r.creator_name }}
+            <div class="au-meta">
+              <!-- 【v4.3.0】审核条目上显示学科（超管 / 学科教师都能看到） -->
+              <span class="au-subject">
+                <ZgGlyph :emoji="r.subject_icon || '📚'" /> {{ r.subject_name || ('学科#' + r.subject_id) }}
+              </span>
+              · {{ r.category }} · {{ r.file_name }} · 上传人：{{ r.creator_name }}
               <el-tag size="small" :type="r.status==='approved'?'success':r.status==='pending'?'warning':'danger'" style="margin-left:8px">
                 {{ r.status === 'approved' ? '已通过' : r.status === 'pending' ? '待审核' : '已驳回' }}
               </el-tag>
@@ -210,11 +261,14 @@ async function batchApprove() {
             <div class="au-rec">{{ r.description }}</div>
           </div>
           <div class="au-actions">
+            <!-- 【v4.3.0】资料审核：先下载查看，再决定通过/驳回 -->
+            <el-button size="small" @click="downloadResourceForReview(r)">下载查看</el-button>
             <template v-if="r.status === 'pending'">
               <el-button type="primary" size="small" @click="approveResource(r.id)">通过 +15EXP</el-button>
               <el-button size="small" @click="rejectResource(r.id)">驳回</el-button>
             </template>
-            <el-button size="small" type="danger" plain @click="deleteResourceItem(r.id)">删除</el-button>
+            <!-- 【v4.3.0】跨学科教师不该看到删除按钮 -->
+            <el-button v-if="canManage(r.subject_id)" size="small" type="danger" plain @click="deleteResourceItem(r.id)">删除</el-button>
           </div>
         </div>
         <el-empty v-if="!resources.length" description="暂无资料" />
@@ -246,7 +300,8 @@ async function batchApprove() {
               <el-button type="primary" size="small" @click="approveForumPost(p.subject_id, p.id)">通过 +5EXP</el-button>
               <el-button size="small" @click="rejectForumPost(p.subject_id, p.id)">驳回</el-button>
             </template>
-            <el-button size="small" type="danger" plain @click="deleteForumPostItem(p.subject_id, p.id)">删除</el-button>
+            <!-- 【v4.3.0】跨学科教师不该看到删除按钮 -->
+            <el-button v-if="canManage(p.subject_id)" size="small" type="danger" plain @click="deleteForumPostItem(p.subject_id, p.id)">删除</el-button>
           </div>
         </div>
         <el-empty v-if="!forumPosts.length" description="暂无论坛帖子" />
@@ -266,7 +321,18 @@ async function batchApprove() {
 .au-cover { width:120px; height:90px; object-fit:cover; border-radius:10px; flex-shrink:0; }
 .au-icon { width:80px; height:80px; border-radius:12px; background:rgba(var(--zg-primary-rgb),.06); display:flex; align-items:center; justify-content:center; font-size:36px; flex-shrink:0; }
 .au-body { flex:1; min-width:0; }
+/* 【v4.3.0】美文审核卡片可点击进入详情 */
+.au-body.au-clickable { cursor:pointer; border-radius:10px; padding:4px 6px; margin:-4px -6px; transition:background .18s; }
+.au-body.au-clickable:hover { background:rgba(var(--zg-primary-rgb),.06); }
+.au-cover { cursor:pointer; transition:transform .18s; }
+.au-cover:hover { transform:scale(1.03); }
 .au-title { font-weight:700; font-size:16px; }
+/* 【v4.3.0】审核条目上的学科标签 */
+.au-subject {
+  display:inline-block; padding:1px 8px; border-radius:6px;
+  background:rgba(var(--zg-primary-rgb),.12); color:var(--zg-primary);
+  font-weight:600;
+}
 .au-meta { font-size:12px; color:var(--zg-text-dim); margin:4px 0; }
 .au-rec { font-size:13px; color:var(--zg-accent); }
 .au-content { font-size:13px; color:var(--zg-text-dim); margin-top:8px; max-height:80px; overflow:hidden; }
