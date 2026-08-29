@@ -7,6 +7,73 @@
 
 ---
 
+---
+
+## [v4.2.7] - 2026-08-29
+
+> 下载终极修复（终极版）：Service Worker 拦截下载请求 + 浏览器原生流式
+
+### 现象
+v4.2.6 改用 `fetch + blob + <a download>` 后，用户反馈「明明下载完了浏览器还显示剩余时间未知」——blob URL 让浏览器无法测算服务端流速。
+
+### 三层需求（必须同时满足）
+1. ✅ 浏览器**原生流式**下载（显示真实进度条+剩余时间）
+2. ✅ URL **完全不暴露 token**（不要让用户拿到 url）
+3. ✅ 不开任何新标签页（不要跳转链接）
+
+这三者在跨域架构（页面 `xkzg.de5.net` ≠ 后端 `api.xkzg.dpdns.org`）下**无 Service Worker 救不活**——HTML form 不能设置 Authorization Header，且 Cookie 跨域不共享。
+
+### 修法：Service Worker 拦截 `/api/download/*` 路径
+
+**工作流**：
+```
+用户点下载 → <a href="/api/download/123" download>
+       ↓
+浏览器发请求到当前域（同源 SW 拦截），不离开当前页
+       ↓
+SW 拦截 → 通过 MessageChannel 从 page 端拿 zg_token（localStorage）
+       ↓
+SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
+       ↓
+流回响应（含 Content-Disposition: attachment）→ 浏览器
+       ↓
+触发原生下载，**显示真实进度+剩余时间**
+```
+
+### 组件
+
+**新增**：
+- `public/sw-download.js`（~120 行）
+  - 拦截 `/api/download/*`
+  - 用 MessageChannel 异步拿 token（避免 SW 直接读 localStorage 不可行问题）
+  - 流式转发响应到浏览器
+  - 适配 token 拿不到时的 500ms 兜底
+
+**修改**：
+- `src/main.ts`（注册 SW + message handler 35 行）
+- `src/views/SubjectView.vue`（downloadResource 改为 SW 优先路径 + v4.2.6 兜底）
+
+### 关键特性
+- **不退化**：SW 还没激活（首次访问）时降级到 v4.2.6 fetch+blob 路径
+- **不破坏用户已有行为**：URL 仍是同源 `/api/download/123`，devtools 看不到 token URL
+- **不依赖后端改动**：纯前端 SW + 后端已配 CORS 已足够
+
+### 部署
+- 后端：**无须部署**
+- 前端：`git push origin main` → Cloudflare Pages 自动构建（dist 直接复制 `public/sw-download.js` 到根）
+
+### 文件清单
+
+**新增**：
+- `public/sw-download.js`
+
+**修改**：
+- `src/main.ts`（+30 行：SW 注册 + message handler）
+- `src/views/SubjectView.vue`（downloadResource 重写：SW 优先 + v4.2.6 兜底）
+- `dist/sw-download.js`（构建产物自动生成）
+
+---
+
 ## [v4.2.6] - 2026-08-29
 
 > 下载终极修复：fetch + blob + `<a download>`，token 不再进 URL，不开新标签页

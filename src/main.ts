@@ -56,3 +56,25 @@ import { vSwipeAction } from './directives/swipeAction'
 app.directive('swipe-action', vSwipeAction)
 
 app.mount('#app')
+
+// 【v4.2.7】注册 Service Worker：拦截 /api/download/* 路径，
+//   实现「浏览器原生流式下载 + URL 完全不暴露 token + 不开新标签页」
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw-download.js')
+      .then((reg) => {
+        // 监听 SW 消息：收到 'zg_download:get_token' 时把 zg_token 传回去
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'zg_download:get_token') {
+            const port = event.ports?.[0]
+            const token = localStorage.getItem('zg_token') || ''
+            try { port?.postMessage({ token }) } catch { /* SW 已 close */ }
+          }
+        })
+        console.info('[zg-download] SW registered', reg.scope)
+      })
+      .catch((err) => {
+        console.warn('[zg-download] SW register failed, fallback to v4.2.6 fetch+blob', err)
+      })
+  })
+}

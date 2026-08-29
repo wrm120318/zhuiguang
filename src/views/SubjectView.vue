@@ -223,13 +223,30 @@ async function downloadResource(r: any) {
     return
   }
   const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+  // 【v4.2.7 下载终极修复】Service Worker 拦截 /api/download/*
+  //   - URL 完全不暴露 token（由 SW 通过 MessageChannel 拿到 localStorage zg_token）
+  //   - <a download> + SW 代理：浏览器**原生流式下载**，**显示真实进度+剩余时间**
+  //   - SW 没激活时降级到 v4.2.6 fetch+blob（双保险）
+  const swController = (await Promise.race([
+    navigator.serviceWorker?.ready,
+    new Promise((resolve) => setTimeout(() => resolve(null), 500)),
+  ])) as ServiceWorkerRegistration | null
+  if (swController) {
+    // 走 SW 拦截路径：浏览器原生下载，无 token URL，不开标签页
+    const a = document.createElement('a')
+    a.href = `/api/download/${r.id}`
+    a.download = r.name || `resource-${r.id}`
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    r.downloads = (r.downloads || 0) + 1
+    ElMessage.success('下载已开始')
+    downloadingIds.value.delete(r.id)
+    return
+  }
+  // SW 未激活兜底：v4.2.6 fetch+blob（保留以前的稳定降级路径）
   try {
-    // 【v4.2.6 下载终极修复】改用 fetch + blob + <a download>：
-    //   - URL 完全不暴露 token（用 Authorization Header 而非 ?token=）
-    //   - <a download> 让浏览器**直接弹下载框**，不打开任何新标签页（解决"点击 → 1-2 秒后才反应"）
-    //   - 后端 verifyFileAccess 优先读 Authorization Header（已支持），无需部署后端
-    //   - 小文件（≤几 MB）此方案体感比 <a href target=_blank> 即时得多；大文件仍由浏览器拉流，
-    //     受限于 fetch+blob 一次性到内存（用户平台主流是课件 ≤ 5MB，可接受）。
     const resp = await fetch(`${baseURL}/file/r/${r.id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -239,7 +256,6 @@ async function downloadResource(r: any) {
       downloadingIds.value.delete(r.id)
       return
     }
-    // 从 Content-Disposition 解析真实文件名（attachment + filename*=UTF-8''<encoded>）
     const dispo = resp.headers.get('Content-Disposition') || ''
     let filename = r.name || `resource-${r.id}`
     const m = dispo.match(/filename\*?=[^;]*?["']?([^"';\n]+)/)
@@ -255,7 +271,6 @@ async function downloadResource(r: any) {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    // 1 秒后释放内存 URL，避免某些浏览器并发下载时还没读完就回收
     setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
     r.downloads = (r.downloads || 0) + 1
     ElMessage.success('下载已开始')
