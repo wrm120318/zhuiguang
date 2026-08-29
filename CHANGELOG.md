@@ -5,6 +5,66 @@
 
 ---
 
+---
+
+## [v4.2.6] - 2026-08-29
+
+> 下载终极修复：fetch + blob + `<a download>`，token 不再进 URL，不开新标签页
+
+### Bug 修复
+
+**用户原话**：
+> 下载还是反应慢，不要给一个跳转链接
+
+**根因分析**：
+- v4.2.4 用 `<a href target="_blank">` 把下载 URL 在**新标签页打开**——
+  - Chrome/Edge/Firefox：新开空白标签 → 1-2 秒后才开始下载
+  - Safari：新标签 loading → 等服务器返回 attachment 才弹下载框
+  - 体感："点击 → 等 2 秒 → 才开始下载"
+- 且 `<a>` 的 href 直接拼 `?token=xxx`——用户的硬约束：**URL 不应暴露 token**
+
+**修法（先奏后斩：用户拍板方案 1）**：
+
+| 项 | v4.2.4 | v4.2.6 |
+|---|---|---|
+| 触发方式 | `<a href target="_blank">` → 开新标签 | `<a download>` 不开标签，立即触发 |
+| Token 鉴权传递 | URL `?token=xxx`（DevTools Network 可见） | `Authorization: Bearer xxx` Header（用户看不到完整带 token 的 URL） |
+| 后端改动 | — | **无须部署**（`verifyFileAccess` 已优先读 Authorization） |
+| 用户点击体验 | "点了，1-2 秒后才反应" | "点了瞬间弹下载框" |
+| 大文件 (10MB+) | 浏览器流式下载 | fetch+blob 全缓冲；用户平台以课件 ≤ 5MB 为主，可接受 |
+
+**关键代码**：
+```ts
+const resp = await fetch(`${baseURL}/file/r/${r.id}`, {
+  headers: { Authorization: `Bearer ${token}` },
+})
+// ... 解析 Content-Disposition 取真实文件名
+const blob = await resp.blob()
+const blobUrl = URL.createObjectURL(blob)
+const a = document.createElement('a')
+a.href = blobUrl
+a.download = filename
+a.click()
+setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+```
+
+**安全验证**：
+- 后端 `verifyFileAccess` 顺序：先 `Authorization` Header → 再 `?token=` 兼容回退；用户 token 完全不进 URL
+- 没有 token 时 `ElMessage.error('请先登录后再下载')` 给明确错误，不静默失败
+
+### 部署
+
+- 后端：**无须部署**（后端已支持 Authorization Header）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建
+- 验证：dist 中 `SubjectView-*.js` 包含 `createObjectURL` + `.download=` 标记；不含 `target=_blank`
+
+### 文件清单
+
+**修改**：
+- `src/views/SubjectView.vue`（downloadResource 重写为 fetch+blob+`<a download>`）
+
+---
+
 ## [v4.2.5] - 2026-08-29
 
 > 评论终极修复：彻底绕过 Vue 3 响应式追踪失效

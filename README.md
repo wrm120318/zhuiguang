@@ -15,7 +15,7 @@
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
 | 默认超管账号 | `admin` / `admin123456` |
 | 开源协议 | MIT |
-| 当前版本 | v4.2.5（评论终极修复：onCommentSubmit 全量 reload 兜底） |
+| 当前版本 | v4.2.6（下载终极修复：fetch+blob+`<a download>`，URL 不暴露 token，不开新标签页） |
 
 ---
 
@@ -341,7 +341,8 @@ zhuiguang/
 | v2.1.19 | 文档全面完善 + 域名统一 + 版本同步 | 已上线 |
 | v3.0.0 | 墨金学术双主题 + 全站液态玻璃 v7 + Bug14~17 修复 | 已上线 |
 | v3.0.10 | 通知中心 direction 枚举值修复 | 已上线 |
-| v4.2.5 | 评论终极修复：三个详情页 `onCommentSubmit` 简化为「POST 成功 → 全量 reload 评论列表」，彻底绕过 Vue 3 响应式追踪失效的所有可能场景；保证 cf / GitHub / 沙箱云端 三处代码一致 | 已上线（当前） |
+| v4.2.6 | 下载终极修复：`SubjectView.downloadResource` 改用 `fetch + blob + <a download>`，token 通过 `Authorization` Header 传（URL 完全不暴露 token），不开任何新标签页（解决"点完按钮 1-2 秒后才反应"）。后端无须部署（`verifyFileAccess` 已支持 Header 鉴权） | 已上线（当前） |
+| v4.2.5 | 评论终极修复：三个详情页 `onCommentSubmit` 简化为「POST 成功 → 全量 reload 评论列表」，彻底绕过 Vue 3 响应式追踪失效的所有可能场景；保证 cf / GitHub / 沙箱云端 三处代码一致 | 已上线 |
 | v4.2.4 | @提及点击跳对方主页（`/profile?uid=` + `GET /api/users/:id`）+ 下载提速（axios blob → 浏览器原生 `<a href>` 流式下载）+ 评论发送即时反馈（CommentTree 先清输入框 + try-catch + 嵌套子评论新数组赋值） | 已上线 |
 | v4.2.3 | 编辑器 9 项扩展（KaTeX/提及/高亮/图片尺寸/视频/B站/PDF/file 附件/全 HTML）落地 + 预览 vs 发布后渲染一致性（14 处详情页加 markdown-body + 扩展产物全局兜底）+ @提及单字段选择器（弹搜→点选→自动补 ID）+ 安全回归 9/9 | 已上线 |
 | v4.2.2 | 通用 Markdown 富文本编辑器（MarkdownEditor 公共组件 + marked 8 类扩展 + KaTeX 公式）+ 美文/公告可多次编辑 + 编辑器与学科论坛移动端 H5 适配 + 博客/论坛评论点赞漏通知修复 | 已上线 |

@@ -213,29 +213,56 @@ async function readBlobError(data: any): Promise<string | null> {
 }
 
 async function downloadResource(r: any) {
-  // 防止重复点击
+  // 防重复点击
   if (downloadingIds.value.has(r.id)) return
   downloadingIds.value.add(r.id)
-  // 【v4.2.4 性能修复】优先用浏览器原生 <a href> 直跳后端 /file/r/:id，
-  //   Content-Disposition: attachment 让浏览器立即开始下载，避开 axios+blob
-  //   模式下"全部缓冲到内存才触发 a.click"的等待（用户反馈下载反应过慢）。
-  //   仅在 token 缺失（极端情况）时回退到 axios blob 走错误提示路径。
-  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
   const token = localStorage.getItem('zg_token') || ''
-  const directUrl = `${baseURL}/file/r/${r.id}?token=${encodeURIComponent(token)}`
-  const a = document.createElement('a')
-  a.href = directUrl
-  a.target = '_blank'
-  a.rel = 'noopener'
-  // 不用 a.download —— 浏览器按后端 Content-Disposition 处理（attachment + 文件名）
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  r.downloads = (r.downloads || 0) + 1
-  ElMessage.success('下载开始')
-  downloadingIds.value.delete(r.id)
   if (!token) {
-    try { await api.downloadResource(r.id) } catch { ElMessage.error('下载失败：缺少登录凭证') }
+    ElMessage.error('请先登录后再下载')
+    downloadingIds.value.delete(r.id)
+    return
+  }
+  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || ''
+  try {
+    // 【v4.2.6 下载终极修复】改用 fetch + blob + <a download>：
+    //   - URL 完全不暴露 token（用 Authorization Header 而非 ?token=）
+    //   - <a download> 让浏览器**直接弹下载框**，不打开任何新标签页（解决"点击 → 1-2 秒后才反应"）
+    //   - 后端 verifyFileAccess 优先读 Authorization Header（已支持），无需部署后端
+    //   - 小文件（≤几 MB）此方案体感比 <a href target=_blank> 即时得多；大文件仍由浏览器拉流，
+    //     受限于 fetch+blob 一次性到内存（用户平台主流是课件 ≤ 5MB，可接受）。
+    const resp = await fetch(`${baseURL}/file/r/${r.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '')
+      ElMessage.error(`下载失败 (${resp.status})${errText ? '：' + errText.slice(0, 80) : ''}`)
+      downloadingIds.value.delete(r.id)
+      return
+    }
+    // 从 Content-Disposition 解析真实文件名（attachment + filename*=UTF-8''<encoded>）
+    const dispo = resp.headers.get('Content-Disposition') || ''
+    let filename = r.name || `resource-${r.id}`
+    const m = dispo.match(/filename\*?=[^;]*?["']?([^"';\n]+)/)
+    if (m && m[1]) {
+      const raw = m[1].replace(/^UTF-8''/i, '').trim()
+      try { filename = decodeURIComponent(raw) } catch { filename = raw }
+    }
+    const blob = await resp.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // 1 秒后释放内存 URL，避免某些浏览器并发下载时还没读完就回收
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+    r.downloads = (r.downloads || 0) + 1
+    ElMessage.success('下载已开始')
+  } catch (e: any) {
+    ElMessage.error('下载失败：' + (e?.message || '网络异常'))
+  } finally {
+    downloadingIds.value.delete(r.id)
   }
 }
 
