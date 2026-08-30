@@ -8,6 +8,11 @@ import type { Context } from 'hono'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
+// ===== v4.4.0 统一存储抽象层（B2 原生 + Supabase 适配器 + 流式代理） =====
+import {
+  initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
+  getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, supaExtractKey,
+} from './storage-layer'
 
 // ===== Workers 环境变量类型 =====
 interface Env {
@@ -18,6 +23,18 @@ interface Env {
   SUPABASE_SERVICE_KEY?: string
   SUPABASE_ANON_KEY?: string
   SUPABASE_BUCKET?: string
+  // ===== v4.4.0 B2 存储配置（密钥类走 wrangler secret，禁止硬编码） =====
+  STORAGE_BACKEND?: string        // B2_FREE | B2_PAID | SUPABASE（绝不自动切付费）
+  B2_KEY_ID?: string
+  B2_APPLICATION_KEY?: string     // secret
+  B2_BUCKET_ID?: string
+  B2_BUCKET_NAME?: string
+  B2_ACCOUNT_ID?: string
+  B2_QUOTA_ALERT?: string         // 默认 2200
+  B2_USER_DAILY_ORIGIN_LIMIT?: string // 默认 100
+  CACHE_TTL_PUBLIC?: string
+  CACHE_TTL_WEBP?: string
+  CACHE_TTL_PRIVATE?: string
 }
 
 // ===== 全局变量（在请求中间件中从 c.env 设置） =====
@@ -27,6 +44,19 @@ let JWT_EXPIRES = '7d'
 let SUPABASE_URL = ''
 let SUPABASE_KEY = ''
 let SUPABASE_BUCKET = 'zhuiguang-files'
+
+// ===== v4.4.0 存储层配置（供 storage-layer 使用） =====
+let STORAGE_BACKEND = 'B2_FREE'
+let B2_KEY_ID = ''
+let B2_APPLICATION_KEY = ''
+let B2_BUCKET_ID = ''
+let B2_BUCKET_NAME = ''
+let B2_ACCOUNT_ID = ''
+let B2_QUOTA_ALERT = '2200'
+let B2_USER_DAILY_ORIGIN_LIMIT = '100'
+let CACHE_TTL_PUBLIC = '86400'
+let CACHE_TTL_WEBP = '2592000'
+let CACHE_TTL_PRIVATE = '0'
 
 // ===== 互斥锁（self-repair 和 __zg_fix 共用） =====
 const SELF_REPAIR_LOCK = { at: 0 }
@@ -614,6 +644,23 @@ app.use('*', async (c, next) => {
   SUPABASE_URL = c.env.SUPABASE_URL || ''
   SUPABASE_KEY = c.env.SUPABASE_SERVICE_KEY || c.env.SUPABASE_ANON_KEY || ''
   SUPABASE_BUCKET = c.env.SUPABASE_BUCKET || SUPABASE_BUCKET
+  // ===== v4.4.0 B2 存储配置注入 =====
+  STORAGE_BACKEND = c.env.STORAGE_BACKEND || STORAGE_BACKEND
+  B2_KEY_ID = c.env.B2_KEY_ID || ''
+  B2_APPLICATION_KEY = c.env.B2_APPLICATION_KEY || ''
+  B2_BUCKET_ID = c.env.B2_BUCKET_ID || ''
+  B2_BUCKET_NAME = c.env.B2_BUCKET_NAME || ''
+  B2_ACCOUNT_ID = c.env.B2_ACCOUNT_ID || ''
+  B2_QUOTA_ALERT = c.env.B2_QUOTA_ALERT || B2_QUOTA_ALERT
+  B2_USER_DAILY_ORIGIN_LIMIT = c.env.B2_USER_DAILY_ORIGIN_LIMIT || B2_USER_DAILY_ORIGIN_LIMIT
+  CACHE_TTL_PUBLIC = c.env.CACHE_TTL_PUBLIC || CACHE_TTL_PUBLIC
+  CACHE_TTL_WEBP = c.env.CACHE_TTL_WEBP || CACHE_TTL_WEBP
+  CACHE_TTL_PRIVATE = c.env.CACHE_TTL_PRIVATE || CACHE_TTL_PRIVATE
+  initStorage(D1, {
+    STORAGE_BACKEND, B2_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_ID, B2_BUCKET_NAME, B2_ACCOUNT_ID,
+    B2_QUOTA_ALERT, B2_USER_DAILY_ORIGIN_LIMIT, CACHE_TTL_PUBLIC, CACHE_TTL_WEBP, CACHE_TTL_PRIVATE,
+    SUPABASE_URL, SUPABASE_KEY, SUPABASE_BUCKET,
+  })
   // 首次请求自动建表/补列（确保评论、设置等功能可用）
   if (!AUTO_MIGRATION_DONE) {
     AUTO_MIGRATION_DONE = true
@@ -631,6 +678,19 @@ app.use('*', async (c, next) => {
       try { await D1.prepare("ALTER TABLE notices ADD COLUMN target_url TEXT").run() } catch {}
       try { await D1.prepare("UPDATE pages SET updated_at=created_at WHERE updated_at IS NULL OR updated_at='none'").run() } catch {}
       try { await D1.prepare('CREATE INDEX IF NOT EXISTS idx_art_c_a ON article_comments(article_id)').run() } catch {}
+      // ===== v4.4.0 B2 存储相关新表（幂等自愈） =====
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS file_meta (
+        file_id TEXT PRIMARY KEY, b2_file_id TEXT, original_name TEXT, size INTEGER, mime TEXT,
+        backend TEXT DEFAULT 'b2', bucket TEXT, object_key TEXT, is_public INTEGER DEFAULT 0,
+        cacheable INTEGER DEFAULT 0, purpose TEXT, is_convert_webp INTEGER DEFAULT 0,
+        file_hash TEXT, uploader_id INTEGER, created_at INTEGER, updated_at INTEGER)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_fm_uploader ON file_meta(uploader_id)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_fm_purpose ON file_meta(purpose)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_quota_daily (day TEXT PRIMARY KEY, b_class_count INTEGER DEFAULT 0, last_update INTEGER)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_user_origin (day TEXT NOT NULL, user_id INTEGER NOT NULL, cnt INTEGER DEFAULT 0, PRIMARY KEY (day, user_id))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_prewarm_log (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT, operator INTEGER, status TEXT DEFAULT 'done', cost_ms INTEGER, created_at INTEGER)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_download_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, file_id TEXT, user_id INTEGER, hit INTEGER DEFAULT 0, is_range INTEGER DEFAULT 0, cost_ms INTEGER, created_at INTEGER)`).run()
+      try { await D1.prepare("ALTER TABLE resources ADD COLUMN file_id TEXT").run() } catch {}
     } catch {}
   }
   await next()
@@ -853,6 +913,67 @@ app.get('/file/raw/*', async (c) => {
   return new Response(file.buffer, { headers })
 })
 
+// ==============================================================================
+// 🔒 v4.4.0 统一文件代理路由 /api/file/:fileId（纯流式透传，禁止内存全量加载）
+//   全部上传/下载/鉴权代理统一经 Worker；浏览器禁止直连 B2。
+//   Content-Type/Content-Length 取自 D1(file_meta)；缓存键随鉴权上下文，禁止越权缓存私有文件。
+// ==============================================================================
+async function resolveFileUser(c: Context): Promise<{ id: number; role: string } | null> {
+  const u = await verifyFileAccess(c)
+  if (u) c.set('user', u)
+  return u
+}
+
+// GET /api/file/:fileId        → 下载（attachment）
+// GET /api/file/:fileId/preview → 预览（inline）
+app.get('/api/file/:fileId', async (c) => {
+  const user = await resolveFileUser(c)
+  if (!user) return c.json({ message: '请先登录后下载', needLogin: true }, 401)
+  const fileId = c.req.param('fileId')
+  const meta = await get<any>('SELECT * FROM file_meta WHERE file_id=?', fileId)
+  if (!meta) return c.json({ message: '文件不存在或已被清理' }, 404)
+  let resourceCheck: any
+  if (meta.purpose === 'resource') {
+    resourceCheck = async () => {
+      const r = await get<any>('SELECT * FROM resources WHERE file_id=?', fileId)
+      if (!r) return { ok: false, status: 404, message: '资源不存在' }
+      if (r.status !== 'approved') {
+        const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', user!.id)
+        const isOwner = Number(r.user_id) === Number(user!.id)
+        if (!isOwner && !(await canManageSubject(me, r.subject_id, user!.id))) {
+          return { ok: false, status: 403, message: '该资料尚未通过审核' }
+        }
+      }
+      return { ok: true }
+    }
+  }
+  return serveFileById(c, fileId, { mode: 'download', resourceCheck, rangeHeader: c.req.header('Range') })
+})
+
+app.get('/api/file/:fileId/preview', async (c) => {
+  const user = await resolveFileUser(c)
+  if (!user) return c.json({ message: '请先登录后预览', needLogin: true }, 401)
+  const fileId = c.req.param('fileId')
+  const meta = await get<any>('SELECT * FROM file_meta WHERE file_id=?', fileId)
+  if (!meta) return c.json({ message: '文件不存在或已被清理' }, 404)
+  let resourceCheck: any
+  if (meta.purpose === 'resource') {
+    resourceCheck = async () => {
+      const r = await get<any>('SELECT * FROM resources WHERE file_id=?', fileId)
+      if (!r) return { ok: false, status: 404, message: '资源不存在' }
+      if (r.status !== 'approved') {
+        const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', user!.id)
+        const isOwner = Number(r.user_id) === Number(user!.id)
+        if (!isOwner && !(await canManageSubject(me, r.subject_id, user!.id))) {
+          return { ok: false, status: 403, message: '该资料尚未通过审核' }
+        }
+      }
+      return { ok: true }
+    }
+  }
+  return serveFileById(c, fileId, { mode: 'preview', resourceCheck, rangeHeader: c.req.header('Range') })
+})
+
 /** 核心文件服务函数：鉴权 → 缓存检查 → Supabase 下载 → 缓存写入 → 返回 */
 async function serveFileWithCache(c: Context, resourceId: string, mode: 'download' | 'preview'): Promise<Response> {
   const t0 = Date.now()
@@ -861,6 +982,7 @@ async function serveFileWithCache(c: Context, resourceId: string, mode: 'downloa
   if (!user) {
     return c.json({ message: '请先登录后下载', needLogin: true }, 401)
   }
+  c.set('user', user)
 
   const id = parseInt(resourceId, 10)
   if (!id) return c.json({ message: '无效的资源ID' }, 400)
@@ -936,7 +1058,11 @@ async function serveFileWithCache(c: Context, resourceId: string, mode: 'downloa
     } catch {}
   }
 
-  // ===== 从 Supabase 下载文件 =====
+  // ===== 从存储下载文件（v4.4.0 兼容：新 /api/file/ 代理地址走统一流式层） =====
+  if (r.file_path && r.file_path.startsWith('/api/file/')) {
+    const fid = r.file_path.replace('/api/file/', '')
+    return serveFileById(c, fid, { mode, resourceCheck: async () => ({ ok: true }) })
+  }
   const file = await downloadFile(r.file_path)
   if (!file) return c.json({ message: '文件不存在，可能已被清理' }, 404)
 
@@ -1228,17 +1354,21 @@ app.patch('/api/profile', auth, async (c) => {
   return c.json({ user: pub(u) })
 })
 
+// ============ v4.4.0 头像上传：统一经 Worker 存储层（废除 Supabase 直传） ============
 app.post('/api/upload/avatar', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
-  const ext = extname(file.name) || '.png'
-  const key = `avatar_${c.get('user').id}_${Date.now()}${ext}`
-  const arrayBuffer = await file.arrayBuffer()
-  const url = await uploadFile(key, arrayBuffer, file.type)
-  await run('UPDATE users SET avatar=? WHERE id=?', url, c.get('user').id)
-  return c.json({ url })
+  let up
+  try {
+    up = await doStorageUpload({ purpose: 'avatar', file, uploaderId: c.get('user').id })
+  } catch (e: any) {
+    return c.json({ message: '头像上传失败：' + (e.message || '存储异常') }, 500)
+  }
+  // 头像为公开展示内容，允许 CF 边缘缓存（提升加载速度）
+  await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), up.fileId)
+  await run('UPDATE users SET avatar=? WHERE id=?', up.url, c.get('user').id)
+  return c.json({ url: up.url, fileId: up.fileId })
 })
 
 // ============ 前端直传 Supabase 的预签名 URL ============
@@ -1875,11 +2005,14 @@ app.post('/api/resources', auth, async (c) => {
   }
   // 【v4 Bug1】教师/超管上传直接 approved，立刻给上传者加经验值（之前只走 status 审核路径，导致超管/教师上传没经验）
   const status = (u?.role === 'SUPER_ADMIN' || u?.role === 'TEACHER') ? 'approved' : 'pending'
-  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
-    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status)
+  const fileId = b.fileId || (typeof b.filePath === 'string' && b.filePath.startsWith('/api/file/') ? b.filePath.replace('/api/file/', '') : null)
+  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status,file_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
+    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status, fileId)
   const rid = Number(r.lastInsertRowid)
   if (status === 'approved') {
     await addExp(id, undefined, 'resource', `上传资料《${b.title}》`)
+    // v4.4.0 审核通过（教师/超管直传即 approved）→ 关联文件翻为公开可缓存
+    if (fileId) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fileId)
   }
   return c.json({ id: rid, status })
 })
@@ -1887,7 +2020,7 @@ app.post('/api/resources', auth, async (c) => {
 app.patch('/api/resources/:id/status', auth, async (c) => {
   const id = c.req.param('id')
   const { status: newStatus } = await c.req.json()
-  const r = await get<any>('SELECT title, user_id, status, subject_id FROM resources WHERE id=?', id)
+  const r = await get<any>('SELECT title, user_id, status, subject_id, file_id, file_path FROM resources WHERE id=?', id)
   if (!r) return c.json({ message: '不存在' }, 404)
   const myId = c.get('user').id
   // 【v4.3.0 修复】必须查 id —— 漏查导致教师审核资料 500 D1_TYPE_ERROR
@@ -1897,6 +2030,9 @@ app.patch('/api/resources/:id/status', auth, async (c) => {
   if (newStatus === 'approved' && r.status !== 'approved') {
     await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`)
     await addNotice(r.user_id, '资料审核通过', `《${r.title}》已通过审核。`, 'audit')
+    // v4.4.0 审核通过 → 关联文件翻为公开可缓存
+    const fid = r.file_id || (r.file_path && r.file_path.startsWith('/api/file/') ? r.file_path.replace('/api/file/', '') : null)
+    if (fid) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fid)
   }
   return c.json({ ok: true })
 })
@@ -1917,7 +2053,14 @@ app.delete('/api/resources/:id', auth, async (c) => {
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
     if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, r.user_id)
   }
-  if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
+  // v4.4.0 删除存储文件：优先 file_meta（B2）→ legacy file_path（Supabase）
+  if (r.file_id) {
+    const m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', r.file_id)
+    if (m) {
+      try { if (m.backend === 'supabase') await supaDelete(m.object_key); else await b2Delete(m.object_key, m.b2_file_id) } catch {}
+      try { await run('DELETE FROM file_meta WHERE file_id=?', r.file_id) } catch {}
+    }
+  } else if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
   await run('DELETE FROM likes_map WHERE target_type IN (?,?) AND target_id=?', 'resource', 'fav_resource', id)
   await run('DELETE FROM resources WHERE id=?', id)
   clearAllCache()
@@ -2039,30 +2182,36 @@ app.post('/api/favorites/:type/:id', auth, async (c) => {
 // ==============================================================================
 // ============ 文件上传（统一走 Supabase Storage） ============
 // ==============================================================================
+// ============ v4.4.0 资料文件上传：统一经 Worker 存储层（返回 /api/file/{fileId}） ============
 app.post('/api/upload/file', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
   const ext = extname(file.name)
-  const rand = Math.random().toString(36).slice(2, 10)
-  const key = `file_${Date.now()}_${rand}${ext}`
-  const arrayBuffer = await file.arrayBuffer()
-  const url = await uploadFile(key, arrayBuffer, file.type)
   const typeMap: Record<string, string> = { '.pdf': 'pdf', '.ppt': 'ppt', '.pptx': 'ppt', '.doc': 'word', '.docx': 'word', '.zip': 'zip', '.mp4': 'video', '.mov': 'video', '.xls': 'excel', '.xlsx': 'excel' }
-  return c.json({ url, filePath: key, fileName: file.name, fileType: typeMap[ext] || 'file', fileSize: file.size })
+  let up
+  try {
+    up = await doStorageUpload({ purpose: 'resource', file, uploaderId: c.get('user').id, isConvertWebp: file.type === 'image/webp' })
+  } catch (e: any) {
+    return c.json({ message: '文件上传失败：' + (e.message || '存储异常') }, 500)
+  }
+  return c.json({ url: up.url, fileId: up.fileId, filePath: up.url, fileName: file.name, fileType: typeMap[ext] || 'file', fileSize: file.size })
 })
 
+// ============ v4.4.0 图片上传：统一经 Worker 存储层（前端已转 webp） ============
 app.post('/api/upload/image', auth, async (c) => {
   const body = await c.req.parseBody()
   const file = body.file as File
   if (!file) return c.json({ message: '无文件' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
-  const ext = extname(file.name) || '.png'
-  const key = `img_${c.get('user').id}_${Date.now()}${ext}`
-  const arrayBuffer = await file.arrayBuffer()
-  const url = await uploadFile(key, arrayBuffer, file.type)
-  return c.json({ url })
+  let up
+  try {
+    up = await doStorageUpload({ purpose: 'image', file, uploaderId: c.get('user').id, isConvertWebp: file.type === 'image/webp' })
+  } catch (e: any) {
+    return c.json({ message: '图片上传失败：' + (e.message || '存储异常') }, 500)
+  }
+  // 图片为公开内容，允许 CF 边缘缓存（提升加载速度）
+  await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), up.fileId)
+  return c.json({ url: up.url, fileId: up.fileId })
 })
 
 // ==============================================================================
@@ -4296,6 +4445,51 @@ app.get('/api/admin/cache/stats', auth, requireRole('SUPER_ADMIN'), async (c) =>
 // ==============================================================================
 // ============ 需求5：超管网站运行监控（增强版 - 双库全覆盖） ============
 // ==============================================================================
+// ==============================================================================
+// 🔧 v4.4.0 存储管理端点（超管）
+// ==============================================================================
+
+// 当前存储后端模式 + 配额/限速配置概览
+app.get('/api/admin/storage/config', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  return c.json({
+    backendMode: (STORAGE_BACKEND || 'B2_FREE').toUpperCase(),
+    b2Configured: !!(B2_KEY_ID && B2_APPLICATION_KEY && B2_BUCKET_ID),
+    b2BucketName: B2_BUCKET_NAME || '',
+    quotaAlert: Number(B2_QUOTA_ALERT || 2200),
+    userDailyOriginLimit: Number(B2_USER_DAILY_ORIGIN_LIMIT || 100),
+    cacheTtlPublic: Number(CACHE_TTL_PUBLIC || 86400),
+    cacheTtlWebp: Number(CACHE_TTL_WEBP || 2592000),
+    note: '付费模式(B2_PAID)仅允许人工修改 STORAGE_BACKEND 环境变量开启；代码永不自动切换。',
+  })
+})
+
+// B2 存储监控数据（供管理后台 B2 监控模块拉取）
+app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const data = await getStorageMonitor().catch((e) => ({ error: String(e?.message || e) }))
+  return c.json(data)
+})
+
+// 管理员预热：把高频文件推送到 CF 边缘缓存
+app.post('/api/admin/prewarm', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const { fileIds } = await c.req.json()
+  if (!Array.isArray(fileIds) || !fileIds.length) return c.json({ message: '缺少 fileIds' }, 400)
+  const operator = c.get('user').id
+  const results = []
+  for (const fid of fileIds.slice(0, 50)) {
+    const r = await prewarmFile(String(fid), operator)
+    results.push({ fileId: fid, ...r })
+  }
+  return c.json({ ok: true, results })
+})
+
+// 存量迁移：Supabase → B2（服务端执行，复用 Worker 绑定；不调用 B2 List）
+// 每批处理 limit 个，前端循环调用直至 done+failed+skipped 覆盖 total。
+app.post('/api/admin/migrate/to-b2', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const { limit, onlyPending } = await c.req.json().catch(() => ({}))
+  const res = await migrateToB2({ limit: Number(limit) || 50, onlyPending: !!onlyPending })
+  return c.json({ ok: true, ...res })
+})
+
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const t0 = Date.now()
   c.header('X-Monitor-Version', 'v2-optimized')

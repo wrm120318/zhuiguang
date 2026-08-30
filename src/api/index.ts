@@ -3,11 +3,11 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 // ===== 客户端图片压缩（Canvas API） =====
-// 上传前对图片做压缩：转为 WebP、质量 0.85、最大边 1920px，减少带宽与存储占用
+// 上传前对图片做压缩：转为 WebP、质量 1.0（最接近无损，K12 试卷文字不能糊）、最大边 1920px，减少带宽与存储占用
 const COMPRESS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
 const COMPRESS_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const COMPRESS_MAX_DIMENSION = 1920
-const COMPRESS_QUALITY = 0.85
+const COMPRESS_QUALITY = 1.0
 
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -68,10 +68,13 @@ async function compressImage(file: File): Promise<File> {
   }
 }
 
-// ===== 直传 Supabase 工具函数（绕过 pinggy 隧道大文件限制） =====
-// 流程：前端调 /api/upload/presign 拿签名URL → 直接 PUT 到 Supabase → 返回公共URL
+// ===== 统一经 Worker 代理上传（废除 Supabase 直传 / presign 预签名直传） =====
+// 流程：前端把文件用 FormData 包成字段 file → POST 到 Worker 的 /api/upload/file 或 /api/upload/image
+//       Worker 内部完成存储写入，返回 { url, fileId, filePath, fileName, fileType, fileSize }
 async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   // 图片先做客户端压缩（Canvas → WebP），失败则使用原文件
+  // 注意：PDF/Word/Excel/PPT 等文档走 kind==='file'，根本不会进入压缩分支；
+  //       即便误传图片类型，compressImage 内部也只对图片扩展名/类型生效，文档原样返回。
   let uploadFile = file
   if (kind === 'image') {
     try {
@@ -82,50 +85,30 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
     }
   }
 
-  const presignEndpoint = kind === 'image' ? '/api/upload/presign-image' : '/api/upload/presign'
-  let presignResp: any
+  const endpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
+  const fd = new FormData()
+  fd.append('file', uploadFile)
+
+  let result: any
   try {
-    presignResp = await http.post(presignEndpoint, { fileName: uploadFile.name, contentType: uploadFile.type })
+    // http 拦截器已自动附带 Authorization: Bearer <token>
+    result = await http.post(endpoint, fd)
   } catch (e: any) {
-    // presign 接口本身不可用（如后端未启动），回退到旧接口
-    console.warn('[directUpload] presign 请求失败，回退到旧接口:', e?.message)
-    const fd = new FormData(); fd.append('file', uploadFile)
-    const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
-    return http.post(oldEndpoint, fd)
+    const msg = e?.response?.data?.message || e?.message || ''
+    console.error('[directUpload] 上传失败:', msg)
+    throw new Error(kind === 'image' ? '图片上传失败，请重试' : '文件上传失败，请重试')
   }
 
-  // Supabase 不可用，回退到旧的 /api/upload/* 接口
-  if (presignResp?.fallback) {
-    const fd = new FormData(); fd.append('file', uploadFile)
-    const oldEndpoint = kind === 'image' ? '/api/upload/image' : '/api/upload/file'
-    return http.post(oldEndpoint, fd)
-  }
-
-  if (!presignResp?.signedUrl) {
-    throw new Error('获取上传签名失败，请重试')
-  }
-
-  // 直传到 Supabase（PUT 签名URL，不需要 Authorization header）
-  const upResp = await fetch(presignResp.signedUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': uploadFile.type || 'application/octet-stream' },
-    body: uploadFile,
-  })
-  if (!upResp.ok) {
-    const detail = await upResp.text().catch(() => '')
-    throw new Error(`上传到存储服务失败 (${upResp.status}): ${detail.slice(0, 200)}`)
-  }
-
-  // 返回与原后端 /api/upload/file 兼容的数据结构
-  if (kind === 'image') {
-    return { url: presignResp.publicUrl }
-  }
+  // 归一化返回结构，兼容旧调用方对 url / filePath / fileName / fileType / fileSize / fileId 的访问
+  const url: string = result?.url || ''
+  const fileId: string = result?.fileId || ''
   return {
-    url: presignResp.publicUrl,
-    filePath: presignResp.key,
-    fileName: uploadFile.name,
-    fileType: presignResp.fileType || 'file',
-    fileSize: uploadFile.size,
+    url,
+    fileId,
+    filePath: result?.filePath || url,
+    fileName: result?.fileName || uploadFile.name,
+    fileType: result?.fileType || (kind === 'image' ? 'image' : 'file'),
+    fileSize: result?.fileSize ?? uploadFile.size,
   }
 }
 
@@ -147,7 +130,7 @@ export const api = {
   grantExp: (data: { userId: number; change: number; actionType: string; description: string }) => http.post('/api/exp/logs', data),
   updateProfile: (data: any) => http.patch('/api/profile', data),
   uploadAvatar: async (file: File) => {
-    // 头像通常较小，直接走 presign-image 直传 Supabase，上传成功后更新用户信息
+    // 统一经 Worker 代理上传（/api/upload/image），成功后用返回的 url 更新头像
     const result = await directUpload(file, 'image')
     const url = (result as any).url
     if (url) await http.patch('/api/profile', { avatar: url })

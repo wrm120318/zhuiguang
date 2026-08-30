@@ -717,86 +717,95 @@ onBeforeUnmount(() => {
         <el-tab-pane name="optimize"><template #label><ZgGlyph emoji="📦" /> 存储优化</template>
           <div v-loading="storageLoading">
             <template v-if="storageData">
-              <!-- 优化建议概览 -->
+              <!-- 当前后端模式 -->
               <div class="optimize-summary glass zg-card">
                 <div class="opt-stat">
-                  <div class="opt-num">{{ storageData.storage?.totalFiles || 0 }}</div>
-                  <div class="opt-label">总文件数</div>
+                  <div class="opt-num" :style="{ color: (storageData.backendMode||'').includes('PAID') ? '#ef4444' : (storageData.backendMode||'').includes('SUPABASE') ? '#f59e0b' : '#10b981' }">{{ storageData.backendMode || 'B2_FREE' }}</div>
+                  <div class="opt-label">当前存储后端</div>
                 </div>
                 <div class="opt-stat">
-                  <div class="opt-num">{{ storageData.storage?.totalSizeFmt || '0 B' }}</div>
-                  <div class="opt-label">已用空间</div>
+                  <div class="opt-num">{{ storageData.totalFiles || 0 }}</div>
+                  <div class="opt-label">D1 元数据文件数</div>
                 </div>
                 <div class="opt-stat">
-                  <div class="opt-num" style="color:#10b981;">{{ storageData.storage?.remainingFmt || '1 GB' }}</div>
-                  <div class="opt-label">剩余空间</div>
+                  <div class="opt-num">{{ formatBytes(storageData.totalSize || 0) }}</div>
+                  <div class="opt-label">已记录总字节</div>
                 </div>
                 <div class="opt-stat">
-                  <div class="opt-num" style="color:var(--zg-primary);">{{ storageData.suggestions?.length || 0 }}</div>
-                  <div class="opt-label">可优化文件</div>
+                  <div class="opt-num" style="color:#10b981;">{{ storageData.webpCount || 0 }}</div>
+                  <div class="opt-label">WebP 转换数</div>
                 </div>
                 <div class="opt-stat">
-                  <div class="opt-num" style="color:#ef4444;">{{ storageData.suggestions?.reduce((s:number,c:any)=>s+c.potentialSaving,0) ? formatBytes(storageData.suggestions?.reduce((s:number,c:any)=>s+c.potentialSaving,0)) : '0 B' }}</div>
-                  <div class="opt-label">预计可节省</div>
+                  <div class="opt-num" style="color:var(--zg-primary);">{{ formatBytes(storageData.webpSize || 0) }}</div>
+                  <div class="opt-label">WebP 体积</div>
                 </div>
               </div>
 
-              <!-- 存储告警 -->
-              <div v-if="storageData.alerts?.length" class="alert-banner" style="margin-top:16px;">
-                <div v-for="(a, i) of storageData.alerts" :key="i" :class="['alert-item', `alert-${a.level}`]">
-                  <span class="alert-icon"><ZgGlyph v-if="a.level === 'danger'" emoji="🔴" /><ZgGlyph v-else-if="a.level === 'warning'" emoji="🟡" /><ZgGlyph v-else emoji="🔵" /></span>
-                  <span class="alert-msg">{{ a.message }}</span>
+              <!-- B2 配额（本地真实回源统计，明确标注非官方） -->
+              <div class="glass info-panel" style="margin-top:16px;">
+                <div class="ip-title"><ZgGlyph emoji="📡" /> B2 回源统计（本地统计 · 非官方）</div>
+                <div style="font-size:12px;color:#f59e0b;line-height:1.6;margin-bottom:8px;">
+                  ⚠ {{ storageData.quotaNote || 'B2 免费账户不暴露官方每日 B 类计数，此值为本系统真实回源次数（非猜测），仅供限速/告警参考。' }}
+                </div>
+                <template v-if="storageData.b2">
+                  <div class="capacity-bar-wrap">
+                    <div class="cap-header">
+                      <span class="cap-title">当日真实回源次数（本地统计）</span>
+                      <span class="cap-numbers">
+                        <b>{{ storageData.quotaToday || 0 }}</b> / {{ storageData.bClassFreeCap || 2500 }}
+                        <span v-if="storageData.quotaAlerted" style="color:#ef4444;font-weight:700;margin-left:8px;">⚠ 已达告警阈值 {{ storageData.quotaAlert }}</span>
+                        <span v-if="storageData.quotaExhausted" style="color:#ef4444;font-weight:700;margin-left:8px;">🚫 免费额度耗尽</span>
+                      </span>
+                    </div>
+                    <div class="capacity-bar">
+                      <div :class="['capacity-fill', storageData.quotaAlerted ? 'danger' : 'warning']"
+                           :style="{ width: Math.min(Math.round((storageData.quotaToday || 0) / (storageData.bClassFreeCap || 2500) * 100), 100) + '%' }">
+                        <span class="cap-percent">{{ Math.round((storageData.quotaToday || 0) / (storageData.bClassFreeCap || 2500) * 100) }}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="kv"><span class="k">桶名称</span><span class="v strong">{{ storageData.b2.bucketName || '-' }}</span></div>
+                  <div class="kv"><span class="k">桶类型</span><span class="v strong">{{ storageData.b2.bucketType || '-' }}</span></div>
+                  <div class="kv"><span class="k">桶文件数（官方）</span><span class="v strong">{{ storageData.b2.fileCount != null ? storageData.b2.fileCount : 'B2未返回' }}</span></div>
+                  <div class="kv"><span class="k">桶已用容量（官方）</span><span class="v strong">{{ storageData.b2.totalSizeBytes != null ? formatBytes(storageData.b2.totalSizeBytes) : 'B2未返回' }}</span></div>
+                  <div class="kv"><span class="k">账户容量上限（官方）</span><span class="v strong">{{ storageData.b2.capacityBytes != null ? formatBytes(storageData.b2.capacityBytes) : 'B2未返回' }}</span></div>
+                  <div class="kv"><span class="k">容量是否超限（官方）</span><span class="v" :style="{ color: storageData.b2.capExceeded ? '#ef4444' : '#10b981', fontWeight: 700 }">{{ storageData.b2.capExceeded ? '已超限' : '正常' }}</span></div>
+                </template>
+                <div v-else class="empty-hint">⚠ B2 官方数据拉取失败：{{ storageData.b2Error || '未知错误' }}（请检查 B2 密钥与网络）</div>
+              </div>
+
+              <!-- 缓存命中率 / 下载速度（本地埋点，非 B2 容量类） -->
+              <div class="row" style="margin-top:16px;">
+                <div class="glass info-panel">
+                  <div class="ip-title"><ZgGlyph emoji="⚡" /> 缓存命中率（当日）</div>
+                  <div class="opt-num" style="font-size:32px;color:var(--zg-primary);font-weight:800;">{{ storageData.cacheHitRate != null ? storageData.cacheHitRate : 0 }}%</div>
+                  <div class="kv"><span class="k">命中次数</span><span class="v">{{ storageData.hitCount || 0 }}</span></div>
+                  <div class="kv"><span class="k">回源次数</span><span class="v">{{ storageData.missCount || 0 }}</span></div>
+                </div>
+                <div class="glass info-panel">
+                  <div class="ip-title"><ZgGlyph emoji="⏱️" /> 下载耗时（当日均值）</div>
+                  <div class="kv"><span class="k">缓存命中均值</span><span class="v strong" style="color:#10b981;">{{ storageData.hitAvgMs || 0 }} ms</span></div>
+                  <div class="kv"><span class="k">回源均值</span><span class="v strong" style="color:#f59e0b;">{{ storageData.missAvgMs || 0 }} ms</span></div>
+                  <div class="kv"><span class="k">可缓存/不可缓存</span><span class="v">{{ storageData.cacheSplit?.cacheable || 0 }} / {{ storageData.cacheSplit?.uncacheable || 0 }}</span></div>
+                </div>
+                <div class="glass info-panel">
+                  <div class="ip-title"><ZgGlyph emoji="👥" /> 各用户当日真实回源 TOP</div>
+                  <div v-if="storageData.originTop?.length" class="top-list">
+                    <div v-for="(u, i) of storageData.originTop" :key="i" class="top-row">
+                      <span class="top-rank">{{ i + 1 }}</span>
+                      <span class="top-name">用户 #{{ u.user_id }}</span>
+                      <span class="top-size">{{ u.cnt }} 次</span>
+                    </div>
+                  </div>
+                  <div v-else class="empty-hint">暂无回源记录</div>
                 </div>
               </div>
 
-              <!-- 优化操作 -->
               <div class="glass info-panel" style="margin-top:16px;">
                 <div class="ip-title"><ZgGlyph emoji="🛠️" /> 快捷操作</div>
                 <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;">
-                  <el-button type="primary" size="small" @click="optimizeAction('list')"><ZgGlyph emoji="📊" /> 刷新优化建议</el-button>
-                  <el-button type="danger" size="small" @click="optimizeAction('clean_orphaned')"><ZgGlyph emoji="🧹" /> 清理孤立文件</el-button>
+                  <el-button type="primary" size="small" @click="loadStorage()"><ZgGlyph emoji="🔄" /> 刷新 B2 监控</el-button>
                   <el-button type="warning" size="small" @click="optimizeAction('purge_cache')"><ZgGlyph emoji="🗑️" /> 清除文件缓存</el-button>
-                </div>
-              </div>
-
-              <!-- 优化建议列表 -->
-              <div class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title"><ZgGlyph emoji="📋" /> 文件优化建议（按预计节省空间排序）</div>
-                <el-table v-if="storageData.suggestions?.length" :data="storageData.suggestions.slice(0, 20)" size="small" style="margin-top:10px;" max-height="400">
-                  <el-table-column type="index" label="#" width="40" />
-                  <el-table-column prop="fileName" label="文件名" min-width="180" show-overflow-tooltip />
-                  <el-table-column prop="fileType" label="类型" width="80">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="row.fileType === 'image' ? 'success' : row.fileType === 'pdf' ? 'warning' : 'info'">
-                        {{ row.fileType === 'image' ? '图片' : row.fileType === 'pdf' ? 'PDF' : row.fileType === 'document' ? '文档' : row.fileType === 'archive' ? '压缩包' : row.fileType }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="当前大小" width="100">
-                    <template #default="{ row }">{{ formatBytes(row.fileSize) }}</template>
-                  </el-table-column>
-                  <el-table-column label="预计节省" width="100">
-                    <template #default="{ row }">
-                      <span style="color:#10b981;font-weight:700;">{{ formatBytes(row.potentialSaving) }}</span>
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="savingPercent" label="压缩率" width="80">
-                    <template #default="{ row }">{{ row.savingPercent }}%</template>
-                  </el-table-column>
-                  <el-table-column prop="resourceTitle" label="关联资源" min-width="120" show-overflow-tooltip />
-                </el-table>
-                <div v-else class="empty-hint">暂无需优化的文件，所有文件体积均小于 500KB <ZgGlyph emoji="🎉" /></div>
-              </div>
-
-              <!-- 孤立文件 -->
-              <div v-if="storageData.orphanedFiles?.length" class="glass info-panel" style="margin-top:16px;">
-                <div class="ip-title"><ZgGlyph emoji="⚠️" /> 孤立文件（未关联资源记录，占用 {{ formatBytes(storageData.orphanedFiles.reduce((s:number,f:any)=>s+f.size,0)) }}）</div>
-                <div class="top-list" style="max-height:200px;">
-                  <div v-for="(f, i) of storageData.orphanedFiles.slice(0, 10)" :key="i" class="top-row">
-                    <span class="top-rank">{{ i + 1 }}</span>
-                    <span class="top-name" :title="f.name">{{ f.name }}</span>
-                    <span class="top-size">{{ f.sizeFmt }}</span>
-                  </div>
                 </div>
               </div>
             </template>
