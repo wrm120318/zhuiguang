@@ -10,7 +10,8 @@
 | 服务 | 用途 | 状态 |
 |---|---|---|
 | Cloudflare 账号 | Pages 前端 + Workers 后端 + D1 数据库 | 已有 |
-| Supabase 账号 | 文件存储（Bucket: `zhuiguang`，Public） | 已有 |
+| Supabase 账号 | 文件存储（迁移期孤儿回退用，Bucket: `zhuiguang`） | 已有 |
+| Backblaze B2 账号 | **主文件存储（私有桶 `zhuiguang-k12-004`，免费模式）** | 已有 |
 | GitHub 账号 | 代码仓库 + Pages 自动部署触发 | 已有 |
 
 ---
@@ -41,9 +42,20 @@ npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM us
 | 变量名 | 说明 | 获取位置 |
 |---|---|---|
 | `JWT_SECRET` | JWT 签名密钥 | 自行生成随机字符串（32 位以上） |
-| `SUPABASE_URL` | Supabase 项目 URL | Supabase Dashboard → Settings → API → Project URL |
+| `SUPABASE_URL` | Supabase 项目 URL（迁移期回退用） | Supabase Dashboard → Settings → API → Project URL |
 | `SUPABASE_SERVICE_KEY` | Supabase service_role key | Supabase Dashboard → Settings → API → service_role（**不是** anon key） |
 | `SUPABASE_BUCKET` | Supabase 存储桶名 | 固定值 `zhuiguang` |
+| `STORAGE_MODE` | 存储后端模式 | 固定 `B2_FREE`（B2_PAID / SUPABASE 可回滚） |
+| `B2_KEY_ID` | B2 主应用程序密钥 ID | B2 Dashboard → App Keys |
+| `B2_APPLICATION_KEY` | B2 主应用程序密钥 | B2 Dashboard → App Keys |
+| `B2_BUCKET_ID` | B2 私有桶 ID | B2 Dashboard → Buckets → `zhuiguang-k12-004` |
+| `B2_BUCKET_NAME` | B2 私有桶名 | `zhuiguang-k12-004` |
+| `B2_ACCOUNT_ID` | B2 账户 ID | 即主密钥 Key ID |
+| `B2_QUOTA_ALERT` | 回源告警阈值 | 默认 `2200` |
+| `B2_USER_DAILY_ORIGIN_LIMIT` | 用户日回源限速 | 默认 `100` |
+| `CACHE_TTL_PUBLIC` / `CACHE_TTL_WEBP` / `CACHE_TTL_PRIVATE` | 缓存 TTL（秒） | 默认 `86400` / `2592000` / `0` |
+
+> **密钥不入库**：`wrangler.toml` 已在 `.gitignore` 中排除；B2 变量名以 `worker-api.ts` / `storage-layer.ts` 读取的为准（`B2_KEY_ID` 等，非 `B2_APPLICATION_KEY_ID`）。
 
 ### 第四步：部署后端 Worker
 
@@ -66,9 +78,28 @@ npx wrangler deploy
 
 > Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
 
-### 第六步：验证
+### 第六步：B2 存储建表（v4.4.0 新增）
 
-访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常。
+```bash
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0001_b2_storage.sql
+```
+
+新建 `file_meta` / `b2_quota_daily` / `b2_user_origin` / `b2_prewarm_log` / `b2_download_metrics`，并给 `resources` 补 `file_id` 列。表均 `IF NOT EXISTS` 幂等，可重复执行。
+
+### 第七步：存量迁移 Supabase → B2（部署后执行）
+
+```bash
+# 超管调用，分批（每次 50 个），重复直至 done+failed+skipped 覆盖 total
+curl -X POST https://<worker域名>/api/admin/migrate/to-b2 \
+  -H "Authorization: Bearer <超管token>" \
+  -H "Content-Type: application/json" -d '{"limit":50}'
+```
+
+迁移是「复制」非「移动」，旧 Supabase 文件保留作兜底；迁移后 `resources.file_path` 改为 `/api/file/{fileId}`。
+
+### 第八步：验证
+
+访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常；管理后台 → 运行监控 → 存储优化，确认 B2 监控模块显示后端模式与官方桶占用。
 
 ---
 

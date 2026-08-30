@@ -5,6 +5,41 @@
 
 ---
 
+## [v4.4.0] - 2026-08-31
+
+> 文件存储迁移：Supabase Storage → Backblaze B2 私有桶（默认免费模式，不绑卡）
+
+### ✨ 核心变更：存储后端切换为 B2
+
+- 新增 `storage-layer.ts`：B2 原生 API 适配器（仅上传/删除/获取流，禁用 S3 兼容 API）+ Supabase 孤儿回退 + 统一流式文件代理 `/api/file/{fileId}`。
+- 全部上传/下载/鉴权代理统一经 Worker；**废除前端 presign 直传 Supabase**，浏览器禁止直连 B2。
+- D1 是文件元数据唯一来源（新增 `file_meta` 表）；禁调用 B2 List；运行时禁校验文件存在。
+- Content-Type / Content-Length 取自 D1，不从 B2 实时获取。
+- 下载链路原生流式透传（禁内存全量加载），缓存键带鉴权上下文，防越权缓存。
+- 适配器模式经环境变量切换：`B2_FREE` / `B2_PAID` / `SUPABASE`，支持一键回滚；代码永不自动切付费。
+- 禁原地覆盖：更新文件生成全新 fileId；旧文件保留。
+- 兜底限速：用户粒度真实 B2 回源限速（默认 100/日），CF 缓存命中不计入。
+- 前端 `src/api/index.ts`：废除 presign，统一走 Worker 代理；图片强制无损 WebP（质量 1.0），PDF/Office 原样上传。
+- 管理后台 B2 监控模块：后端模式、官方桶占用（来自 `b2_list_buckets`）、回源统计、缓存命中率、用户回源排行、webp 统计、下载耗时。
+
+### ⚠️ 配额统计说明（重要，已与用户确认采用方案3）
+
+- B2 免费账户的单次下载响应**不返回**官方头 `b2-api-b-class-transaction-count-today`，且主密钥无 `readAccountInfo` 权限、`b2_get_account_info` 返回 404。
+- 因此「当日 B 类交易数」这一官方字段在**本账户无法取得**。系统**不做任何自算猜测**，而是：
+  每次 Worker **真实回源 B2** 时，在 D1 记一笔「今日真实回源次数」（本系统真实发生的请求，非估算），监控面板**明确标注为「本地统计（非官方）」**。
+- 软上限/告警仍基于该真实回源次数判断，起兜底限速保护作用。
+
+### 📦 新增 D1 表（见 `migrations/0001_b2_storage.sql`）
+
+`file_meta` / `b2_quota_daily` / `b2_user_origin` / `b2_prewarm_log` / `b2_download_metrics`，并给 `resources` 补 `file_id` 列。
+
+### 📝 部署配套
+
+- 新增 `wrangler.toml`（含 B2 变量；被 .gitignore 忽略，密钥不入仓库）。
+- 存量迁移：部署后调用 `POST /api/admin/migrate/to-b2`（超管），逐文件下载→上传→改 `file_path`，sha1 一致性校验；旧图片不重转 webp。
+
+---
+
 ## [v4.3.2] - 2026-08-29
 
 > 大体积文件 TOP 10 增加「查看 / 下载」+ 消除预览 URL 中的明文 token

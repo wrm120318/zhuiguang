@@ -638,7 +638,7 @@ export async function getStorageMonitor(): Promise<any> {
   const cacheRows = await sAll<{ cacheable: number; n: number }>(
     `SELECT cacheable, COUNT(*) as n FROM file_meta GROUP BY cacheable`)
   const byCache = { cacheable: 0, uncacheable: 0 }
-  for (const r of cacheRows) (r.cacheable ? byCache.cacheable : byCache.uncacheable) += r.n
+  for (const r of cacheRows) { if (r.cacheable) byCache.cacheable += r.n; else byCache.uncacheable += r.n }
   // 下载性能埋点：缓存命中率 + 平均耗时（当日）
   const metricRows = await sAll<{ hit: number; cnt: number; avg_ms: number | null }>(
     `SELECT hit, COUNT(*) as cnt, AVG(cost_ms) as avg_ms FROM b2_download_metrics WHERE day=? GROUP BY hit`, dayStr())
