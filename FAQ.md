@@ -50,39 +50,35 @@
 
 ---
 
-## Q2. 上传文件失败怎么办？
+## Q2. 上传文件失败 / 上传成功但图片裂图怎么办？
 
-### 架构说明
+### 架构说明（v4.4.0 起：已迁移 B2，不再是 Supabase presign）
 
-项目文件上传采用**前端直传 Supabase presign URL** 方案：
-
-- 所有 **>100KB** 的文件 → 前端直传 Supabase Storage（不走后端）
-- **<=100KB** 的小文件 → 走后端接口
-- el-upload 组件**必须**使用 `:http-request` 自定义上传，**禁止**用 `:before-upload`
+- 所有上传（头像/封面/图片/资料/附件）**统一经后端 Worker 代理**：前端把文件用 `FormData` 包成字段 `file`，`POST /api/upload/image`（图片）或 `/api/upload/file`（文档），由 Worker 内部写入 **Backblaze B2 私有桶**，返回 `/api/file/{fileId}` 直链。
+- **不再**使用 Supabase presign 直传（Supabase 已废弃）。`wrangler.toml` 中 `SUPABASE_*` 仅为只读回退保留。
+- el-upload 组件**必须**使用 `:http-request` 自定义上传，**禁止**用 `:before-upload`（铁律 1，见 CONTRIBUTING.md）。
 
 ### 常见失败原因
 
 | 现象 | 可能原因 | 解决方法 |
 |---|---|---|
 | 上传无反应/静默失败 | 误用了 `:before-upload` | 改回 `:http-request`（铁律，见 CONTRIBUTING.md） |
-| 大文件（>100KB）上传失败 | Supabase 配置错误 | 检查 `wrangler.toml` 中 `SUPABASE_URL`、`SUPABASE_SERVICE_KEY`、`SUPABASE_BUCKET` 是否正确 |
-| 图片上传后打不开 | Supabase Bucket 不是 Public | 在 Supabase 后台将 Bucket `zhuiguang` 设为 Public |
-| 上传成功但列表看不到 | 学生上传状态为 pending 待审核 | 这是正常行为，学生自己列表可见"待审核"标签，审核通过后全员可见 |
-| presign URL 获取失败 | 后端 Worker 未配置 Supabase 环境变量 | 检查 `wrangler.toml` 的 `[vars]` 中 Supabase 三项是否填写 |
+| 上传返回 4xx/5xx | Worker 未配置 B2 环境变量 | 检查 `wrangler.toml` 的 `[vars]`：`B2_KEY_ID`、`B2_APPLICATION_KEY`、`B2_BUCKET_ID`、`B2_BUCKET_NAME` 是否填写正确 |
+| **上传成功但图片/封面/头像裂图（裂图）** | 图片存为相对 `/api/file/{id}`，且公开文件曾被强制登录拦截 | v4.4.3 已修复：公开文件免登录直出 + 前端 `fileUrl()` 补全绝对地址。若仍裂图，硬刷（Ctrl+F5）清 CDN 缓存即可 |
+| 学生上传的封面/资料看不到 | 学生上传状态为 pending 待审核 | 正常行为：学生自己列表可见"待审核"标签，审核通过后全员可见 |
+| 美文封面无法上传 | v4.4.2 曾把美文封面改成纯 URL 输入、移除上传按钮 | v4.4.3 已恢复上传按钮（可上传 / 贴 URL / 换 Bing 美图） |
 
 ### 排查步骤
 
-1. **确认 Supabase 配置**：
-   - `SUPABASE_URL` = `https://njwkkinzgmwzyfifagwl.supabase.co`
-   - `SUPABASE_SERVICE_KEY` = service_role key（**不是** anon key，是长的那个）
-   - `SUPABASE_BUCKET` = `zhuiguang`
-2. **确认 Bucket 权限**：Supabase 后台 → Storage → Bucket `zhuiguang` → 确认为 Public。
-3. **F12 Network 面板**：看 presign URL 请求是否返回 200，看直传 Supabase 请求是否返回 200。
+1. **确认 B2 配置**：`wrangler.toml` 的 `[vars]` 需含 `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET_ID` / `B2_BUCKET_NAME`（缺失时 Worker 会回退 Supabase 并报错）。
+2. **F12 Network 面板**：看 `/api/upload/image`、`/api/upload/file` 是否返回 200 与 `{ url, fileId }`。
+3. **图片显示检查**：图片直链形如 `https://api.xkzg.dpdns.org/api/file/{id}`，公开图片（头像/封面/配图）**免登录可直接打开**；若需登录说明该文件是待审核资料（正常）。
 4. **测试大文件**：务必测试 1MB 以上文件，不能只测 10KB 小文件。
 
 ### 注意
 
-- `SUPABASE_SERVICE_KEY` 必须是 **service_role** key，不是 anon key。在 Supabase 后台 Settings → API 中，有两个 key，选 service_role 那个（较长的）。
+- B2 私有桶**不要求**设为 Public；公开图片由 Worker 鉴权层按 `file_meta.is_public` 放行（v4.4.3 起公开文件免登录直出）。
+- 监控面板「官方每日实耗核对」中填的是 B2 控制台「数据限度」页的当日数字，B2 会在 75%/100% 自动邮件告警，与本站上传无关。
 
 ---
 

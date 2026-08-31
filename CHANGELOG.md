@@ -5,6 +5,41 @@
 
 ---
 
+## [v4.4.3] - 2026-08-31
+
+> 修复「上传功能瘫痪」真相：B2 迁移（v4.4.0）引入的图片裂图回归 + 美文封面上传恢复
+
+### 🐞 根因：用户上传的图片/封面/头像其实都"上传成功但永不显示"
+
+- **现象**：用户反馈"上传封面图完全用不了 / 各类上传功能全部瘫痪 / 编辑器功能不能用"。
+- **真因**（非前端 bug，是 B2 迁移回归）：
+  1. `/api/file/:fileId` 路由**强制要求登录**（401）。浏览器 `<img>` / CSS `background-image` **无法携带鉴权头**，且 Cloudflare Pages **不代理 `/api`**（相对路径落到 SPA 兜底返回 HTML），导致所有存为相对 `/api/file/{id}` 的上传图片在页面上全部裂图。
+  2. 上轮把**美文封面**改成纯 URL 输入框 + Bing 换图，**移除了上传按钮**，所以美文封面确实无法上传自定义图。
+- **结论**：后端上传、前端构建、CORS、marked 8 类扩展均正常；"瘫痪"是上述两点造成的"看起来坏了"。
+
+### ✅ 修复
+
+- **后端** `worker-api.ts`：`/api/file/:id` 与 `/api/file/:id/preview` 对 `is_public=1` 的公开文件（头像/封面/图片/公告/站点/Logo）**免登录直出**；待审核资料（`purpose=resource`）仍强制登录。
+- **前端** 新增 `fileUrl()`（`src/utils/helpers.ts`）：
+  - 把相对 `/api/file/` 补全为绝对 API 地址（`https://api.xkzg.dpdns.org/api/file/...`），Pages 域下可正常跨域取图。
+  - `directUpload` 返回绝对 URL；封面（美文/博客/首页/学科/列表）、头像（`ZgAvatar`）、正文图片（`renderMarkdown` 渲染层统一兜底重写）全部走 `fileUrl`。
+- **美文封面上传恢复** `ArticleEditView.vue`：加回 `el-upload :http-request` 上传按钮，保留「🖼️ 换一张美图」（Bing）。现在美文封面：可上传自定义图 / 可贴 URL / 可换 Bing 美图。
+
+### 📊 B2 统计对齐官方限度（回应"和官方差太多"）
+
+- 监控面板「官方每日实耗核对」已可录入 B2 控制台「数据限度」页当日数字（B 类 / C 类 / 存储 / 下载），落 `b2_official_daily`，展示"已用/上限"进度条。
+- 官方限度：存储 10GB / 下载 1GB / B 类 2,500 / C 类 2,500；进度条越过 **75%** 即触达官方告警线。
+- **B2 会在 75% / 100% 自动向 `wangruiming.0318@qq.com` 发告警邮件**，无需本系统发信。
+- **调用最小化（免费最大化）已落地**：`b2_authorize` token 落 D1 全球共享（≈1 次/日）；上传 URL 实例内复用；盘点（Class A）每日限 1 次；监控面板**零 B2 调用**（只读 D1 快照）。
+
+### 🔧 工程
+
+- 本地 / Cloudflare Worker / Cloudflare Pages / GitHub 四端代码已对齐（commit `b5ad305`）。
+- `npm run build` 通过（含 `vue-tsc` 类型检查）。
+- 部署：前端 `git push` → Pages 自动重建；后端 `wrangler deploy`（Worker 版本 `4fe12f34`）。
+
+---
+
 ## [v4.4.2] - 2026-08-31
 
 > 封面修复（撤销临时 SVG 占位）+ 监控面板「官方每日实耗核对」+ B2 调用最小化收尾
