@@ -257,6 +257,10 @@ export const api = {
   migrateStatus: () => http.get('/api/admin/migrate/status'),
   // 【v4.4.1】把高频文件预热到 CF 边缘缓存（提速）
   prewarmFiles: (fileIds: string[]) => http.post('/api/admin/prewarm', { fileIds }),
+  // 【v4.4.2】官方每日实耗（来自 B2 控制台，手动核对录入）
+  storageOfficialGet: (day?: string) => http.get('/api/admin/storage/official' + (day ? `?day=${day}` : '')),
+  storageOfficialSet: (payload: { bClass?: number; cClass?: number; storageBytes?: number; downloadBytes?: number }) =>
+    http.post('/api/admin/storage/official', payload),
   // 【v4.3.2】超管按存储 key 预览/下载文件：返回 Blob，token 走 header，URL 里不含 token
   getStorageFile: (key: string, mode: 'preview' | 'download' = 'preview') =>
     http.get('/api/admin/storage/file', { params: { key, mode }, responseType: 'blob' }),

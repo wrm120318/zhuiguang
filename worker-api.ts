@@ -12,7 +12,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
   getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, supaExtractKey,
-  runBucketCensus,
+  runBucketCensus, getOfficialDaily, setOfficialDaily,
 } from './storage-layer'
 
 // ===== Workers 环境变量类型 =====
@@ -607,6 +607,11 @@ function apiCacheKey(c: Context): string | null {
   // 【v4.3.2】/api/admin/storage/file 返回二进制流，若被当作字符串塞进 Map 会损坏文件且撑爆缓存
   if (p.includes('/upload/') || p.includes('/download/') || p.includes('/comments') || p.includes('/export')) return null
   if (p.includes('/storage/file')) return null
+  // 【v4.4.1 严重修复】/api/file/* 是 v4.4.0 新增的「统一文件代理」（二进制流，含下载与预览）。
+  //   必须排除！否则下面的 c.res.text() 会把二进制按 UTF-8 解码再编码：
+  //   · 所有无效字节变成 U+FFFD（EF BF BD）→ PDF/图片/Office 全部损坏（2.86MB 会被撑成 5.26MB）
+  //   · 且必须先全量缓冲进内存再返回，流式透传彻底失效 → 这就是「B2 下载慢」的一大半原因
+  if (p.startsWith('/api/file/')) return null
   const auth = (c.req.header('authorization') || '').slice(0, 200)
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
@@ -768,6 +773,11 @@ app.use('*', async (c, next) => {
   // 缓存响应
   try {
     if (c.res.status >= 200 && c.res.status < 300) {
+      // 【v4.4.1 兜底】只缓存「文本类」响应。二进制响应一旦走 c.res.text()
+      // 就会被 UTF-8 解码再编码而损坏（无效字节 → U+FFFD）。这条是最后一道保险，
+      // 防止将来新增二进制路由时忘记加进 apiCacheKey() 的排除名单。
+      const respCt = c.res.headers.get('Content-Type') || ''
+      if (respCt && !/json|text|javascript|xml|urlencoded|utf-8/i.test(respCt)) return
       const body = await c.res.text()
       let hash = 0
       for (let i = 0; i < body.length; i++) hash = ((hash << 5) - hash + body.charCodeAt(i)) | 0
@@ -4381,6 +4391,45 @@ app.post('/api/admin/storage/census', auth, requireRole('SUPER_ADMIN'), async (c
   try {
     const r = await runBucketCensus(!!force)
     return c.json({ ok: true, ...r })
+  } catch (e: any) {
+    return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+
+// v4.4.2 官方每日实耗（来自 B2 控制台，管理员手动核对录入）
+// GET 返回当日（或最近一天）官方数字；POST 保存当日数字。
+// 由于 B2 免费账户不暴露官方交易计数 API，此数据是「人工核对」而非程序拉取。
+app.get('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const day = c.req.query('day')
+  const off = await getOfficialDaily(day || undefined).catch(() => null)
+  return c.json({ ok: true, official: off })
+})
+
+app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const p = await c.req.json().catch(() => ({}))
+  try {
+    const saved = await setOfficialDaily({
+      bClass: Number(p.bClass) || 0,
+      cClass: Number(p.cClass) || 0,
+      storageBytes: Number(p.storageBytes) || 0,
+      downloadBytes: Number(p.downloadBytes) || 0,
+    })
+    return c.json({ ok: true, official: saved })
+  } catch (e: any) {
+    return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  try {
+    const off = await setOfficialDaily({
+      day: body.day,
+      bClass: Number(body.bClass) || 0,
+      cClass: Number(body.cClass) || 0,
+      storageBytes: Number(body.storageBytes) || 0,
+      downloadBytes: Number(body.downloadBytes) || 0,
+    })
+    return c.json({ ok: true, official: off })
   } catch (e: any) {
     return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
   }

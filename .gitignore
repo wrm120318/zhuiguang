@@ -92,3 +92,4 @@ dist/
 .trae-html-share-packages/
 .screenshots/
 .uploads/
+.cf_token

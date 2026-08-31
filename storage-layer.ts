@@ -960,5 +960,57 @@ export async function getStorageMonitor(): Promise<any> {
     missCount,
     hitAvgMs: Math.round(hitAvg),
     missAvgMs: Math.round(missAvg),
+    // —— 官方每日实耗（来自 B2 控制台，管理员手动核对录入）——
+    official: await getOfficialDaily(),
   }
+}
+
+// v4.4.2：官方每日实耗（来自 B2 控制台，手动核对录入）
+// B2 免费账户不暴露官方交易计数 API（实测响应头无 b2-api-*-transaction-count-today，
+// b2_get_account_info 亦 404），故由管理员把控制台数字手动录入，
+// 面板据此展示「官方已用 / 上限」进度条，与本系统本地回源计数并列对照。
+export interface OfficialDaily {
+  day: string
+  bClass: number | null
+  cClass: number | null
+  storageBytes: number | null
+  downloadBytes: number | null
+  updatedAt: string | null
+}
+function rowToOfficial(r: any): OfficialDaily {
+  return {
+    day: r.day,
+    bClass: r.b_class ?? null,
+    cClass: r.c_class ?? null,
+    storageBytes: r.storage_bytes ?? null,
+    downloadBytes: r.download_bytes ?? null,
+    updatedAt: r.updated_at ?? null,
+  }
+}
+export async function getOfficialDaily(day?: string): Promise<OfficialDaily | null> {
+  const d = day || dayStr()
+  try {
+    const r = await sGet<any>('SELECT * FROM b2_official_daily WHERE day=?', [d])
+    if (r) return rowToOfficial(r)
+    const last = await sGet<any>('SELECT * FROM b2_official_daily ORDER BY day DESC LIMIT 1')
+    return last ? rowToOfficial(last) : null
+  } catch {
+    return null
+  }
+}
+export async function setOfficialDaily(p: Partial<OfficialDaily> & { day?: string }): Promise<OfficialDaily> {
+  const d = p.day || dayStr()
+  const cur = await getOfficialDaily(d)
+  const b = p.bClass ?? cur?.bClass ?? 0
+  const c = p.cClass ?? cur?.cClass ?? 0
+  const sb = p.storageBytes ?? cur?.storageBytes ?? 0
+  const db = p.downloadBytes ?? cur?.downloadBytes ?? 0
+  const now = new Date().toISOString()
+  await sRun(
+    `INSERT INTO b2_official_daily (day,b_class,c_class,storage_bytes,download_bytes,updated_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(day) DO UPDATE SET b_class=excluded.b_class,c_class=excluded.c_class,
+       storage_bytes=excluded.storage_bytes,download_bytes=excluded.download_bytes,updated_at=excluded.updated_at`,
+    [d, b, c, sb, db, now])
+  return { day: d, bClass: b, cClass: c, storageBytes: sb, downloadBytes: db, updatedAt: now }
 }

@@ -122,3 +122,21 @@ CREATE TABLE IF NOT EXISTS b2_migration_log (
   created_at    INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_b2_migration_fid ON b2_migration_log(file_id);
+
+-- ============================================================
+-- v4.4.2 新增（官方每日实耗手动录入）
+-- ============================================================
+
+-- 10) 官方每日实耗（来自 B2 控制台，管理员手动核对录入）
+--     背景：B2 免费账户不暴露官方交易计数 API（实测响应头无
+--     b2-api-*-transaction-count-today，b2_get_account_info 亦 404），
+--     无法程序化拉取。故由管理员把 B2 控制台「数据限度」页的当日数字
+--     手动录入，面板据此展示「官方已用 / 上限」进度条，与本地回源计数并列对照。
+CREATE TABLE IF NOT EXISTS b2_official_daily (
+  day             TEXT    PRIMARY KEY,            -- 'YYYY-MM-DD'（北京时间）
+  b_class         INTEGER DEFAULT 0,              -- 官方当日 B 类交易（下载/列举）
+  c_class         INTEGER DEFAULT 0,              -- 官方当日 C 类交易（鉴权/账户）
+  storage_bytes   INTEGER DEFAULT 0,             -- 官方当日存储用量（字节）
+  download_bytes  INTEGER DEFAULT 0,             -- 官方当日下载带宽（字节）
+  updated_at      TEXT
+);

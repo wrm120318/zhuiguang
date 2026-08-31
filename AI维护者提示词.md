@@ -483,6 +483,13 @@ v4.2.2 文档声明的 9 类扩展曾有 5 类严重问题（v4.2.3 一次性修
    正确写法：`Number(f.contentLength ?? f.size ?? 0)`。
    **排查口诀：容量显示 0 但文件能正常下载 → 先怀疑字段名，别怀疑文件。**
 
+7. **🚨 禁止对二进制响应做 `.text()` 往返**。`worker-api.ts` 的「中间件4：API 短期内存缓存」
+   会执行 `await c.res.text()` 再 `new Response(body)` —— 二进制会被 UTF-8 解码再编码，
+   无效字节全变成 `U+FFFD`，**PDF/图片/Office 下载即损坏**，且流式透传失效（v4.4.1 修复的严重 Bug）。
+   **新增任何返回二进制流的路由，必须同步加进 `apiCacheKey()` 的排除名单。**
+   已排除：`/upload/`、`/download/`、`/comments/`、`/export`、`/storage/file`、**`/api/file/`**。
+   **排查口诀：下载下来的文件打不开、体积比实际大 → 先查是不是被这个中间件吃了。**
+
 6. **禁止让统计写库阻塞下载响应**。配额 / 限速 / 埋点必须走 `ctx.waitUntil()` 异步。
 
 7. **禁止所有文件一律 `is_public=0, cacheable=0`**。这会让每个下载都 `private, no-store`

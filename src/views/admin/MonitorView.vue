@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { api } from '@/api'
@@ -40,6 +40,45 @@ async function loadStorage() {
     ElMessage.error('存储监控数据加载失败: ' + (e?.response?.data?.message || ''))
   } finally {
     storageLoading.value = false
+  }
+  await loadOfficial()
+}
+
+// v4.4.2 官方每日实耗核对（来自 B2 控制台「数据限度」页，管理员手动录入）
+// 背景：B2 免费账户不暴露官方交易计数 API，本系统本地回源计数无法与官方对齐，
+//       故提供手动核对入口，把控制台当日数字录入，面板据此展示「官方已用 / 上限」进度条。
+const official = ref<any>(null)
+const officialForm = reactive({ bClass: 0, cClass: 0, storageMb: 0, downloadMb: 0 })
+const savingOfficial = ref(false)
+async function loadOfficial() {
+  try {
+    const r: any = await api.storageOfficialGet().catch(() => null)
+    official.value = r?.official || null
+    if (official.value) {
+      officialForm.bClass = official.value.bClass ?? 0
+      officialForm.cClass = official.value.cClass ?? 0
+      officialForm.storageMb = Math.round((official.value.storageBytes || 0) / 1048576)
+      officialForm.downloadMb = Math.round((official.value.downloadBytes || 0) / 1048576)
+    }
+  } catch {
+    official.value = null
+  }
+}
+async function saveOfficial() {
+  savingOfficial.value = true
+  try {
+    const r: any = await api.storageOfficialSet({
+      bClass: Number(officialForm.bClass) || 0,
+      cClass: Number(officialForm.cClass) || 0,
+      storageBytes: Math.round((Number(officialForm.storageMb) || 0) * 1048576),
+      downloadBytes: Math.round((Number(officialForm.downloadMb) || 0) * 1048576),
+    })
+    official.value = r?.official || null
+    ElMessage.success('已保存官方每日实耗核对')
+  } catch (e: any) {
+    ElMessage.error('保存失败: ' + (e?.response?.data?.message || ''))
+  } finally {
+    savingOfficial.value = false
   }
 }
 
@@ -786,6 +825,58 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
+            <!-- v4.4.2 官方每日实耗核对 -->
+            <div class="glass info-panel" style="margin-top:16px;">
+              <div class="ip-title"><ZgGlyph emoji="📊" /> 官方每日实耗核对（来自 B2 控制台「数据限度」页）</div>
+              <el-alert type="info" :closable="false" show-icon style="margin-bottom:12px;">
+                <template #title>B2 免费账户不暴露官方交易计数 API，本系统本地回源计数无法与官方对齐。
+                  请把 B2 控制台「数据限度」页的当日数字填到下方并保存，面板据此展示官方进度条。</template>
+              </el-alert>
+              <div class="row" style="align-items:flex-end;">
+                <div class="of-field">
+                  <label>B 类交易（下载/列举）</label>
+                  <el-input-number v-model="officialForm.bClass" :min="0" :controls="false" style="width:100%" />
+                </div>
+                <div class="of-field">
+                  <label>C 类交易（鉴权/桶管理）</label>
+                  <el-input-number v-model="officialForm.cClass" :min="0" :controls="false" style="width:100%" />
+                </div>
+                <div class="of-field">
+                  <label>存储用量（MB，上限 10GB）</label>
+                  <el-input-number v-model="officialForm.storageMb" :min="0" :controls="false" style="width:100%" />
+                </div>
+                <div class="of-field">
+                  <label>下载带宽（MB，上限 1GB）</label>
+                  <el-input-number v-model="officialForm.downloadMb" :min="0" :controls="false" style="width:100%" />
+                </div>
+                <el-button type="primary" :loading="savingOfficial" @click="saveOfficial">保存核对</el-button>
+              </div>
+
+              <div v-if="official" class="of-bars" style="margin-top:16px;">
+                <div class="of-bar">
+                  <div class="of-bar-head"><span>B 类交易</span><span>{{ official.bClass }} / 2,500</span></div>
+                  <el-progress :percentage="Math.min(100, Math.round((official.bClass || 0) / 2500 * 100))"
+                    :color="official.bClass > 1875 ? '#ef4444' : '#10b981'" :stroke-width="10" />
+                </div>
+                <div class="of-bar">
+                  <div class="of-bar-head"><span>C 类交易</span><span>{{ official.cClass }} / 2,500</span></div>
+                  <el-progress :percentage="Math.min(100, Math.round((official.cClass || 0) / 2500 * 100))"
+                    :color="official.cClass > 1875 ? '#ef4444' : '#10b981'" :stroke-width="10" />
+                </div>
+                <div class="of-bar">
+                  <div class="of-bar-head"><span>存储用量</span><span>{{ fmtBytes(official.storageBytes || 0) }} / 10 GB</span></div>
+                  <el-progress :percentage="Math.min(100, Math.round((official.storageBytes || 0) / (10 * 1024 * 1024 * 1024) * 100))"
+                    :color="(official.storageBytes || 0) > 8 * 1024 * 1024 * 1024 ? '#ef4444' : '#10b981'" :stroke-width="10" />
+                </div>
+                <div class="of-bar">
+                  <div class="of-bar-head"><span>下载带宽</span><span>{{ fmtBytes(official.downloadBytes || 0) }} / 1 GB</span></div>
+                  <el-progress :percentage="Math.min(100, Math.round((official.downloadBytes || 0) / (1024 * 1024 * 1024) * 100))"
+                    :color="(official.downloadBytes || 0) > 0.8 * 1024 * 1024 * 1024 ? '#ef4444' : '#10b981'" :stroke-width="10" />
+                </div>
+                <div class="of-updated">最近核对：{{ official.updatedAt || '—' }}</div>
+              </div>
+            </div>
+
             <div class="row" style="margin-top:16px;">
               <div class="glass info-panel">
                 <div class="ip-title"><ZgGlyph emoji="👤" /> 用户回源 TOP（今日）</div>
@@ -1315,4 +1406,11 @@ html.zg-inkgold.zg-inkgold-dark .file-act-btn.view-btn:hover { color:var(--zg-ac
 .pfm-name { font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px; }
 .pfm-size { font-size:12px; color:var(--zg-text-dim); flex-shrink:0; }
 .preview-footer-actions { display:flex; gap:8px; flex-shrink:0; }
+
+/* v4.4.2 官方每日实耗核对 */
+.of-field { display:flex; flex-direction:column; gap:4px; min-width:150px; flex:1; }
+.of-field label { font-size:12px; color:var(--zg-text-dim); }
+.of-bars { display:flex; flex-direction:column; gap:12px; }
+.of-bar-head { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px; color:var(--zg-text-dim); }
+.of-updated { font-size:11px; color:var(--zg-text-dim); margin-top:4px; }
 </style>

@@ -5,11 +5,29 @@ import App from './App.vue'
 import './styles/main.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import { zgCover } from '@/utils/helpers'
 
 // v2.1.1 - 修复自定义域名白屏问题
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+
+// 全局图片兜底：任何外链图（picsum/supabase 等境外图床）加载失败时，
+// 换成 Bing 高清美图，避免破图/空白。一个元素只处理一次，且新图与旧图相同则跳过（防死循环）。
+document.addEventListener(
+  'error',
+  (e) => {
+    const t = e.target as HTMLElement | null
+    if (!t || t.tagName !== 'IMG') return
+    const img = t as HTMLImageElement
+    if (img.dataset.zgFixed) return
+    const next = zgCover(img.alt || img.getAttribute('src') || 'zhuiguang')
+    if (next === img.src) return
+    img.dataset.zgFixed = '1'
+    img.src = next
+  },
+  true
+)
 
 // 全局注册本项目用到的图标组件（@element-plus/icons-vue 已随 element-plus 安装）
 // 经典模式也启用 SVG 图标（决策 A：图标全局替换），仅替换原先的 emoji，不改变布局/配色

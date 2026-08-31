@@ -10,6 +10,7 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
+import { zgCover, bingCover, BING_COVERS } from '@/utils/helpers'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 
@@ -150,6 +151,16 @@ function clearProxyAuthor() {
   authorSearch.value = ''
 }
 
+// 换一张美图：从 Bing 美图池随机取一张（尽量与当前不同），国内可访问、清晰美观
+function randomCover() {
+  if (BING_COVERS.length <= 1) return
+  let next = bingCover(String(Date.now() + Math.random()))
+  let guard = 0
+  while (next === cover.value && guard++ < 12) next = bingCover(String(Date.now() + Math.random() + guard))
+  cover.value = next
+  ElMessage.success('已换一张美图')
+}
+
 async function submit() {
   if (!form.value.title || !content.value) { ElMessage.warning('请填写标题与正文'); return }
   submitting.value = true
@@ -161,7 +172,7 @@ async function submit() {
       source: form.value.source,
       recommendation: form.value.recommendation,
       subjectId: subjectId.value,
-      cover: cover.value || `https://picsum.photos/seed/zg${Date.now()}/800/500`,
+      cover: cover.value || zgCover(form.value.title || String(Date.now())),
       images: images.value,
       tags: form.value.tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean),
       category: form.value.category,
@@ -260,11 +271,9 @@ async function submit() {
       <el-input v-model="form.recommendation" placeholder="推荐语（一句话介绍）" style="margin-bottom:12px" />
       <el-input v-model="form.tagsInput" placeholder="标签，用逗号分隔（如：散文,励志）" style="margin-bottom:12px" />
 
-      <div class="ep-row" v-if="!isEdit">
-        <el-input v-model="cover" placeholder="封面图URL（留空自动生成）" />
-      </div>
-      <div v-else class="ep-row">
-        <el-input v-model="cover" placeholder="封面图URL" />
+      <div class="ep-row">
+        <el-input v-model="cover" :placeholder="isEdit ? '封面图URL' : '封面图URL（留空自动生成 Bing 美图）'" style="flex:1; min-width:240px" />
+        <el-button @click="randomCover">🖼️ 换一张美图</el-button>
         <span v-if="cover" class="cover-preview" :style="{ backgroundImage: `url(${cover})` }"></span>
       </div>
 
