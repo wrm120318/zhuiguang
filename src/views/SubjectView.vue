@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { formatSize, fileIcon } from '@/utils/helpers'
+import { formatSize, fileIcon, fileUrl } from '@/utils/helpers'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
 
@@ -418,7 +418,7 @@ async function submitResource() {
       </div>
       <div class="article-grid">
         <div v-for="a in subjectArticles" :key="a.id" class="art-card glass zg-card" @click="router.push(`/article/${a.id}`)">
-          <div class="ac-cover" :style="{ backgroundImage: `url(${a.cover})` }"><span class="ac-cat">{{ a.category }}</span></div>
+          <div class="ac-cover" :style="{ backgroundImage: `url(${fileUrl(a.cover)})` }"><span class="ac-cat">{{ a.category }}</span></div>
           <div class="ac-body"><div class="ac-title">{{ a.title }}
             <el-tag v-if="a.status === 'pending'" size="small" type="warning" style="margin-left:6px">待审核</el-tag>
             <el-tag v-else-if="a.status === 'pending_student'" size="small" type="info" style="margin-left:6px">待学生确认</el-tag>

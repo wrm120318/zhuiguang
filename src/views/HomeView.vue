@@ -7,6 +7,7 @@ import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
 import { useThemeStore } from '@/store/theme'
 import { renderMarkdownPreserveSpaces } from '@/utils/markdown'
+import { fileUrl } from '@/utils/helpers'
 
 const router = useRouter()
 const user = useUserStore()
@@ -233,7 +234,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
         </div>
         <div class="art-grid">
           <article v-for="(a, i) in articles.slice(0, siteConfig?.maxArticlesOnHome || 6)" :key="a.id" class="art-card zg-slide-up" :style="{ animationDelay: `${i * 0.08}s` }" @click="goArticle(a.id)">
-            <div class="ac-cover" v-if="a.cover" :style="{ backgroundImage: `url(${a.cover})` }"></div>
+            <div class="ac-cover" v-if="a.cover" :style="{ backgroundImage: `url(${fileUrl(a.cover)})` }"></div>
             <div class="ac-cover ac-placeholder" v-else>
               <span>{{ a.category?.[0] || '追' }}</span>
             </div>

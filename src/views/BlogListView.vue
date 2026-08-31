@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { mdExcerpt } from '@/utils/markdown'
+import { fileUrl } from '@/utils/helpers'
 
 const router = useRouter()
 const user = useUserStore()
@@ -43,7 +44,7 @@ function excerpt(md: string) {
 
     <div v-loading="loading" class="grid">
       <div v-for="b in filtered" :key="b.id" class="blog-card glass zg-card" @click="router.push(`/blog/${b.id}`)">
-        <div v-if="b.cover" class="bc-cover" :style="{ backgroundImage: `url(${b.cover})` }"></div>
+        <div v-if="b.cover" class="bc-cover" :style="{ backgroundImage: `url(${fileUrl(b.cover)})` }"></div>
         <div v-else class="bc-cover bc-placeholder"><ZgGlyph emoji="✍️" /></div>
         <div class="bc-body">
           <div class="bc-title">{{ b.title }}</div>

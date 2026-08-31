@@ -10,7 +10,7 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
-import { zgCover, bingCover, BING_COVERS } from '@/utils/helpers'
+import { zgCover, bingCover, BING_COVERS, fileUrl } from '@/utils/helpers'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 
@@ -151,6 +151,23 @@ function clearProxyAuthor() {
   authorSearch.value = ''
 }
 
+// 上传自定义封面：经 Worker 存储层落 B2，返回 /api/file/{id} 直链
+const uploadingCover = ref(false)
+async function onUploadCover(req: any) {
+  const file = req?.file as File
+  if (!file) return
+  uploadingCover.value = true
+  try {
+    const r: any = await api.uploadImage(file)
+    cover.value = r.url
+    ElMessage.success('封面已上传')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '封面上传失败')
+  } finally {
+    uploadingCover.value = false
+  }
+}
+
 // 换一张美图：从 Bing 美图池随机取一张（尽量与当前不同），国内可访问、清晰美观
 function randomCover() {
   if (BING_COVERS.length <= 1) return
@@ -272,9 +289,13 @@ async function submit() {
       <el-input v-model="form.tagsInput" placeholder="标签，用逗号分隔（如：散文,励志）" style="margin-bottom:12px" />
 
       <div class="ep-row">
-        <el-input v-model="cover" :placeholder="isEdit ? '封面图URL' : '封面图URL（留空自动生成 Bing 美图）'" style="flex:1; min-width:240px" />
+        <el-input v-model="cover" :placeholder="isEdit ? '封面图URL（也可上传/换图）' : '封面图URL（留空自动生成 Bing 美图，也可上传）'" style="flex:1; min-width:240px" />
+        <el-upload :http-request="onUploadCover" :show-file-list="false" accept="image/*" :disabled="uploadingCover">
+          <el-button :loading="uploadingCover"><ZgGlyph emoji="📤" /> 上传封面</el-button>
+        </el-upload>
         <el-button @click="randomCover">🖼️ 换一张美图</el-button>
-        <span v-if="cover" class="cover-preview" :style="{ backgroundImage: `url(${cover})` }"></span>
+        <el-button v-if="cover" text type="danger" size="small" @click="cover = ''">移除</el-button>
+        <span v-if="cover" class="cover-preview" :style="{ backgroundImage: `url(${fileUrl(cover)})` }"></span>
       </div>
 
       <MarkdownEditor

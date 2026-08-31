@@ -58,6 +58,20 @@ export function zgCover(seed?: string): string {
   return bingCover(seed)
 }
 
+// 文件直链基地址：与 http.ts 保持一致。
+// 上传返回的封面/图片是相对路径 /api/file/{id}；浏览器在 Pages 域(xkzg.de5.net)下请求相对路径
+// 会落到 SPA 兜底（拿不到文件），且 /api/file 对公开文件现已免登录但仍是相对路径。
+// 所以展示层统一把 /api/file/ 前缀补全为绝对 API 地址（v4.4.3 修复图片裂图）。
+export const API_BASE: string =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.xkzg.dpdns.org'
+
+// 把存储返回的（可能相对的）/api/file/{id} 补全为可在任意域下直接访问的绝对地址
+export function fileUrl(url?: string | null): string {
+  if (!url) return ''
+  if (url.startsWith('/api/file/')) return API_BASE + url
+  return url
+}
+
 
 // 经验值获得粒子特效
 export function burstParticles(x: number, y: number, color = '#a5b4fc') {

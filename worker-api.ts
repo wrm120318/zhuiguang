@@ -951,12 +951,18 @@ async function resolveFileUser(c: Context): Promise<{ id: number; role: string }
 
 // GET /api/file/:fileId        → 下载（attachment）
 // GET /api/file/:fileId/preview → 预览（inline）
+// 【v4.4.3 修复】公开文件（is_public=1：头像/封面/图片/公告/站点/Logo）免登录直出，
+// 否则浏览器 <img>/CSS 背景无法带鉴权、Pages 也不代理 /api，导致所有用户上传图片裂图。
+// 待审核资料（purpose=resource, is_public=0）仍强制登录。
 app.get('/api/file/:fileId', async (c) => {
-  const user = await resolveFileUser(c)
-  if (!user) return c.json({ message: '请先登录后下载', needLogin: true }, 401)
   const fileId = c.req.param('fileId')
   const meta = await get<any>('SELECT * FROM file_meta WHERE file_id=?', fileId)
   if (!meta) return c.json({ message: '文件不存在或已被清理' }, 404)
+  let user: { id: number; role: string } | null = null
+  if (!meta.is_public) {
+    user = await resolveFileUser(c)
+    if (!user) return c.json({ message: '请先登录后下载', needLogin: true }, 401)
+  }
   let resourceCheck: any
   if (meta.purpose === 'resource') {
     resourceCheck = async () => {
@@ -976,11 +982,14 @@ app.get('/api/file/:fileId', async (c) => {
 })
 
 app.get('/api/file/:fileId/preview', async (c) => {
-  const user = await resolveFileUser(c)
-  if (!user) return c.json({ message: '请先登录后预览', needLogin: true }, 401)
   const fileId = c.req.param('fileId')
   const meta = await get<any>('SELECT * FROM file_meta WHERE file_id=?', fileId)
   if (!meta) return c.json({ message: '文件不存在或已被清理' }, 404)
+  let user: { id: number; role: string } | null = null
+  if (!meta.is_public) {
+    user = await resolveFileUser(c)
+    if (!user) return c.json({ message: '请先登录后预览', needLogin: true }, 401)
+  }
   let resourceCheck: any
   if (meta.purpose === 'resource') {
     resourceCheck = async () => {

@@ -830,7 +830,9 @@ onBeforeUnmount(() => {
               <div class="ip-title"><ZgGlyph emoji="📊" /> 官方每日实耗核对（来自 B2 控制台「数据限度」页）</div>
               <el-alert type="info" :closable="false" show-icon style="margin-bottom:12px;">
                 <template #title>B2 免费账户不暴露官方交易计数 API，本系统本地回源计数无法与官方对齐。
-                  请把 B2 控制台「数据限度」页的当日数字填到下方并保存，面板据此展示官方进度条。</template>
+                  请把 B2 控制台「数据限度」页的当日数字填到下方并保存，面板据此展示官方进度条。
+                  官方限度：存储 10GB / 下载 1GB / B 类 2,500 / C 类 2,500；B2 会在用量达 75% 与 100% 时自动向 wangruiming.0318@qq.com 发送告警邮件（无需本系统发信）。
+                  进度条越过 75%（红框）即代表已触达官方告警线。</template>
               </el-alert>
               <div class="row" style="align-items:flex-end;">
                 <div class="of-field">

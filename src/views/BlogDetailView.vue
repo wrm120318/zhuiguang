@@ -5,6 +5,7 @@ import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '@/utils/markdown'
+import { fileUrl } from '@/utils/helpers'
 import CommentTree from '@/components/CommentTree.vue'
 const md = renderMarkdown
 
@@ -86,7 +87,7 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
   <div class="page zg-container" v-loading="loading">
     <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回博客列表</div>
     <article v-if="blog" class="glass-strong detail">
-      <div v-if="blog.cover" class="cover" :style="{ backgroundImage: `url(${blog.cover})` }"></div>
+      <div v-if="blog.cover" class="cover" :style="{ backgroundImage: `url(${fileUrl(blog.cover)})` }"></div>
       <h1 class="d-title">{{ blog.title }}</h1>
       <div class="d-meta">
         <span><ZgGlyph emoji="👤" /> {{ blog.author_name }}</span>

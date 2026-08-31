@@ -19,6 +19,7 @@
 
 import { Marked, type TokenizerAndRendererExtension } from 'marked'
 import katex from 'katex'
+import { API_BASE } from './helpers'
 
 /**
  * 兼容旧调用：KaTeX 样式已改为在 `src/styles/main.css` 顶部用
@@ -393,6 +394,11 @@ export function renderExtendedMarkdown(src: string, sanitize = true): string {
     html = `<pre class="md-error">渲染失败：${escapeHtml(e?.message || String(e))}</pre>`
   }
   if (sanitize) html = sanitizeHtml(html)
+  // 【v4.4.3】上传图片存为相对 /api/file/{id}，补全为绝对 API 地址，
+  // 否则在 Pages 域(xkzg.de5.net)下 <img> 请求相对路径会落到 SPA 兜底、导致裂图。
+  html = html
+    .replace(/(src=")\/api\/file\//g, `$1${API_BASE}/api/file/`)
+    .replace(/(src=')\/api\/file\//g, `$1${API_BASE}/api/file/`)
   return html
 }
 

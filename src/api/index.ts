@@ -1,6 +1,7 @@
 import http from './http'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { fileUrl } from '@/utils/helpers'
 
 // ===== 客户端图片压缩（Canvas API） =====
 // 上传前对图片做压缩：转为 WebP、质量 1.0（最接近无损，K12 试卷文字不能糊）、最大边 1920px，减少带宽与存储占用
@@ -100,12 +101,15 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   }
 
   // 归一化返回结构，兼容旧调用方对 url / filePath / fileName / fileType / fileSize / fileId 的访问
-  const url: string = result?.url || ''
+  // 【v4.4.3】上传返回的是相对 /api/file/{id}，补全为绝对 API 地址，
+  // 否则在 Pages 域下 <img>/CSS 请求相对路径会落到 SPA 兜底、导致裂图。
+  const rawUrl: string = result?.url || ''
+  const url: string = fileUrl(rawUrl)
   const fileId: string = result?.fileId || ''
   return {
     url,
     fileId,
-    filePath: result?.filePath || url,
+    filePath: fileUrl(result?.filePath || rawUrl),
     fileName: result?.fileName || uploadFile.name,
     fileType: result?.fileType || (kind === 'image' ? 'image' : 'file'),
     fileSize: result?.fileSize ?? uploadFile.size,

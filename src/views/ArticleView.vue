@@ -6,6 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
+import { fileUrl } from '@/utils/helpers'
 import CommentTree from '@/components/CommentTree.vue'
 
 const route = useRoute()
@@ -86,7 +87,7 @@ async function deleteArticleItem() {
   <div class="page zg-container" v-if="article">
     <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回</div>
     <article class="art-detail glass-strong">
-      <div class="ad-cover" :style="{ backgroundImage: `url(${article.cover})` }"></div>
+      <div class="ad-cover" :style="{ backgroundImage: `url(${fileUrl(article.cover)})` }"></div>
       <div class="ad-body">
         <div class="ad-cats">
           <span class="ad-cat"><ZgGlyph :emoji="subject()?.icon" /> {{ subject()?.name }}</span>

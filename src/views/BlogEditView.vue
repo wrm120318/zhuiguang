@@ -9,6 +9,7 @@ import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
+import { fileUrl } from '@/utils/helpers'
 
 const router = useRouter()
 const route = useRoute()
@@ -148,7 +149,7 @@ async function submit() {
         <el-upload :http-request="onUploadCover" :show-file-list="false" accept="image/*">
           <el-button size="small"><ZgGlyph emoji="📷" /> {{ form.cover ? '更换封面图' : '设置封面图' }}</el-button>
         </el-upload>
-        <div v-if="form.cover" class="cover-preview" :style="{ backgroundImage: `url(${form.cover})` }"></div>
+        <div v-if="form.cover" class="cover-preview" :style="{ backgroundImage: `url(${fileUrl(form.cover)})` }"></div>
         <el-button v-if="form.cover" text type="danger" size="small" @click="form.cover = ''">移除封面</el-button>
       </div>
 

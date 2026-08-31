@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 interface Props {
   src?: string
   size?: number | string
@@ -8,12 +9,14 @@ interface Props {
 }
 const props = withDefaults(defineProps<Props>(), { size: 40, ringColor: 'var(--zg-primary, #F59E0B)', online: false, fallback: '' })
 const sizePx = typeof props.size === 'number' ? `${props.size}px` : props.size
+import { fileUrl } from '@/utils/helpers'
+const resolvedSrc = computed(() => fileUrl(props.src))
 </script>
 
 <template>
   <div class="zg-avatar" :style="{ width: sizePx, height: sizePx, '--zg-avatar-ring': ringColor }">
     <div class="ring"></div>
-    <img v-if="src" :src="src" :alt="fallback || '头像'" />
+    <img v-if="resolvedSrc" :src="resolvedSrc" :alt="fallback || '头像'" />
     <div v-else class="fallback"><ZgGlyph emoji="👤" /></div>
     <span v-if="online" class="dot" aria-hidden="true"></span>
   </div>
