@@ -76,7 +76,7 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 - 前端：Vue 3 + TypeScript + Vite + Element Plus + Pinia + Vue Router + ECharts 5
 - 后端：Hono 框架（Cloudflare Workers 原生），nodejs_compat 运行时
 - 数据库：Cloudflare D1（24 张表，建表脚本 schema.sql）
-- 文件存储：Supabase Storage（前端直传 presign URL，>100KB 文件不走后端）
+- 文件存储：Backblaze B2 私有桶（所有上统一经后端 Worker 代理：前端 POST /api/upload/image|file → Worker 写 B2，返回 /api/file/{id}；Supabase 已废弃仅保留只读回退）
 - 认证：JWT（jsonwebtoken）+ bcryptjs，Bearer Token，7 天过期
 
 ⚠️ v3.0.0 新增主题体系（超级管理员后台可切换，全站全用户生效）：
@@ -141,9 +141,9 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 → 所有上传相关页面：美文发布、资料上传、单题训练（见交接文档7.4章）
 
 【铁律2】文件上传架构  
-✅ 所有 >100KB 的文件，必须【前端直传 Supabase presign URL】，不走后端，更不走隧道  
-❌ 禁止改回 POST /api/upload/file multipart  
-→ 原因：隧道对 100KB 以上文件直接报错，这是从 Bug-01 踩出来的教训
+✅ 所有文件（图片 / 文档 / 头像 / 封面 / 附件）统一经**后端 Worker 代理**上传：前端 `el-upload` + `:http-request` → `POST /api/upload/image`（图片）或 `/api/upload/file`（文档）→ Worker 内部写 B2 私有桶，返回 `/api/file/{id}` 直链。  
+❌ 禁止改回前端直传 Supabase presign URL（v4.4.0 起已废弃，Supabase 仅保留只读回退）。  
+→ 原因：B2 私有桶禁止浏览器直连；所有上传/下载/鉴权代理统一经 Worker。公开文件（头像/封面/配图）v4.4.3 起免登录直出，前端用 `fileUrl()` 把相对 /api/file/ 补全为绝对地址。
 
 【铁律3】server/index.ts 中的静态资源版本戳  
 ❌ 禁止删除、禁止修改、禁止重构 server/index.ts 第30-46行附近给 dist/index.html  

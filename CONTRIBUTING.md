@@ -53,8 +53,8 @@
 
 - el-upload 组件**必须**使用 `:http-request="customRequest"` 自定义上传。
 - **禁止**使用 `:before-upload`（异步失败被静默吞，用户无感知）。
-- **>100KB** 的文件**必须**前端直传 Supabase presign URL，不走后端。
-- **禁止**改回 `POST /api/upload/file` multipart 方式。
+- 所有文件（图片/文档/头像/封面/附件）统一经后端 Worker 代理上传：前端 `POST /api/upload/image`（图片）或 `/api/upload/file`（文档），由 Worker 写 B2 私有桶，返回 `/api/file/{id}`。
+- **禁止**改回前端直传 Supabase presign URL（v4.4.0 起已废弃）。
 - 涉及上传的页面改一个都不能漏（清单见交接文档第 7.2 节）。
 
 ### 1.5 命名规范
@@ -262,7 +262,7 @@ SQLite 返回的 lastInsertRowid 为 BigInt，JSON.stringify 报错。
 | 位置 | 内容 | 禁止操作 |
 |---|---|---|
 | 所有 el-upload 组件 | `:http-request` 自定义上传 | 禁止改回 `:before-upload` |
-| 上传逻辑 | >100KB 前端直传 Supabase presign URL | 禁止改回后端 multipart |
+| 上传逻辑 | 所有文件经 Worker 代理（`/api/upload/image`、`/api/upload/file`）写 B2 | 禁止改回前端 Supabase presign 直传 |
 
 ### 6.2 缓存控制
 
@@ -341,9 +341,8 @@ app.get('/api/articles/:id', auth, ...)
 #### （2）大文件上传测试
 
 - **必须**测试 1MB 以上的文件上传（不能只测 10KB 小文件）。
-- 验证 >100KB 文件走前端直传 Supabase presign URL。
 - 验证上传成功后文件可在列表查看/下载。
-- 验证图片能在页面正常显示。
+- 验证图片能在页面正常显示（公开图片免登录直出，绝对地址 `https://api.xkzg.dpdns.org/api/file/{id}`）。
 
 #### （3）美文审核流程测试
 

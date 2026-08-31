@@ -37,7 +37,7 @@
 | 模块 | 功能说明 | 适用角色 |
 |---|---|---|
 | 美文共享 | 师生发布学科美文，支持 **CommonMark + KaTeX + 视频/PDF 嵌入** 富文本、封面/标签、教师代发，含审核流程与学生确认发布机制，**发布者/超管/学科教师可多次编辑** | 全部角色 |
-| 资料共享 | 学科资料上传下载，支持分类/标签/收藏/点赞，大文件前端直传 Supabase | 全部角色 |
+| 资料共享 | 学科资料上传下载，支持分类/标签/收藏/点赞，文件统一经 Worker 代理写 B2 | 全部角色 |
 | 题库自测 | 教师创建测验（单选/多选/判断），学生答题，自动/手动批改，成绩报告 | 教师建题、学生作答 |
 | 单题训练 | 学科题目池随机抽题练习，即时反馈对错，教师批阅评语 | 全部角色 |
 | 单题训练记录 | 学生查看自己的历史训练记录（含得分/评语/时间），超管/教师按题目查看全班统计（正确率/待批/得分分布） | 学生看自己，教师/超管看全班 |
@@ -91,7 +91,7 @@
 +-----------+   +-------------------+
 | Cloudflare|   |  Supabase Storage |
 |   D1      |   |  (文件存储)        |
-| (数据库)  |   |  前端直传 presign   |
+| (数据库)  |   |  统一经 Worker 代理上传 B2   |
 | 24 张表   |   |  >100KB 直传       |
 +-----------+   +-------------------+
 ```
@@ -109,7 +109,7 @@
 | 后端框架 | Hono 4 | Cloudflare Workers 原生，轻量高效 |
 | 后端运行时 | Cloudflare Workers | 无服务器，边缘计算，nodejs_compat |
 | 数据库 | Cloudflare D1 | SQLite 兼容，serverless，免费额度充足 |
-| 文件存储 | Supabase Storage | 前端直传 presign URL，service_role 写入 |
+| 文件存储 | Backblaze B2 私有桶 | 统一经 Worker 代理上传（Supabase 已废弃） |
 | 认证 | JWT（jsonwebtoken）+ bcryptjs | Bearer Token，7 天过期 |
 | 前端部署 | Cloudflare Pages | 静态托管，全球 CDN，自定义域名 |
 | 后端部署 | Cloudflare Workers | `npx wrangler deploy`，自定义域名绑定 |
@@ -304,7 +304,7 @@ zhuiguang/
   - 单题训练记录管理：学生查看自己的训练记录（含得分/评语/时间），教师/超管按题目查看全班统计（正确率/待批/得分分布/作答详情），教师可在线批改主观题（打分/评语/删除记录）
 - 三角色权限体系完整（SUPER_ADMIN / TEACHER / STUDENT）
 - 已迁移至 Cloudflare Workers + D1 + Pages 无服务器架构（v2.0.0）
-- 文件上传前端直传 Supabase presign URL，大文件不走后端
+- 文件上统一经后端 Worker 代理写 B2 私有桶，返回 /api/file/{id} 直链（Supabase 已废弃）
 - 美文审核流程（含学生确认发布机制）完整闭环
 - 经验值系统（登录每日仅计 1 次、发文、审核、答题等）
 - 站内信全量用户联系人列表
@@ -376,7 +376,7 @@ zhuiguang/
 
 ### 3. 文件上传架构（>100KB 直传）
 
-- 所有 **>100KB** 的文件，必须**前端直传 Supabase presign URL**，不走后端、不走隧道
+- 所有文件（图片/文档/头像/封面/附件）统一经**后端 Worker 代理**上传（`POST /api/upload/image` 或 `/api/upload/file` 写 B2），禁止改回前端直传 Supabase presign
 - **禁止**改回 `POST /api/upload/file` multipart 方式
 - 原因：早期隧道对 100KB 以上文件直接报错；保留此架构确保大文件稳定上传
 
@@ -455,7 +455,7 @@ zhuiguang/
 | `server/` | （本地开发用） | 不部署到云端 | 本地 Express 后端，生产已迁移至 Worker |
 | `server/local.db` | 不上传 | .gitignore 排除 | 本地 SQLite，仅本地开发用 |
 | `.env` | 不上传 | .gitignore 排除 | 环境变量（密钥），云端在 wrangler.toml 或 Dashboard 配置 |
-| 文件存储 | Supabase Storage | 前端直传 presign URL | Bucket: `zhuiguang`，public 读取 |
+| 文件存储 | Backblaze B2 私有桶 | 统一经 Worker 代理上传 | Bucket: `zhuiguang-k12-004`，私有（公开文件由 Worker 按 is_public 免登录直出） |
 | 数据库 | Cloudflare D1 | `zhuiguang-db` | database_id 见 wrangler.toml |
 
 ### 域名与访问
