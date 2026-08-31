@@ -249,6 +249,14 @@ export const api = {
   storageMonitor: () => http.get('/api/admin/storage/monitor'),
   storageOptimize: (action: string) => http.post('/api/admin/storage/optimize', { action }),
   deleteStorageFile: (fileName: string) => http.delete('/api/admin/storage/file', { data: { fileName } }),
+  // 【v4.4.1】B2 官方容量盘点（消耗 Class A 交易，每日最多 1 次）
+  storageCensus: (force = false) => http.post('/api/admin/storage/census', { force }),
+  // 【v4.4.1】存量迁移 Supabase → B2（全量/幂等）
+  migrateToB2: (payload: { limit?: number; only?: string; dryRun?: boolean }) =>
+    http.post('/api/admin/migrate/to-b2', payload),
+  migrateStatus: () => http.get('/api/admin/migrate/status'),
+  // 【v4.4.1】把高频文件预热到 CF 边缘缓存（提速）
+  prewarmFiles: (fileIds: string[]) => http.post('/api/admin/prewarm', { fileIds }),
   // 【v4.3.2】超管按存储 key 预览/下载文件：返回 Blob，token 走 header，URL 里不含 token
   getStorageFile: (key: string, mode: 'preview' | 'download' = 'preview') =>
     http.get('/api/admin/storage/file', { params: { key, mode }, responseType: 'blob' }),

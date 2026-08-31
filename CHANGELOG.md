@@ -5,6 +5,91 @@
 
 ---
 
+## [v4.4.1] - 2026-08-31
+
+> B2 落地后的三处硬伤修复：C 类交易异常消耗 / 下载过慢 / 监控面板仍是 Supabase 口径
+
+### 🐛 修复1：B2「C 类交易」异常消耗（曾出现「1 次下载 = 8 次 C 类」）
+
+**根因**（两个叠加）：
+1. `b2_authorize_account` 属 **Class C**（免费账户 2500/日），旧版 token 只存在 Worker **模块级变量**里。
+   Cloudflare 在全球多个 PoP 各起一个 isolate，且 isolate 会冷启动回收 —— 每个 isolate 首次请求、每次冷启动都要重新鉴权一次 C 类。
+2. `b2_list_buckets` **同样属 Class C**，而监控面板每次刷新都会调用它 —— 管理员刷几次面板就白烧几次 C 类。
+
+**修复**：
+- 新增 D1 表 `b2_auth_cache`（单行），token 落库后**全球所有 isolate 共享** → 正常情况下每日仅 1 次 C 类。
+  三级缓存：进程内内存 → D1 持久化 → 真调 B2；并发请求用 in-flight Promise 合并，防抖动重复鉴权。
+- 监控聚合 `getStorageMonitor()` 改为**只读 D1 快照**，不再实时调 B2（零 C 类消耗）。
+- 上传 URL 也做缓存复用（属 B 类，能省则省）；上传失败时自动作废该 URL 重新获取。
+- 删除已确认无用的 `b2GetAccountInfo()`（v2/v3 均实测 404，纯属白烧）。
+
+### 🐛 修复2：B2 下载速度过慢
+
+| 问题 | 原因 | 修复 |
+| --- | --- | --- |
+| 每次下载都要先鉴权 | token 缓存未跨 isolate | 同上，落 D1 后省掉 200~600ms 跨洋往返 |
+| 3 次同步 D1 写压在用户等待链路上 | 配额/限速/埋点都在响应前同步写库 | 全部改 `ctx.waitUntil()` 异步，响应先流式返回 |
+| 2 次串行 D1 读（配额 + 限速） | 分开查 | 合并为 1 条 SQL 一次取回 |
+| 所有文件一律 `private, no-store` | 上传时 `is_public/cacheable` 硬编码为 0 | 按 `purpose` 自动判定（头像/公告/封面/Logo 上传即可公开缓存）；资源类审核通过后置位 |
+| 私有文件永不进边缘缓存 | 边缘 TTL 只给公开资源 | 私有资源也给**短 TTL（默认 300s）**边缘缓存（权限已在 Worker 层校验，缓存的是字节本体，不外泄） |
+| 缓存命中也被计成回源 | 埋点逻辑重复且无条件记 hit=0 | 命中判定统一，命中不写回源统计 |
+
+> 说明：B2 源站在美国西部，中国用户跨太平洋回源单文件常需 1~3s，这是物理限制。
+> 唯一有效提速手段是让请求命中 Cloudflare 边缘缓存 —— 管理后台新增「预热 TOP10」按钮。
+
+### 🐛 修复3：管理后台运行监控仍是 Supabase 口径
+
+- **重大 Bug**：`worker-api.ts` 里存在**两个** `/api/admin/storage/monitor` 路由（旧 Supabase 版在前）。
+  Hono 先注册先匹配 → v4.4.0 新写的 B2 监控**从未生效过**。已删除旧路由。
+- `/api/admin/monitor` 的 `supabaseStorage` 整块移除，改为 `b2Storage`；不再调用 `getSupabaseStorageUsage()`（旧版会 list 整个 Supabase 桶，慢且已废弃）。
+- 大体积文件 TOP10 改为直接查 D1 `file_meta`（零外部调用）。
+- `supabaseDb` 保留字段但标注废弃，不再发起任何 Supabase 请求。
+- 前端 `MonitorView.vue`：
+  - 「Supabase 存储」tab → **「B2 存储」**（容量 / 回源 / 下载性能 / 迁移 / 高频）
+  - 「Supabase 数据库」tab → **「B2 交易与配额」**（A/B/C 类说明 + C 类异常原理 + 用户回源 TOP + 缓存分布）
+  - 新增三个运维按钮：**立即盘点官方容量**、**全量迁移**、**预热 TOP10**
+
+### 🐛 修复4：存量迁移实际一条都没跑到（无缝迁移失效）
+
+**根因**：旧版从 D1 查 `file_path LIKE '%supabase%'`，但 D1 里存的是**纯文件名**
+（如 `file_1787038194294_v1q21tjj.docx`），并不含 "supabase" 字样 → 永远 `total=0`。
+实测 Supabase 桶 `zhuiguang` 内确有 **15 个文件 / 4.73 MB** 待迁。
+
+**修复**：重写 `migrateToB2()` —— 直接**全量列举 Supabase 桶**（源在桶里，不在 D1 里），
+逐文件 下载 → 上传 B2 → 写 `file_meta` → **反查并改写 D1 中所有引用该文件的字段**：
+
+- 单值字段：`resources.file_path`、`users.avatar`、`articles.cover`、`pages.cover`
+- JSON 数组：`articles.images`、`pages.images`、`pages.attachments`、`messages.attachments`、
+  `quiz_questions.attachments`、`subject_questions.attachments`
+
+幂等（新增 `b2_migration_log`，`source_key UNIQUE`）、安全（默认不删 Supabase 源文件，可回滚）。
+
+### ⚠️ 官方口径的重要澄清（实测结论，勿再重试）
+
+1. `b2_get_account_info` → v2 / v3 **均返回 404 not_found**（主密钥 capabilities 为空，B2 的 application key 也不提供 `readAccountInfo` 选项）。
+2. `b2_list_buckets` → 可用，但响应**不含** `fileCount` / `totalSize` 字段（旧代码以为有，导致面板永远显示 null）。
+3. 下载响应头**不返回** `b2-api-b-class-transaction-count-today`。
+4. 结论：**官方已用容量**只能通过 `b2_list_file_names` 全量盘点求和得到（属 **Class A**，免费 2500/日），
+   因此新增 `b2_bucket_census` 表，**每日最多盘点 1 次**并落库；面板显示盘点日期与新鲜度。
+5. 容量上限 10 GB 为 B2 公开免费档位常量（API 取不到），面板已标注「以 B2 控制台 Billing 页为准」。
+6. 「当日回源次数」仍是**本地统计（非官方）**，面板明确标注，绝不冒充 B2 官方数字。
+
+### 📦 新增 D1 表
+
+`b2_auth_cache` / `b2_bucket_census` / `b2_migration_log`（Worker 启动时自愈建表，也可执行 `migrations/0001_b2_storage.sql`）
+
+### 🔌 新增/变更接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/admin/storage/census` | B2 官方容量盘点（`{force:true}` 强制重扫），每日限 1 次 |
+| `POST /api/admin/migrate/to-b2` | 存量迁移（参数 `limit` / `only` / `dryRun`） |
+| `GET /api/admin/migrate/status` | 迁移进度查询（不搬迁） |
+| `GET /api/admin/storage/monitor` | 改为只读本地快照，不消耗任何 B2 交易 |
+| `GET /api/admin/monitor` | `supabaseStorage` 置 null，新增 `b2Storage` |
+
+---
+
 ## [v4.4.0] - 2026-08-31
 
 > 文件存储迁移：Supabase Storage → Backblaze B2 私有桶（默认免费模式，不绑卡）

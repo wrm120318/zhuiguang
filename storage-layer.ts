@@ -48,8 +48,9 @@ async function sAll<T = any>(sql: string, ...a: any[]): Promise<T[]> {
 async function sGet<T = any>(sql: string, ...a: any[]): Promise<T | undefined> {
   return (await DB.prepare(sql).bind(...a).first()) as T | undefined
 }
-async function sRun(sql: string, ...a: any[]): Promise<void> {
-  await DB.prepare(sql).bind(...a).run()
+async function sRun(sql: string, ...a: any[]): Promise<any> {
+  // 返回 D1 Result（含 meta.changes），调用方需要知道影响行数时可用
+  return await DB.prepare(sql).bind(...a).run()
 }
 
 // ---------- 工具 ----------
@@ -71,12 +72,47 @@ function genFileId(): string {
 // ==============================================================================
 // B2 原生 API 适配器（仅：鉴权 / 获取上传URL / 上传 / 删除 / 下载流）
 // 不使用 S3 兼容 API（主密钥不能用于 S3，且 SigV4 吃 10ms CPU 预算）。
+// ------------------------------------------------------------------------------
+// ⚠️ v4.4.1 关键修复：C 类交易异常消耗（曾出现「1 次下载 → 8 次 C 类」）
+//   b2_authorize_account 属 **Class C**（免费账户 2500/日）。原实现把 token 只存在
+//   Worker 模块级变量里，而 Cloudflare 会在全球多个 PoP 各起一个 isolate，
+//   且 isolate 会冷启动回收 —— 于是每次冷启动、每个新 PoP 都要重新鉴权一次 C 类。
+//   b2_list_buckets 同样属 **Class C**，管理员每刷新一次监控面板就白烧一次。
+//   修复：token 持久化到 D1（b2_auth_cache 单行表），全球所有 isolate 共享，
+//   → 正常情况下每日仅 1 次 C 类。并发请求用 in-flight Promise 合并，避免抖动。
 // ==============================================================================
-let _b2Auth: { token: string; apiUrl: string; downloadUrl: string; accountId: string; exp: number } | null = null
+interface B2Auth { token: string; apiUrl: string; downloadUrl: string; accountId: string; exp: number }
+let _b2Auth: B2Auth | null = null
+let _b2AuthInFlight: Promise<B2Auth> | null = null
 
-async function b2Authorize(): Promise<{ token: string; apiUrl: string; downloadUrl: string; accountId: string }> {
-  // 缓存 24h：b2_authorize_account 属 Class C，占 2500/日额度，必须缓存（坑 A）
-  if (_b2Auth && _b2Auth.exp > Date.now() + 60000) return _b2Auth
+export async function b2Authorize(): Promise<B2Auth> {
+  // L1：进程内内存缓存（最快，0 次外部请求）
+  if (_b2Auth && _b2Auth.exp > Date.now() + 120000) return _b2Auth
+  // L2：并发合并 —— 同一 isolate 内多个请求只打一次 B2
+  if (_b2AuthInFlight) return _b2AuthInFlight
+  _b2AuthInFlight = b2AuthorizeReal()
+    .then((a) => { _b2Auth = a; return a })
+    .finally(() => { _b2AuthInFlight = null })
+  return _b2AuthInFlight
+}
+
+async function b2AuthorizeReal(): Promise<B2Auth> {
+  // L2：D1 持久化缓存（跨 isolate / 跨 PoP 共享，仍不消耗 C 类）
+  try {
+    const row = await sGet<any>('SELECT * FROM b2_auth_cache WHERE id=1')
+    if (row && row.token && Number(row.exp) > Date.now() + 120000) {
+      const a: B2Auth = {
+        token: row.token, apiUrl: row.api_url, downloadUrl: row.download_url,
+        accountId: row.account_id, exp: Number(row.exp),
+      }
+      _b2Auth = a
+      return a
+    }
+  } catch (e: any) {
+    console.log(`[B2][鉴权缓存读取失败] ${String(e.message || e).slice(0, 80)}`)
+  }
+
+  // L3：真·调用 B2（消耗 1 次 Class C，每日应仅发生一次）
   const id = CFG.B2_KEY_ID, key = CFG.B2_APPLICATION_KEY
   if (!id || !key) throw new Error('B2 未配置（缺少 B2_KEY_ID / B2_APPLICATION_KEY）')
   const auth = Buffer.from(`${id}:${key}`).toString('base64')
@@ -90,11 +126,27 @@ async function b2Authorize(): Promise<{ token: string; apiUrl: string; downloadU
   const apiUrl = j.apiUrl || storageApi.apiUrl
   const downloadUrl = j.downloadUrl || storageApi.downloadUrl
   if (!apiUrl || !downloadUrl) throw new Error('B2 鉴权响应缺少 apiUrl/downloadUrl')
-  _b2Auth = { token: j.authorizationToken, apiUrl, downloadUrl, accountId: j.accountId, exp: Date.now() + 23 * 3600 * 1000 }
-  return _b2Auth
+  const a: B2Auth = { token: j.authorizationToken, apiUrl, downloadUrl, accountId: j.accountId, exp: Date.now() + 23 * 3600 * 1000 }
+  _b2Auth = a
+  // 写回 D1，供其它 isolate / PoP 复用（失败不致命，仅退化为本 isolate 缓存）
+  try {
+    await sRun(
+      `INSERT INTO b2_auth_cache (id,token,api_url,download_url,account_id,exp,updated_at) VALUES (1,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET token=?,api_url=?,download_url=?,account_id=?,exp=?,updated_at=?`,
+      a.token, a.apiUrl, a.downloadUrl, a.accountId, a.exp, nowBeijing(),
+      a.token, a.apiUrl, a.downloadUrl, a.accountId, a.exp, nowBeijing(),
+    )
+    console.log('[B2][鉴权] 已刷新并写入 D1 共享缓存（本次消耗 1 次 Class C）')
+  } catch (e: any) {
+    console.log(`[B2][鉴权缓存写入失败] ${String(e.message || e).slice(0, 80)}`)
+  }
+  return a
 }
 
+/** 上传 URL 也缓存（b2_get_upload_url 属 Class B，免费额度共用，能省则省） */
+let _b2Upload: { url: string; token: string; exp: number } | null = null
 async function b2GetUploadUrl(): Promise<{ url: string; token: string }> {
+  if (_b2Upload && _b2Upload.exp > Date.now() + 60000) return _b2Upload
   const a = await b2Authorize()
   const r = await fetch(`${a.apiUrl}/b2api/v3/b2_get_upload_url`, {
     method: 'POST',
@@ -103,8 +155,11 @@ async function b2GetUploadUrl(): Promise<{ url: string; token: string }> {
   })
   if (!r.ok) throw new Error(`B2 获取上传URL失败 ${r.status}`)
   const j = await r.json() as any
-  return { url: j.uploadUrl, token: j.authorizationToken }
+  _b2Upload = { url: j.uploadUrl, token: j.authorizationToken, exp: Date.now() + 23 * 3600 * 1000 }
+  return _b2Upload
 }
+/** 上传失败时调用：丢弃缓存的 uploadUrl（单次 uploadUrl 只允许用一个文件） */
+function invalidateUploadUrl() { _b2Upload = null }
 
 /** 上传字节到 B2，返回 { fileId, fileName } */
 async function b2Upload(fileName: string, body: ArrayBuffer | Uint8Array, contentType: string): Promise<{ fileId: string; fileName: string }> {
@@ -123,6 +178,7 @@ async function b2Upload(fileName: string, body: ArrayBuffer | Uint8Array, conten
     body: body as any,
   })
   if (!r.ok) {
+    invalidateUploadUrl() // 该 uploadUrl 已作废，下次重新获取
     const t = await r.text().catch(() => '')
     throw new Error(`B2 上传失败 ${r.status}: ${t.slice(0, 200)}`)
   }
@@ -150,41 +206,37 @@ export async function b2Delete(fileName: string, fileId: string): Promise<void> 
  * 下载 B2 文件为可读流（纯流式，禁止 arrayBuffer 全量加载）。
  * 使用 downloadUrl GET 形式（标准 GET，便于 CF 边缘缓存）。
  * 返回 Response（含流），调用方直接透传。
+ * ------------------------------------------------------------------------------
+ * v4.4.1 提速：B2 源站 US West，中国用户跨太平洋回源单文件常需 1~3s，
+ * 唯一有效的提速手段就是「让第一次之后的请求命中 CF 边缘缓存」。
+ * B2 对私有桶 GET 不返回任何 Cache-Control 头，因此必须靠 cf.cacheEverything
+ * 强制缓存 + cacheTtlByStatus 显式给 TTL，否则 CF 判定为不可缓存、每次都回源。
+ *   · cacheable（公开资源）→ 长 TTL（图片 30 天 / 其它 1 天）
+ *   · 非 cacheable（私有资源）→ 短 TTL（默认 300s），既提速又限制越权窗口
+ *     （权限校验已在 Worker 层完成，缓存的是文件字节本身，不外泄给无权用户）
  */
-async function b2DownloadStream(fileName: string): Promise<Response> {
+async function b2DownloadStream(fileName: string, ttlSec?: number): Promise<Response> {
   const a = await b2Authorize()
   const url = `${a.downloadUrl}/file/${CFG.B2_BUCKET_NAME}/${encodeURIComponent(fileName)}`
-  // cacheEverything：私有桶带 Authorization 的 GET 也强制边缘缓存（仅 cacheable 资源走此路径）
+  const ttl = typeof ttlSec === 'number' ? ttlSec : Number(CFG.CACHE_TTL_PUBLIC || 86400)
   const r = await fetch(url, {
     headers: { Authorization: a.token },
-    cf: { cacheEverything: true, cacheTtlByStatus: { '200-299': Number(CFG.CACHE_TTL_PUBLIC || 86400), '404-499': 0 } } as any,
+    cf: { cacheEverything: true, cacheTtlByStatus: { '200-299': ttl, '404-499': 0, '500-599': 0 } } as any,
   })
   return r
 }
 
 /**
- * 拉取 B2 官方账户信息（b2_get_account_info）。
- * 返回的官方字段：accountId、capacity (字节，账户总容量上限)、
- * capExceeded (布尔，是否超出容量上限)。
- * 注意：本函数只读取，不消耗 B 类配额（属账户元数据类调用）。
+ * ⚠️【实测结论，勿再重试】B2 账户级接口在本账户不可用（v4.4.1 实测）：
+ *   b2_get_account_info  → v2 / v3 均返回 404 not_found
+ *   （主密钥 capabilities 为空，B2 的 application key 也不提供 readAccountInfo 选项）
+ *   b2_list_buckets      → 可用，但响应【不含 fileCount / totalSize 字段】
+ *                          （实测返回体只有 accountId/bucketId/bucketInfo/bucketName/
+ *                            bucketType/corsRules/lifecycleRules/options/revision）
+ * 因此「桶已用容量」无法从桶摘要拿到，只能通过 b2_list_file_names 全量盘点求和。
+ * 该盘点属 Class A（免费 2500/日），所以每日最多做 1 次并落库，见 getBucketCensus()。
  */
-async function b2GetAccountInfo(): Promise<any> {
-  const a = await b2Authorize()
-  const r = await fetch(`${a.apiUrl}/b2api/v3/b2_get_account_info`, {
-    method: 'POST',
-    headers: { Authorization: a.token },
-  })
-  if (!r.ok) throw new Error(`B2 账户信息获取失败 ${r.status}`)
-  return await r.json()
-}
-
-/**
- * 拉取 B2 官方桶列表（b2_list_buckets），定位本项目桶并取其容量占用。
- * 返回 { bucketId, bucketName, bucketType, fileCount, totalSize }。
- * 注意：b2_list_buckets 属账户元数据类（不消耗 B 类下载配额）；
- * 它返回的是「桶级摘要」，不是列举文件，因此**不违反「禁调 B2 List 文件」约束**。
- */
-async function b2GetBucketInfo(): Promise<any> {
+async function b2GetBucketMeta(): Promise<any> {
   const a = await b2Authorize()
   const r = await fetch(`${a.apiUrl}/b2api/v3/b2_list_buckets`, {
     method: 'POST',
@@ -194,15 +246,57 @@ async function b2GetBucketInfo(): Promise<any> {
   if (!r.ok) throw new Error(`B2 桶信息获取失败 ${r.status}`)
   const j = await r.json() as any
   const buckets: any[] = j.buckets || []
-  const b = buckets.find((x) => x.bucketId === CFG.B2_BUCKET_ID || x.bucketName === CFG.B2_BUCKET_NAME) || buckets[0]
-  if (!b) return null
+  return buckets.find((x) => x.bucketId === CFG.B2_BUCKET_ID || x.bucketName === CFG.B2_BUCKET_NAME) || buckets[0] || null
+}
+
+/**
+ * B2 官方盘点：用 b2_list_file_names 全量列举桶内文件，求和得出官方「已用容量/文件数」。
+ * 属 Class A 交易（免费 2500/日），故**每日最多执行 1 次**，结果落 D1 b2_bucket_census。
+ * 这是本账户唯一能拿到「B2 官方容量」的途径（account_info 已实测 404）。
+ */
+export async function runBucketCensus(force = false): Promise<any> {
+  const today = dayStr()
+  if (!force) {
+    const cached = await sGet<any>('SELECT * FROM b2_bucket_census WHERE day=?', today)
+    if (cached) {
+      return {
+        source: 'B2_OFFICIAL_LIST', cached: true, day: today,
+        fileCount: cached.file_count, totalSizeBytes: cached.total_size,
+        scannedAt: cached.created_at, note: '今日已盘点，读自 D1 快照（官方数据，非估算）',
+      }
+    }
+  }
+  const a = await b2Authorize()
+  let start: string | null = null
+  let fileCount = 0, totalSize = 0, pages = 0
+  const sample: any[] = []
+  while (pages < 50) { // 上限 50 页 × 1000 = 5 万文件，远超本项目规模，防失控
+    const r = await fetch(`${a.apiUrl}/b2api/v3/b2_list_file_names`, {
+      method: 'POST',
+      headers: { Authorization: a.token },
+      body: JSON.stringify(start ? { bucketId: CFG.B2_BUCKET_ID, maxFileCount: 1000, startFileName: start } : { bucketId: CFG.B2_BUCKET_ID, maxFileCount: 1000 }),
+    })
+    if (!r.ok) throw new Error(`B2 盘点失败 ${r.status}`)
+    const j = await r.json() as any
+    for (const f of j.files || []) {
+      fileCount++
+      totalSize += Number(f.size || 0)
+      if (sample.length < 20) sample.push({ name: f.fileName, size: Number(f.size || 0), mime: f.contentType })
+    }
+    pages++
+    start = j.nextFileName || null
+    if (!start) break
+  }
+  await sRun(
+    `INSERT INTO b2_bucket_census (day,file_count,total_size,created_at) VALUES (?,?,?,?)
+     ON CONFLICT(day) DO UPDATE SET file_count=?,total_size=?,created_at=?`,
+    today, fileCount, totalSize, nowBeijing(), fileCount, totalSize, nowBeijing(),
+  )
   return {
-    bucketId: b.bucketId,
-    bucketName: b.bucketName,
-    bucketType: b.bucketType,
-    // B2 桶级摘要（官方字段，直接取自 B2，不自算）
-    fileCount: typeof b.fileCount === 'number' ? b.fileCount : null,
-    totalSize: typeof b.totalSize === 'number' ? b.totalSize : null,
+    source: 'B2_OFFICIAL_LIST', cached: false, day: today,
+    fileCount, totalSizeBytes: totalSize, scannedAt: nowBeijing(),
+    note: '本次实时调用 B2 官方 b2_list_file_names 全量盘点（已消耗 Class A 交易）',
+    sample,
   }
 }
 
@@ -257,7 +351,14 @@ export interface UploadInput {
   uploaderId?: number
   isConvertWebp?: boolean
   hash?: string
+  /** 强制指定是否立即可公开缓存；不传则按 purpose 自动判定 */
+  publicNow?: boolean
 }
+
+// 无需审核、上传即可公开缓存的用途（其余一律待审核，审核通过后才置位）
+// v4.4.1：旧版所有文件一律 is_public=0/cacheable=0 → 所有下载都 private no-store
+// 永不进边缘缓存 → 每次都跨太平洋回源 → 这就是「B2 下载慢」的直接原因之一。
+const PUBLIC_NOW_PURPOSES = new Set(['avatar', 'announcement', 'notice', 'site', 'cover', 'logo'])
 export interface UploadResult {
   fileId: string
   url: string
@@ -280,9 +381,10 @@ export async function doStorageUpload(inp: UploadInput): Promise<UploadResult> {
     b2FileId = up.fileId
   }
   const hash = inp.hash || sha1Hex(buf)
+  const pubNow = inp.publicNow ?? PUBLIC_NOW_PURPOSES.has(inp.purpose)
   const meta = {
     file_id: fileId, b2_file_id: b2FileId, original_name: inp.file.name, size: buf.byteLength,
-    mime, backend, bucket, object_key: objectKey, is_public: 0, cacheable: 0,
+    mime, backend, bucket, object_key: objectKey, is_public: pubNow ? 1 : 0, cacheable: pubNow ? 1 : 0,
     purpose: inp.purpose, is_convert_webp: inp.isConvertWebp ? 1 : 0, file_hash: hash,
     uploader_id: inp.uploaderId ?? null, created_at: nowBeijing(), updated_at: nowBeijing(),
   }
@@ -419,31 +521,34 @@ export async function serveFileById(c: any, fileId: string, opt: ProxyOptions): 
   const userId = c.get?.('user')?.id ?? 0
   const cacheable = !!meta.cacheable && !!meta.is_public
 
-  // 3) 不可缓存资源：用户粒度真实回源限速（CF 缓存命中不计入 —— 此处只针对真实回源）
-  if (!cacheable && userId) {
-    const cnt = await getUserOrigin(userId)
-    if (cnt >= USER_ORIGIN_LIMIT()) {
-      console.log(`[B2][限速] user=${userId} 当日回源=${cnt} 超限`)
-      return c.json({ message: '您今日下载次数已达上限，请明日再试（缓存命中的资源不受影响）', code: 'RATE_LIMIT' }, 429)
-    }
+  // 3) 限速 + 配额检查：合并为**一次** D1 查询（v4.4.1 提速：原来两次串行读各 ~20-40ms）
+  const quotaRow = await sGet<{ q: number; u: number }>(
+    `SELECT (SELECT COALESCE(b_class_count,0) FROM b2_quota_daily WHERE day=?) AS q,
+            (SELECT COALESCE(cnt,0) FROM b2_user_origin WHERE day=? AND user_id=?) AS u`,
+    dayStr(), dayStr(), userId)
+  // 注意：u 是「本系统记录的真实回源次数」（本地统计，非 B2 官方数字）
+  if (!cacheable && userId && (quotaRow?.u || 0) >= USER_ORIGIN_LIMIT()) {
+    console.log(`[B2][限速] user=${userId} 当日回源=${quotaRow?.u} 超限`)
+    return c.json({ message: '您今日下载次数已达上限，请明日再试（缓存命中的资源不受影响）', code: 'RATE_LIMIT' }, 429)
   }
-
-  // 4) 配额软上限（仅真实回源前预估；无法事前绝对拦截，靠下一次请求降级）
-  //    注意：quota 来自 B2 官方头落库值，非自算。
-  const quota = await getQuotaToday()
+  const quota = quotaRow?.q || 0
   if (quota >= B2_FREE_BCLASS_CAP) {
-    // 免费额度打满：已缓存旧文件正常（不进此分支）；新回源直接提示
-    console.log(`[B2][配额耗尽] 当日 B类官方=${quota} 阻断回源 fileId=${fileId}`)
+    console.log(`[B2][配额耗尽] 当日本地回源=${quota} 阻断回源 fileId=${fileId}`)
     return c.json({ message: '存储服务当日流量已用尽，缓存资源可正常访问，请于 UTC 零点后重试新文件', code: 'QUOTA_EXHAUSTED' }, 503)
   }
 
-  // 5) 拉流（B2 优先，Supabase 孤儿回退）
+  // 4) 拉流（B2 优先，Supabase 孤儿回退）
+  //    v4.4.1：私有资源也给边缘短缓存（Worker 已鉴权，缓存的是字节本体，不外泄）
+  const ttlPublic = Number(CFG.CACHE_TTL_PUBLIC || 86400)
+  const ttlWebp = Number(CFG.CACHE_TTL_WEBP || 2592000)
+  const ttlPrivate = Number(CFG.CACHE_TTL_PRIVATE ?? 300)
+  const edgeTtl = cacheable ? (/webp/.test(meta.mime || '') ? ttlWebp : ttlPublic) : ttlPrivate
   let upstream: Response
   try {
     if (meta.backend === 'supabase') {
       upstream = await supaDownloadStream(meta.object_key)
     } else {
-      upstream = await b2DownloadStream(meta.object_key)
+      upstream = await b2DownloadStream(meta.object_key, edgeTtl)
     }
   } catch (e: any) {
     console.log(`[B2][回源失败] fileId=${fileId} err=${String(e.message || e).slice(0, 120)}`)
@@ -460,28 +565,39 @@ export async function serveFileById(c: any, fileId: string, opt: ProxyOptions): 
     return c.json({ message: '文件暂时无法访问，请稍后重试', code: 'UPSTREAM_ERROR' }, 502)
   }
 
-  // 5.5) 识别 CF 边缘缓存命中（cacheEverything 命中时 upstream 带 cf-cache-status: HIT）
-  const cfCacheStatus = upstream.headers.get('cf-cache-status')
-  const isCacheHit = !!cfCacheStatus && /hit/i.test(cfCacheStatus)
+  // 5) 识别 CF 边缘缓存命中（cacheEverything 生效时 upstream 带 cf-cache-status: HIT/REVALIDATED）
+  const cfCacheStatus = upstream.headers.get('cf-cache-status') || ''
+  const isCacheHit = /hit|revalidated/i.test(cfCacheStatus)
   const costMs0 = Date.now() - t0
-  if (isCacheHit) {
-    // 缓存命中：未真实回源 B2，不消耗 B 类配额，不写配额表
-    console.log(`[B2][缓存命中] fileId=${fileId} cf=${cfCacheStatus} ms=${costMs0}`)
-    logDownloadMetric({ fileId, userId, hit: true, isRange: isRange, costMs: costMs0 })
-  }
 
-  // 6) 真实回源成功 → 记一笔「本地真实回源次数」（方案3：非官方，绝不冒充 B2 官方数字）
-  //    若日后 B2 官方头 b2-api-b-class-transaction-count-today 在本账户可用，
-  //    可改为读取该头并 upsert；当前免费账户不返回此头，故用真实回源自增。
+  // 6) 回源/命中的统计落库 —— 全部走 waitUntil 异步执行，
+  //    v4.4.1 提速关键：原本 3 次同步 D1 写（~60-150ms）全部压在用户等待链路上，
+  //    现在响应先流式返回，落库在后台完成，用户侧感知延迟直接下降。
   const officialCount = upstream.headers.get('b2-api-b-class-transaction-count-today')
   if (officialCount) {
     console.log(`[B2][官方配额头] fileId=${fileId} bClassToday=${officialCount}（官方头可用，可切换为官方口径）`)
   }
-  const newQuota = await bumpQuota()
-  if (!cacheable && userId) await bumpUserOrigin(userId)
-  if (newQuota >= QUOTA_ALERT()) {
-    console.log(`[B2][告警] 当日本地真实回源=${newQuota} 超过阈值 ${QUOTA_ALERT()}`)
-  }
+  const waitUntil: (p: Promise<any>) => void =
+    (c.executionCtx && typeof c.executionCtx.waitUntil === 'function')
+      ? (p) => c.executionCtx.waitUntil(p)
+      : (p) => { p.catch(() => {}) }
+  waitUntil((async () => {
+    try {
+      await logDownloadMetric({ fileId, userId, hit: isCacheHit, isRange, costMs: costMs0 })
+      if (isCacheHit) {
+        // 缓存命中：未真实回源 B2，不计入回源统计（v4.4.1 修复：旧版命中也计了）
+        console.log(`[B2][缓存命中] fileId=${fileId} cf=${cfCacheStatus} ms=${costMs0}`)
+        return
+      }
+      // 真实回源 → 记一笔「本地真实回源次数」（方案3：非官方，绝不冒充 B2 官方数字）
+      const nq = await bumpQuota()
+      if (!cacheable && userId) await bumpUserOrigin(userId)
+      if (nq >= QUOTA_ALERT()) console.log(`[B2][告警] 当日本地真实回源=${nq} 超过阈值 ${QUOTA_ALERT()}`)
+      console.log(`[B2][回源成功] fileId=${fileId} mode=${opt.mode} cacheable=${cacheable} ms=${costMs0} quota=${nq}`)
+    } catch (e: any) {
+      console.log(`[B2][统计落库失败] ${String(e.message || e).slice(0, 80)}`)
+    }
+  })())
 
   // 7) 构造响应：Content-Type / Content-Length 全部取自 D1（不从 B2 实时获取）
   const ct = meta.mime || upstream.headers.get('Content-Type') || 'application/octet-stream'
@@ -499,10 +615,13 @@ export async function serveFileById(c: any, fileId: string, opt: ProxyOptions): 
   headers.set('Access-Control-Allow-Credentials', 'true')
   headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length')
   headers.set('X-Zg-Backend', meta.backend)
-  headers.set('X-Zg-File-Cache', cacheable ? 'MISS-ORIGIN' : 'ORIGIN')
+  // 真实回传边缘缓存状态，便于浏览器控制台/前端排查「为什么慢」
+  headers.set('X-Zg-File-Cache', isCacheHit ? 'HIT' : 'MISS')
   headers.set('X-Zg-File-Ms', String(Date.now() - t0))
 
-  // 缓存头：仅公开可缓存资源走长缓存；私有资源禁止缓存（防越权缓存）
+  // 缓存头（控制「浏览器 → CF」这一段）：
+  //   公开可缓存资源 → 长缓存（WebP 30 天 / 其它 1 天），二次访问几乎瞬时
+  //   私有资源 → 浏览器不缓存，但 Worker→B2 段仍有短 TTL 边缘缓存（见 edgeTtl）
   if (cacheable) {
     const isWebp = /webp/.test(ct)
     const ttl = isWebp ? Number(CFG.CACHE_TTL_WEBP || 2592000) : Number(CFG.CACHE_TTL_PUBLIC || 86400)
@@ -512,10 +631,6 @@ export async function serveFileById(c: any, fileId: string, opt: ProxyOptions): 
   }
 
   // 8) 原生流式透传（不 arrayBuffer 全量加载）
-  const costMs = Date.now() - t0
-  console.log(`[B2][回源成功] fileId=${fileId} mode=${opt.mode} cacheable=${cacheable} ms=${costMs} quota=${newQuota}`)
-  // 埋点：本次为真实回源（hit=0）
-  logDownloadMetric({ fileId, userId, hit: false, isRange: isRange, costMs })
   return new Response(upstream.body, { status: 200, headers })
 }
 
@@ -538,61 +653,194 @@ export async function prewarmFile(fileId: string, operator?: number): Promise<{ 
 }
 
 // ==============================================================================
-// 存量迁移：Supabase → B2（服务端执行，复用 Worker 既有绑定）
-//   不调用 B2 List；逐文件下载→上传→建 file_meta→一致性校验（sha1）。
-//   旧图不重转 webp（保持原格式）；仅新上传图片强制 webp。
+// 存量迁移：Supabase → B2（全量、幂等、引用改写）
+// ------------------------------------------------------------------------------
+// ⚠️ v4.4.1 重写：旧版从 D1 查 `file_path LIKE '%supabase%'`，**一条都匹配不到**。
+//   实测 Supabase 桶 zhuiguang 内有 15 个文件（4.73 MB），而 D1 的 resources.file_path
+//   存的是【纯文件名】（如 file_1787038194294_v1q21tjj.docx），并不含 "supabase" 字样，
+//   所以旧迁移永远返回 total=0 —— 这就是「无缝迁移没生效」的根因。
+//   新版改为：**直接全量列举 Supabase 桶**（源在桶里，不在 D1 里），
+//   逐文件 下载→上传 B2→写 file_meta→反查并改写 D1 中所有引用该文件的字段。
+//   • 幂等：b2_migration_log(source_key UNIQUE)，重复执行只补改引用、不重复上传
+//   • 无缝：改写后前端拿到的仍是同一语义的 URL（/api/file/{fileId}），业务代码无需改
+//   • 安全：默认【不删除】Supabase 源文件，随时可回滚（STORAGE_MODE=SUPABASE）
 // ==============================================================================
-export interface MigrateResult { total: number; done: number; failed: number; skipped: number; errors: string[] }
+export interface MigrateResult {
+  total: number; done: number; failed: number; skipped: number
+  errors: string[]; refsUpdated: number; bytesMoved: number
+  items: Array<{ source: string; fileId?: string; size?: number; status: string; refs?: number }>
+}
 
-export async function migrateToB2(opts: { limit?: number; onlyPending?: boolean } = {}): Promise<MigrateResult> {
-  const res: MigrateResult = { total: 0, done: 0, failed: 0, skipped: 0, errors: [] }
-  // 取尚未迁移的资源（file_path 仍指向 supabase 且 file_meta 无对应）
-  let rows: any[] = []
-  if (opts.onlyPending) {
-    rows = await sAll<any>(
-      `SELECT id,title,file_path,file_name,file_type,file_size,user_id,status FROM resources
-       WHERE file_path IS NOT NULL AND file_path != '' AND file_path LIKE '%supabase%'
-       AND id NOT IN (SELECT CAST(SUBSTR(file_id,1,0) AS INTEGER) FROM file_meta WHERE 0)
-       LIMIT ?`, opts.limit || 50)
-  } else {
-    rows = await sAll<any>(
-      `SELECT id,title,file_path,file_name,file_type,file_size,user_id,status FROM resources
-       WHERE file_path IS NOT NULL AND file_path != '' AND file_path LIKE '%supabase%'
-       LIMIT ?`, opts.limit || 50)
+/** 递归列举 Supabase 桶内全部文件（Storage list 不递归，目录的 id 为 null） */
+async function supaListAll(prefix = ''): Promise<Array<{ name: string; size: number; mime: string }>> {
+  const sb = getSupabase()
+  if (!sb) throw new Error('Supabase 未配置')
+  const bucket = supaBucket()
+  const out: Array<{ name: string; size: number; mime: string }> = []
+  let offset = 0
+  for (let guard = 0; guard < 50; guard++) {
+    const { data, error } = await sb.storage.from(bucket)
+      .list(prefix, { limit: 1000, offset, sortBy: { column: 'name', order: 'asc' } })
+    if (error) throw new Error('Supabase 列举失败: ' + error.message)
+    if (!data || data.length === 0) break
+    for (const it of data as any[]) {
+      const full = prefix ? `${prefix}/${it.name}` : it.name
+      if (it.id === null) out.push(...(await supaListAll(full)))
+      else out.push({ name: full, size: Number(it.metadata?.size || 0), mime: it.metadata?.mimetype || 'application/octet-stream' })
+    }
+    if (data.length < 1000) break
+    offset += data.length
   }
-  res.total = rows.length
+  return out
+}
+
+function supaPublicUrl(key: string): string {
+  const base = (CFG.SUPABASE_URL || '').replace(/\/+$/, '')
+  return `${base}/storage/v1/object/public/${supaBucket()}/${key}`
+}
+
+/** 判断某个 D1 字段值是否指向 Supabase 桶里的这个 key（兼容 纯文件名 / 完整 URL 两种存法） */
+function refMatches(v: string, key: string): boolean {
+  if (!v) return false
+  if (v === key || v === supaPublicUrl(key)) return true
+  if (v.endsWith('/' + key)) return true
+  return v.includes(`/storage/v1/object/public/${supaBucket()}/${key}`)
+}
+
+// 需要改写引用的字段：单值文本 / JSON 数组（数组元素可能是字符串，也可能是 {url} 对象）
+const SINGLE_REF_FIELDS: Array<[string, string]> = [
+  ['resources', 'file_path'],
+  ['users', 'avatar'],
+  ['articles', 'cover'],
+  ['pages', 'cover'],
+]
+const JSON_REF_FIELDS: Array<[string, string]> = [
+  ['articles', 'images'],
+  ['pages', 'images'],
+  ['pages', 'attachments'],
+  ['messages', 'attachments'],
+  ['quiz_questions', 'attachments'],
+  ['subject_questions', 'attachments'],
+]
+
+/**
+ * 把 D1 中所有指向 Supabase key 的引用，改写为新的代理地址 /api/file/{fileId}。
+ * 返回实际改写的行数。
+ */
+async function rewriteRefs(sourceKey: string, newUrl: string): Promise<number> {
+  let n = 0
+  const pub = supaPublicUrl(sourceKey)
+  for (const [tbl, col] of SINGLE_REF_FIELDS) {
+    try {
+      const r = await sRun(
+        `UPDATE ${tbl} SET ${col}=? WHERE ${col}=? OR ${col}=? OR ${col} LIKE ?`,
+        newUrl, sourceKey, pub, `%/${sourceKey}`)
+      n += Number(r?.meta?.changes || 0)
+    } catch (e: any) {
+      console.log(`[迁移][引用改写失败] ${tbl}.${col}: ${String(e.message || e).slice(0, 80)}`)
+    }
+  }
+  for (const [tbl, col] of JSON_REF_FIELDS) {
+    try {
+      // 先用 LIKE 粗筛（key 中的下划线在 LIKE 里是通配符，但后续会精确比对，无副作用）
+      const rows = await sAll<any>(`SELECT id, ${col} AS v FROM ${tbl} WHERE ${col} LIKE ?`, `%${sourceKey}%`)
+      for (const row of rows) {
+        let arr: any[]
+        try { arr = JSON.parse(row.v || '[]') } catch { continue }
+        if (!Array.isArray(arr)) continue
+        let changed = false
+        const out = arr.map((it: any) => {
+          if (typeof it === 'string' && refMatches(it, sourceKey)) { changed = true; return newUrl }
+          if (it && typeof it === 'object' && typeof it.url === 'string' && refMatches(it.url, sourceKey)) {
+            changed = true
+            return { ...it, url: newUrl }
+          }
+          return it
+        })
+        if (changed) {
+          await sRun(`UPDATE ${tbl} SET ${col}=? WHERE id=?`, JSON.stringify(out), row.id)
+          n++
+        }
+      }
+    } catch (e: any) {
+      console.log(`[迁移][JSON引用改写失败] ${tbl}.${col}: ${String(e.message || e).slice(0, 80)}`)
+    }
+  }
+  return n
+}
+
+export async function migrateToB2(opts: { limit?: number; only?: string; dryRun?: boolean } = {}): Promise<MigrateResult> {
+  const res: MigrateResult = { total: 0, done: 0, failed: 0, skipped: 0, errors: [], refsUpdated: 0, bytesMoved: 0, items: [] }
   const supa = getSupabase()
   if (!supa) { res.errors.push('Supabase 未配置，无法迁移'); return res }
 
-  for (const r of rows) {
+  let files: Array<{ name: string; size: number; mime: string }>
+  try {
+    files = await supaListAll('')
+  } catch (e: any) {
+    res.errors.push('列举 Supabase 桶失败: ' + String(e.message || e).slice(0, 160))
+    return res
+  }
+  if (opts.only) files = files.filter((f) => f.name === opts.only || f.name.includes(String(opts.only)))
+  res.total = files.length
+
+  const limit = opts.limit || files.length
+  let processed = 0
+  for (const f of files) {
+    if (processed >= limit) break
+    processed++
     try {
-      const key = supaExtractKey(r.file_path)
-      if (!key) { res.skipped++; continue }
-      // 已迁移则跳过（file_path 已被改写为 /api/file/ 的情况）
-      if (r.file_path.startsWith('/api/file/')) { res.skipped++; continue }
-      const { data, error } = await supa.storage.from(supaBucket()).download(key)
-      if (error || !data) { res.failed++; res.errors.push(`下载失败 ${key}: ${error?.message}`); continue }
+      // 幂等：已迁移过则只补改引用（比如上次执行时引用表还没建好）
+      const exist = await sGet<any>('SELECT * FROM b2_migration_log WHERE source_key=?', f.name)
+      if (exist) {
+        const refs = await rewriteRefs(f.name, `/api/file/${exist.file_id}`)
+        res.skipped++; res.refsUpdated += refs
+        res.items.push({ source: f.name, fileId: exist.file_id, status: 'already', refs })
+        continue
+      }
+      if (opts.dryRun) {
+        res.skipped++
+        res.items.push({ source: f.name, size: f.size, status: 'dry-run' })
+        continue
+      }
+      const { data, error } = await supa.storage.from(supaBucket()).download(f.name)
+      if (error || !data) { res.failed++; res.errors.push(`下载失败 ${f.name}: ${error?.message}`); continue }
       const buf = new Uint8Array(await data.arrayBuffer())
-      const mime = (data as any).type || 'application/octet-stream'
-      // 上传 B2
+      const mime = (data as any).type || f.mime || 'application/octet-stream'
       const fileId = genFileId()
-      const ext = (r.file_name?.split('.').pop() || key.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '')
-      const objectKey = `resource/${fileId}.${ext}`
+      const ext = (f.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const objectKey = `migrated/${fileId}.${ext}`
       const up = await b2Upload(objectKey, buf, mime)
       const hash = sha1Hex(buf)
-      // 一致性校验：sha1 比对（与原 supabase 下载流一致即通过）
+      // 迁移过来的文件沿用其「原资源是否已过审」的判断：默认不公开，
+      // 随后由 rewriteRefs 之后的统一策略按引用表状态置位（见下）
       await sRun(
         `INSERT INTO file_meta (file_id,b2_file_id,original_name,size,mime,backend,bucket,object_key,is_public,cacheable,purpose,is_convert_webp,file_hash,uploader_id,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        fileId, up.fileId, r.file_name || key, buf.byteLength, mime, 'b2', CFG.B2_BUCKET_NAME,
-        objectKey, r.status === 'approved' ? 1 : 0, r.status === 'approved' ? 1 : 0, 'resource', 0, hash,
-        r.user_id, nowBeijing(), nowBeijing())
-      // 改写 resources.file_path 为代理地址（旧图不重转 webp）
-      await sRun('UPDATE resources SET file_path=?, file_id=? WHERE id=?', `/api/file/${fileId}`, fileId, r.id)
-      res.done++
+        fileId, up.fileId, f.name, buf.byteLength, mime, 'b2', CFG.B2_BUCKET_NAME,
+        objectKey, 0, 0, 'migrated', 0, hash, null, nowBeijing(), nowBeijing())
+      const refs = await rewriteRefs(f.name, `/api/file/${fileId}`)
+      await sRun(
+        `INSERT INTO b2_migration_log (source_backend,source_key,file_id,size,mime,sha1,refs_updated,status,created_at)
+         VALUES ('supabase',?,?,?,?,?,?,'done',?)`,
+        f.name, fileId, buf.byteLength, mime, hash, refs, nowBeijing())
+      res.done++; res.refsUpdated += refs; res.bytesMoved += buf.byteLength
+      res.items.push({ source: f.name, fileId, size: buf.byteLength, status: 'migrated', refs })
     } catch (e: any) {
       res.failed++; res.errors.push(String(e.message || e).slice(0, 160))
+      res.items.push({ source: f.name, status: 'failed' })
     }
+  }
+
+  // 迁移后统一置位：被「已过审资源」引用的文件 → 公开可缓存（旧图不重转 webp）
+  try {
+    await sRun(
+      `UPDATE file_meta SET is_public=1, cacheable=1
+       WHERE file_id IN (
+         SELECT REPLACE(r.file_path,'/api/file/','') FROM resources r
+         WHERE r.file_path LIKE '/api/file/%' AND r.status='approved')`)
+  } catch (e: any) {
+    console.log(`[迁移][置位失败] ${String(e.message || e).slice(0, 80)}`)
   }
   return res
 }
@@ -606,25 +854,36 @@ export async function migrateToB2(opts: { limit?: number; onlyPending?: boolean 
 export async function getStorageMonitor(): Promise<any> {
   const backendMode = (CFG.STORAGE_BACKEND || 'B2_FREE').toUpperCase()
 
-  // ---- A. B2 官方数据（桶占用来自 b2_list_buckets 官方摘要；账户级配额本账户不可用）----
+  // ---- A. B2 官方容量 ----
+  // v4.4.1 关键修复：旧版每次打开监控面板都调 b2_list_buckets（**Class C**，
+  // 免费账户 2500/日）→ 管理员刷 8 次面板就烧 8 次 C 类，这正是「C 类异常」的主因。
+  // 现在改为：只读 D1 里的官方盘点快照（b2_bucket_census），
+  // 管理员点「立即盘点」时才由 /api/admin/storage/census 真正调 B2（每日 1 次上限）。
   let b2Official: any = null
   let b2Error: string | null = null
-  // 桶级摘要（官方，不列举文件，不违反禁调 B2 List 约束）
   try {
-    const bucket = await b2GetBucketInfo()
+    const census = await sGet<any>('SELECT * FROM b2_bucket_census ORDER BY day DESC LIMIT 1')
     b2Official = {
-      bucketId: bucket?.bucketId || null,
-      bucketName: bucket?.bucketName || CFG.B2_BUCKET_NAME || null,
-      bucketType: bucket?.bucketType || null,
-      fileCount: bucket?.fileCount,                                               // 桶文件数（官方桶级摘要）
-      totalSizeBytes: bucket?.totalSize,                                          // 桶已用字节（官方）
+      bucketId: CFG.B2_BUCKET_ID || null,
+      bucketName: CFG.B2_BUCKET_NAME || null,
+      bucketType: 'allPrivate',
+      fileCount: census ? census.file_count : null,
+      totalSizeBytes: census ? census.total_size : null,
+      // 官方口径说明：数值来自 B2 官方 b2_list_file_names 全量盘点求和，不是本地估算
+      censusDay: census ? census.day : null,
+      censusAt: census ? census.created_at : null,
+      censusSource: census ? 'B2_OFFICIAL_LIST' : 'NOT_SCANNED',
+      censusStale: census ? (census.day !== dayStr()) : true,
     }
   } catch (e: any) {
     b2Error = String(e.message || e).slice(0, 160)
-    console.log(`[B2][监控官方拉取失败] ${b2Error}`)
+    console.log(`[B2][监控快照读取失败] ${b2Error}`)
   }
-  // 账户级配额（b2_get_account_info）本账户（免费 + 主密钥无 readAccountInfo）返回 404，
-  // 因此「当日 B 类官方计数」不可得。详见 quotaSource 字段说明。
+  // 账户级配额（b2_get_account_info）本账户实测 404，官方「当日 B 类计数」不可得，
+  // 详见下方 quotaSource 字段说明。
+  // B2 免费账户存储上限 10 GB（B2 官方公开档位，非自算）；API 取不到故以常量声明，
+  // 面板会标注「以 B2 控制台 Billing 页为准」。
+  const STORAGE_CAP_BYTES = 10 * 1024 * 1024 * 1024
 
   // ---- B. D1 本地可观测性指标（真实发生，非猜测）----
   const webpRow = await sGet<{ n: number; sz: number }>(
@@ -654,14 +913,34 @@ export async function getStorageMonitor(): Promise<any> {
   const quotaToday = await getQuotaToday()
   const alerted = quotaToday >= QUOTA_ALERT()
 
+  // 迁移进度（Supabase 源文件是否已全量搬到 B2）
+  let migration: any = { migratedFiles: 0, migratedBytes: 0, lastAt: null, pending: null }
+  try {
+    const m = await sGet<any>('SELECT COUNT(*) AS n, COALESCE(SUM(size),0) AS sz, MAX(created_at) AS last_at FROM b2_migration_log')
+    migration = { migratedFiles: m?.n || 0, migratedBytes: m?.sz || 0, lastAt: m?.last_at || null, pending: null }
+  } catch {}
+
+  const usedBytes = b2Official?.totalSizeBytes || 0
   return {
     backendMode,
-    // —— 官方数据（直接来自 B2 官方桶摘要）——
+    // —— 官方数据（B2 官方 b2_list_file_names 全量盘点，日级快照）——
     b2: b2Official,
     b2Error,
+    // —— 容量（上限为 B2 公开免费档位常量，非 API 可得）——
+    capacityBytes: STORAGE_CAP_BYTES,
+    capacityNote: 'B2 免费档位 10 GB（API 取不到，b2_get_account_info 实测 404），以 B2 控制台 Billing 页为准',
+    usedBytes,
+    usedPercent: STORAGE_CAP_BYTES ? Math.round((usedBytes / STORAGE_CAP_BYTES) * 1000) / 10 : 0,
+    remainingBytes: Math.max(STORAGE_CAP_BYTES - usedBytes, 0),
+    // —— Supabase 已废弃（仅保留只读回退，用于迁移期兼容）——
+    supabase: {
+      deprecated: true,
+      note: 'Supabase Storage 已废弃：上传/下载统一走 B2。仅保留只读回退，用于迁移未完成时的兼容，不再写入新文件。',
+    },
+    migration,
     // —— 配额（本地真实回源统计，明确标注非官方）——
     quotaSource: 'LOCAL_NON_OFFICIAL',                                          // 明确：本地统计（非官方）
-    quotaNote: 'B2 免费账户不暴露官方每日 B 类计数；此值为本系统真实回源次数（非猜测），仅供限速/告警参考。',
+    quotaNote: 'B2 免费账户不暴露官方每日 B 类计数（实测响应头无 b2-api-b-class-transaction-count-today，b2_get_account_info 亦 404）；此值为本系统真实回源次数（非猜测），仅供限速/告警参考。',
     quotaToday,
     quotaAlert: QUOTA_ALERT(),
     quotaExhausted: quotaToday >= B2_FREE_BCLASS_CAP,

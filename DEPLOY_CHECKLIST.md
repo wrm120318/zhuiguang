@@ -78,28 +78,67 @@ npx wrangler deploy
 
 > Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
 
-### 第六步：B2 存储建表（v4.4.0 新增）
+### 第六步：B2 存储建表（v4.4.0 / v4.4.1 新增）
 
 ```bash
 npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0001_b2_storage.sql
 ```
 
-新建 `file_meta` / `b2_quota_daily` / `b2_user_origin` / `b2_prewarm_log` / `b2_download_metrics`，并给 `resources` 补 `file_id` 列。表均 `IF NOT EXISTS` 幂等，可重复执行。
+- v4.4.0：`file_meta` / `b2_quota_daily` / `b2_user_origin` / `b2_prewarm_log` / `b2_download_metrics`，并给 `resources` 补 `file_id` 列。
+- v4.4.1：**`b2_auth_cache`（关键，治理 C 类交易）** / `b2_bucket_census`（官方容量盘点快照） / `b2_migration_log`（迁移幂等）。
+
+表均 `IF NOT EXISTS` 幂等，可重复执行。**Worker 启动时也会自愈建表**，故此步主要用于本地/手动场景。
 
 ### 第七步：存量迁移 Supabase → B2（部署后执行）
 
+> v4.4.1 重写：旧版从 D1 查 `file_path LIKE '%supabase%'` 一条都匹配不到（D1 存的是纯文件名），
+> 导致迁移永远 `total=0`。新版直接全量列举 Supabase 桶。
+
 ```bash
-# 超管调用，分批（每次 50 个），重复直至 done+failed+skipped 覆盖 total
+# ① 先只盘点不搬迁（dryRun），确认待迁文件清单
 curl -X POST https://<worker域名>/api/admin/migrate/to-b2 \
   -H "Authorization: Bearer <超管token>" \
-  -H "Content-Type: application/json" -d '{"limit":50}'
+  -H "Content-Type: application/json" -d '{"dryRun":true}'
+
+# ② 全量迁移（幂等，可重复执行；默认不删 Supabase 源文件）
+curl -X POST https://<worker域名>/api/admin/migrate/to-b2 \
+  -H "Authorization: Bearer <超管token>" \
+  -H "Content-Type: application/json" -d '{}'
+
+# ③ 查进度
+curl https://<worker域名>/api/admin/migrate/status -H "Authorization: Bearer <超管token>"
 ```
 
-迁移是「复制」非「移动」，旧 Supabase 文件保留作兜底；迁移后 `resources.file_path` 改为 `/api/file/{fileId}`。
+迁移是「复制」非「移动」，旧 Supabase 文件保留作兜底。迁移会自动改写 D1 中的引用：
+`resources.file_path` / `users.avatar` / `articles.cover` / `articles.images` / `pages.cover` /
+`pages.images` / `pages.attachments` / `messages.attachments` / `quiz_questions.attachments` /
+`subject_questions.attachments`，改写后前端拿到的仍是同一语义的 `/api/file/{fileId}`。
+
+**更省事的做法**：管理后台 → 运行监控 → **B2 存储** → 「存量迁移」卡片 → 点「仅盘点」再点「全量迁移」。
+
+### 第七步（附）：B2 官方容量盘点（每日限 1 次，消耗 Class A）
+
+管理后台 → 运行监控 → **B2 存储** → 容量进度条下方「立即盘点」。
+或命令行：
+
+```bash
+curl -X POST https://<worker域名>/api/admin/storage/census \
+  -H "Authorization: Bearer <超管token>" \
+  -H "Content-Type: application/json" -d '{}'
+```
 
 ### 第八步：验证
 
-访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常；管理后台 → 运行监控 → 存储优化，确认 B2 监控模块显示后端模式与官方桶占用。
+访问 https://xkzg.de5.net，使用 `admin / admin123456` 登录，确认各功能正常。
+管理后台 → 运行监控 → **B2 存储** tab，确认显示：后端模式、官方容量（含盘点日期）、
+今日回源（标注非官方）、缓存命中率、下载耗时、迁移进度。
+
+**验证清单**：
+
+1. 上传一个新文件（任意类型）→ 能正常下载、预览
+2. 再下载同一文件 → 「回源耗时」应显著下降（边缘缓存命中）
+3. 打开监控面板刷新 5 次 → 去 B2 控制台看「Class C transactions today」应**基本不增长**
+4. 执行「全量迁移」→ 15 个存量文件搬完，且原资源仍能正常下载
 
 ---
 

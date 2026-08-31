@@ -76,3 +76,49 @@ CREATE TABLE IF NOT EXISTS b2_download_metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_b2_dm_day ON b2_download_metrics(day);
 CREATE INDEX IF NOT EXISTS idx_b2_dm_file ON b2_download_metrics(file_id);
+
+-- ============================================================
+-- v4.4.1 新增（C 类交易治理 / 官方容量盘点 / 全量迁移幂等）
+-- ============================================================
+
+-- 7) B2 鉴权 token 共享缓存（单行表，id 恒为 1）
+--    背景：b2_authorize_account 属 **Class C**（免费账户 2500/日）。
+--    原先 token 只存 Worker 模块级变量，而 Cloudflare 在全球多个 PoP
+--    各起一个 isolate 且会冷启动回收 → 每个 isolate 首次请求都要花 1 次 C 类。
+--    落 D1 后全球 isolate 共享同一 token，正常情况下每日仅 1 次 C 类。
+CREATE TABLE IF NOT EXISTS b2_auth_cache (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  token        TEXT    NOT NULL,
+  api_url      TEXT    NOT NULL,
+  download_url TEXT    NOT NULL,
+  account_id   TEXT,
+  exp          INTEGER NOT NULL,               -- 过期时间戳（ms），预留 1h 安全余量
+  updated_at   INTEGER
+);
+
+-- 8) B2 官方容量盘点快照（每日最多 1 次）
+--    背景：b2_get_account_info 实测 404；b2_list_buckets 响应**不含**
+--    fileCount/totalSize 字段。故「官方已用容量」只能靠 b2_list_file_names
+--    全量列举求和（属 Class A，免费 2500/日），因此每日只做一次并落库。
+CREATE TABLE IF NOT EXISTS b2_bucket_census (
+  day        TEXT    PRIMARY KEY,              -- 'YYYY-MM-DD'（北京时间）
+  file_count INTEGER DEFAULT 0,
+  total_size INTEGER DEFAULT 0,
+  created_at INTEGER
+);
+
+-- 9) 存量迁移日志（Supabase → B2，幂等）
+--    source_key 为 Supabase 桶内的对象 key，UNIQUE 保证重复执行不会重复上传。
+CREATE TABLE IF NOT EXISTS b2_migration_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_backend TEXT   NOT NULL DEFAULT 'supabase',
+  source_key    TEXT    NOT NULL UNIQUE,
+  file_id       TEXT    NOT NULL,              -- 迁移后的 /api/file/{fileId}
+  size          INTEGER,
+  mime          TEXT,
+  sha1          TEXT,                          -- 迁移前后一致性校验
+  refs_updated  INTEGER DEFAULT 0,             -- 改写了多少处 D1 引用
+  status        TEXT    DEFAULT 'done',        -- done|failed
+  created_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_b2_migration_fid ON b2_migration_log(file_id);

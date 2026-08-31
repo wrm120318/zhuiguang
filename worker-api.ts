@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
   getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, supaExtractKey,
+  runBucketCensus,
 } from './storage-layer'
 
 // ===== Workers 环境变量类型 =====
@@ -690,6 +691,20 @@ app.use('*', async (c, next) => {
       await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_user_origin (day TEXT NOT NULL, user_id INTEGER NOT NULL, cnt INTEGER DEFAULT 0, PRIMARY KEY (day, user_id))`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_prewarm_log (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT, operator INTEGER, status TEXT DEFAULT 'done', cost_ms INTEGER, created_at INTEGER)`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_download_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, file_id TEXT, user_id INTEGER, hit INTEGER DEFAULT 0, is_range INTEGER DEFAULT 0, cost_ms INTEGER, created_at INTEGER)`).run()
+      // ===== v4.4.1：C 类交易治理 / 官方容量盘点 / 全量迁移幂等 =====
+      // b2_auth_cache：把 b2_authorize_account 结果落库，全球 isolate 共享，
+      //   否则每个 PoP / 每次冷启动都要花 1 次 Class C（曾出现「1 次下载 = 8 次 C 类」）
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_auth_cache (
+        id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL, api_url TEXT NOT NULL,
+        download_url TEXT NOT NULL, account_id TEXT, exp INTEGER NOT NULL, updated_at INTEGER)`).run()
+      // b2_bucket_census：B2 官方容量盘点快照（b2_list_file_names 全量求和，每日 1 次）
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_bucket_census (day TEXT PRIMARY KEY, file_count INTEGER DEFAULT 0, total_size INTEGER DEFAULT 0, created_at INTEGER)`).run()
+      // b2_migration_log：Supabase → B2 迁移日志（source_key UNIQUE，保证幂等）
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS b2_migration_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, source_backend TEXT NOT NULL DEFAULT 'supabase',
+        source_key TEXT NOT NULL UNIQUE, file_id TEXT NOT NULL, size INTEGER, mime TEXT, sha1 TEXT,
+        refs_updated INTEGER DEFAULT 0, status TEXT DEFAULT 'done', created_at INTEGER)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_b2_migration_fid ON b2_migration_log(file_id)`).run()
       try { await D1.prepare("ALTER TABLE resources ADD COLUMN file_id TEXT").run() } catch {}
     } catch {}
   }
@@ -4165,148 +4180,6 @@ app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) =
   })
 })
 
-// 存储监控：Supabase 存储用量 + 大文件排行 + 优化建议
-app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const t0 = Date.now()
-  try {
-    // 并行获取：存储文件列表 + D1 资源记录 + Supabase DB 统计
-    const [storageData, resources, supaDbStats] = await Promise.all([
-      getSupabaseStorageUsage(),
-      all<any>('SELECT id, title, file_name, file_path, file_size, file_type, downloads, status, created_at FROM resources ORDER BY id DESC LIMIT 200'),
-      getSupabaseDbStats(),
-    ])
-
-    // 大体积文件 TOP 20（附带关联资源信息）
-    const resourceByKey = new Map<string, any>()
-    for (const r of resources) {
-      const key = extractKey(r.file_path || '')
-      if (key) resourceByKey.set(key, r)
-    }
-    const topRaw = [...storageData.files]
-      .sort((a, b) => (b.size || 0) - (a.size || 0))
-      .slice(0, 20)
-    // 【v4.3.1】文件溯源：一次性反查这些文件是从哪个界面上传的
-    const originMap = await traceFileOrigins(topRaw.map(f => f.name))
-    const topFiles = topRaw.map(f => {
-      const linked = resourceByKey.get(f.name)
-      const origin = originMap.get(f.name) || null
-      return {
-        ...f,
-        sizeFmt: fmtBytes(f.size || 0),
-        resourceId: linked?.id || null,
-        resourceTitle: linked?.title || '',
-        resourceStatus: linked?.status || '',
-        hasResource: !!linked,
-        origin,
-        // 便于前端直接展示的一句话溯源
-        originText: origin
-          ? (origin.confident && origin.refTitle
-              ? `${origin.icon} ${origin.label} · ${origin.refTitle}`
-              : `${origin.icon} ${origin.label}`)
-          : '❓ 未知来源',
-        isOrphan: !origin?.confident,   // 数据库里查不到归属 = 可清理的残留文件
-      }
-    })
-
-    // 高频访问文件 TOP 20（按下载量排序）
-    const hotResources = resources
-      .filter(r => r.downloads > 0)
-      .sort((a, b) => (b.downloads || 0) - (a.downloads || 0))
-      .slice(0, 20)
-      .map(r => ({
-        id: r.id,
-        title: r.title,
-        fileName: r.file_name,
-        fileSize: r.file_size || 0,
-        fileSizeFmt: fmtBytes(r.file_size || 0),
-        downloads: r.downloads,
-        status: r.status,
-      }))
-
-    // 冗余文件统计：D1 中有记录但 Supabase 中找不到对应文件的资源
-    const storageFileNames = new Set(storageData.files.map(f => f.name))
-    const orphanedResources = resources.filter(r => {
-      const key = extractKey(r.file_path || '')
-      return key && !storageFileNames.has(key)
-    }).map(r => ({
-      id: r.id,
-      title: r.title,
-      fileName: r.file_name,
-      filePath: r.file_path,
-      fileSize: r.file_size || 0,
-    }))
-
-    // 未关联资源记录的孤立文件
-    const resourceKeys = new Set(resources.map(r => extractKey(r.file_path || '')).filter(Boolean))
-    const orphanedFiles = storageData.files.filter(f => !resourceKeys.has(f.name)).map(f => ({
-      ...f,
-      sizeFmt: fmtBytes(f.size || 0),
-    }))
-
-    // 生成优化建议
-    const suggestions = generateOptimizationSuggestions(storageData.files, resources)
-
-    // 当日上传/删除流量统计
-    const today = dateNowBeijing()
-    const todayUploads = resources.filter(r => r.created_at && r.created_at.startsWith(today))
-    const todayUploadSize = todayUploads.reduce((sum, r) => sum + (r.file_size || 0), 0)
-
-    // 容量告警判断
-    const TOTAL_CAPACITY = 1024 * 1024 * 1024 // 1GB
-    const usedPercent = (storageData.totalSize / TOTAL_CAPACITY) * 100
-    const alerts: any[] = []
-    if (usedPercent > 80) {
-      alerts.push({ level: 'danger', message: `存储容量已使用 ${usedPercent.toFixed(1)}%，接近上限！建议立即优化大体积文件` })
-    } else if (usedPercent > 60) {
-      alerts.push({ level: 'warning', message: `存储容量已使用 ${usedPercent.toFixed(1)}%，建议进行文件轻量化优化` })
-    }
-    if (suggestions.length > 0) {
-      const totalPotentialSaving = suggestions.reduce((sum, s) => sum + s.potentialSaving, 0)
-      alerts.push({
-        level: 'info',
-        message: `发现 ${suggestions.length} 个可优化文件，预计可节省 ${fmtBytes(totalPotentialSaving)} 空间`,
-      })
-    }
-    if (orphanedFiles.length > 0) {
-      const orphanSize = orphanedFiles.reduce((sum, f) => sum + (f.size || 0), 0)
-      alerts.push({
-        level: 'warning',
-        message: `发现 ${orphanedFiles.length} 个孤立文件（未关联资源记录），占用 ${fmtBytes(orphanSize)} 空间`,
-      })
-    }
-
-    return c.json({
-      storage: {
-        totalFiles: storageData.totalFiles,
-        totalSize: storageData.totalSize,
-        totalSizeFmt: fmtBytes(storageData.totalSize),
-        capacity: TOTAL_CAPACITY,
-        capacityFmt: '1 GB',
-        usedPercent: usedPercent.toFixed(1),
-        remaining: TOTAL_CAPACITY - storageData.totalSize,
-        remainingFmt: fmtBytes(TOTAL_CAPACITY - storageData.totalSize),
-        equivalentExpansion: (TOTAL_CAPACITY / Math.max(TOTAL_CAPACITY - storageData.totalSize, 1)).toFixed(1) + 'x',
-      },
-      topFiles,
-      hotResources,
-      orphanedResources,
-      orphanedFiles,
-      suggestions,
-      todayStats: {
-        uploadCount: todayUploads.length,
-        uploadSize: todayUploadSize,
-        uploadSizeFmt: fmtBytes(todayUploadSize),
-      },
-      // 【v4.3.1 修复】原写 supabaseDbStats（未定义）→ ReferenceError → 整个监控接口 500，
-      //   自 worker-api.ts 创建起就存在，存储监控页从未成功加载过。解构变量名是 supaDbStats。
-      supabaseDbStats: supaDbStats,
-      alerts,
-      _debug: { totalMs: Date.now() - t0 },
-    })
-  } catch (e: any) {
-    return c.json({ message: '存储监控数据获取失败: ' + (e.message || ''), error: true }, 500)
-  }
-})
 
 // 文件优化：批量处理大体积文件（标记优化状态）
 app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async (c) => {
@@ -4327,18 +4200,31 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
   }
 
   if (action === 'clean_orphaned') {
-    // 清理孤立文件（未关联资源记录的文件）
-    const [storageData, resources] = await Promise.all([
-      getSupabaseStorageUsage(),
-      all<any>('SELECT file_path FROM resources WHERE file_path IS NOT NULL'),
-    ])
-    const resourceKeys = new Set(resources.map(r => extractKey(r.file_path || '')).filter(Boolean))
-    const orphanedFiles = storageData.files.filter(f => !resourceKeys.has(f.name))
+    // v4.4.1：Supabase 已废弃 —— 孤立文件判定改为扫 D1 file_meta（B2 口径）
+    //   孤立 = file_meta 里有记录，但 D1 中没有任何表的字段引用这个 /api/file/{fileId}
+    const referenced = new Set<string>()
+    const scanFields: Array<[string, string]> = [
+      ['resources', 'file_path'], ['users', 'avatar'],
+      ['articles', 'cover'], ['articles', 'images'],
+      ['pages', 'cover'], ['pages', 'images'], ['pages', 'attachments'],
+      ['messages', 'attachments'],
+      ['quiz_questions', 'attachments'], ['subject_questions', 'attachments'],
+    ]
+    for (const [t, col] of scanFields) {
+      const rows = await all<any>(`SELECT ${col} AS v FROM ${t} WHERE ${col} LIKE '%/api/file/%' LIMIT 5000`).catch(() => [])
+      for (const r of rows) {
+        const m = String(r.v || '').match(/\/api\/file\/[A-Za-z0-9]+/g)
+        if (m) for (const s of m) referenced.add(s.replace('/api/file/', ''))
+      }
+    }
+    const metas = await all<any>('SELECT file_id, b2_file_id, object_key, size, backend FROM file_meta').catch(() => [])
+    const orphanedFiles = metas.filter((f) => !referenced.has(f.file_id))
     let cleanedCount = 0
     let cleanedSize = 0
     for (const f of orphanedFiles) {
       try {
-        await deleteFile(f.name)
+        if (f.backend === 'b2' && f.b2_file_id && f.object_key) await b2Delete(f.object_key, f.b2_file_id)
+        await run('DELETE FROM file_meta WHERE file_id=?', f.file_id)
         cleanedCount++
         cleanedSize += f.size || 0
       } catch {}
@@ -4351,12 +4237,29 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
   }
 
   if (action === 'list') {
-    // 列出需要优化的文件
-    const [storageData, resources] = await Promise.all([
-      getSupabaseStorageUsage(),
-      all<any>('SELECT id, title, file_name, file_path, file_size, file_type FROM resources'),
-    ])
-    const suggestions = generateOptimizationSuggestions(storageData.files, resources)
+    // v4.4.1：优化建议改为基于 D1 file_meta（B2 口径），不再 list Supabase 桶
+    const metas = await all<any>(
+      `SELECT file_id, original_name, size, mime, is_convert_webp, purpose, created_at
+       FROM file_meta ORDER BY size DESC LIMIT 200`).catch(() => [])
+    const suggestions = metas
+      .filter((f) => {
+        const big = (f.size || 0) > 1024 * 1024                        // > 1MB
+        const imgNotWebp = /^image\//.test(f.mime || '') && !/webp/.test(f.mime || '') && !f.is_convert_webp
+        return big || imgNotWebp
+      })
+      .map((f) => ({
+        fileId: f.file_id,
+        name: f.original_name || f.file_id,
+        size: f.size || 0,
+        sizeFmt: fmtBytes(f.size || 0),
+        mime: f.mime || '',
+        isConvertWebp: !!f.is_convert_webp,
+        reason: /^image\//.test(f.mime || '') && !/webp/.test(f.mime || '')
+          ? '图片未使用 WebP，转码后体积通常可降 60% 以上'
+          : '文件体积偏大，建议压缩或拆分',
+        // 保守估算：图片按 60% 计，其它按 30% 计（仅作提示，非精确值）
+        potentialSaving: Math.round((f.size || 0) * (/^image\//.test(f.mime || '') ? 0.6 : 0.3)),
+      }))
     const totalPotentialSaving = suggestions.reduce((sum, s) => sum + s.potentialSaving, 0)
     return c.json({
       suggestions,
@@ -4464,9 +4367,23 @@ app.get('/api/admin/storage/config', auth, requireRole('SUPER_ADMIN'), async (c)
 })
 
 // B2 存储监控数据（供管理后台 B2 监控模块拉取）
+// v4.4.1：只读 D1 快照，不发起任何 B2 请求（避免刷面板烧掉 Class C 交易）
 app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const data = await getStorageMonitor().catch((e) => ({ error: String(e?.message || e) }))
   return c.json(data)
+})
+
+// B2 官方容量盘点：实时调用 b2_list_file_names 全量列举求和（**消耗 Class A 交易**）
+// 每日最多一次（force=true 可强制重扫）。这是本账户唯一能拿到官方容量的途径
+// （b2_get_account_info 实测 404；b2_list_buckets 响应不含 fileCount/totalSize）。
+app.post('/api/admin/storage/census', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const { force } = await c.req.json().catch(() => ({}))
+  try {
+    const r = await runBucketCensus(!!force)
+    return c.json({ ok: true, ...r })
+  } catch (e: any) {
+    return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
+  }
 })
 
 // 管理员预热：把高频文件推送到 CF 边缘缓存
@@ -4482,12 +4399,35 @@ app.post('/api/admin/prewarm', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ ok: true, results })
 })
 
-// 存量迁移：Supabase → B2（服务端执行，复用 Worker 绑定；不调用 B2 List）
-// 每批处理 limit 个，前端循环调用直至 done+failed+skipped 覆盖 total。
+// 存量迁移：Supabase → B2（全量、幂等、自动改写 D1 引用）
+// v4.4.1 重写：旧版从 D1 查 `file_path LIKE '%supabase%'` —— 一条都匹配不到
+//   （D1 里存的是纯文件名，不含 "supabase" 字样），导致迁移永远 total=0。
+//   新版直接全量列举 Supabase 桶，逐个搬迁并改写引用，重复执行安全。
+// 参数：limit（本批处理数量，默认 20）/ only（只迁某个 key，模糊匹配）/ dryRun（只盘点不搬迁）
 app.post('/api/admin/migrate/to-b2', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const { limit, onlyPending } = await c.req.json().catch(() => ({}))
-  const res = await migrateToB2({ limit: Number(limit) || 50, onlyPending: !!onlyPending })
+  const { limit, only, dryRun } = await c.req.json().catch(() => ({}))
+  const res = await migrateToB2({
+    limit: limit ? Number(limit) : undefined,
+    only: only || undefined,
+    dryRun: !!dryRun,
+  })
   return c.json({ ok: true, ...res })
+})
+
+// 迁移进度查询（不搬迁，只汇报已迁多少 / 还剩多少）
+app.get('/api/admin/migrate/status', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const done = await get<{ n: number; sz: number }>(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(size),0) AS sz FROM b2_migration_log`).catch(() => ({ n: 0, sz: 0 }))
+  const last = await all<any>(
+    `SELECT source_key, file_id, size, refs_updated, created_at FROM b2_migration_log
+     ORDER BY id DESC LIMIT 20`).catch(() => [])
+  return c.json({
+    ok: true,
+    migratedFiles: done?.n || 0,
+    migratedBytes: done?.sz || 0,
+    migratedBytesFmt: fmtBytes(done?.sz || 0),
+    recent: last || [],
+  })
 })
 
 app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
@@ -4555,10 +4495,11 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   // D1 空数据表统计（行数为0的表）
   const emptyTables = d1TableDetails.filter(t => t.rows === 0).map(t => t.table)
 
-  // 并行获取 Supabase 数据库统计 + 存储统计 + 缓存统计
-  const [supaDbStats, storageData, hotCacheStats] = await Promise.all([
-    getSupabaseDbStats(),
-    getSupabaseStorageUsage().catch(() => ({ totalFiles: 0, totalSize: 0, files: [] })),
+  // v4.4.1：Supabase Storage 已废弃 —— 移除对 Supabase 的 list / 统计调用。
+  //   旧实现每次打开监控页都会 list 整个 Supabase 桶，既慢又已无业务意义；
+  //   存储口径统一改为 B2（读 D1 官方盘点快照，零外部调用、不烧交易类别）。
+  const [b2Monitor, hotCacheStats] = await Promise.all([
+    getStorageMonitor().catch(() => null),
     Promise.resolve().then(() => {
       let totalSize = 0, totalHits = 0
       for (const [, v] of HOT_FILE_CACHE) { totalSize += v.size; totalHits += v.hits }
@@ -4566,39 +4507,36 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
     }),
   ])
 
-  // Supabase 存储容量计算
-  const TOTAL_CAPACITY = 1024 * 1024 * 1024 // 1GB
-  const storageUsedPercent = storageData.totalSize ? (storageData.totalSize / TOTAL_CAPACITY) * 100 : 0
-  const storageRemaining = TOTAL_CAPACITY - (storageData.totalSize || 0)
+  // B2 容量：已用取自官方盘点快照；上限为 B2 免费档位常量（API 取不到，已实测 404）
+  const b2Used = b2Monitor?.usedBytes || 0
+  const b2Cap = b2Monitor?.capacityBytes || (10 * 1024 * 1024 * 1024)
+  const storageUsedPercent = b2Cap ? (b2Used / b2Cap) * 100 : 0
+  const storageRemaining = Math.max(b2Cap - b2Used, 0)
 
-  // 大体积文件 TOP 10（附带关联资源信息，支持预览后删除）
-  const monitorResources = await all<any>('SELECT id, title, file_path, status FROM resources ORDER BY id DESC LIMIT 200').catch(() => [])
-  const monitorResourceByKey = new Map<string, any>()
+  // 大体积文件 TOP 10：直接查 D1 file_meta（本地元数据，零外部调用）
+  const topRawFiles = await all<any>(
+    `SELECT file_id, original_name, size, mime, purpose, is_public, created_at
+     FROM file_meta ORDER BY size DESC LIMIT 10`).catch(() => [])
+  const monitorResources = await all<any>(
+    `SELECT id, title, file_path, status FROM resources WHERE file_path LIKE '/api/file/%'`).catch(() => [])
+  const monitorResourceByFid = new Map<string, any>()
   for (const r of monitorResources) {
-    const key = extractKey(r.file_path || '')
-    if (key) monitorResourceByKey.set(key, r)
+    const m = /^\/api\/file\/([A-Za-z0-9]+)/.exec(r.file_path || '')
+    if (m) monitorResourceByFid.set(m[1], r)
   }
-  const topRawFiles = [...(storageData.files || [])]
-    .sort((a, b) => (b.size || 0) - (a.size || 0))
-    .slice(0, 10)
-  // 【v4.3.1】文件溯源：反查这些文件是从哪个界面上传的（超管监控页「大体积文件 TOP 10」用）
-  const monitorOriginMap = await traceFileOrigins(topRawFiles.map(f => f.name))
   const topStorageFiles = topRawFiles.map(f => {
-    const linked = monitorResourceByKey.get(f.name)
-    const origin = monitorOriginMap.get(f.name) || null
+    const linked = monitorResourceByFid.get(f.file_id)
     return {
-      name: f.name, size: f.size || 0, sizeFmt: fmtBytes(f.size || 0),
+      name: f.original_name || f.file_id,
+      fileId: f.file_id,
+      size: f.size || 0, sizeFmt: fmtBytes(f.size || 0),
+      mime: f.mime || '', purpose: f.purpose || '',
       resourceId: linked?.id || null,
       resourceTitle: linked?.title || '',
       resourceStatus: linked?.status || '',
       hasResource: !!linked,
-      origin,
-      originText: origin
-        ? (origin.confident && origin.refTitle
-            ? `${origin.icon} ${origin.label} · ${origin.refTitle}`
-            : `${origin.icon} ${origin.label}`)
-        : '❓ 未知来源',
-      isOrphan: !origin?.confident,
+      // D1 里查不到任何资源引用它 → 可疑残留（可能是上传后未提交/已删除资源）
+      isOrphan: !linked,
     }
   })
 
@@ -4620,11 +4558,22 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
   if (d1UsedPercent > 80) {
     alerts.push({ level: 'danger', source: 'D1', message: `D1数据库已使用 ${d1UsedPercent.toFixed(1)}%，接近500MB上限` })
   }
-  // Supabase 存储告警
+  // ===== B2 存储告警（v4.4.1：Supabase 已废弃，口径全部改为 B2）=====
   if (storageUsedPercent > 80) {
-    alerts.push({ level: 'danger', source: 'Supabase存储', message: `存储容量已使用 ${storageUsedPercent.toFixed(1)}%，接近1GB上限！` })
+    alerts.push({ level: 'danger', source: 'B2存储', message: `B2 存储已使用 ${storageUsedPercent.toFixed(1)}%，接近 10GB 免费档上限！` })
   } else if (storageUsedPercent > 60) {
-    alerts.push({ level: 'warning', source: 'Supabase存储', message: `存储容量已使用 ${storageUsedPercent.toFixed(1)}%，建议优化` })
+    alerts.push({ level: 'warning', source: 'B2存储', message: `B2 存储已使用 ${storageUsedPercent.toFixed(1)}%，建议优化` })
+  }
+  // B2 回源配额告警（本地真实回源统计，非官方数字，已在面板标注）
+  if (b2Monitor?.quotaAlerted) {
+    alerts.push({ level: 'warning', source: 'B2回源', message: `今日 B2 回源 ${b2Monitor.quotaToday} 次，已达告警阈值 ${b2Monitor.quotaAlert}（本地统计·非官方）` })
+  }
+  if (b2Monitor?.quotaExhausted) {
+    alerts.push({ level: 'danger', source: 'B2回源', message: `今日 B2 回源已达免费上限 ${b2Monitor.bClassFreeCap} 次，新文件将暂时拒绝回源` })
+  }
+  // 缓存命中率告警：命中率低说明大部分请求在跨太平洋回源，用户会明显感觉慢
+  if (b2Monitor && b2Monitor.hitCount + b2Monitor.missCount >= 20 && b2Monitor.cacheHitRate < 50) {
+    alerts.push({ level: 'info', source: 'B2缓存', message: `B2 缓存命中率仅 ${b2Monitor.cacheHitRate}%（回源均耗时 ${b2Monitor.missAvgMs}ms）。建议对高频文件执行「预热」以提升下载速度` })
   }
   // 空表告警
   if (emptyTables.length > 0) {
@@ -4673,24 +4622,49 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
       emptyTables,
       tableDetails: d1TableDetails,
     },
-    // ===== Supabase 数据库监控 =====
+    // ===== Supabase 数据库：已废弃（v4.4.1）=====
+    // 本项目主库为 Cloudflare D1，Supabase 仅曾用于对象存储且现已废弃。
+    // 保留字段是为了让旧前端不报错；不再发起任何 Supabase 请求。
     supabaseDb: {
-      url: SUPABASE_URL ? SUPABASE_URL.replace('https://', '').replace('.supabase.co', '') : '未配置',
+      deprecated: true,
       configured: !!SUPABASE_URL,
-      tableStats: supaDbStats,
-      totalRows: supaDbStats ? Object.values(supaDbStats).reduce((s: number, n: any) => s + Number(n), 0) : 0,
+      note: 'Supabase 数据库未启用（本项目主库为 Cloudflare D1），此项仅作兼容占位',
     },
-    // ===== Supabase 存储监控 =====
-    supabaseStorage: {
-      bucket: SUPABASE_BUCKET,
-      totalFiles: storageData.totalFiles || 0,
-      totalSize: storageData.totalSize || 0,
-      totalSizeFmt: fmtBytes(storageData.totalSize || 0),
-      capacity: TOTAL_CAPACITY,
-      capacityFmt: '1 GB',
+    // ===== B2 存储监控（v4.4.1：替代原 Supabase Storage 监控）=====
+    supabaseStorage: null,   // 显式置空，提示前端不要再渲染 Supabase 卡片
+    b2Storage: {
+      backend: b2Monitor?.backendMode || (STORAGE_BACKEND || 'B2_FREE').toUpperCase(),
+      bucket: b2Monitor?.b2?.bucketName || B2_BUCKET_NAME || '',
+      bucketType: b2Monitor?.b2?.bucketType || 'allPrivate',
+      totalFiles: b2Monitor?.b2?.fileCount ?? null,
+      totalSize: b2Used,
+      totalSizeFmt: fmtBytes(b2Used),
+      capacity: b2Cap,
+      capacityFmt: '10 GB',
+      capacityNote: b2Monitor?.capacityNote || 'B2 免费档位 10 GB（以 B2 控制台 Billing 页为准）',
       usedPercent: storageUsedPercent.toFixed(1),
       remaining: storageRemaining,
       remainingFmt: fmtBytes(storageRemaining),
+      // 官方盘点快照元信息（用于告诉管理员数据有多新鲜）
+      censusDay: b2Monitor?.b2?.censusDay || null,
+      censusStale: !!b2Monitor?.b2?.censusStale,
+      censusSource: b2Monitor?.b2?.censusSource || 'NOT_SCANNED',
+      // 回源 / 缓存 / 配额
+      quotaToday: b2Monitor?.quotaToday ?? 0,
+      quotaSource: b2Monitor?.quotaSource || 'LOCAL_NON_OFFICIAL',
+      quotaNote: b2Monitor?.quotaNote || '',
+      quotaAlert: b2Monitor?.quotaAlert ?? 2200,
+      quotaExhausted: !!b2Monitor?.quotaExhausted,
+      bClassFreeCap: b2Monitor?.bClassFreeCap ?? 2500,
+      cacheHitRate: b2Monitor?.cacheHitRate ?? 0,
+      hitCount: b2Monitor?.hitCount ?? 0,
+      missCount: b2Monitor?.missCount ?? 0,
+      hitAvgMs: b2Monitor?.hitAvgMs ?? 0,
+      missAvgMs: b2Monitor?.missAvgMs ?? 0,
+      originTop: b2Monitor?.originTop || [],
+      webpCount: b2Monitor?.webpCount ?? 0,
+      webpSize: b2Monitor?.webpSize ?? 0,
+      migration: b2Monitor?.migration || null,
       topFiles: topStorageFiles,
       todayUploads: todayUploadStats?.cnt || 0,
       todayUploadSize: todayUploadStats?.sz || 0,

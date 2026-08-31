@@ -455,4 +455,43 @@ v4.2.2 文档声明的 9 类扩展曾有 5 类严重问题（v4.2.3 一次性修
 4. 禁止改 `worker-api.ts` 不同步 `server/index.ts`（双后端必须一致）
 5. 禁止删除 `notices` 表的 `target_url` 字段（v4.2.1 在线 ALTER 已加）
 
+---
+
+## B2 存储铁律（v4.4.0 / v4.4.1 起，改文件存储前必读）
+
+完整版见 `docs/B2存储运维文档.md`。以下为**踩过的坑，禁止重犯**：
+
+1. **禁止把 B2 鉴权 token 只存 Worker 内存变量**。
+   `b2_authorize_account` 属 **Class C**（2500/日），而 Cloudflare 在全球多个 PoP 各起一个 isolate
+   且会冷启动回收 —— 只存内存会导致每个 isolate 每次冷启动都白烧 1 次 C 类。
+   必须落 D1 `b2_auth_cache` 表（单行，`id=1`）供全球共享。三级缓存：内存 → D1 → 真调 B2。
+
+2. **禁止在监控/统计类接口里实时调 B2**。`b2_list_buckets` 也是 **Class C**，
+   管理员每刷一次面板就烧一次。监控一律读 D1 快照，只有用户点「立即盘点」才真调 B2（每日限 1 次）。
+
+3. **禁止再尝试 `b2_get_account_info`**。实测 v2 / v3 均返回 **404 not_found**
+   （主密钥 capabilities 为空，B2 的 application key 也不提供 `readAccountInfo` 选项）。纯属白烧。
+
+4. **禁止以为 `b2_list_buckets` 会返回 `fileCount` / `totalSize`**。实测响应**不含**这两个字段。
+   官方容量只能靠 `b2_list_file_names` 全量枚举求和（Class A），故每日限 1 次落 `b2_bucket_census`。
+
+5. **禁止声称「回源次数」是 B2 官方数字**。官方头 `b2-api-b-class-transaction-count-today`
+   实测不返回，该值是本系统真实回源计数，面板必须标注「本地统计·非官方」。
+
+6. **禁止让统计写库阻塞下载响应**。配额 / 限速 / 埋点必须走 `ctx.waitUntil()` 异步。
+
+7. **禁止所有文件一律 `is_public=0, cacheable=0`**。这会让每个下载都 `private, no-store`
+   永不进边缘缓存 → 每次跨太平洋回源 → 用户感觉"下载很慢"。
+   头像 / 公告 / 封面 / Logo 上传即可公开缓存；资源类审核通过后置位；私有文件也给 300s 边缘短缓存。
+
+8. **迁移存量文件时，禁止用 `file_path LIKE '%supabase%'` 查 D1**。
+   D1 里存的是**纯文件名**（如 `file_1787038194294_v1q21tjj.docx`），不含 "supabase" 字样，
+   这样查永远 `total=0`。必须**直接全量列举 Supabase 桶**（源在桶里，不在 D1 里）。
+
+9. **Hono 路由不能重复注册同一路径**。曾出现两个 `/api/admin/storage/monitor`，
+   先注册的（旧 Supabase 版）永远先匹配，导致新版 B2 监控**从未生效**。新增路由前先 grep 是否已存在。
+
+10. **B2 源站在美国西部**，中国用户回源单文件常需 1~3s，这是物理限制。
+    唯一有效提速手段是 CF 边缘缓存命中，运维手段是「预热高频文件」。
+
 ===============================================================================

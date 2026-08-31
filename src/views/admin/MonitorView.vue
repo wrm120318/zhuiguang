@@ -11,7 +11,7 @@ const theme = useThemeStore()
 const data = ref<any>(null)
 const storageData = ref<any>(null)
 const storageLoading = ref(false)
-const activeTab = ref('supabase-storage')
+const activeTab = ref('b2-storage')
 const chart1 = ref<HTMLDivElement>()
 const chart2 = ref<HTMLDivElement>()
 let c1: echarts.ECharts | null = null
@@ -155,9 +155,75 @@ const totalTableRows = computed(() => {
 
 const hasAlerts = computed(() => (data.value?.alerts?.length || 0) > 0)
 
+// v4.4.1：Supabase 已废弃，容量口径改为 B2
 const storageUsedPercentNum = computed(() => {
-  return parseFloat(data.value?.supabaseStorage?.usedPercent || '0')
+  return parseFloat(data.value?.b2Storage?.usedPercent || '0')
 })
+
+// ===== v4.4.1 B2 运维操作：官方盘点 / 全量迁移 / 预热 =====
+const censusLoading = ref(false)
+const migrateLoading = ref(false)
+const prewarmLoading = ref(false)
+
+/** B2 官方容量盘点：实时全量列举桶（消耗 Class A 交易，每日最多 1 次；force 可强制重扫） */
+async function runCensus(force = false) {
+  censusLoading.value = true
+  try {
+    const r: any = await api.storageCensus(force)
+    if (r?.ok === false) { ElMessage.warning(r.message || '盘点失败'); return }
+    ElMessage.success(`盘点完成：${r.fileCount} 个文件 / ${fmtBytes(r.totalSizeBytes || 0)}${r.cached ? '（读取今日快照，未重复消耗额度）' : ''}`)
+    await Promise.all([load(), loadStorage()])
+  } catch (e: any) {
+    ElMessage.error('盘点失败: ' + (e?.response?.data?.message || e?.message || ''))
+  } finally {
+    censusLoading.value = false
+  }
+}
+
+/** 存量迁移 Supabase → B2：全量、幂等，自动改写 D1 引用 */
+async function runMigrate(dryRun = false) {
+  const total = data.value?.b2Storage?.migration?.migratedFiles ?? 0
+  if (!dryRun) {
+    try {
+      await ElMessageBox.confirm(
+        `将把 Supabase 存储桶中的存量文件全部搬迁到 B2，并自动改写数据库中的引用。\n` +
+        `· 重复执行安全（已迁过的会跳过）\n· 不删除 Supabase 源文件，可随时回滚\n` +
+        `· 已迁移：${total} 个\n\n确定开始吗？`,
+        '存量迁移 Supabase → B2', { type: 'warning' })
+    } catch { return }
+  }
+  migrateLoading.value = true
+  try {
+    const r: any = await api.migrateToB2({ dryRun })
+    if (r?.ok === false) { ElMessage.warning(r.message || '迁移失败'); return }
+    const err = (r.errors || []).slice(0, 2).join('；')
+    ElMessage.success(
+      dryRun
+        ? `盘点完成：Supabase 桶内共 ${r.total} 个文件待迁移`
+        : `迁移完成：成功 ${r.done}，跳过 ${r.skipped}，失败 ${r.failed}；改写引用 ${r.refsUpdated} 处，搬迁 ${fmtBytes(r.bytesMoved || 0)}${err ? '｜' + err : ''}`)
+    await Promise.all([load(), loadStorage()])
+  } catch (e: any) {
+    ElMessage.error('迁移失败: ' + (e?.response?.data?.message || e?.message || ''))
+  } finally {
+    migrateLoading.value = false
+  }
+}
+
+/** 预热：把 TOP N 大文件推到 CF 边缘缓存，显著改善首次下载速度 */
+async function prewarmTop() {
+  const ids = topFiles.value.slice(0, 10).map((f: any) => f.fileId).filter(Boolean)
+  if (!ids.length) { ElMessage.warning('暂无可预热的文件'); return }
+  prewarmLoading.value = true
+  try {
+    const r: any = await api.prewarmFiles(ids)
+    const ok = (r.results || []).filter((x: any) => x.ok).length
+    ElMessage.success(`预热完成：${ok}/${ids.length} 个文件已进入边缘缓存`)
+  } catch (e: any) {
+    ElMessage.error('预热失败: ' + (e?.response?.data?.message || e?.message || ''))
+  } finally {
+    prewarmLoading.value = false
+  }
+}
 
 const d1UsedPercentNum = computed(() => {
   return parseFloat(data.value?.database?.usedPercent || '0')
@@ -182,7 +248,7 @@ const previewFromDelete = ref(false)
 const onlyOrphan = ref(false)
 const router = useRouter()
 
-const topFiles = computed<any[]>(() => data.value?.supabaseStorage?.topFiles || [])
+const topFiles = computed<any[]>(() => data.value?.b2Storage?.topFiles || [])
 const orphanFiles = computed<any[]>(() => topFiles.value.filter(f => f.isOrphan))
 const orphanCount = computed(() => orphanFiles.value.length)
 const visibleTopFiles = computed<any[]>(() => onlyOrphan.value ? orphanFiles.value : topFiles.value)
@@ -211,13 +277,28 @@ function originTooltip(f: any): string {
   return parts.join('\n')
 }
 
-/** 跳转到溯源到的内容详情页 */
+/** 跳转到溯源到的内容详情页（v4.4.1：B2 口径下后端不再返回 origin，保留备用） */
 function goOrigin(f: any) {
   const o = f.origin
   if (!o?.detailUrl) return
   if (o.type === 'resource' && o.refId) router.push(`/subject/${o.refId}`).catch(() => {})
   else router.push(o.detailUrl).catch(() => {})
 }
+
+// ===== v4.4.1：按 file_meta.purpose 展示文件用途（B2 口径）=====
+const PURPOSE_MAP: Record<string, { icon: string; label: string }> = {
+  avatar: { icon: '👤', label: '用户头像' },
+  resource: { icon: '📚', label: '学科资料' },
+  image: { icon: '🖼️', label: '图片素材' },
+  announcement: { icon: '📢', label: '公告配图' },
+  notice: { icon: '📢', label: '公告配图' },
+  cover: { icon: '🖼️', label: '封面图' },
+  logo: { icon: '🎨', label: '站点 Logo' },
+  site: { icon: '🎨', label: '站点素材' },
+  migrated: { icon: '🚚', label: 'Supabase 迁移' },
+}
+function purposeIcon(p: string): string { return PURPOSE_MAP[p]?.icon || '📄' }
+function purposeLabel(p: string): string { return PURPOSE_MAP[p]?.label || (p || '未分类') }
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
 const PDF_EXTS = ['pdf']
@@ -458,49 +539,132 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 双库监控 Tab -->
-      <div class="section-title"><ZgGlyph emoji="🗄️" /> 双库全覆盖监控（Supabase + D1）</div>
+      <!-- 存储 + 数据库监控 Tab（v4.4.1：Supabase 已废弃，口径统一为 B2 + D1） -->
+      <div class="section-title"><ZgGlyph emoji="🗄️" /> 存储与数据库监控（B2 + D1）</div>
       <el-tabs v-model="activeTab" class="monitor-tabs">
-        <!-- ============ Supabase 存储监控 ============ -->
-        <el-tab-pane name="supabase-storage"><template #label><ZgGlyph emoji="📦" /> Supabase 存储</template>
+        <!-- ============ B2 存储监控 ============ -->
+        <el-tab-pane name="b2-storage"><template #label><ZgGlyph emoji="📦" /> B2 存储</template>
           <div v-loading="storageLoading">
-            <template v-if="data.supabaseStorage">
+            <template v-if="data.b2Storage">
               <!-- 容量进度条 -->
               <div class="capacity-bar-wrap">
                 <div class="cap-header">
-                  <span class="cap-title">存储容量使用情况</span>
+                  <span class="cap-title">
+                    B2 存储容量
+                    <el-tooltip :content="data.b2Storage.capacityNote" placement="top">
+                      <span style="cursor:help;opacity:.6;">ⓘ</span>
+                    </el-tooltip>
+                  </span>
                   <span class="cap-numbers">
-                    <b>{{ data.supabaseStorage.totalSizeFmt }}</b> / {{ data.supabaseStorage.capacityFmt }}
-                    （剩余 {{ data.supabaseStorage.remainingFmt }}）
+                    <b>{{ data.b2Storage.totalSizeFmt }}</b> / {{ data.b2Storage.capacityFmt }}
+                    （剩余 {{ data.b2Storage.remainingFmt }}）
                   </span>
                 </div>
                 <div class="capacity-bar">
                   <div :class="['capacity-fill', storageUsedPercentNum > 80 ? 'danger' : storageUsedPercentNum > 60 ? 'warning' : '']"
                        :style="{ width: Math.min(storageUsedPercentNum, 100) + '%' }">
-                    <span class="cap-percent">{{ data.supabaseStorage.usedPercent }}%</span>
+                    <span class="cap-percent">{{ data.b2Storage.usedPercent }}%</span>
+                  </div>
+                </div>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <span style="font-size:12px;color:var(--zg-text-dim);">
+                    数据来源：
+                    <b v-if="data.b2Storage.censusSource === 'B2_OFFICIAL_LIST'" style="color:#10b981;">
+                      B2 官方盘点
+                    </b>
+                    <b v-else style="color:#f59e0b;">尚未盘点</b>
+                    <template v-if="data.b2Storage.censusDay">
+                      ｜盘点日期 {{ data.b2Storage.censusDay }}
+                      <el-tag v-if="data.b2Storage.censusStale" size="small" type="warning">非今日</el-tag>
+                      <el-tag v-else size="small" type="success">今日</el-tag>
+                    </template>
+                  </span>
+                  <el-button size="small" :loading="censusLoading" @click="runCensus(false)">
+                    <ZgGlyph emoji="🔄" /> 立即盘点（每日限 1 次）
+                  </el-button>
+                  <el-button size="small" text :loading="censusLoading" @click="runCensus(true)">强制重扫</el-button>
+                </div>
+              </div>
+
+              <div class="row" style="margin-top:16px;">
+                <div class="glass info-panel">
+                  <div class="ip-title"><ZgGlyph emoji="📊" /> B2 存储概况</div>
+                  <div class="kv"><span class="k">后端模式</span><span class="v strong">{{ data.b2Storage.backend }}</span></div>
+                  <div class="kv"><span class="k">存储桶</span><span class="v strong">{{ data.b2Storage.bucket }}</span></div>
+                  <div class="kv"><span class="k">桶类型</span><span class="v strong">{{ data.b2Storage.bucketType }}</span></div>
+                  <div class="kv"><span class="k">文件总数</span><span class="v strong">{{ data.b2Storage.totalFiles ?? '—' }} 个</span></div>
+                  <div class="kv"><span class="k">剩余空间</span><span class="v" style="color:#10b981;font-weight:700;">{{ data.b2Storage.remainingFmt }}</span></div>
+                </div>
+
+                <div class="glass info-panel">
+                  <div class="ip-title">
+                    <ZgGlyph emoji="🔁" /> 今日回源
+                    <el-tooltip :content="data.b2Storage.quotaNote" placement="top">
+                      <el-tag size="small" type="warning">本地统计·非官方</el-tag>
+                    </el-tooltip>
+                  </div>
+                  <div class="kv"><span class="k">回源次数</span><span class="v strong">{{ data.b2Storage.quotaToday }} / {{ data.b2Storage.bClassFreeCap }}</span></div>
+                  <div class="kv"><span class="k">告警阈值</span><span class="v strong">{{ data.b2Storage.quotaAlert }}</span></div>
+                  <div class="kv"><span class="k">状态</span>
+                    <span class="v strong" :style="{ color: data.b2Storage.quotaExhausted ? '#ef4444' : '#10b981' }">
+                      {{ data.b2Storage.quotaExhausted ? '已耗尽' : '正常' }}
+                    </span>
+                  </div>
+                  <div style="margin-top:8px;font-size:11px;color:var(--zg-text-dim);line-height:1.6;">
+                    B2 免费账户不返回官方 B 类计数响应头，且 b2_get_account_info 实测 404，
+                    故此数字为本系统实际回源次数，仅用于限速/告警，<b>不是 B2 官方口径</b>。
+                  </div>
+                </div>
+
+                <div class="glass info-panel">
+                  <div class="ip-title"><ZgGlyph emoji="⚡" /> 下载性能</div>
+                  <div class="kv"><span class="k">缓存命中率</span>
+                    <span class="v strong" :style="{ color: data.b2Storage.cacheHitRate >= 50 ? '#10b981' : '#f59e0b' }">
+                      {{ data.b2Storage.cacheHitRate }}%
+                    </span>
+                  </div>
+                  <div class="kv"><span class="k">命中 / 回源</span><span class="v strong">{{ data.b2Storage.hitCount }} / {{ data.b2Storage.missCount }}</span></div>
+                  <div class="kv"><span class="k">命中耗时</span><span class="v strong" style="color:#10b981;">{{ data.b2Storage.hitAvgMs }} ms</span></div>
+                  <div class="kv"><span class="k">回源耗时</span><span class="v strong" :style="{ color: data.b2Storage.missAvgMs > 1500 ? '#ef4444' : 'inherit' }">{{ data.b2Storage.missAvgMs }} ms</span></div>
+                  <div style="margin-top:8px;">
+                    <el-button size="small" :loading="prewarmLoading" @click="prewarmTop">
+                      <ZgGlyph emoji="🔥" /> 预热 TOP10 文件
+                    </el-button>
+                  </div>
+                  <div style="margin-top:6px;font-size:11px;color:var(--zg-text-dim);line-height:1.6;">
+                    B2 源站在美国西部，跨太平洋回源单文件常需 1~3 秒。
+                    预热后由 Cloudflare 边缘节点直接返回，可显著提速。
                   </div>
                 </div>
               </div>
 
               <div class="row" style="margin-top:16px;">
                 <div class="glass info-panel">
-                  <div class="ip-title"><ZgGlyph emoji="📊" /> 存储概况</div>
-                  <div class="kv"><span class="k">存储桶</span><span class="v strong">{{ data.supabaseStorage.bucket }}</span></div>
-                  <div class="kv"><span class="k">文件总数</span><span class="v strong">{{ data.supabaseStorage.totalFiles }} 个</span></div>
-                  <div class="kv"><span class="k">已用空间</span><span class="v strong">{{ data.supabaseStorage.totalSizeFmt }}</span></div>
-                  <div class="kv"><span class="k">剩余空间</span><span class="v" style="color:#10b981;font-weight:700;">{{ data.supabaseStorage.remainingFmt }}</span></div>
-                  <div class="kv"><span class="k">使用率</span><span class="v" :style="{ color: storageUsedPercentNum > 80 ? '#ef4444' : storageUsedPercentNum > 60 ? 'var(--zg-primary)' : '#10b981', fontWeight: 700 }">{{ data.supabaseStorage.usedPercent }}%</span></div>
+                  <div class="ip-title"><ZgGlyph emoji="📅" /> 今日流量</div>
+                  <div class="kv"><span class="k">今日上传</span><span class="v strong">{{ data.b2Storage.todayUploads }} 个文件</span></div>
+                  <div class="kv"><span class="k">上传流量</span><span class="v strong">{{ data.b2Storage.todayUploadSizeFmt }}</span></div>
+                  <div class="kv"><span class="k">WebP 图片</span><span class="v strong">{{ data.b2Storage.webpCount }} 个 / {{ fmtBytes(data.b2Storage.webpSize) }}</span></div>
                 </div>
 
                 <div class="glass info-panel">
-                  <div class="ip-title"><ZgGlyph emoji="📅" /> 今日流量</div>
-                  <div class="kv"><span class="k">今日上传</span><span class="v strong">{{ data.supabaseStorage.todayUploads }} 个文件</span></div>
-                  <div class="kv"><span class="k">上传流量</span><span class="v strong">{{ data.supabaseStorage.todayUploadSizeFmt }}</span></div>
+                  <div class="ip-title"><ZgGlyph emoji="🚚" /> 存量迁移（Supabase → B2）</div>
+                  <div class="kv"><span class="k">已迁移文件</span><span class="v strong">{{ data.b2Storage.migration?.migratedFiles ?? 0 }} 个</span></div>
+                  <div class="kv"><span class="k">已迁移体积</span><span class="v strong">{{ fmtBytes(data.b2Storage.migration?.migratedBytes || 0) }}</span></div>
+                  <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+                    <el-button size="small" type="primary" :loading="migrateLoading" @click="runMigrate(false)">
+                      <ZgGlyph emoji="🚚" /> 全量迁移
+                    </el-button>
+                    <el-button size="small" :loading="migrateLoading" @click="runMigrate(true)">仅盘点</el-button>
+                  </div>
+                  <div style="margin-top:6px;font-size:11px;color:var(--zg-text-dim);line-height:1.6;">
+                    重复执行安全（已迁过的自动跳过）；不删除 Supabase 源文件，可随时回滚。
+                  </div>
                 </div>
 
                 <div class="glass info-panel">
                   <div class="ip-title"><ZgGlyph emoji="🔥" /> 高频访问文件 TOP 5</div>
-                  <div v-if="data.supabaseStorage.hotResources?.length" class="top-list">
-                    <div v-for="f of data.supabaseStorage.hotResources.slice(0,5)" :key="f.id" class="top-row">
+                  <div v-if="data.b2Storage.hotResources?.length" class="top-list">
+                    <div v-for="f of data.b2Storage.hotResources.slice(0,5)" :key="f.id" class="top-row">
                       <span class="top-name" :title="f.title">{{ f.title }}</span>
                       <span class="top-dl"><ZgGlyph emoji="⬇" /> {{ f.downloads }}</span>
                       <span class="top-size">{{ f.fileSizeFmt }}</span>
@@ -515,7 +679,6 @@ onBeforeUnmount(() => {
                 <div class="ip-title">
                   <ZgGlyph emoji="📈" /> 大体积文件 TOP 10
                   <span class="ip-hint">点击 <ZgGlyph emoji="👁️" /> 查看，<ZgGlyph emoji="⬇️" /> 下载，<ZgGlyph emoji="🗑️" /> 删除</span>
-                  <!-- 【v4.3.1】孤儿文件筛选开关 -->
                   <el-switch
                     v-model="onlyOrphan"
                     size="small"
@@ -524,7 +687,7 @@ onBeforeUnmount(() => {
                   />
                 </div>
                 <div class="top-list">
-                  <template v-for="(f, i) of visibleTopFiles" :key="f.name">
+                  <template v-for="(f, i) of visibleTopFiles" :key="f.fileId || f.name">
                     <div class="top-row file-mgmt-row file-trace-row">
                       <span class="top-rank">{{ i + 1 }}</span>
                       <div class="ft-main">
@@ -537,58 +700,36 @@ onBeforeUnmount(() => {
                           >{{ f.name }}</span>
                           <span class="top-size">{{ f.sizeFmt }}</span>
                         </div>
-                        <!-- 【v4.3.1】文件溯源：从哪个界面上传的 -->
                         <div class="ft-line2">
-                          <span
-                            class="origin-tag"
-                            :class="{ 'orphan': f.isOrphan }"
-                            :title="originTooltip(f)"
-                          >
-                            <ZgGlyph :emoji="f.origin?.icon || '❓'" />
-                            {{ f.origin?.label || '未知来源' }}
-                            <template v-if="f.origin?.refTitle">· <b>{{ f.origin.refTitle }}</b></template>
+                          <span class="origin-tag" :class="{ 'orphan': f.isOrphan }">
+                            <ZgGlyph :emoji="purposeIcon(f.purpose)" />
+                            {{ purposeLabel(f.purpose) }}
                           </span>
-                          <span v-if="f.origin?.uploader" class="origin-meta">
-                            <ZgGlyph emoji="👤" /> {{ f.origin.uploader }}
+                          <span v-if="f.resourceTitle" class="origin-meta">
+                            <ZgGlyph emoji="📄" /> {{ f.resourceTitle }}
                           </span>
-                          <span v-if="f.origin?.subjectName" class="origin-meta">
-                            <ZgGlyph :emoji="f.origin.subjectName ? '📚' : ''" /> {{ f.origin.subjectName }}
+                          <span v-else class="origin-meta" style="opacity:.7;">
+                            <ZgGlyph emoji="⚠️" /> 无资源引用（疑似残留）
                           </span>
-                          <span v-if="f.origin?.createdAt" class="origin-meta">{{ f.origin.createdAt }}</span>
-                          <el-button
-                            v-if="f.origin?.confident && f.origin?.detailUrl"
-                            size="small" text class="origin-jump"
-                            @click="goOrigin(f)"
-                          >前往</el-button>
+                          <span v-if="f.mime" class="origin-meta">{{ f.mime }}</span>
                         </div>
                       </div>
-                      <!-- 【v4.3.2】查看：在线预览文件内容（图片直接看图，PDF 内嵌阅读） -->
                       <el-button
-                        size="small"
-                        text
-                        class="file-act-btn view-btn"
-                        title="查看文件内容"
+                        size="small" text class="file-act-btn view-btn" title="查看文件内容"
                         @click="openPreview(f)"
                         :loading="previewLoading && previewFile?.name === f.name"
                       >
                         <span style="font-size:14px;"><ZgGlyph emoji="👁️" /></span>
                       </el-button>
-                      <!-- 【v4.3.2】下载：原文件保存到本地 -->
                       <el-button
-                        size="small"
-                        text
-                        class="file-act-btn dl-btn"
-                        title="下载到本地"
+                        size="small" text class="file-act-btn dl-btn" title="下载到本地"
                         @click="downloadStorageFile(f)"
                         :loading="downloading && downloadingFile === f.name"
                       >
                         <span style="font-size:14px;"><ZgGlyph emoji="⬇️" /></span>
                       </el-button>
                       <el-button
-                        size="small"
-                        type="danger"
-                        text
-                        class="delete-btn"
+                        size="small" type="danger" text class="delete-btn"
                         @click="startDelete(f)"
                         :loading="deleteLoading && deletingFile?.name === f.name"
                       >
@@ -607,31 +748,82 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </template>
+            <div v-else class="empty-hint">B2 存储监控数据暂不可用</div>
           </div>
         </el-tab-pane>
 
-        <!-- ============ Supabase 数据库监控 ============ -->
-        <el-tab-pane name="supabase-db"><template #label><ZgGlyph emoji="🗄️" /> Supabase 数据库</template>
-          <template v-if="data.supabaseDb">
+        <!-- ============ B2 交易与配额（替代原 Supabase 数据库监控） ============ -->
+        <el-tab-pane name="b2-quota"><template #label><ZgGlyph emoji="🎫" /> B2 交易与配额</template>
+          <div v-loading="storageLoading">
             <div class="row">
               <div class="glass info-panel">
-                <div class="ip-title"><ZgGlyph emoji="🔌" /> 数据库连接</div>
-                <div class="kv"><span class="k">项目</span><span class="v strong">{{ data.supabaseDb.url }}</span></div>
-                <div class="kv"><span class="k">状态</span><span class="v" :style="{ color: data.supabaseDb.configured ? '#10b981' : '#ef4444', fontWeight: 700 }"><template v-if="data.supabaseDb.configured"><ZgGlyph emoji="✅" /> 已连接</template><template v-else><ZgGlyph emoji="❌" /> 未配置</template></span></div>
-                <div class="kv"><span class="k">总记录数</span><span class="v strong">{{ (data.supabaseDb.totalRows || 0).toLocaleString() }} 条</span></div>
+                <div class="ip-title"><ZgGlyph emoji="🔌" /> B2 连接</div>
+                <div class="kv"><span class="k">后端模式</span><span class="v strong">{{ storageData?.backendMode || data.b2Storage?.backend || '—' }}</span></div>
+                <div class="kv"><span class="k">存储桶</span><span class="v strong">{{ storageData?.b2?.bucketName || data.b2Storage?.bucket || '—' }}</span></div>
+                <div class="kv"><span class="k">桶类型</span><span class="v strong">{{ storageData?.b2?.bucketType || 'allPrivate' }}</span></div>
+                <div class="kv"><span class="k">鉴权缓存</span>
+                  <span class="v strong" style="color:#10b981;">
+                    <ZgGlyph emoji="✅" /> 已落 D1（全球共享）
+                  </span>
+                </div>
               </div>
+
               <div class="glass info-panel" style="grid-column: span 2;">
-                <div class="ip-title"><ZgGlyph emoji="📋" /> 各表行数统计（Supabase PostgreSQL）</div>
+                <div class="ip-title"><ZgGlyph emoji="📋" /> B2 交易类别说明（免费档每日额度）</div>
                 <div class="tables">
-                  <div v-for="(n, t) of data.supabaseDb.tableStats" :key="t" class="tbl-row">
-                    <span class="tbl-name">{{ tableNameZh[t] || t }}</span>
-                    <span class="tbl-num">{{ Number(n).toLocaleString() }} 条</span>
-                  </div>
-                  <div v-if="!data.supabaseDb.tableStats" class="empty-hint">暂无数据</div>
+                  <div class="tbl-row"><span class="tbl-name">A 类 · 上传 / 列举</span><span class="tbl-num">2,500 / 日</span></div>
+                  <div class="tbl-row"><span class="tbl-name">B 类 · 下载 / 获取上传 URL</span><span class="tbl-num">2,500 / 日</span></div>
+                  <div class="tbl-row"><span class="tbl-name">C 类 · 鉴权 / 桶管理</span><span class="tbl-num">2,500 / 日</span></div>
+                </div>
+                <div style="margin-top:12px;font-size:12px;color:var(--zg-text-dim);line-height:1.8;">
+                  <div><b>C 类为什么以前消耗异常？</b></div>
+                  <div>· <code>b2_authorize_account</code>（鉴权）与 <code>b2_list_buckets</code> 都属 C 类。</div>
+                  <div>· 旧版把 token 只存在 Worker 内存里，而 Cloudflare 在全球多个节点各起一个实例、且会冷启动回收，
+                       于是每个实例、每次冷启动都要重新鉴权一次。</div>
+                  <div>· 更糟的是打开监控面板就会调用 <code>b2_list_buckets</code>，刷几次面板就烧几次 C 类。</div>
+                  <div>· <b>已修复</b>：token 落 D1 全球共享（每日约 1 次 C 类）；监控面板改为只读本地快照，不再实时调 B2。</div>
                 </div>
               </div>
             </div>
-          </template>
+
+            <div class="row" style="margin-top:16px;">
+              <div class="glass info-panel">
+                <div class="ip-title"><ZgGlyph emoji="👤" /> 用户回源 TOP（今日）</div>
+                <div v-if="storageData?.originTop?.length" class="top-list">
+                  <div v-for="(u, i) of storageData.originTop" :key="u.user_id" class="top-row">
+                    <span class="top-rank">{{ i + 1 }}</span>
+                    <span class="top-name">用户 #{{ u.user_id }}</span>
+                    <span class="top-dl">{{ u.cnt }} 次回源</span>
+                  </div>
+                </div>
+                <div v-else class="empty-hint">今日暂无回源记录</div>
+              </div>
+
+              <div class="glass info-panel">
+                <div class="ip-title"><ZgGlyph emoji="🗂️" /> 缓存分布</div>
+                <div class="kv"><span class="k">可缓存文件</span><span class="v strong" style="color:#10b981;">{{ storageData?.cacheSplit?.cacheable ?? 0 }} 个</span></div>
+                <div class="kv"><span class="k">不可缓存文件</span><span class="v strong" style="color:#f59e0b;">{{ storageData?.cacheSplit?.uncacheable ?? 0 }} 个</span></div>
+                <div class="kv"><span class="k">file_meta 总数</span><span class="v strong">{{ storageData?.totalFiles ?? 0 }} 个</span></div>
+                <div class="kv"><span class="k">元数据体积合计</span><span class="v strong">{{ fmtBytes(storageData?.totalSize || 0) }}</span></div>
+              </div>
+
+              <div class="glass info-panel">
+                <div class="ip-title"><ZgGlyph emoji="⚠️" /> Supabase 状态</div>
+                <div class="kv"><span class="k">对象存储</span>
+                  <span class="v strong" style="color:#ef4444;"><ZgGlyph emoji="⛔" /> 已废弃</span>
+                </div>
+                <div style="margin-top:8px;font-size:11px;color:var(--zg-text-dim);line-height:1.7;">
+                  上传/下载已全部改走 B2。Supabase 仅保留只读回退，用于迁移未完成时的兼容，
+                  不再写入任何新文件。存量文件可通过上方「全量迁移」搬到 B2。
+                </div>
+              </div>
+            </div>
+
+            <div v-if="storageData?.b2Error" class="glass info-panel" style="margin-top:16px;border-color:#ef4444;">
+              <div class="ip-title" style="color:#ef4444;"><ZgGlyph emoji="❌" /> B2 数据拉取异常</div>
+              <div style="font-size:12px;">{{ storageData.b2Error }}</div>
+            </div>
+          </div>
         </el-tab-pane>
 
         <!-- ============ D1 数据库监控 ============ -->
@@ -707,7 +899,7 @@ onBeforeUnmount(() => {
               <div class="ip-title"><ZgGlyph emoji="🛠️" /> 缓存管理</div>
               <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;">
                 <el-button type="warning" size="small" @click="optimizeAction('purge_cache')"><ZgGlyph emoji="🗑️" /> 清除文件缓存</el-button>
-                <span style="font-size:12px;color:var(--zg-text-dim);line-height:32px;">清除后所有文件将从 Supabase 重新拉取并重建缓存</span>
+                <span style="font-size:12px;color:var(--zg-text-dim);line-height:32px;">清除后所有文件将从 B2 重新拉取并重建缓存</span>
               </div>
             </div>
           </template>
@@ -766,10 +958,26 @@ onBeforeUnmount(() => {
                   </div>
                   <div class="kv"><span class="k">桶名称</span><span class="v strong">{{ storageData.b2.bucketName || '-' }}</span></div>
                   <div class="kv"><span class="k">桶类型</span><span class="v strong">{{ storageData.b2.bucketType || '-' }}</span></div>
-                  <div class="kv"><span class="k">桶文件数（官方）</span><span class="v strong">{{ storageData.b2.fileCount != null ? storageData.b2.fileCount : 'B2未返回' }}</span></div>
-                  <div class="kv"><span class="k">桶已用容量（官方）</span><span class="v strong">{{ storageData.b2.totalSizeBytes != null ? formatBytes(storageData.b2.totalSizeBytes) : 'B2未返回' }}</span></div>
-                  <div class="kv"><span class="k">账户容量上限（官方）</span><span class="v strong">{{ storageData.b2.capacityBytes != null ? formatBytes(storageData.b2.capacityBytes) : 'B2未返回' }}</span></div>
-                  <div class="kv"><span class="k">容量是否超限（官方）</span><span class="v" :style="{ color: storageData.b2.capExceeded ? '#ef4444' : '#10b981', fontWeight: 700 }">{{ storageData.b2.capExceeded ? '已超限' : '正常' }}</span></div>
+                  <div class="kv"><span class="k">桶文件数（官方盘点）</span><span class="v strong">{{ storageData.b2.fileCount != null ? storageData.b2.fileCount : '未盘点' }}</span></div>
+                  <div class="kv"><span class="k">桶已用容量（官方盘点）</span><span class="v strong">{{ storageData.b2.totalSizeBytes != null ? formatBytes(storageData.b2.totalSizeBytes) : '未盘点' }}</span></div>
+                  <div class="kv"><span class="k">盘点日期</span>
+                    <span class="v strong">{{ storageData.b2.censusDay || '—' }}
+                      <el-tag v-if="storageData.b2.censusStale" size="small" type="warning">非今日</el-tag>
+                      <el-tag v-else-if="storageData.b2.censusDay" size="small" type="success">今日</el-tag>
+                    </span>
+                  </div>
+                  <div class="kv"><span class="k">容量上限</span><span class="v strong">{{ formatBytes(storageData.capacityBytes || 0) }}（B2 免费档，非 API 可得）</span></div>
+                  <div class="kv"><span class="k">已迁移文件</span><span class="v strong">{{ storageData.migration?.migratedFiles ?? 0 }} 个 / {{ formatBytes(storageData.migration?.migratedBytes || 0) }}</span></div>
+                  <div style="margin-top:8px;">
+                    <el-button size="small" :loading="censusLoading" @click="runCensus(false)">
+                      <ZgGlyph emoji="🔄" /> 立即盘点官方容量（每日限 1 次）
+                    </el-button>
+                  </div>
+                  <div style="margin-top:6px;font-size:11px;color:var(--zg-text-dim);line-height:1.6;">
+                    官方口径说明：B2 的 <code>b2_get_account_info</code> 在本账户实测返回 404，
+                    <code>b2_list_buckets</code> 响应也不含 fileCount/totalSize 字段，
+                    故「官方已用容量」只能通过 <code>b2_list_file_names</code> 全量盘点求和得到（属 A 类交易，故每日限 1 次）。
+                  </div>
                 </template>
                 <div v-else class="empty-hint">⚠ B2 官方数据拉取失败：{{ storageData.b2Error || '未知错误' }}（请检查 B2 密钥与网络）</div>
               </div>
