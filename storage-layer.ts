@@ -280,8 +280,10 @@ export async function runBucketCensus(force = false): Promise<any> {
     const j = await r.json() as any
     for (const f of j.files || []) {
       fileCount++
-      totalSize += Number(f.size || 0)
-      if (sample.length < 20) sample.push({ name: f.fileName, size: Number(f.size || 0), mime: f.contentType })
+      // ⚠️ B2 官方字段名是 contentLength，不是 size（v2/v3 实测均如此，size 为 undefined）。
+      //    写成 f.size 会静默算出 0 字节，面板显示「已用 0 B」却查不出原因。
+      totalSize += Number(f.contentLength ?? f.size ?? 0)
+      if (sample.length < 20) sample.push({ name: f.fileName, size: Number(f.contentLength ?? f.size ?? 0), mime: f.contentType })
     }
     pages++
     start = j.nextFileName || null

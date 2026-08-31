@@ -57,6 +57,9 @@ server/uploads/*
 
 # wrangler.toml 含明文 JWT_SECRET / SUPABASE_SERVICE_KEY，严禁入库（2026-08-22 加固）
 wrangler.toml
+# .wrangler/ 是 wrangler 本地缓存，内含账户信息（account id / email），严禁入库（v4.4.1 加固）
+.wrangler/
+.dev.vars
 
 # ===== Deployment archives / temp =====
 zhuiguang-local.zip

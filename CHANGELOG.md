@@ -64,6 +64,28 @@
 
 幂等（新增 `b2_migration_log`，`source_key UNIQUE`）、安全（默认不删 Supabase 源文件，可回滚）。
 
+**迁移结果（2026-08-31 实跑）**：15/15 全部成功、0 失败；改写 5 处 D1 引用；
+搬迁 4.73 MB；`file_meta` 现存 16 行 / 5,378,780 字节；4 个已过审资源引用的文件自动置为 `is_public=1, cacheable=1`。
+
+### 🐛 修复5：官方盘点算出「已用 0 B」（`size` 字段不存在）
+
+**根因**：`b2_list_file_names` 响应里的文件大小字段名是 **`contentLength`**，不是 `size`。
+旧代码写 `f.size` → 取到 `undefined` → `Number(undefined)` 静默变 0 → 面板显示「已用 0 B」但文件明明存在。
+
+**修复**：`storage-layer.ts` 盘点亮改为
+```ts
+totalSize += Number(f.contentLength ?? f.size ?? 0)
+```
+
+**实测对照**（同一批 16 个文件）：
+
+| 取值 | 结果 |
+| --- | --- |
+| `f.size`（错误） | 16 个文件 / **0 字节** |
+| `f.contentLength`（正确） | 16 个文件 / **5,378,780 字节（5.13 MB）**，与 D1 `file_meta` 求和完全一致 |
+
+> ⚠️ 该 bug 曾导致 `b2_bucket_census` 落库了错误值（0 字节），已用修正后的代码重跑盘点覆盖。
+
 ### ⚠️ 官方口径的重要澄清（实测结论，勿再重试）
 
 1. `b2_get_account_info` → v2 / v3 **均返回 404 not_found**（主密钥 capabilities 为空，B2 的 application key 也不提供 `readAccountInfo` 选项）。
@@ -71,6 +93,7 @@
 3. 下载响应头**不返回** `b2-api-b-class-transaction-count-today`。
 4. 结论：**官方已用容量**只能通过 `b2_list_file_names` 全量盘点求和得到（属 **Class A**，免费 2500/日），
    因此新增 `b2_bucket_census` 表，**每日最多盘点 1 次**并落库；面板显示盘点日期与新鲜度。
+   求和时**必须用 `contentLength` 字段**，用 `size` 会静默算成 0（详见修复5）。
 5. 容量上限 10 GB 为 B2 公开免费档位常量（API 取不到），面板已标注「以 B2 控制台 Billing 页为准」。
 6. 「当日回源次数」仍是**本地统计（非官方）**，面板明确标注，绝不冒充 B2 官方数字。
 

@@ -478,6 +478,11 @@ v4.2.2 文档声明的 9 类扩展曾有 5 类严重问题（v4.2.3 一次性修
 5. **禁止声称「回源次数」是 B2 官方数字**。官方头 `b2-api-b-class-transaction-count-today`
    实测不返回，该值是本系统真实回源计数，面板必须标注「本地统计·非官方」。
 
+6. **盘点求和禁止用 `f.size`，必须用 `f.contentLength`**。`b2_list_file_names` 的字段是
+   `contentLength`（`size` 恒为 `undefined`）→ 用错会**静默算出 0 字节**，面板显示「已用 0 B」却查不出原因。
+   正确写法：`Number(f.contentLength ?? f.size ?? 0)`。
+   **排查口诀：容量显示 0 但文件能正常下载 → 先怀疑字段名，别怀疑文件。**
+
 6. **禁止让统计写库阻塞下载响应**。配额 / 限速 / 埋点必须走 `ctx.waitUntil()` 异步。
 
 7. **禁止所有文件一律 `is_public=0, cacheable=0`**。这会让每个下载都 `private, no-store`
