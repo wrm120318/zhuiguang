@@ -4419,21 +4419,6 @@ app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async 
     return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
   }
 })
-app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const body = await c.req.json().catch(() => ({}))
-  try {
-    const off = await setOfficialDaily({
-      day: body.day,
-      bClass: Number(body.bClass) || 0,
-      cClass: Number(body.cClass) || 0,
-      storageBytes: Number(body.storageBytes) || 0,
-      downloadBytes: Number(body.downloadBytes) || 0,
-    })
-    return c.json({ ok: true, official: off })
-  } catch (e: any) {
-    return c.json({ ok: false, message: String(e?.message || e).slice(0, 200) }, 500)
-  }
-})
 
 // 管理员预热：把高频文件推送到 CF 边缘缓存
 app.post('/api/admin/prewarm', auth, requireRole('SUPER_ADMIN'), async (c) => {

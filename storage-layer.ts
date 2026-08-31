@@ -990,7 +990,7 @@ function rowToOfficial(r: any): OfficialDaily {
 export async function getOfficialDaily(day?: string): Promise<OfficialDaily | null> {
   const d = day || dayStr()
   try {
-    const r = await sGet<any>('SELECT * FROM b2_official_daily WHERE day=?', [d])
+    const r = await sGet<any>('SELECT * FROM b2_official_daily WHERE day=?', d)
     if (r) return rowToOfficial(r)
     const last = await sGet<any>('SELECT * FROM b2_official_daily ORDER BY day DESC LIMIT 1')
     return last ? rowToOfficial(last) : null
@@ -1011,6 +1011,6 @@ export async function setOfficialDaily(p: Partial<OfficialDaily> & { day?: strin
      VALUES (?,?,?,?,?,?)
      ON CONFLICT(day) DO UPDATE SET b_class=excluded.b_class,c_class=excluded.c_class,
        storage_bytes=excluded.storage_bytes,download_bytes=excluded.download_bytes,updated_at=excluded.updated_at`,
-    [d, b, c, sb, db, now])
+    d, b, c, sb, db, now)
   return { day: d, bClass: b, cClass: c, storageBytes: sb, downloadBytes: db, updatedAt: now }
 }
