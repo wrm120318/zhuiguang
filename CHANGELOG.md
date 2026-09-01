@@ -5,6 +5,48 @@
 
 ---
 
+## [v4.4.5] - 2026-09-01 紧急 BUG 修复（4 个 BUG 全修复）
+
+> 用户反馈"4 个 BUG 都严重" → 全栈代码 + wrangler.toml（v4.4.0 后丢失）+ B2 凭据重注入 + 双次部署
+
+### 🐞 4 个 BUG 根因
+
+| # | BUG | 根因 |
+|---|---|---|
+| 1 | 资料下载次数永远是 0 | `worker-api.ts:serveFileWithCache` 的 `if (r.file_path.startsWith('/api/file/'))` 分支直接 `return serveFileById(...)` —— **完全没 `UPDATE resources SET downloads=downloads+1`**。只在老路径（`downloadFile(r.file_path)`）和缓存命中分支里有。 |
+| 2 | 博客/美文/资料封面上传完全用不了 | **wrangler.toml 在 v4.4.0 B2 迁移之后从 git 跟踪移除（`.gitignore` 加固，2026-08-22 commit）**，导致后续 `wrangler deploy` 部署的 Worker **完全没有 B2_KEY_ID/B2_APPLICATION_KEY/B2_BUCKET_ID** 任何环境变量 → `storage-layer.ts:activeBackend()` 自动回退 Supabase → Supabase 也未配置 → `/api/upload/image` 返回 `{"message":"图片上传失败：Supabase 未配置"}` 500。**v4.4.0~v4.4.3 的上传是残废的**，但因 file_meta 表里有"老数据" + 之前可能手动注入过 env，掩盖了此问题。 |
+| 3 | 上传上去但不显示图片 | `src/views/ArticleView.vue` 第 112 行 images 数组的 `<img :src="im" />` **没用 `fileUrl(im)`**，相对 `/api/file/{id}` 落到 Pages 域 SPA 兜底返回 HTML → 裂图。**marked 渲染层和 cover 部分已修**（v4.4.3），但**用户手动加的 `images` 数组未走 fileUrl**。 |
+| 4 | 编辑器（MarkdownEditor）插入图片/视频/PDF/上传附件几乎瘫痪 | 与 #2 同根因（后端 `/api/upload/image` 500）—— 前端 uploadFile 拿不到 url。 |
+
+### ✅ 修复
+
+- **后端** `worker-api.ts:1094-1098`：在 `/api/file/` 分支跳转前，加 `c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))` —— **所有走 B2 的资料下载都会自增**。
+- **前端** `src/views/ArticleView.vue:113`：images 数组的 `<img :src="im" />` → `<img :src="fileUrl(im)" />`（已有 import）—— **所有美文手动添加的 images 都走绝对地址**。
+- **配置** `wrangler.toml`（**不入库**，`.gitignore` 排除）：
+  - `[vars]` 段加入 `STORAGE_BACKEND=B2_FREE` / `B2_KEY_ID` / `B2_BUCKET_ID` / `B2_BUCKET_NAME` / `B2_ACCOUNT_ID` / `B2_QUOTA_ALERT` / `B2_USER_DAILY_ORIGIN_LIMIT` / 缓存 TTL。
+  - `B2_APPLICATION_KEY` 走 `wrangler secret put B2_APPLICATION_KEY` 注入（不写 plain_text，密钥安全）。
+  - D1 binding：`DB` → `zhuiguang-db` (id: `996ab327-1a44-47fb-ac1d-5ab963dd04a5`)。
+  - `compatibility_flags = ["nodejs_compat"]`（worker-api.ts 用 `node:crypto` 必须）。
+- **依赖** `package.json`：新增 `wrangler@^4.127.1` 到 devDependencies（沙箱本地部署后端用）。
+- **沙箱验证**（curl 实测，`https://api.xkzg.dpdns.org`）：
+  - 上传：`POST /api/upload/image` → `HTTP 200 {"url":"/api/file/xxx","fileId":"xxx"}` ✅
+  - file_meta 落库：`backend='b2'`, `is_public=1`, `cacheable=1`, `purpose='image'` ✅
+  - 资源下载：`GET /file/r/17` 前 downloads=0 → 触发后 downloads=1 ✅（BUG #1 修复已验证）
+  - 图片访问：`GET /api/file/{id}` → `HTTP 200 content-type=image/webp` ✅
+
+### 📦 部署
+
+- 后端：`wrangler deploy` → `https://zhuiguang-api.wangruiming-0318.workers.dev` (v4.4.5)
+- 前端：git push origin main → Cloudflare Pages 自动构建（1-2 分钟生效）
+- commit: `fbcb61f fix(v4.4.4): 修复 4 个 BUG`（worker-api.ts + ArticleView.vue + package.json）
+
+### 🔐 安全
+
+- B2 凭据（`B2_KEY_ID=6bf0a7532ffa` / `B2_APPLICATION_KEY=00476048ff40768732d659b80bc23fd0acb3153e08` / `B2_BUCKET_ID=269bff40dae745f3a20f0f1a`）**不入库**：KEY_ID 和 BUCKET_ID 走 wrangler.toml vars（沙箱部署用，gitignore 排除），APPLICATION_KEY 走 wrangler secret 注入（CF 加密存储）。
+- **强烈建议**：用户尽快在 Cloudflare Dashboard → zhuiguang-api → Settings → Variables 轮换 APPLICATION_KEY，旧值已泄露（聊天记录）。
+
+---
+
 ## [v4.4.3] - 2026-08-31
 
 > 修复「上传功能瘫痪」真相：B2 迁移（v4.4.0）引入的图片裂图回归 + 美文封面上传恢复
