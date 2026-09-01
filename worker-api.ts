@@ -1093,6 +1093,10 @@ async function serveFileWithCache(c: Context, resourceId: string, mode: 'downloa
   }
 
   // ===== 从存储下载文件（v4.4.0 兼容：新 /api/file/ 代理地址走统一流式层） =====
+  // 【v4.4.4 BUG 修复】serveFileById 走的是 file_meta 路径，**不更新 resources.downloads**。
+  //   之前 /api/file/{fileId} 路径下载的资料下载次数永远是 0，统计失效。
+  //   修复：在分支跳转前 waitUntil 自增；下载成功后无论走哪条路都记一笔。
+  c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
   if (r.file_path && r.file_path.startsWith('/api/file/')) {
     const fid = r.file_path.replace('/api/file/', '')
     return serveFileById(c, fid, { mode, resourceCheck: async () => ({ ok: true }) })
