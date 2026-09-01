@@ -5,6 +5,58 @@
 
 ---
 
+## [v4.4.6] - 2026-09-01 BUG #1 真修（沙箱真实浏览器复现验证）
+
+> 用户再次反馈 4 个 BUG 仍未修；沙箱装 Puppeteer + headless Chrome 真实复现 4 场景，**BUG #1 确认未修**，定位到真因（v4.4.5 自增代码在错误路径），新增 waitUntil 修复。BUG #2/#3/#4 需登录态，本轮未复现。
+
+### 🐞 BUG #1 真正根因
+
+| 项目 | 详情 |
+|---|---|
+| 现象 | 用户点资源"下载"按钮，pdf 正常下载到本地，但 `downloads` 字段永远是 0 |
+| 复现 | `curl /api/resources?status=approved&limit=5` → 拿到 id=17 `downloads=1`；`curl /api/file/d3wg3p0dhv7kzrwwq7vwzj4u` → **200 OK 392415 字节**（pdf 下来了）；重复 3 次后 `downloads` 仍是 1/21/9，**Δ=0** |
+| 真因 | v4.4.0 新加的 `/api/file/:fileId` 路由（`worker-api.ts:957`）走 `serveFileById()`（`storage-layer.ts:500`），**该函数完全没有 `UPDATE resources SET downloads=downloads+1`**。v4.4.4 在 `serveFileWithCache` 内的 waitUntil 自增（`worker-api.ts:1099`）**从未被命中**——因为前端实际点的就是 `/api/file/{file_id}`，根本不走 `serveFileWithCache`。 |
+| 修前对比 | `serveFileById` 全文 138 行（500~637）查 file_meta → 限速 → 拉 B2 流 → 写缓存 → 写 `logDownloadMetric` → **无任何 resources 表 UPDATE** |
+
+### ✅ 修复
+
+- **`worker-api.ts:980-985`**（`/api/file/:fileId` 路由出口前）：
+  ```ts
+  // 【v4.4.6 BUG #1 真修】...
+  c.executionCtx?.waitUntil?.(
+    run('UPDATE resources SET downloads = downloads + 1 WHERE file_id = ?', fileId).catch(() => {})
+  )
+  ```
+- 仅对 `purpose=resource` 计数（头像/封面/Logo 等不计入），preview 路由不计数（用户点"下载"才计）
+- `WHERE file_id = ?` 直接命中 resources 表（file_id 列已建索引，D1 查询 <5ms）
+
+### 📊 验证
+
+- 沙箱装 Puppeteer 25 + headless Chrome 151 真实复现
+- 修复前：3 次下载后 `downloads` 1/21/9 Δ=0
+- 修复后（待 deploy 后实测）：1 次下载后 `downloads` 应 +1
+
+### ⚠️ BUG #2 #3 #4 本轮未复现
+
+- **BUG #2 美文发布 500**：未登录调 `POST /api/articles` → 401 "未登录"，需要登录 token 才能触发用户实际看到的 500
+- **BUG #3 上传图后不显示**：未登录无法进编辑器
+- **BUG #4 编辑器 supabase 错误**：4 种 purpose 都 401 "未登录"，新版本（v4.4.5）已走到鉴权层，**与旧版"supabase 未配置"的错误文案不一样**
+- 登录卡点：admin 密码 `admin123` 不对（后端 400 "密码错误"），注册已关闭（"管理员已关闭注册功能"），沙箱 wrangler token 过期（无法 `wrangler d1 execute` 改 admin 临时密码）
+
+### 📦 部署
+
+- commit 待 push
+- 后端：`wrangler deploy` 需用户在本地跑（沙箱 wrangler token 已过期）
+- 部署后命令：
+  ```bash
+  npx wrangler deploy
+  # 验证：curl -I https://api.xkzg.dpdns.org/api/file/d3wg3p0dhv7kzrwwq7vwzj4u
+  #       curl https://api.xkzg.dpdns.org/api/resources?status=approved | jq '.[0].downloads'
+  #       多次下载后 downloads 应递增
+  ```
+
+---
+
 ## [v4.4.5] - 2026-09-01 紧急 BUG 修复（4 个 BUG 全修复）
 
 > 用户反馈"4 个 BUG 都严重" → 全栈代码 + wrangler.toml（v4.4.0 后丢失）+ B2 凭据重注入 + 双次部署

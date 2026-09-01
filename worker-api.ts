@@ -977,6 +977,12 @@ app.get('/api/file/:fileId', async (c) => {
       }
       return { ok: true }
     }
+    // 【v4.4.6 BUG #1 真修】/api/file/:fileId 走 serveFileById（不经 serveFileWithCache），
+    //   v4.4.4 在 serveFileWithCache 内的 waitUntil 自增从未被命中，导致资料下载次数永远是 0。
+    //   现在在路由出口前 waitUntil 异步自增 resources.downloads（response 流式返回，不阻塞）。
+    c.executionCtx?.waitUntil?.(
+      run('UPDATE resources SET downloads = downloads + 1 WHERE file_id = ?', fileId).catch(() => {})
+    )
   }
   return serveFileById(c, fileId, { mode: 'download', resourceCheck, rangeHeader: c.req.header('Range') })
 })
