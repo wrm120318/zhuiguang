@@ -36,7 +36,7 @@ ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT
 === 第二部分：项目基本情况 ===
 
 项目名称：追光 · 学科共享平台（zhuiguang）  
-当前版本：v4.2.5  
+当前版本：v4.4.7（4 BUG 全修：资料下载次数 + 美文发布 500 + 图片不显示 + 编辑器 supabase 错）
 项目类型：中学校园师生学科学习共享站
 
 用户访问域名：<https://xkzg.de5.net>  
@@ -321,7 +321,7 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 - D1 查询命令：npx wrangler d1 execute zhuiguang-db --remote --command="SQL"
 - Workers 实时日志：cd /workspace && npx wrangler tail
 - 凭证文件：/workspace/.env（被 .gitignore 排除，不入库）
-- 当前版本：v4.2.5（评论终极修复：onCommentSubmit 全量 reload 兜底）
+- 当前版本：v4.4.7（4 BUG 全修：资料下载次数 + 美文发布 500 + 图片不显示 + 编辑器 supabase 错）
 
 ================================================================================  
 === 第十一部分：现在，请先做这个 ===

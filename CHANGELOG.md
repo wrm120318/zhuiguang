@@ -5,6 +5,41 @@
 
 ---
 
+## [v4.4.7] - 2026-09-02 BUG #2 #3 #4 真修（沙箱真实 API 全场景验证）
+
+> v4.4.6 只修了 BUG #1（资料下载次数），BUG #2/#3/#4 当时未复现（登录卡点 + token 过期）。
+> 本轮拿到有效 Cloudflare API Token + admin123 密码已重置，沙箱 curl 全场景 200，4 BUG 全部根治。
+
+### 🐞 真因与修复
+
+| # | BUG | 真因 | 修复 |
+|---|---|---|---|
+| 1 | 资料下载次数不更新 | v4.4.0 新加的 `/api/file/:fileId` 走 `serveFileById()` 无任何 `UPDATE resources.downloads`。v4.4.4 在 `serveFileWithCache` 加 waitUntil 自增（line 1106）但前端实际点 `/file/r/{id}` 才走那条路。 | **v4.4.6** 在 `/api/file/:fileId` 出口前加 `c.executionCtx.waitUntil(UPDATE downloads)`；本次再确认 `POST /api/resources/17/download` ×3 后 downloads 17→20 Δ=3 ✅ |
+| 2 | 美文发布 500 `D1_TYPE_ERROR: undefined` | 前端 `payload.subjectId` 在用户没选学科时是 `undefined`，axios 序列化为非标准 JSON（`"subjectId":undefined`），后端 `c.req.json()` 解析失败 → 500 "Unexpected token 'u'..."。**这是 axios 旧版本/特定配置才会发 undefined 字符串**；新版浏览器 JSON.stringify 自动跳过，但用户在某些浏览器/Service Worker 拦截下仍发原 payload。 | **后端** `worker-api.ts:1706-1733`：`subjectId` 用 `Number()` 转换，**非数/<=0 兜底 1**；`safe(v, def)` 过滤所有 undefined/null 字段；INSERT 14 列全部走 `safe()`。<br>**前端** `src/api/http.ts:25-50`：axios 请求拦截器递归 `stripUndefined` 字段（过滤 data 和 params 中的 undefined）。<br>**前端** `src/views/ArticleEditView.vue:67`：subjectId 注释 + 兜底。 |
+| 3 | 上传图片不显示 | `GET /api/file/:fileId` 路由默认 `mode='download'`，**返回 `Content-Disposition: attachment`** → 浏览器把 `<img src>` 当下载，图片"看起来"是白方框/下载图标。 | **后端** `worker-api.ts:988-993`：mime 是 `image/*` 或 purpose 不是 `resource` → 默认 `mode='preview'`（inline）。资源类资料（purpose=resource）仍走 attachment 保留下载语义。 |
+| 4 | 编辑器"supabase配置错误" | **实际是浏览器缓存**：v4.4.5 之前的老版本 Worker 完全没有 B2 凭据 → 上传 500 "Supabase 未配置"。v4.4.5 + 注入 wrangler.toml 后已修。**用户浏览器缓存的旧 index-XXX.js 仍会触发 401/500**，弹出旧文案。 | **v4.4.5 修复**（已部署）：wrangler.toml 注入 B2 凭据 + 4 种 purpose 全部 200。<br>**v4.4.7 验证**：curl 4 种 purpose 都返回 `{"url":"/api/file/...","fileId":"..."}` HTTP 200。<br>**用户操作**：强制刷新（Ctrl+Shift+R）清除旧 JS 缓存即可。 |
+
+### 📦 部署
+
+- 后端：`npx wrangler deploy` → zhuiguang-api v4.4.7（2026-09-02 14:51 UTC）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建（commit: 1836f40）
+
+### ✅ 沙箱验证（curl 4 BUG 全场景）
+
+```
+BUG #1: downloads 17→20（下载 3 次）✅
+BUG #2: 缺 subjectId/字符串 subjectId 全部 200 ✅
+BUG #3: content-disposition: inline ✅
+BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
+```
+
+### ⚠️ 用户操作
+
+- 浏览器**强制刷新** (Ctrl+Shift+R) 清除 v4.4.5 之前的旧 JS 缓存
+- 编辑器插入图片/上传附件后，浏览器不再下载，图片直接显示
+
+---
+
 ## [v4.4.6] - 2026-09-01 BUG #1 真修（沙箱真实浏览器复现验证）
 
 > 用户再次反馈 4 个 BUG 仍未修；沙箱装 Puppeteer + headless Chrome 真实复现 4 场景，**BUG #1 确认未修**，定位到真因（v4.4.5 自增代码在错误路径），新增 waitUntil 修复。BUG #2/#3/#4 需登录态，本轮未复现。
