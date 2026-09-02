@@ -63,6 +63,7 @@ const filteredStudents = computed(() => {
 })
 
 const subjectOptions = computed(() => data.subjects.filter(s => s.modules?.articles))
+// 【v4.4.7 BUG #2 真修】subjectId 默认 1（之前是 1，但若 user 没选学科时是 0/undefined，会让后端 INSERT undefined 字段 → D1_TYPE_ERROR）
 const subjectId = ref(1)
 
 // 自动保存草稿（仅新建模式）

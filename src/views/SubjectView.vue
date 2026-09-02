@@ -252,8 +252,15 @@ async function downloadResource(r: any) {
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-    r.downloads = (r.downloads || 0) + 1
+    // 【v4.4.6 BUG #1 真修】后端 GET /file/r/:id 已通过 waitUntil 自增 resources.downloads，
+    //   之前前端再手动 +1 会导致每次下载 +2。删除冗余本地 +1，统一依赖后端真实计数。
     ElMessage.success('下载已开始')
+    // 异步刷新本学科列表里的真实下载数（避免等下一次 list reload）
+    try {
+      await data.fetchResources(r.subject_id ? { subjectId: r.subject_id } : undefined)
+      const refreshed = data.resources.find((x: any) => x.id === r.id)
+      if (refreshed) r.downloads = refreshed.downloads
+    } catch {}
   } catch (e: any) {
     ElMessage.error('下载失败：' + (e?.message || '网络异常'))
   } finally {

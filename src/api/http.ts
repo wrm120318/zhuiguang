@@ -21,8 +21,33 @@ const http = axios.create({
 http.interceptors.request.use(config => {
   const token = localStorage.getItem('zg_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // 【v4.4.7 BUG #2 真修】过滤 data 中所有 undefined 字段（避免 axios 序列化为非标准 JSON：
+  //   JSON.stringify({a:1, b:undefined}) === '{"a":1}' —— 但某些 axios 版本会原样发送
+  //   'b:undefined'，后端 c.req.json() 解析失败 → 500 "Unexpected token 'u' ..."。
+  //   稳妥起见：递归 strip undefined/null 字段。
+  if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData) && !(config.data instanceof Blob) && !(config.data instanceof ArrayBuffer)) {
+    config.data = stripUndefined(config.data)
+  }
+  if (config.params && typeof config.params === 'object') {
+    config.params = stripUndefined(config.params)
+  }
   return config
 })
+
+/** 递归剔除 undefined / 空字符串（仅对 params，避免空字符串 key），保留 null（null 是合法 JSON） */
+function stripUndefined(obj: any): any {
+  if (Array.isArray(obj)) return obj.map(stripUndefined)
+  if (obj && typeof obj === 'object' && !(obj instanceof Date) && !(obj instanceof File)) {
+    const out: any = {}
+    for (const k of Object.keys(obj)) {
+      const v = obj[k]
+      if (v === undefined) continue
+      out[k] = stripUndefined(v)
+    }
+    return out
+  }
+  return obj
+}
 
 http.interceptors.response.use(
   res => res.data,

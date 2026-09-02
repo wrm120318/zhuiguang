@@ -8,6 +8,7 @@ import type { Context } from 'hono'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
 // ===== v4.4.0 统一存储抽象层（B2 原生 + Supabase 适配器 + 流式代理） =====
 import {
   initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
@@ -984,7 +985,13 @@ app.get('/api/file/:fileId', async (c) => {
       run('UPDATE resources SET downloads = downloads + 1 WHERE file_id = ?', fileId).catch(() => {})
     )
   }
-  return serveFileById(c, fileId, { mode: 'download', resourceCheck, rangeHeader: c.req.header('Range') })
+  // 【v4.4.7 BUG #3 真修】公开图片资源（头像/封面/美文/题目图片/封面）默认走 inline 预览，
+  //   这样浏览器 <img src> 才能直接显示，不会触发下载。
+  //   资源类资料（purpose=resource）走 attachment（需要点"下载"按钮）。
+  //   即使是资源类，is_public=1 + mime 是 image/* 也走 inline（兼容老 Supabase 上传的图片直接被引用）。
+  const isImageMime = /^image\//i.test(meta.mime || '')
+  const defaultMode = (meta.purpose === 'resource' && !isImageMime) ? 'download' : 'preview'
+  return serveFileById(c, fileId, { mode: defaultMode, resourceCheck, rangeHeader: c.req.header('Range') })
 })
 
 app.get('/api/file/:fileId/preview', async (c) => {
@@ -1701,18 +1708,27 @@ app.post('/api/articles', auth, async (c) => {
   const u = await get<any>('SELECT real_name, class_id, role FROM users u LEFT JOIN (SELECT user_id, class_id FROM class_members WHERE user_id=?) cm ON u.id=cm.user_id WHERE u.id=?', id, id)
   const b = await c.req.json()
   // 【v4 Bug3】教师发布美文时必须选自己任教的学科
-  if (role === 'TEACHER' && !(await canManageSubject({ id, role }, b.subjectId))) {
+  // 【v4.4.6 BUG #2 真修】前端 ArticleEditView 发的是 subject_id（下划线），旧代码读 b.subjectId（驼峰）→ undefined → D1_TYPE_ERROR
+  // 【v4.4.7 BUG #2 兜底】前端可能发 subjectId: undefined（用户没选学科），或 subjectId 不是数字 → 一律兜底为 1
+  const rawSubjectId = b.subjectId ?? b.subject_id
+  const parsedSubjectId = Number(rawSubjectId)
+  const subjectId = Number.isFinite(parsedSubjectId) && parsedSubjectId > 0 ? parsedSubjectId : 1
+  if (role === 'TEACHER' && !(await canManageSubject({ id, role }, subjectId))) {
     return c.json({ message: '教师只能在自己任教的学科下发布美文' }, 403)
   }
-  const cid = b.classId || u?.class_id || 1
+  // 过滤 undefined 字段，避免 D1 接收到 undefined（虽然 c.req.json() 已经解析，但兜底一下）
+  const safe = (v: any, def: any = null) => (v === undefined || v === null) ? def : v
+  const cid = safe(b.classId ?? b.class_id, u?.class_id || 1)
   let status = 'pending'
   let actualUserId: number | null = null
   if (role === 'SUPER_ADMIN' || role === 'TEACHER') {
-    if (b.actualUserId && Number(b.actualUserId) !== id) { actualUserId = Number(b.actualUserId); status = 'pending_student' }
-    else { status = 'approved' }
+    if ((b.actualUserId ?? b.actual_user_id) && Number(b.actualUserId ?? b.actual_user_id) !== id) {
+      actualUserId = Number(b.actualUserId ?? b.actual_user_id)
+      status = 'pending_student'
+    } else { status = 'approved' }
   }
   const r = await run(`INSERT INTO articles (title,content,author,source,recommendation,subject_id,user_id,class_id,cover,images,tags,category,status,actual_user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
-    b.title, b.content, b.author || u?.real_name, b.source || '原创', b.recommendation || '', b.subjectId, id, cid, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.tags || []), b.category || '', status, actualUserId)
+    safe(b.title, ''), safe(b.content, ''), safe(b.author, u?.real_name), safe(b.source, '原创'), safe(b.recommendation, ''), subjectId, id, cid, safe(b.cover, ''), JSON.stringify(Array.isArray(b.images) ? b.images : []), JSON.stringify(Array.isArray(b.tags) ? b.tags : []), safe(b.category, ''), status, actualUserId)
   const aid = Number(r.lastInsertRowid)
   if (status === 'pending_student' && actualUserId) {
     const teacherName = u?.real_name || '老师'
@@ -2151,6 +2167,27 @@ app.post('/api/resources/:id/download', auth, async (c) => {
     }
   }
 
+  // ===== 修复 BUG #1：file_path 是新 /api/file/{fileId} 路径时走 serveFileById 统一文件代理 =====
+  if (r.file_path && r.file_path.startsWith('/api/file/')) {
+    const fid = r.file_path.replace('/api/file/', '')
+    const filename = r.file_name || r.title || 'download'
+    const encoded = encodeURIComponent(filename)
+    c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
+    return serveFileById(c, fid, {
+      mode: 'download',
+      rangeHeader: c.req.header('Range'),
+      resourceCheck: async () => ({ ok: true }),  // 上面已校验过权限
+    }).then((resp) => {
+      // 覆盖 Content-Disposition 用真实文件名
+      resp.headers.set('Content-Disposition', `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`)
+      resp.headers.set('Access-Control-Allow-Origin', c.req.header('Origin') || '*')
+      resp.headers.set('Access-Control-Allow-Credentials', 'true')
+      resp.headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length')
+      return resp
+    })
+  }
+
+  // ===== 旧路径：从 Supabase 兜底下载（legacy file_path 兼容） =====
   const file = await downloadFile(r.file_path)
   if (!file) return c.json({ message: '文件不存在，可能已被清理' }, 404)
   const filename = r.file_name || r.title || 'download'
@@ -2342,8 +2379,7 @@ app.get('/api/query/tasks/:id/export', auth, requireStaff, async (c) => {
     const row = j(r.data_row) || {}
     aoa.push(headers.map(h => row[h] ?? ''))
   }
-  const XLSX = await import('xlsx')
-  const xlsx = (XLSX.default || XLSX)
+  const xlsx = (XLSX as any).default || XLSX
   const ws = xlsx.utils.aoa_to_sheet(aoa)
   const wb = xlsx.utils.book_new()
   xlsx.utils.book_append_sheet(wb, ws, '查询数据')
