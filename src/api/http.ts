@@ -10,7 +10,9 @@ import router from '@/router'
 //                              → 直接调用 Replit 后端公网地址，彻底告别隧道！
 // 构建时注入示例(Cloudflare Pages环境变量):   VITE_API_BASE_URL=https://你的repl名.replit.app
 // ==============================================================================
-const PROD_API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'https://api.xkzg.dpdns.org'
+// 【v4.4.9 防御】VITE_API_BASE_URL 尾部若混入换行/空白，会导致 baseURL 含控制字符；
+// 浏览器 fetch 虽会部分规范化，但统一 trim+去空白最稳妥，且与 helpers.ts 的 API_BASE 保持一致。
+const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.dpdns.org').trim().replace(/\s+/g, '')
 const http = axios.create({
   baseURL: PROD_API_BASE,
   timeout: 30000,

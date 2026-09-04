@@ -62,14 +62,21 @@ export function zgCover(seed?: string): string {
 // 上传返回的封面/图片是相对路径 /api/file/{id}；浏览器在 Pages 域(xkzg.de5.net)下请求相对路径
 // 会落到 SPA 兜底（拿不到文件），且 /api/file 对公开文件现已免登录但仍是相对路径。
 // 所以展示层统一把 /api/file/ 前缀补全为绝对 API 地址（v4.4.3 修复图片裂图）。
+//
+// 【v4.4.9 紧急修复】Cloudflare Pages 环境变量 VITE_API_BASE_URL 历史上曾混入尾部换行符(\n)，
+// 导致 API_BASE 变成 "https://api.xkzg.dpdns.org\n"，fileUrl 拼出的绝对地址夹带换行
+// → <img>/CSS 背景图请求落到 SPA 兜底返回 HTML → 整站图片(封面/头像/插图)裂图/白色。
+// 故对 API_BASE 与入参统一做 trim + 全局去空白，彻底防御环境变量/存储污染（根因修复）。
 export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.xkzg.dpdns.org'
+  String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.dpdns.org').trim().replace(/\s+/g, '')
 
 // 把存储返回的（可能相对的）/api/file/{id} 补全为可在任意域下直接访问的绝对地址
 export function fileUrl(url?: string | null): string {
   if (!url) return ''
-  if (url.startsWith('/api/file/')) return API_BASE + url
-  return url
+  // 全局去除空白字符（换行/空格/制表符），防御环境变量或已入库数据污染导致的裂图（v4.4.9）
+  const clean = String(url).replace(/\s+/g, '')
+  if (clean.startsWith('/api/file/')) return API_BASE + clean
+  return clean
 }
 
 

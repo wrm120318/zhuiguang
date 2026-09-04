@@ -1,21 +1,39 @@
 # 更新日志（CHANGELOG）
 
-> 本文件记录「追光 · 学科共享平台」所有版本的变更内容，按时间倒序排列。
+> 本文件记录「追光 · 学科共享平台」所有版本的变更内容，按时间倒序排列。  
 > 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 规范。
+
+---
+
+## [v4.4.9] - 2026-09-04 整站图片裂图/白色紧急修复（VITE_API_BASE_URL 换行污染）
+
+> 用户反馈：美文、博客封面「图片确确实实传上去了，但是显示白色」。实测确认为**整站图片（封面/头像/插图）全白**。
+
+### 🐞 根因（与 v4.4.8 完全不同的新根因）
+- 直接证据：生产库 `cover` 字段真实值为 `https://api.xkzg.dpdns.org\n/api/file/7va8r3xfxm5genzyvg39u4os`——**URL 中间夹一个换行符 `\n`**。
+- 来源：Cloudflare Pages 环境变量 `VITE_API_BASE_URL` 值尾部混入换行符，`fileUrl()`/`API_BASE` 纯字符串拼接把换行带入封面绝对地址。
+- 为何 API 正常而图片全白：axios `baseURL` 带换行时浏览器 `fetch` 会自动规范化控制字符，接口正常；但 `<img>`/CSS 背景图用同一脏 URL，浏览器加载图片不规范化 → 落到前端域名 `xkzg.de5.net/api/file/...` → SPA 兜底返回 `index.html`（HTML）→ 图片位置白色。
+- 区分点：`api.xkzg.dpdns.org/api/file/{id}` 本身返回 `200 image/webp inline`（curl 实测正常），故非 content-disposition 问题，是**前端域名返回 HTML（SPA 兜底）**。
+
+### 🔧 修复（纯前端，无需改库/无需后端部署）
+- `src/utils/helpers.ts`：`API_BASE` 与 `fileUrl()` 入参统一 `trim().replace(/\s+/g,'')`，全局去空白/换行。
+- `src/api/http.ts`：`PROD_API_BASE` 同样 trim+去空白，与 `API_BASE` 一致。
+- 效果：① 新上传 URL 不再夹换行；② 已入库脏 `cover/avatar/images` 渲染时实时清洗为干净绝对地址 → 全部图片恢复。
+- 部署：前端 `git push origin main` → Pages 自动重建。
 
 ---
 
 ## [v4.4.8] - 2026-09-04 头像/封面上传修复（PATCH profile 真修 + pages 加固）
 
-> 用户反馈：① 博客封面上传显示成功但图片位置白色；② 编辑器上传相关几乎瘫痪；③ 头像功能完全抽风；④ 美文上传封面失灵。
+> 用户反馈：① 博客封面上传显示成功但图片位置白色；② 编辑器上传相关几乎瘫痪；③ 头像功能完全抽风；④ 美文上传封面失灵。  
 > 排查结论：v4.4.7 已修「图片 inline 显示」（BUG #3），但 **`PATCH /api/profile` 头像保存 500 根因未修**，另 `POST /api/pages` 对 undefined 字段脆弱。本版补修。
 
 ### 🐞 根因与修复
 
-| # | BUG | 真因 | 修复 |
-|---|---|---|---|
+| # | BUG                                          | 真因                                                                                                                                                                                                                          | 修复                                                                                                                  |
+| - | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | 1 | 头像功能完全抽风（PATCH /api/profile 返回 500「服务器内部错误」） | 旧实现 `UPDATE users SET real_name=?, email=?, avatar=?` 一次性 bind 三个字段；前端 `uploadAvatar` 只发 `{ avatar }`，`realName/email` 为 `undefined` → D1 拒绝 undefined 绑定 → `D1_TYPE_ERROR: Type 'undefined' not supported` → 500，头像永远存不进去。 | **后端** `worker-api.ts` 的 `PATCH /api/profile` 改为真·部分更新：仅把前端传入的非 `undefined` 字段拼进 `SET`，未传字段保持原值；最后 `pub(u)` 返回最新用户。 |
-| 2 | 博客/美文/编辑器上传相关偶发 500（潜在瘫痪） | `POST /api/pages`（博客创建）的 `b.title / b.content` 无 undefined 兜底，前端缺字段时 D1 抛 `D1_TYPE_ERROR`。 | **后端** `POST /api/pages` 引入与 `POST /api/articles` 一致的 `safe(v, def)` 兜底，所有字段过滤 `undefined/null`。 |
+| 2 | 博客/美文/编辑器上传相关偶发 500（潜在瘫痪）                    | `POST /api/pages`（博客创建）的 `b.title / b.content` 无 undefined 兜底，前端缺字段时 D1 抛 `D1_TYPE_ERROR`。                                                                                                                                  | **后端** `POST /api/pages` 引入与 `POST /api/articles` 一致的 `safe(v, def)` 兜底，所有字段过滤 `undefined/null`。                    |
 
 ### 📦 部署
 
@@ -31,17 +49,21 @@
 
 ## [v4.4.7] - 2026-09-02 BUG #2 #3 #4 真修（沙箱真实 API 全场景验证）
 
-> v4.4.6 只修了 BUG #1（资料下载次数），BUG #2/#3/#4 当时未复现（登录卡点 + token 过期）。
+> v4.4.6 只修了 BUG #1（资料下载次数），BUG #2/#3/#4 当时未复现（登录卡点 + token 过期）。  
 > 本轮拿到有效 Cloudflare API Token + admin123 密码已重置，沙箱 curl 全场景 200，4 BUG 全部根治。
 
 ### 🐞 真因与修复
 
-| # | BUG | 真因 | 修复 |
-|---|---|---|---|
-| 1 | 资料下载次数不更新 | v4.4.0 新加的 `/api/file/:fileId` 走 `serveFileById()` 无任何 `UPDATE resources.downloads`。v4.4.4 在 `serveFileWithCache` 加 waitUntil 自增（line 1106）但前端实际点 `/file/r/{id}` 才走那条路。 | **v4.4.6** 在 `/api/file/:fileId` 出口前加 `c.executionCtx.waitUntil(UPDATE downloads)`；本次再确认 `POST /api/resources/17/download` ×3 后 downloads 17→20 Δ=3 ✅ |
-| 2 | 美文发布 500 `D1_TYPE_ERROR: undefined` | 前端 `payload.subjectId` 在用户没选学科时是 `undefined`，axios 序列化为非标准 JSON（`"subjectId":undefined`），后端 `c.req.json()` 解析失败 → 500 "Unexpected token 'u'..."。**这是 axios 旧版本/特定配置才会发 undefined 字符串**；新版浏览器 JSON.stringify 自动跳过，但用户在某些浏览器/Service Worker 拦截下仍发原 payload。 | **后端** `worker-api.ts:1706-1733`：`subjectId` 用 `Number()` 转换，**非数/<=0 兜底 1**；`safe(v, def)` 过滤所有 undefined/null 字段；INSERT 14 列全部走 `safe()`。<br>**前端** `src/api/http.ts:25-50`：axios 请求拦截器递归 `stripUndefined` 字段（过滤 data 和 params 中的 undefined）。<br>**前端** `src/views/ArticleEditView.vue:67`：subjectId 注释 + 兜底。 |
-| 3 | 上传图片不显示 | `GET /api/file/:fileId` 路由默认 `mode='download'`，**返回 `Content-Disposition: attachment`** → 浏览器把 `<img src>` 当下载，图片"看起来"是白方框/下载图标。 | **后端** `worker-api.ts:988-993`：mime 是 `image/*` 或 purpose 不是 `resource` → 默认 `mode='preview'`（inline）。资源类资料（purpose=resource）仍走 attachment 保留下载语义。 |
-| 4 | 编辑器"supabase配置错误" | **实际是浏览器缓存**：v4.4.5 之前的老版本 Worker 完全没有 B2 凭据 → 上传 500 "Supabase 未配置"。v4.4.5 + 注入 wrangler.toml 后已修。**用户浏览器缓存的旧 index-XXX.js 仍会触发 401/500**，弹出旧文案。 | **v4.4.5 修复**（已部署）：wrangler.toml 注入 B2 凭据 + 4 种 purpose 全部 200。<br>**v4.4.7 验证**：curl 4 种 purpose 都返回 `{"url":"/api/file/...","fileId":"..."}` HTTP 200。<br>**用户操作**：强制刷新（Ctrl+Shift+R）清除旧 JS 缓存即可。 |
+| # | BUG                                 | 真因                                                                                                                                                                                                                                                        | 修复                                                                                                                                                                                                                                                                                                            |
+| - | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | 资料下载次数不更新                           | v4.4.0 新加的 `/api/file/:fileId` 走 `serveFileById()` 无任何 `UPDATE resources.downloads`。v4.4.4 在 `serveFileWithCache` 加 waitUntil 自增（line 1106）但前端实际点 `/file/r/{id}` 才走那条路。                                                                                   | **v4.4.6** 在 `/api/file/:fileId` 出口前加 `c.executionCtx.waitUntil(UPDATE downloads)`；本次再确认 `POST /api/resources/17/download` ×3 后 downloads 17→20 Δ=3 ✅                                                                                                                                                         |
+| 2 | 美文发布 500 `D1_TYPE_ERROR: undefined` | 前端 `payload.subjectId` 在用户没选学科时是 `undefined`，axios 序列化为非标准 JSON（`"subjectId":undefined`），后端 `c.req.json()` 解析失败 → 500 "Unexpected token 'u'..."。**这是 axios 旧版本/特定配置才会发 undefined 字符串**；新版浏览器 JSON.stringify 自动跳过，但用户在某些浏览器/Service Worker 拦截下仍发原 payload。 | **后端** `worker-api.ts:1706-1733`：`subjectId` 用 `Number()` 转换，**非数/<=0 兜底 1**；`safe(v, def)` 过滤所有 undefined/null 字段；INSERT 14 列全部走 `safe()`。  
+**前端** `src/api/http.ts:25-50`：axios 请求拦截器递归 `stripUndefined` 字段（过滤 data 和 params 中的 undefined）。  
+**前端** `src/views/ArticleEditView.vue:67`：subjectId 注释 + 兜底。 |
+| 3 | 上传图片不显示                             | `GET /api/file/:fileId` 路由默认 `mode='download'`，**返回 `Content-Disposition: attachment`** → 浏览器把 `<img src>` 当下载，图片"看起来"是白方框/下载图标。                                                                                                                          | **后端** `worker-api.ts:988-993`：mime 是 `image/*` 或 purpose 不是 `resource` → 默认 `mode='preview'`（inline）。资源类资料（purpose=resource）仍走 attachment 保留下载语义。                                                                                                                                                            |
+| 4 | 编辑器"supabase配置错误"                   | **实际是浏览器缓存**：v4.4.5 之前的老版本 Worker 完全没有 B2 凭据 → 上传 500 "Supabase 未配置"。v4.4.5 + 注入 wrangler.toml 后已修。**用户浏览器缓存的旧 index-XXX.js 仍会触发 401/500**，弹出旧文案。                                                                                                         | **v4.4.5 修复**（已部署）：wrangler.toml 注入 B2 凭据 + 4 种 purpose 全部 200。  
+**v4.4.7 验证**：curl 4 种 purpose 都返回 `{"url":"/api/file/...","fileId":"..."}` HTTP 200。  
+**用户操作**：强制刷新（Ctrl+Shift+R）清除旧 JS 缓存即可。                                                                                                             |
 
 ### 📦 部署
 
@@ -70,12 +92,12 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### 🐞 BUG #1 真正根因
 
-| 项目 | 详情 |
-|---|---|
-| 现象 | 用户点资源"下载"按钮，pdf 正常下载到本地，但 `downloads` 字段永远是 0 |
-| 复现 | `curl /api/resources?status=approved&limit=5` → 拿到 id=17 `downloads=1`；`curl /api/file/d3wg3p0dhv7kzrwwq7vwzj4u` → **200 OK 392415 字节**（pdf 下来了）；重复 3 次后 `downloads` 仍是 1/21/9，**Δ=0** |
-| 真因 | v4.4.0 新加的 `/api/file/:fileId` 路由（`worker-api.ts:957`）走 `serveFileById()`（`storage-layer.ts:500`），**该函数完全没有 `UPDATE resources SET downloads=downloads+1`**。v4.4.4 在 `serveFileWithCache` 内的 waitUntil 自增（`worker-api.ts:1099`）**从未被命中**——因为前端实际点的就是 `/api/file/{file_id}`，根本不走 `serveFileWithCache`。 |
-| 修前对比 | `serveFileById` 全文 138 行（500~637）查 file_meta → 限速 → 拉 B2 流 → 写缓存 → 写 `logDownloadMetric` → **无任何 resources 表 UPDATE** |
+| 项目   | 详情                                                                                                                                                                                                                                                                                                   |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 现象   | 用户点资源"下载"按钮，pdf 正常下载到本地，但 `downloads` 字段永远是 0                                                                                                                                                                                                                                                        |
+| 复现   | `curl /api/resources?status=approved&limit=5` → 拿到 id=17 `downloads=1`；`curl /api/file/d3wg3p0dhv7kzrwwq7vwzj4u` → **200 OK 392415 字节**（pdf 下来了）；重复 3 次后 `downloads` 仍是 1/21/9，**Δ=0**                                                                                                               |
+| 真因   | v4.4.0 新加的 `/api/file/:fileId` 路由（`worker-api.ts:957`）走 `serveFileById()`（`storage-layer.ts:500`），**该函数完全没有 `UPDATE resources SET downloads=downloads+1`**。v4.4.4 在 `serveFileWithCache` 内的 waitUntil 自增（`worker-api.ts:1099`）**从未被命中**——因为前端实际点的就是 `/api/file/{file_id}`，根本不走 `serveFileWithCache`。 |
+| 修前对比 | `serveFileById` 全文 138 行（500~637）查 file_meta → 限速 → 拉 B2 流 → 写缓存 → 写 `logDownloadMetric` → **无任何 resources 表 UPDATE**                                                                                                                                                                                |
 
 ### ✅ 修复
 
@@ -122,12 +144,13 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### 🐞 4 个 BUG 根因
 
-| # | BUG | 根因 |
-|---|---|---|
-| 1 | 资料下载次数永远是 0 | `worker-api.ts:serveFileWithCache` 的 `if (r.file_path.startsWith('/api/file/'))` 分支直接 `return serveFileById(...)` —— **完全没 `UPDATE resources SET downloads=downloads+1`**。只在老路径（`downloadFile(r.file_path)`）和缓存命中分支里有。 |
-| 2 | 博客/美文/资料封面上传完全用不了 | **wrangler.toml 在 v4.4.0 B2 迁移之后从 git 跟踪移除（`.gitignore` 加固，2026-08-22 commit）**，导致后续 `wrangler deploy` 部署的 Worker **完全没有 B2_KEY_ID/B2_APPLICATION_KEY/B2_BUCKET_ID** 任何环境变量 → `storage-layer.ts:activeBackend()` 自动回退 Supabase → Supabase 也未配置 → `/api/upload/image` 返回 `{"message":"图片上传失败：Supabase 未配置"}` 500。**v4.4.0~v4.4.3 的上传是残废的**，但因 file_meta 表里有"老数据" + 之前可能手动注入过 env，掩盖了此问题。 |
-| 3 | 上传上去但不显示图片 | `src/views/ArticleView.vue` 第 112 行 images 数组的 `<img :src="im" />` **没用 `fileUrl(im)`**，相对 `/api/file/{id}` 落到 Pages 域 SPA 兜底返回 HTML → 裂图。**marked 渲染层和 cover 部分已修**（v4.4.3），但**用户手动加的 `images` 数组未走 fileUrl**。 |
-| 4 | 编辑器（MarkdownEditor）插入图片/视频/PDF/上传附件几乎瘫痪 | 与 #2 同根因（后端 `/api/upload/image` 500）—— 前端 uploadFile 拿不到 url。 |
+| # | BUG                                     | 根因                                                                                                                                                                                                                                                                                                                                                                                      |
+| - | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | 资料下载次数永远是 0                             | `worker-api.ts:serveFileWithCache` 的 `if (r.file_path.startsWith('/api/file/'))` 分支直接 `return serveFileById(...)` —— **完全没 `UPDATE resources SET downloads=downloads+1`**。只在老路径（`downloadFile(r.file_path)`）和缓存命中分支里有。                                                                                                                                                                  |
+| 2 | 博客/美文/资料封面上传完全用不了                       | **wrangler.toml 在 v4.4.0 B2 迁移之后从 git 跟踪移除（`.gitignore` 加固，2026-08-22 commit）**，导致后续 `wrangler deploy` 部署的 Worker **完全没有 B2_KEY_ID/B2_APPLICATION_KEY/B2_BUCKET_ID** 任何环境变量 → `storage-layer.ts:activeBackend()` 自动回退 Supabase → Supabase 也未配置 → `/api/upload/image` 返回 `{"message":"图片上传失败：Supabase 未配置"}` 500。**v4.4.0~v4.4.3 的上传是残废的**，但因 file_meta 表里有"老数据" + 之前可能手动注入过 env，掩盖了此问题。 |
+| 3 | 上传上去但不显示图片                              | `src/views/ArticleView.vue` 第 112 行 images 数组的 `<img :src="im" />` **没用 `fileUrl(im)`**，相对 `/api/file/{id}` 落到 Pages 域 SPA 兜底返回 HTML → 裂图。**marked 渲染层和 cover 部分已修**（v4.4.3），但**用户手动加的 `images` 数组未走 fileUrl**。                                                                                                                                                                         |
+| 4 | 编辑器（MarkdownEditor）插入图片/视频/PDF/上传附件几乎瘫痪 | 与 #2 同根因（后端 `/api/upload/image` 500）—— 前端 uploadFile 拿不到 url。                                                                                                                                                                                                                                                                                                                           |
+|   |                                         |                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### ✅ 修复
 
@@ -199,7 +222,7 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### ✨ 封面：美文/页面封面改用 Bing 高清美图（国内可访问）
 
-- **问题**：v4.4.1 为修「封面全空白」临时用本地 SVG 占位图，用户反馈丑且不对。
+- **问题**：v4.4.1 为修「封面全空白」临时用本地 SVG 占位图，用户反馈丑且不对。  
   根因是 `picsum.photos` 等境外图床**在国内不可达**，外链封面全部加载失败 → 空白。
 - **修复**：`zgCover()` 改为从 **Bing 每日壁纸美图池**（15 张 `_1366x768` 高清图，国内稳定可达、免费、零 B2 调用）按标题 hash 确定性取图。
   - 同一篇文章每次都拿到同一张（刷新不变）。
@@ -210,9 +233,9 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### 📊 监控面板：新增「官方每日实耗核对」（解决"统计与官方差太多"）
 
-- **根因**：B2 **免费账户不暴露官方交易计数 API**（实测响应头无 `b2-api-*-transaction-count-today`，`b2_get_account_info` 亦 404）。
+- **根因**：B2 **免费账户不暴露官方交易计数 API**（实测响应头无 `b2-api-*-transaction-count-today`，`b2_get_account_info` 亦 404）。  
   面板里的「回源次数」是本系统**自己发出的回源计数**，无法与 B2 控制台对齐。
-- **做法**：管理员把 B2 控制台「数据限度」页的当日数字（B 类 / C 类 / 存储 MB / 下载 MB）**手动录入**，
+- **做法**：管理员把 B2 控制台「数据限度」页的当日数字（B 类 / C 类 / 存储 MB / 下载 MB）**手动录入**，  
   落 D1 表 `b2_official_daily`，面板据此展示「官方已用 / 上限」进度条，与本地回源计数并列对照。
 - **新增**：`b2_official_daily` 表、`GET/POST /api/admin/storage/official` 端点、前端录入卡片。
 
@@ -238,12 +261,14 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 ### 🐛 修复1：B2「C 类交易」异常消耗（曾出现「1 次下载 = 8 次 C 类」）
 
 **根因**（两个叠加）：
-1. `b2_authorize_account` 属 **Class C**（免费账户 2500/日），旧版 token 只存在 Worker **模块级变量**里。
+
+1. `b2_authorize_account` 属 **Class C**（免费账户 2500/日），旧版 token 只存在 Worker **模块级变量**里。  
    Cloudflare 在全球多个 PoP 各起一个 isolate，且 isolate 会冷启动回收 —— 每个 isolate 首次请求、每次冷启动都要重新鉴权一次 C 类。
 2. `b2_list_buckets` **同样属 Class C**，而监控面板每次刷新都会调用它 —— 管理员刷几次面板就白烧几次 C 类。
 
 **修复**：
-- 新增 D1 表 `b2_auth_cache`（单行），token 落库后**全球所有 isolate 共享** → 正常情况下每日仅 1 次 C 类。
+
+- 新增 D1 表 `b2_auth_cache`（单行），token 落库后**全球所有 isolate 共享** → 正常情况下每日仅 1 次 C 类。  
   三级缓存：进程内内存 → D1 持久化 → 真调 B2；并发请求用 in-flight Promise 合并，防抖动重复鉴权。
 - 监控聚合 `getStorageMonitor()` 改为**只读 D1 快照**，不再实时调 B2（零 C 类消耗）。
 - 上传 URL 也做缓存复用（属 B 类，能省则省）；上传失败时自动作废该 URL 重新获取。
@@ -251,21 +276,21 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### 🐛 修复2：B2 下载速度过慢
 
-| 问题 | 原因 | 修复 |
-| --- | --- | --- |
-| 每次下载都要先鉴权 | token 缓存未跨 isolate | 同上，落 D1 后省掉 200~600ms 跨洋往返 |
-| 3 次同步 D1 写压在用户等待链路上 | 配额/限速/埋点都在响应前同步写库 | 全部改 `ctx.waitUntil()` 异步，响应先流式返回 |
-| 2 次串行 D1 读（配额 + 限速） | 分开查 | 合并为 1 条 SQL 一次取回 |
-| 所有文件一律 `private, no-store` | 上传时 `is_public/cacheable` 硬编码为 0 | 按 `purpose` 自动判定（头像/公告/封面/Logo 上传即可公开缓存）；资源类审核通过后置位 |
-| 私有文件永不进边缘缓存 | 边缘 TTL 只给公开资源 | 私有资源也给**短 TTL（默认 300s）**边缘缓存（权限已在 Worker 层校验，缓存的是字节本体，不外泄） |
-| 缓存命中也被计成回源 | 埋点逻辑重复且无条件记 hit=0 | 命中判定统一，命中不写回源统计 |
+| 问题                         | 原因                               | 修复                                                                |
+| -------------------------- | -------------------------------- | ----------------------------------------------------------------- |
+| 每次下载都要先鉴权                  | token 缓存未跨 isolate               | 同上，落 D1 后省掉 200~600ms 跨洋往返                                        |
+| 3 次同步 D1 写压在用户等待链路上        | 配额/限速/埋点都在响应前同步写库                | 全部改 `ctx.waitUntil()` 异步，响应先流式返回                                  |
+| 2 次串行 D1 读（配额 + 限速）        | 分开查                              | 合并为 1 条 SQL 一次取回                                                  |
+| 所有文件一律 `private, no-store` | 上传时 `is_public/cacheable` 硬编码为 0 | 按 `purpose` 自动判定（头像/公告/封面/Logo 上传即可公开缓存）；资源类审核通过后置位               |
+| 私有文件永不进边缘缓存                | 边缘 TTL 只给公开资源                    | 私有资源也给**短 TTL（默认 300s）**&#x8FB9;缘缓存（权限已在 Worker 层校验，缓存的是字节本体，不外泄） |
+| 缓存命中也被计成回源                 | 埋点逻辑重复且无条件记 hit=0                | 命中判定统一，命中不写回源统计                                                   |
 
-> 说明：B2 源站在美国西部，中国用户跨太平洋回源单文件常需 1~3s，这是物理限制。
+> 说明：B2 源站在美国西部，中国用户跨太平洋回源单文件常需 1~3s，这是物理限制。  
 > 唯一有效提速手段是让请求命中 Cloudflare 边缘缓存 —— 管理后台新增「预热 TOP10」按钮。
 
 ### 🐛 修复3：管理后台运行监控仍是 Supabase 口径
 
-- **重大 Bug**：`worker-api.ts` 里存在**两个** `/api/admin/storage/monitor` 路由（旧 Supabase 版在前）。
+- **重大 Bug**：`worker-api.ts` 里存在**两个** `/api/admin/storage/monitor` 路由（旧 Supabase 版在前）。  
   Hono 先注册先匹配 → v4.4.0 新写的 B2 监控**从未生效过**。已删除旧路由。
 - `/api/admin/monitor` 的 `supabaseStorage` 整块移除，改为 `b2Storage`；不再调用 `getSupabaseStorageUsage()`（旧版会 list 整个 Supabase 桶，慢且已废弃）。
 - 大体积文件 TOP10 改为直接查 D1 `file_meta`（零外部调用）。
@@ -277,37 +302,38 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 ### 🐛 修复4：存量迁移实际一条都没跑到（无缝迁移失效）
 
-**根因**：旧版从 D1 查 `file_path LIKE '%supabase%'`，但 D1 里存的是**纯文件名**
-（如 `file_1787038194294_v1q21tjj.docx`），并不含 "supabase" 字样 → 永远 `total=0`。
+**根因**：旧版从 D1 查 `file_path LIKE '%supabase%'`，但 D1 里存的是**纯文件名**  
+（如 `file_1787038194294_v1q21tjj.docx`），并不含 "supabase" 字样 → 永远 `total=0`。  
 实测 Supabase 桶 `zhuiguang` 内确有 **15 个文件 / 4.73 MB** 待迁。
 
-**修复**：重写 `migrateToB2()` —— 直接**全量列举 Supabase 桶**（源在桶里，不在 D1 里），
+**修复**：重写 `migrateToB2()` —— 直接**全量列举 Supabase 桶**（源在桶里，不在 D1 里），  
 逐文件 下载 → 上传 B2 → 写 `file_meta` → **反查并改写 D1 中所有引用该文件的字段**：
 
 - 单值字段：`resources.file_path`、`users.avatar`、`articles.cover`、`pages.cover`
-- JSON 数组：`articles.images`、`pages.images`、`pages.attachments`、`messages.attachments`、
+- JSON 数组：`articles.images`、`pages.images`、`pages.attachments`、`messages.attachments`、  
   `quiz_questions.attachments`、`subject_questions.attachments`
 
 幂等（新增 `b2_migration_log`，`source_key UNIQUE`）、安全（默认不删 Supabase 源文件，可回滚）。
 
-**迁移结果（2026-08-31 实跑）**：15/15 全部成功、0 失败；改写 5 处 D1 引用；
+**迁移结果（2026-08-31 实跑）**：15/15 全部成功、0 失败；改写 5 处 D1 引用；  
 搬迁 4.73 MB；`file_meta` 现存 16 行 / 5,378,780 字节；4 个已过审资源引用的文件自动置为 `is_public=1, cacheable=1`。
 
 ### 🐛 修复5：官方盘点算出「已用 0 B」（`size` 字段不存在）
 
-**根因**：`b2_list_file_names` 响应里的文件大小字段名是 **`contentLength`**，不是 `size`。
+**根因**：`b2_list_file_names` 响应里的文件大小字段名是 **`contentLength`**，不是 `size`。  
 旧代码写 `f.size` → 取到 `undefined` → `Number(undefined)` 静默变 0 → 面板显示「已用 0 B」但文件明明存在。
 
 **修复**：`storage-layer.ts` 盘点亮改为
+
 ```ts
 totalSize += Number(f.contentLength ?? f.size ?? 0)
 ```
 
 **实测对照**（同一批 16 个文件）：
 
-| 取值 | 结果 |
-| --- | --- |
-| `f.size`（错误） | 16 个文件 / **0 字节** |
+| 取值                    | 结果                                                         |
+| --------------------- | ---------------------------------------------------------- |
+| `f.size`（错误）          | 16 个文件 / **0 字节**                                          |
 | `f.contentLength`（正确） | 16 个文件 / **5,378,780 字节（5.13 MB）**，与 D1 `file_meta` 求和完全一致 |
 
 > ⚠️ 该 bug 曾导致 `b2_bucket_census` 落库了错误值（0 字节），已用修正后的代码重跑盘点覆盖。
@@ -317,33 +343,36 @@ totalSize += Number(f.contentLength ?? f.size ?? 0)
 **这是本版本最重要的一处修复。** 现象：下载到的 PDF 打不开、图片裂图、Office 文件损坏。
 
 **根因**：`worker-api.ts` 的「中间件4：API 短期内存缓存」在缓存响应时执行了
+
 ```ts
 const body = await c.res.text()          // 按 UTF-8 解码
 c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全毁
 ```
-该中间件 `app.use('*')` 拦截所有 `/api/*`，只对
-`/upload/`、`/download/`、`/comments`、`/export`、`/storage/file` 做了排除。
+
+该中间件 `app.use('*')` 拦截所有 `/api/*`，只对  
+`/upload/`、`/download/`、`/comments`、`/export`、`/storage/file` 做了排除。  
 而 **v4.4.0 新增的统一文件代理 `/api/file/:fileId` 忘了加进排除名单** → 所有文件下载中招。
 
 **后果**（实测同一份 PDF）：
 
-| 指标 | 修复前 | 修复后 |
-| --- | --- | --- |
-| 实际字节数 | 5,259,995 B（膨胀 84%） | **2,860,266 B（正确）** |
-| SHA1 | `473b57d7…`（不匹配） | **`5177e94a…`（与 B2/D1 一致）** |
-| 文件头 | `%PDF-1.7\n%\uFFFD\uFFFD…` | `%PDF-1.7\n%\xa1\xb3\xc5\xd7\n1`（正常） |
-| 传输方式 | 先全量缓冲进内存 + 重新编码，**流式透传失效** | 原生流式透传 |
+| 指标    | 修复前                        | 修复后                                  |
+| ----- | -------------------------- | ------------------------------------ |
+| 实际字节数 | 5,259,995 B（膨胀 84%）        | **2,860,266 B（正确）**                  |
+| SHA1  | `473b57d7…`（不匹配）           | **`5177e94a…`（与 B2/D1 一致）**          |
+| 文件头   | `%PDF-1.7\n%\uFFFD\uFFFD…` | `%PDF-1.7\n%\xa1\xb3\xc5\xd7\n1`（正常） |
+| 传输方式  | 先全量缓冲进内存 + 重新编码，**流式透传失效** | 原生流式透传                               |
 
-无效字节被替换成 `U+FFFD`（`EF BF BD`），所以越"二进制"的文件膨胀越厉害。
-**这也顺带解释了「B2 下载慢」的一大半原因**：用户必须等整个文件被读进内存、
+无效字节被替换成 `U+FFFD`（`EF BF BD`），所以越"二进制"的文件膨胀越厉害。  
+**这也顺带解释了「B2 下载慢」的一大半原因**：用户必须等整个文件被读进内存、  
 解码、再编码之后才能收到第一个字节。
 
 **修复**（`worker-api.ts`，两处）：
+
 1. `apiCacheKey()` 增加路径排除：`if (p.startsWith('/api/file/')) return null`
-2. 兜底保险：缓存写入前先判断响应类型，非文本类（`json/text/javascript/xml/utf-8`）一律不缓存，
+2. 兜底保险：缓存写入前先判断响应类型，非文本类（`json/text/javascript/xml/utf-8`）一律不缓存，  
    防止将来新增二进制路由时再次踩坑。
 
-**验证**：修复后抽查 1 个 PDF + 3 个 WebP，字节数与 SHA1 与 D1 `file_hash` **全部一致**，
+**验证**：修复后抽查 1 个 PDF + 3 个 WebP，字节数与 SHA1 与 D1 `file_hash` **全部一致**，  
 文件魔数正常（`%PDF` / `RIFF`）；JSON 接口（`/api/announcements`、`/api/admin/monitor`）无回归。
 
 ### ⚠️ 官方口径的重要澄清（实测结论，勿再重试）
@@ -351,8 +380,8 @@ c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全
 1. `b2_get_account_info` → v2 / v3 **均返回 404 not_found**（主密钥 capabilities 为空，B2 的 application key 也不提供 `readAccountInfo` 选项）。
 2. `b2_list_buckets` → 可用，但响应**不含** `fileCount` / `totalSize` 字段（旧代码以为有，导致面板永远显示 null）。
 3. 下载响应头**不返回** `b2-api-b-class-transaction-count-today`。
-4. 结论：**官方已用容量**只能通过 `b2_list_file_names` 全量盘点求和得到（属 **Class A**，免费 2500/日），
-   因此新增 `b2_bucket_census` 表，**每日最多盘点 1 次**并落库；面板显示盘点日期与新鲜度。
+4. 结论：**官方已用容量**只能通过 `b2_list_file_names` 全量盘点求和得到（属 **Class A**，免费 2500/日），  
+   因此新增 `b2_bucket_census` 表，**每日最多盘点 1 次**并落库；面板显示盘点日期与新鲜度。  
    求和时**必须用 `contentLength` 字段**，用 `size` 会静默算成 0（详见修复5）。
 5. 容量上限 10 GB 为 B2 公开免费档位常量（API 取不到），面板已标注「以 B2 控制台 Billing 页为准」。
 6. 「当日回源次数」仍是**本地统计（非官方）**，面板明确标注，绝不冒充 B2 官方数字。
@@ -363,13 +392,13 @@ c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全
 
 ### 🔌 新增/变更接口
 
-| 接口 | 说明 |
-| --- | --- |
-| `POST /api/admin/storage/census` | B2 官方容量盘点（`{force:true}` 强制重扫），每日限 1 次 |
-| `POST /api/admin/migrate/to-b2` | 存量迁移（参数 `limit` / `only` / `dryRun`） |
-| `GET /api/admin/migrate/status` | 迁移进度查询（不搬迁） |
-| `GET /api/admin/storage/monitor` | 改为只读本地快照，不消耗任何 B2 交易 |
-| `GET /api/admin/monitor` | `supabaseStorage` 置 null，新增 `b2Storage` |
+| 接口                               | 说明                                      |
+| -------------------------------- | --------------------------------------- |
+| `POST /api/admin/storage/census` | B2 官方容量盘点（`{force:true}` 强制重扫），每日限 1 次  |
+| `POST /api/admin/migrate/to-b2`  | 存量迁移（参数 `limit` / `only` / `dryRun`）    |
+| `GET /api/admin/migrate/status`  | 迁移进度查询（不搬迁）                             |
+| `GET /api/admin/storage/monitor` | 改为只读本地快照，不消耗任何 B2 交易                    |
+| `GET /api/admin/monitor`         | `supabaseStorage` 置 null，新增 `b2Storage` |
 
 ---
 
@@ -393,7 +422,7 @@ c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全
 ### ⚠️ 配额统计说明（重要，已与用户确认采用方案3）
 
 - B2 免费账户的单次下载响应**不返回**官方头 `b2-api-b-class-transaction-count-today`，且主密钥无 `readAccountInfo` 权限、`b2_get_account_info` 返回 404。
-- 因此「当日 B 类交易数」这一官方字段在**本账户无法取得**。系统**不做任何自算猜测**，而是：
+- 因此「当日 B 类交易数」这一官方字段在**本账户无法取得**。系统**不做任何自算猜测**，而是：  
   每次 Worker **真实回源 B2** 时，在 D1 记一笔「今日真实回源次数」（本系统真实发生的请求，非估算），监控面板**明确标注为「本地统计（非官方）」**。
 - 软上限/告警仍基于该真实回源次数判断，起兜底限速保护作用。
 
@@ -415,6 +444,7 @@ c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全
 ### ✨ 新增功能：文件查看与下载
 
 **需求**
+
 > 超级管理员运行监控界面的大体积文件 TOP 10，再加一个可以下载查看的功能
 
 **实现**
@@ -427,38 +457,38 @@ c.res = new Response(body, {...})        // 再按 UTF-8 编码 → 二进制全
 
 TOP 10 每行新增 👁️ 查看 / ⬇️ 下载 两个按钮。
 
-预览弹窗同步补全：底部常驻「下载」按钮（不管从"查看"还是"删除"进来都能顺手下载）；
-弹窗文案按入口区分——从「查看」进入显示"可下载到本地查看"，从「删除」进入显示"确认无误后可删除"。
+预览弹窗同步补全：底部常驻「下载」按钮（不管从"查看"还是"删除"进来都能顺手下载）；  
+弹窗文案按入口区分——从「查看」进入显示"可下载到本地查看"，从「删除」进入显示"确认无误后可删除"。  
 同时修正了旧文案错位问题：点「查看」进弹窗时原本也会显示"可直接删除"。
 
 ### 🔒 顺带修复 1：预览 URL 里的明文 token
 
-旧实现走 `/file/raw/:key?token=xxx`，token 明文出现在浏览器地址栏、历史记录和 Referer 里。
-改为后端取流 + `URL.createObjectURL(blob)`：token 走 `Authorization` header，**URL 中不再出现 token**。
+旧实现走 `/file/raw/:key?token=xxx`，token 明文出现在浏览器地址栏、历史记录和 Referer 里。  
+改为后端取流 + `URL.createObjectURL(blob)`：token 走 `Authorization` header，**URL 中不再出现 token**。  
 同时补上 Blob 的及时回收（关闭弹窗 / 离开页面时 revoke），避免内存泄漏。
 
 ### 🐛 顺带修复 2：二进制文件被塞进字符串缓存
 
-`apiCacheKey()` 只对 `/upload/`、`/download/`、`/comments`、`/export` 跳过缓存，
-新接口返回的是二进制流，若被当作字符串写进内存 Map，会导致文件损坏并撑爆 500 条上限的缓存。
+`apiCacheKey()` 只对 `/upload/`、`/download/`、`/comments`、`/export` 跳过缓存，  
+新接口返回的是二进制流，若被当作字符串写进内存 Map，会导致文件损坏并撑爆 500 条上限的缓存。  
 已把 `/storage/file` 加入排除名单。
 
 ### 🔧 顺带修复 3：本地 main 分支跟踪错了远端分支
 
-本地 `main` 的 upstream 被配成了 `origin/master`（一个落后 14 个提交的旧分支），
+本地 `main` 的 upstream 被配成了 `origin/master`（一个落后 14 个提交的旧分支），  
 而 GitHub 仓库 HEAD 实际是 `main`。已修正为 `origin/main`。
 
 ### ✅ 生产验证
 
-| 场景 | 结果 |
-| --- | --- |
-| 缺少 key / 路径穿越 `../` / 绝对路径 | 400 已拦截 |
-| 文件不存在 | 404 |
-| 未登录 | 401 |
-| 学生账号（id=9） | 403 无权限 |
-| 同一学生 token 访问普通接口 | 200（证明 403 是真的被拦，不是 token 失效） |
-| 超管下载 2.73MB PDF | 200，2,860,266 字节，`%PDF-` 开头 `%%EOF` 结尾，文件完整 |
-| preview 与 download 两种模式内容 | 字节级一致 |
+| 场景                         | 结果                                          |
+| -------------------------- | ------------------------------------------- |
+| 缺少 key / 路径穿越 `../` / 绝对路径 | 400 已拦截                                     |
+| 文件不存在                      | 404                                         |
+| 未登录                        | 401                                         |
+| 学生账号（id=9）                 | 403 无权限                                     |
+| 同一学生 token 访问普通接口          | 200（证明 403 是真的被拦，不是 token 失效）               |
+| 超管下载 2.73MB PDF            | 200，2,860,266 字节，`%PDF-` 开头 `%%EOF` 结尾，文件完整 |
+| preview 与 download 两种模式内容  | 字节级一致                                       |
 
 ### 📁 改动文件
 
@@ -476,17 +506,18 @@ TOP 10 每行新增 👁️ 查看 / ⬇️ 下载 两个按钮。
 ### ✨ 新增功能：文件溯源
 
 **需求**
+
 > 超级管理员运行监控界面的大体积文件 TOP 10，可以看到文件溯源（就是哪里来的，从哪个界面上传的）
 
 **难点：光看文件名判断不出来源**
 
 实测生产 bucket，object key 只有 3 种前缀：
 
-| 前缀 | 数量 | 问题 |
-|---|---|---|
-| `file_` | 12 | 资料上传、编辑器附件、题库附件**共用**，无法区分 |
-| `img_` | 7 | 编辑器图片（美文/页面/头像都可能用） |
-| `avatar_` | 1 | 头像 |
+| 前缀        | 数量 | 问题                         |
+| --------- | -- | -------------------------- |
+| `file_`   | 12 | 资料上传、编辑器附件、题库附件**共用**，无法区分 |
+| `img_`    | 7  | 编辑器图片（美文/页面/头像都可能用）        |
+| `avatar_` | 1  | 头像                         |
 
 所以必须**反查数据库**，而不是猜文件名。
 
@@ -494,26 +525,27 @@ TOP 10 每行新增 👁️ 查看 / ⬇️ 下载 两个按钮。
 
 反查 D1 七类业务表，按可信度从高到低依次匹配：
 
-| 顺序 | 来源 | 匹配字段 |
-|---|---|---|
-| 1 | 资料上传 | `resources.file_path` |
-| 2 | 用户头像 | `users.avatar` |
-| 3 | 页面类 | `pages.cover/images/content/attachments`（按 ptype 细分博客/论坛/公告/指南/班级页） |
-| 4 | 美文 | `articles.cover/images/content` |
-| 5 | 题库附件 | `quiz_questions` / `subject_questions.attachments` |
-| 6 | 站内信 | `messages.content/attachments` |
-| 7 | 评论附件 | `article_comments` / `page_comments.attachments` |
+| 顺序 | 来源   | 匹配字段                                                                |
+| -- | ---- | ------------------------------------------------------------------- |
+| 1  | 资料上传 | `resources.file_path`                                               |
+| 2  | 用户头像 | `users.avatar`                                                      |
+| 3  | 页面类  | `pages.cover/images/content/attachments`（按 ptype 细分博客/论坛/公告/指南/班级页） |
+| 4  | 美文   | `articles.cover/images/content`                                     |
+| 5  | 题库附件 | `quiz_questions` / `subject_questions.attachments`                  |
+| 6  | 站内信  | `messages.content/attachments`                                      |
+| 7  | 评论附件 | `article_comments` / `page_comments.attachments`                    |
 
 都查不到 → 按 key 前缀推测并标记 **`confident: false`**（未关联 = 可清理的残留文件）。
 
-**性能设计**：把 key 列表拼成 `LIKE` 条件交给 D1 侧过滤，再把命中的候选记录拉回内存
+**性能设计**：把 key 列表拼成 `LIKE` 条件交给 D1 侧过滤，再把命中的候选记录拉回内存  
 逐个 key 精确确认（避免 LIKE 误判）。**查询次数固定 7 张表，与文件数量无关**。
 
-**返回字段**
-`type` / `label` / `icon` / `refId` / `refTitle` / `detailUrl` /
+**返回字段**  
+`type` / `label` / `icon` / `refId` / `refTitle` / `detailUrl` /  
 `uploader` / `subjectName` / `createdAt` / `status` / `confident`
 
 **UI 改动**
+
 - 每行文件名下方新增溯源标签：来源 + 标题 + 上传人 + 学科 + 时间（hover 看完整信息）
 - 有归属的显示「前往」按钮，可跳转到对应内容详情页
 - **孤儿文件用红色警示标记**
@@ -522,7 +554,7 @@ TOP 10 每行新增 👁️ 查看 / ⬇️ 下载 两个按钮。
 
 ### 🐛 顺带修复：存储监控接口一直 500
 
-排查过程中发现 `/api/admin/storage/monitor` 返回
+排查过程中发现 `/api/admin/storage/monitor` 返回  
 `存储监控数据获取失败: supabaseDbStats is not defined`：
 
 ```typescript
@@ -531,12 +563,12 @@ const [storageData, resources, supaDbStats] = await Promise.all([...])  // 3793 
 supabaseDbStats,   // 3909 行 ← 变量名拼错，未定义
 ```
 
-`ReferenceError` 导致整个接口 500。该 bug 自 worker-api.ts 创建起就存在
+`ReferenceError` 导致整个接口 500。该 bug 自 worker-api.ts 创建起就存在  
 （commit `80313b9`），也就是说**这个页面从未成功加载过**。
 
 ### 生产实测结果
 
-20 个文件：4 个关联到资料，16 个为未关联残留。
+20 个文件：4 个关联到资料，16 个为未关联残留。  
 TOP 10 中 **7 个未关联、合计 12.08 MB** 可直接清理。
 
 ```
@@ -554,9 +586,9 @@ TOP 10 中 **7 个未关联、合计 12.08 MB** 可直接清理。
 
 ### 遗留待确认
 
-Express 本地后端**没有 Supabase Storage 集成**（全文件 0 处引用），
-它的 `/api/admin/monitor` 是简化版，压根没有 `supabaseStorage` 字段。
-这属于**功能缺失**而非"同步落后"，补齐需要新引入 Supabase 客户端 +
+Express 本地后端**没有 Supabase Storage 集成**（全文件 0 处引用），  
+它的 `/api/admin/monitor` 是简化版，压根没有 `supabaseStorage` 字段。  
+这属于**功能缺失**而非"同步落后"，补齐需要新引入 Supabase 客户端 +  
 实现 `listSupabaseFiles` / `getSupabaseStorageUsage`。涉及新增依赖，待用户确认后再动。
 
 ---
@@ -568,6 +600,7 @@ Express 本地后端**没有 Supabase Storage 集成**（全文件 0 处引用�
 ### 🔴 致命 Bug 修复：本学科教师无法使用任何审核功能
 
 **现象（用户反馈）**
+
 > 本学科教师无法使用管理界面的各项审核功能，也无法删除本学科的相关内容
 
 **根因（一行 SQL 漏查字段）**
@@ -586,60 +619,61 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 
 → `teachingSubjects(undefined)` → D1 `bind(undefined)` → **`D1_TYPE_ERROR: Type 'undefined' not supported`** → HTTP 500
 
-**为什么超管一直没暴露？**
-`canManageSubject` 第 515 行 `if (user.role === 'SUPER_ADMIN') return true` **直接短路返回**，
+**为什么超管一直没暴露？**  
+`canManageSubject` 第 515 行 `if (user.role === 'SUPER_ADMIN') return true` **直接短路返回**，  
 永远走不到 `teachingSubjects`。这个 bug 从 v1.x 潜伏至今，只有教师角色会触发。
 
 **实测证据（部署前，生产环境直测）**
 
-| 调用者 | 目标 | 响应 |
-|---|---|---|
-| admin | article 40 | `{"ok":true}` |
+| 调用者        | 目标         | 响应                  |
+| ---------- | ---------- | ------------------- |
+| admin      | article 40 | `{"ok":true}`       |
 | teacher 69 | article 40 | `500 D1_TYPE_ERROR` |
 | teacher 69 | article 41 | `500 D1_TYPE_ERROR` |
 
 **修复（双管齐下）**
+
 1. 治本：11 处 `SELECT role, subject_id` 补成 `SELECT id, role, subject_id`
-2. 防御：`canManageSubject(user, subjectId, fallbackUserId?)` 增加兜底参数，
+2. 防御：`canManageSubject(user, subjectId, fallbackUserId?)` 增加兜底参数，  
    `user.id` 缺失时改用 `fallbackUserId`，都没有则**安全返回 false（拒绝）而非抛 500**
 
-**连带修复**：`GET /api/quizzes/:id/submissions` 的 SQL 只查 `subject_id`，
+**连带修复**：`GET /api/quizzes/:id/submissions` 的 SQL 只查 `subject_id`，  
 连 `role` 都没有 → 教师永远无法查看考试提交（静默 403）。一并补 `id, role`。
 
-**受影响接口（教师此前全部 500）**
-美文审核 / 美文删除 / 资料审核 / 资料删除 / 待审资料下载 / 资料预览 /
+**受影响接口（教师此前全部 500）**  
+美文审核 / 美文删除 / 资料审核 / 资料删除 / 待审资料下载 / 资料预览 /  
 题库编辑 / 题库删除 / 试卷批改 / 考试提交查看 / 考试报告
 
 ### ✨ 新增功能
 
-1. **审核条目显示学科**：美文、资料、论坛三类卡片均在元信息行首位显示
+1. **审核条目显示学科**：美文、资料、论坛三类卡片均在元信息行首位显示  
    `📚 学科名`（超管与学科教师都能看到）
-   - 后端：`/api/articles`、`/api/resources` 列表 LEFT JOIN `subjects` 补
+   - 后端：`/api/articles`、`/api/resources` 列表 LEFT JOIN `subjects` 补  
      `subject_name` / `subject_icon`
-2. **美文审核可查看完整详情**：单击卡片正文区或封面即跳转到 `/article/:id`，
+2. **美文审核可查看完整详情**：单击卡片正文区或封面即跳转到 `/article/:id`，  
    操作区另加「查看详情」按钮
-3. **资料审核可先下载查看**：操作区新增「下载查看」按钮，
+3. **资料审核可先下载查看**：操作区新增「下载查看」按钮，  
    走 `fetch + Blob + <a download>`，URL 不暴露 token
 
 ### 🐛 其他 Bug 修复
 
-- **跨学科教师能看到删除按钮**：三类卡片删除按钮统一加 `v-if="canManage(subject_id)"`，
+- **跨学科教师能看到删除按钮**：三类卡片删除按钮统一加 `v-if="canManage(subject_id)"`，  
   超管全放行，教师仅本学科显示
-- **教师列表过滤形同虚设**：旧逻辑 `if (isTeacher && teachingSubjects.length)` 在
+- **教师列表过滤形同虚设**：旧逻辑 `if (isTeacher && teachingSubjects.length)` 在  
   任教列表为空时**放行全部学科（越权）**，改为无条件按本学科过滤
-- **删除失败静默无提示**：`deleteArticleItem` 原来 `catch {}` 空吞，
+- **删除失败静默无提示**：`deleteArticleItem` 原来 `catch {}` 空吞，  
   403 时用户点了没反应，现在弹出后端错误原因
 
 ### 🔧 Express 本地后端同步（双后端规则）
 
 `server/index.ts` 此前已落后于 Worker 端，本次一并补齐：
 
-| 项 | 同步前（本地） | 同步后（与生产一致） |
-|---|---|---|
-| 美文审核权限 | 写死「只有超管可以审核美文」 | 超管放行任意学科 + 学科教师审本学科 |
-| 审核通过经验值 | 缺失（注释称"仅创建时发放"） | 补 `addExp`，含 `exp_logs` 防重复检查 |
-| 代发通知文案 | 「已通过超管审核」 | 「已通过审核」（教师也能审，措辞不再限定超管） |
-| 列表 `subject_name` | 无 | LEFT JOIN `subjects` 补学科名/图标 |
+| 项                 | 同步前（本地）         | 同步后（与生产一致）                    |
+| ----------------- | --------------- | ----------------------------- |
+| 美文审核权限            | 写死「只有超管可以审核美文」  | 超管放行任意学科 + 学科教师审本学科           |
+| 审核通过经验值           | 缺失（注释称"仅创建时发放"） | 补 `addExp`，含 `exp_logs` 防重复检查 |
+| 代发通知文案            | 「已通过超管审核」       | 「已通过审核」（教师也能审，措辞不再限定超管）       |
+| 列表 `subject_name` | 无               | LEFT JOIN `subjects` 补学科名/图标  |
 
 ### 部署状态
 
@@ -649,27 +683,26 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 
 ### 验证结果（生产实测）
 
-| 场景 | 结果 |
-|---|---|
-| teacher 69（语文）审语文美文 40 | ✅ `{"ok":true}` |
+| 场景                       | 结果                  |
+| ------------------------ | ------------------- |
+| teacher 69（语文）审语文美文 40   | ✅ `{"ok":true}`     |
 | teacher 69 审历史美文 41（跨学科） | ✅ `403 无权限审核该学科的美文` |
-| teacher 69 删历史美文 41（跨学科） | ✅ `403 无权限删除` |
-| 列表 `subject_name` | ✅ 语文 / 历史 / 数学 |
+| teacher 69 删历史美文 41（跨学科） | ✅ `403 无权限删除`       |
+| 列表 `subject_name`        | ✅ 语文 / 历史 / 数学      |
 
 ### 验证结果（本地 Express 实测，双后端行为已对齐）
 
 本地起 `tsx server/index.ts`，建语文教师（subject_id=1）+ 语文/数学各一篇待审美文：
 
-| 场景 | 生产 Worker | 本地 Express |
-|---|---|---|
-| 语文教师审语文明文（本学科） | `ok` | `ok` ✅ |
-| 语文教师审数学美文（跨学科） | `403 无权限审核该学科的美文` | 同左 ✅ |
-| 语文教师删语文明文（本学科） | `ok` | `ok` ✅ |
-| 语文教师删数学美文（跨学科） | `403 无权限删除` | 同左 ✅ |
-| 列表 `subject_name` | 语文/历史/数学 | 数学 ✅ |
+| 场景                | 生产 Worker         | 本地 Express |
+| ----------------- | ----------------- | ---------- |
+| 语文教师审语文明文（本学科）    | `ok`              | `ok` ✅     |
+| 语文教师审数学美文（跨学科）    | `403 无权限审核该学科的美文` | 同左 ✅       |
+| 语文教师删语文明文（本学科）    | `ok`              | `ok` ✅     |
+| 语文教师删数学美文（跨学科）    | `403 无权限删除`       | 同左 ✅       |
+| 列表 `subject_name` | 语文/历史/数学          | 数学 ✅       |
 
 ---
-
 
 ---
 
@@ -680,15 +713,18 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 > 上传失败修复：彻底移除 v4.2.7 残留 Service Worker
 
 ### 现象（用户反馈）
+
 > 现在无法上传文件，就是稍大一些的文件
 
 ### 根因分析（已用实测排除 Supabase 限制）
+
 - curl 直传 Supabase：50KB / 1MB / 5MB 三个不同大小文件全部 200 OK
 - `/api/upload/presign` 接口正常返回 signedUrl
 - 后端 `/api/auth/login` 正常
 - **Supabase 没有任何大小限制**（免费套餐 1GB 存储）
 
 **真正根因**：
+
 - v4.2.7 部署过的 Service Worker（`public/sw-download.js`）在用户浏览器中已注册
 - v4.2.8 试图用 `navigator.serviceWorker.getRegistrations().unregister()` 清理
 - **但 SW 卸载是异步的**——旧 SW 在 unregister 真正完成前仍会响应 fetch 事件
@@ -697,10 +733,12 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 ### 修法（双管齐下）
 
 **1. 物理删除 `public/sw-download.js`**
+
 - 不再让浏览器能 fetch 到这个文件
 - 部署后，新打开的标签页不会重新激活 SW
 
 **2. 强化 `main.ts` 的 SW 清理逻辑**
+
 - 之前：`getRegistrations().then(regs => regs.forEach(reg => reg.unregister().catch(()=>{})))`
   - 没 await，promise 静默失败
   - 不知道是否真的清理完成
@@ -708,6 +746,7 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 - console.info 输出清理进度，便于用户/我们验证
 
 ### 部署
+
 - 后端：无须部署
 - 前端：git push origin main → CF Pages 自动构建
 - **用户必须硬刷新一次**（Ctrl+Shift+R / Cmd+Shift+R）—— 浏览器才能 fetch 新的 `index-*.js` 执行新清理逻辑
@@ -715,9 +754,11 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 ### 文件清单
 
 **删除**：
+
 - `public/sw-download.js`（物理移除，避免再次被 fetch）
 
 **修改**：
+
 - `src/main.ts`（cleanupLegacySW 强化：await 全部 unregister + console 进度）
 
 ---
@@ -727,9 +768,11 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 > 紧急回退：v4.2.7 SW 拦截方案失败，所有下载被 SPA fallback 截到 index.html
 
 ### 现象（用户反馈）
+
 > 现在什么都下不了，全下成 htm 了，啥也没有！！！
 
 ### 根因（定位 + 教学）
+
 - `public/sw-download.js` 写完后我**没在 `_redirects` 中配 `/api/download/*` 不被 SPA fallback 吞掉**
 - Cloudflare Pages 默认会把所有找不到的路径 fallback 到 `index.html`，状态 200
 - 用户首次访问 SW 还没注册激活，浏览器直接请求 `/api/download/12`，CF Pages 找不到，返回 `<!DOCTYPE html>...`
@@ -737,11 +780,13 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 - 我的「500ms 兜底降级到 v4.2.6」**没生效**，因为 `<a href>` 一旦触发，浏览器立刻 GET，500ms 后 SW 才接管已经晚了
 
 ### 紧急止血
+
 - `SubjectView.downloadResource` **完全回退到 v4.2.6** 的 `fetch + blob + <a download>`
 - `main.ts` 取消 SW 注册代码，**改为清理旧 SW**（`getRegistrations().unregister()` + `caches.keys().delete()`）
 - 公共文件 `public/sw-download.js` 保留不删，下次彻底修再加
 
 ### 后续（不在本版本范围）
+
 - v4.2.7 的 SW 思路方向是对的，但需要先在 `_redirects` 加：
   ```
   /api/download/* /api/download/:splat 404
@@ -751,6 +796,7 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 - **本次不做**，先止血
 
 ### 部署
+
 - 后端：无须部署
 - 前端：git push origin main → CF Pages 自动构建
 - 用户浏览器**必须刷新**一次（带 SW 的浏览器，旧的 v4.2.7 SW 不 unregister 会继续拦截），所以 `main.ts` 里加了 unregister 代码——只要用户访问主页，旧 SW 就被注销
@@ -760,9 +806,11 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 > 下载终极修复（终极版）：Service Worker 拦截下载请求 + 浏览器原生流式
 
 ### 现象
+
 v4.2.6 改用 `fetch + blob + <a download>` 后，用户反馈「明明下载完了浏览器还显示剩余时间未知」——blob URL 让浏览器无法测算服务端流速。
 
 ### 三层需求（必须同时满足）
+
 1. ✅ 浏览器**原生流式**下载（显示真实进度条+剩余时间）
 2. ✅ URL **完全不暴露 token**（不要让用户拿到 url）
 3. ✅ 不开任何新标签页（不要跳转链接）
@@ -772,6 +820,7 @@ v4.2.6 改用 `fetch + blob + <a download>` 后，用户反馈「明明下载完
 ### 修法：Service Worker 拦截 `/api/download/*` 路径
 
 **工作流**：
+
 ```
 用户点下载 → <a href="/api/download/123" download>
        ↓
@@ -789,6 +838,7 @@ SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
 ### 组件
 
 **新增**：
+
 - `public/sw-download.js`（~120 行）
   - 拦截 `/api/download/*`
   - 用 MessageChannel 异步拿 token（避免 SW 直接读 localStorage 不可行问题）
@@ -796,24 +846,29 @@ SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
   - 适配 token 拿不到时的 500ms 兜底
 
 **修改**：
+
 - `src/main.ts`（注册 SW + message handler 35 行）
 - `src/views/SubjectView.vue`（downloadResource 改为 SW 优先路径 + v4.2.6 兜底）
 
 ### 关键特性
+
 - **不退化**：SW 还没激活（首次访问）时降级到 v4.2.6 fetch+blob 路径
 - **不破坏用户已有行为**：URL 仍是同源 `/api/download/123`，devtools 看不到 token URL
 - **不依赖后端改动**：纯前端 SW + 后端已配 CORS 已足够
 
 ### 部署
+
 - 后端：**无须部署**
 - 前端：`git push origin main` → Cloudflare Pages 自动构建（dist 直接复制 `public/sw-download.js` 到根）
 
 ### 文件清单
 
 **新增**：
+
 - `public/sw-download.js`
 
 **修改**：
+
 - `src/main.ts`（+30 行：SW 注册 + message handler）
 - `src/views/SubjectView.vue`（downloadResource 重写：SW 优先 + v4.2.6 兜底）
 - `dist/sw-download.js`（构建产物自动生成）
@@ -827,9 +882,11 @@ SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
 ### Bug 修复
 
 **用户原话**：
+
 > 下载还是反应慢，不要给一个跳转链接
 
 **根因分析**：
+
 - v4.2.4 用 `<a href target="_blank">` 把下载 URL 在**新标签页打开**——
   - Chrome/Edge/Firefox：新开空白标签 → 1-2 秒后才开始下载
   - Safari：新标签 loading → 等服务器返回 attachment 才弹下载框
@@ -838,15 +895,16 @@ SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
 
 **修法（先奏后斩：用户拍板方案 1）**：
 
-| 项 | v4.2.4 | v4.2.6 |
-|---|---|---|
-| 触发方式 | `<a href target="_blank">` → 开新标签 | `<a download>` 不开标签，立即触发 |
-| Token 鉴权传递 | URL `?token=xxx`（DevTools Network 可见） | `Authorization: Bearer xxx` Header（用户看不到完整带 token 的 URL） |
-| 后端改动 | — | **无须部署**（`verifyFileAccess` 已优先读 Authorization） |
-| 用户点击体验 | "点了，1-2 秒后才反应" | "点了瞬间弹下载框" |
-| 大文件 (10MB+) | 浏览器流式下载 | fetch+blob 全缓冲；用户平台以课件 ≤ 5MB 为主，可接受 |
+| 项           | v4.2.4                                | v4.2.6                                                   |
+| ----------- | ------------------------------------- | -------------------------------------------------------- |
+| 触发方式        | `<a href target="_blank">` → 开新标签     | `<a download>` 不开标签，立即触发                                 |
+| Token 鉴权传递  | URL `?token=xxx`（DevTools Network 可见） | `Authorization: Bearer xxx` Header（用户看不到完整带 token 的 URL） |
+| 后端改动        | —                                     | **无须部署**（`verifyFileAccess` 已优先读 Authorization）          |
+| 用户点击体验      | "点了，1-2 秒后才反应"                        | "点了瞬间弹下载框"                                               |
+| 大文件 (10MB+) | 浏览器流式下载                               | fetch+blob 全缓冲；用户平台以课件 ≤ 5MB 为主，可接受                      |
 
 **关键代码**：
+
 ```ts
 const resp = await fetch(`${baseURL}/file/r/${r.id}`, {
   headers: { Authorization: `Bearer ${token}` },
@@ -862,6 +920,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ```
 
 **安全验证**：
+
 - 后端 `verifyFileAccess` 顺序：先 `Authorization` Header → 再 `?token=` 兼容回退；用户 token 完全不进 URL
 - 没有 token 时 `ElMessage.error('请先登录后再下载')` 给明确错误，不静默失败
 
@@ -874,6 +933,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### 文件清单
 
 **修改**：
+
 - `src/views/SubjectView.vue`（downloadResource 重写为 fetch+blob+`<a download>`）
 
 ---
@@ -885,6 +945,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### Bug 修复
 
 **1. 评论发完仍然看不到（v4.2.4 没修干净）**
+
 - 现象：用户反馈 v4.2.4 后评论依然要**强制刷新**才出现。"实际上已成功发送，并不是发送失败"——后端 write 成功，前端 UI 没更新
 - 根因：v4.2.4 仍依赖 `unshift(c)` 和 `comments.value[idx] = { ...parent, children }`——这两种写法在 Vue 3 中
   - 嵌套数组浅拷贝可能丢响应式引用
@@ -907,6 +968,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### 文件清单
 
 **修改**：
+
 - `src/views/ArticleView.vue`（onCommentSubmit 简化为全量 reload）
 - `src/views/BlogDetailView.vue`（同上 + loadComments 调用）
 - `src/views/SubjectForumPostView.vue`（同上 + loadComments 调用）
@@ -920,6 +982,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### Bug 修复
 
 **1. @用户后在阅读界面点击用户跳自己主页**（v4.2.3 引入的链路断点）
+
 - 修前：`MarkdownEditor` 的 `mention` 扩展正确生成 `<a href="/profile?uid=12">`，但 `ProfileView` 完全没读 URL `?uid=` 参数——`onMounted` 只调 `user.fetchProfile()` 取当前登录用户，所以无论点谁 @提及都跳**自己主页**
 - 修后：
   - 后端新增 `GET /api/users/:id`（登录即可访问，仅返回 active 用户；含真实经验值）
@@ -928,11 +991,13 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
   - mention 扩展代码无需改动——href 一直是对的，问题只在 ProfileView
 
 **2. 下载反应过慢**（用户反馈）
+
 - 修前：`SubjectView.downloadResource` 用 axios `responseType: 'blob'` 拉文件——必须**等所有字节从 Workers → Supabase → Workers → 浏览器全部缓冲到 JS 内存**才触发 `<a>.click()`，1MB 文件体感 2-3 秒延迟
 - 修后：改为浏览器原生 `<a href="/file/r/:id?token=xxx" target="_blank">`——后端 `/file/r/:id` 已设 `Content-Disposition: attachment` + HOT 内存缓存 + JWT/D1 鉴权，浏览器立即开始流式下载，**视觉反馈即时**
 - 兜底：仅在 token 缺失时回退到 axios blob 走错误提示路径
 
 **3. 评论发完无视觉反馈**（v4.2.0 引入的隐性 bug）
+
 - 修前：
   - `CommentTree.submitTop` 把 `topText.value = ''` 放在 `await onSubmit()` 之后——若父组件抛错会跳过清空逻辑；用户提交后看到"输入框还在"误以为没成功
   - 三个详情页（ArticleView/BlogDetailView/SubjectForumPostView）的 `onCommentSubmit` **没 try-catch**，内部静默失败（嵌套子评论 push 到原数组可能丢失响应式）
@@ -952,6 +1017,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### 文件清单
 
 **修改**：
+
 - `worker-api.ts`（+28 行：GET /api/users/:id）
 - `server/index.ts`（+27 行：同步 GET /api/users/:id）
 - `src/api/index.ts`（+1 行：api.getUser）
@@ -973,11 +1039,13 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 > v4.2.2 文档声明 `MarkdownEditor` 支持 9 类扩展，但实际只有 4 类有效，其余存在严重问题。本轮一次性修齐。
 
 **1. KaTeX 公式**
+
 - 修前：CSS 从 jsdelivr CDN 加载 `katex@0.16.11`，与本地 npm 包 `katex@0.18.4` 版本不符，CDN 不可达即退化成裸 LaTeX
 - 修后：CSS 改为在 `src/styles/main.css` 顶部 `@import 'katex/dist/katex.min.css'`，由 Vite 随 woff2 字体本地打包（**零 CDN 依赖**，符合铁律"禁止 Google Fonts CDN"精神）
 - 附：行内 `$...$` 之前会误吞金额（`$100`、`$5.00`），新增"首尾不能是空白 / 内容不能是纯数字金额"两条硬过滤；并新增 `(?!\d)` 闭合负向断言避开 `$5 and $10`
 
 **2. `@[name](/user/uid)` 用户提及**
+
 - 修前：要求用户**同时填 UID 和显示名**两次 prompt
 - 修后：弹搜索框，输入用户名/姓名 → 调 `/api/users/search?q=...` → 点选一个用户 → **自动写完整语法 `@[name](/user/uid)`**，存库与渲染零破坏（用户只感知"选人"动作）
 - 后端新增 `GET /api/users/search`（登录用户可用，按 `username/real_name` 模糊查 `status='ACTIVE'` 用户，上限 10 条，按"完全匹配 → 前缀匹配 → 真实名匹配"排序）
@@ -987,7 +1055,8 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 **4. `![alt](url =100x100)` 图片尺寸** — 本轮验证通过，无需改动
 
 **5. `@[video](url)` 视频嵌入**
-- 修前：文档说 `@[video](url)` 是正式语法，**实际代码只实现 `@\`url\`` 旧反引号写法**——正式语法完全无效；嵌入容器用 `<div>`，inline 扩展结果被 marked 包进 `<p>`，`<p><div>` 非法嵌套，浏览器自动打断段落造成排版错乱
+
+- 修前：文档说 `@[video](url)` 是正式语法，\*\*实际代码只实现 `@\`url\``旧反引号写法**——正式语法完全无效；嵌入容器用`<div>`，inline 扩展结果被 marked 包进 `<p>`，`<p><div>\` 非法嵌套，浏览器自动打断段落造成排版错乱
 - 修后：① 真正实现 `@[video](https://.../a.mp4)` 正式语法；② 旧反引号写法作为兼容保留；③ 容器改为 `<span>` + `display:block`（CSS 已就位）
 
 **6. `@[bilibili](BVxxx)` 站外视频** — 验证通过；容器同步改 `<span>` 修嵌套
@@ -997,6 +1066,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 **8. `file://文件名` 附件引用** — 本轮验证通过
 
 **9. HTML 全标签支持**
+
 - 修前：白名单约 85 个标签，`<svg>` / `<input>` / `<button>` / `<form>` / `<label>` / `<details>` 等大量常用标签被静默删除，与"支持全部 HTML 标签"的能力说明不符
 - 修后：改为**黑名单**（仅拦截 `script/style/link/meta/base/noscript/html/head/body/title/doctype/frameset/frame`），其余全部放行；属性白名单从约 60 项扩到 120+ 项（新增 SVG/MathML/表单全套/图像映射等），`data-*` / `aria-*` 一律放行
 
@@ -1008,6 +1078,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 ### 安全性（v4.2.3 同步回归）
 
 新增 1 项拦截修复 + 完整 9 项回归全过：
+
 - **【已修】`data:text/html;base64,...` 的 `href`**：`sanitizeAttrValue` 之前没剥引号直接 `/^\s*data:/i.test(value)`，带引号字符串首字符是 `"`，永远不命中，**漏判**。修复：先 `value.replace(/^["']|["']$/g, '')` 剥引号再判断。9/9 拦截项全过（script 标签、img onerror、svg onload、a/iframe `javascript:`、style 标签、`data:text/html`、style `expression()`、iframe `srcdoc`）
 
 ### 部署
@@ -1021,6 +1092,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 > **推送前必查 `git ls-remote origin` 确认 Pages 跟踪的是哪个分支**——本轮 v4.2.3 第一次 `git push origin master` 是**无效部署**，因为 Pages 实际跟踪的是 `main` 分支（远程 main HEAD = `9326e3e` 仍是 v4.2.2-doc，不含 v4.2.3 代码）。用户反馈"一个都没生效"才定位到根因。
 
 **复盘链**：
+
 1. 沙箱内 `npm run build` 通过、本地 `npx tsx _test_ext.ts` 21/21、Worker `wrangler deploy` 后 `/api/users/search` 生产验证可用 → **代码完全没问题**
 2. 但 Pages 拉不到 → 用户访问的还是老 dist（`index-CPJZ0jSE.js` 不含 `searchUsers`/`/api/users/search` 标识）
 3. `git ls-remote origin` 暴露真相：`main` 分支 HEAD = `9326e3e`（8-29 上午的 v4.2.2-doc 提交），`master` 分支 HEAD = `e09ffeb`（v4.2.3 + status 大小写修复）
@@ -1028,6 +1100,7 @@ setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 **修复**：`git branch -f main origin/master && git push origin main`（`main` fast-forward 到 `e09ffeb`），约 90 秒后 Pages 拉到新 dist `index-C05PYcpK.js`，新 dist 验证含全部 6 类扩展样式 + `searchUsers` / `/api/users/search` 标识。
 
 **三秒自检命令**（下次推送前必跑）：
+
 ```bash
 git ls-remote origin | grep -E "HEAD|main|master"
 # 输出举例：e09ffeb HEAD  refs/heads/main  refs/heads/master
@@ -1037,6 +1110,7 @@ git ls-remote origin | grep -E "HEAD|main|master"
 ### 文件清单
 
 **修改**：
+
 - `worker-api.ts`（+19 行：GET /api/users/search）
 - `server/index.ts`（+20 行：同步 GET /api/users/search）
 - `src/utils/marked-extensions.ts`（重写 sanitizer：白名单 → 黑名单、扩属性表、`data:` 校验剥引号）
@@ -1056,6 +1130,7 @@ git ls-remote origin | grep -E "HEAD|main|master"
 本轮为**纯文档 + schema.sql 维护**，零业务代码改动。
 
 **1）`schema.sql` 与生产 D1 对齐（修真隐患，非 cosmetic）**
+
 - 生产 D1 实测 **24 张业务表**，而 `schema.sql` 只有 **23 张**，且 5 个字段在生产有、schema 里完全没有：
   - 缺表：`forum_topics`（v4.1.0 学科论坛）
   - 缺字段：`pages.subject_id`、`pages.topic_ids`、`page_comments.parent_id`、`article_comments.parent_id`、`subjects.forum_auto_approve_threshold`
@@ -1063,6 +1138,7 @@ git ls-remote origin | grep -E "HEAD|main|master"
 - **顺带修掉一个原版自带的语法错误**：`article_comments.created_at` 写作 `DEFAULT datetime('now','+8 hours')`（**缺括号**），SQLite 直接报 `near "(": syntax error`，导致建表脚本执行到该条即中断、表建不出来。已改为与生产一致的 `DEFAULT CURRENT_TIMESTAMP`。
 
 **2）文档全面对账（表数 / 路由数 / 版本号 / 章节引用）**
+
 - 统一「23 张表 → 24 张表」：README、交接文档、FAQ、CONTRIBUTING、AI维护者提示词、DEPLOY_CHECKLIST 全部同步
 - 统一「136+ 路由 → 154 路由」：README、交接文档（实测 `grep -E "app\.(get|post|put|patch|delete)\(" worker-api.ts | wc -l` = 154）
 - README 当前版本 `v4.1.6` → `v4.2.2`，版本表补 v4.2.2 行、去掉 v4.2.0 的「（当前）」、v4.0.0 归位到 v4.1.0 之后
@@ -1090,9 +1166,9 @@ git ls-remote origin | grep -E "HEAD|main|master"
    - **`@[name](/user/uid)`**：用户提及，点击跳 `/profile?uid=...`，背景色块样式
    - **`==text==`**：文本高亮（黄色荧光笔效果）
    - **`![alt](url =100x100)`**：自定义图片尺寸
-   - **`@`https://...a.mp4``**：视频嵌入（HTML5 `<video controls>`）
+   - **`@`<https://...a.mp4\`\`>**：视频嵌入（HTML5 `<video controls>`）
    - **`@[bilibili](BVxxx)`**：B 站嵌入（iframe 官方播放器）
-   - **`@`https://...a.pdf``**：PDF 嵌入（iframe + 标题栏 + 兜底下载）
+   - **`@`<https://...a.pdf\`\`>**：PDF 嵌入（iframe + 标题栏 + 兜底下载）
    - **`file://文件名`**：附件引用（蓝色链接样式，题目/比赛/训练中推荐用）
    - **HTML 白名单子集**：`details/summary/kbd/mark/sub/sup/ins/del/figure/figcaption`（其余标签自动过滤、`on*` 事件属性移除、`javascript:` 协议过滤）
 3. **【新增 API】`PATCH /api/articles/:id`** — 美文可多次编辑
@@ -1119,13 +1195,13 @@ git ls-remote origin | grep -E "HEAD|main|master"
 
 ### 改造（5 个编辑视图全部接入 MarkdownEditor）
 
-| 文件 | 变更 |
-|---|---|
-| `src/views/ArticleEditView.vue` | textarea 拼字符串 + contenteditable → MarkdownEditor；新增代发作者下拉选择器（教师/超管可代发）；支持编辑/新建双模式；`/article/:id/edit` 拉取回填 |
+| 文件                                   | 变更                                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `src/views/ArticleEditView.vue`      | textarea 拼字符串 + contenteditable → MarkdownEditor；新增代发作者下拉选择器（教师/超管可代发）；支持编辑/新建双模式；`/article/:id/edit` 拉取回填   |
 | `src/views/AnnouncementEditView.vue` | textarea 拼字符串 → MarkdownEditor；新增全站/班级公告类型切换 + 班级下拉 + 置顶选项；支持编辑/新建双模式；`/announcements/:id/edit` 拉取回填（仅超管可编辑） |
-| `src/views/BlogEditView.vue` | textarea 拼字符串 → MarkdownEditor；保留封面上传 + 附件列表 + 图片批量上传；支持编辑/新建双模式 |
-| `src/views/admin/GuideEditView.vue` | **从拼 HTML 字符串（`<h2>`、`<details>` 直接拼）** → MarkdownEditor（最重大改造，HTML 字符串编辑器烂到必须改） |
-| `src/views/SubjectForumEditView.vue` | contenteditable + execCommand → MarkdownEditor（保留话题标签 / 草稿自动保存 / 免审阈值提示 / 侧栏规则卡等业务逻辑） |
+| `src/views/BlogEditView.vue`         | textarea 拼字符串 → MarkdownEditor；保留封面上传 + 附件列表 + 图片批量上传；支持编辑/新建双模式                                             |
+| `src/views/admin/GuideEditView.vue`  | **从拼 HTML 字符串（`<h2>`、`<details>` 直接拼）** → MarkdownEditor（最重大改造，HTML 字符串编辑器烂到必须改）                             |
+| `src/views/SubjectForumEditView.vue` | contenteditable + execCommand → MarkdownEditor（保留话题标签 / 草稿自动保存 / 免审阈值提示 / 侧栏规则卡等业务逻辑）                        |
 
 ### 依赖
 
@@ -1156,10 +1232,12 @@ git ls-remote origin | grep -E "HEAD|main|master"
 ### 文件清单
 
 **新增**：
+
 - `src/components/MarkdownEditor.vue`（约 350 行）
 - `src/utils/marked-extensions.ts`（约 230 行）
 
 **修改**：
+
 - `worker-api.ts`（+34 行：PATCH /api/articles/:id）
 - `server/index.ts`（+33 行：同步 PATCH /api/articles/:id）
 - `src/utils/markdown.ts`（+50 行：集成扩展 + 暴露 extractMentions）
@@ -1182,6 +1260,7 @@ git ls-remote origin | grep -E "HEAD|main|master"
 > 通知中心：收到评论 / 点赞 → 自动入通知中心，可一键跳转到对应评论位置
 
 ### 新增
+
 - **通知 type 区分**：`comment`（评论）/ `like`（点赞）两种专用 type，颜色与原有 `audit / query / teacher` 区分
 - **通知跳转链接 `target_url`**：`notices` 表新增 `target_url` 字段（在线 ALTER 幂等），写入 `/article/{id}#comment-{cid}` 等深链
 - **通知点击 → 跳转到对应评论位置**：点击通知项，标记已读 + 关闭抽屉 + 路由跳转 + 滚动到锚点
@@ -1196,17 +1275,21 @@ git ls-remote origin | grep -E "HEAD|main|master"
 - **30 秒轮询**：NavBar 通知抽屉 30s 自动拉取最新通知（已有）
 
 ### 数据库变更
+
 ```sql
 ALTER TABLE notices ADD COLUMN target_url TEXT;
 ```
+
 （在线 ALTER，幂等，不影响历史数据；schema.sql 同步加 `target_url` 字段）
 
 ### 验证
+
 - `npm run build` 通过
 - 沙箱 grep 验证：5 类入口（美文/资料/博客/论坛 点赞+评论）的 `addNotice` 触发全部就位，`target_url` 写入完整
 - 后端部署：Worker 在线更新
 
 ### 修改文件
+
 - 🆕 无（纯增强）
 - `worker-api.ts` ✏️ 5 类入口加 `addNotice` 触发 + `target_url` 参数（模块 A 已存在，本轮仅核对确认）
 - `server/index.ts` ✏️ 同步 5 类入口通知 + `parent_id` 子评论支持
@@ -1222,6 +1305,7 @@ ALTER TABLE notices ADD COLUMN target_url TEXT;
 > 评论二级回复（朋友圈折叠树）+ 抽公共 CommentTree 组件
 
 ### 新增
+
 - **朋友圈式折叠树子评论**：主评论平铺、点"展开 N 条回复"显示子评论、点"回复"就地弹出输入框（@用户名 + 取消 + Ctrl+Enter 发送）
 - **公共组件 `src/components/CommentTree.vue`**：通用 props（comments / current-user / can-delete / on-submit / on-delete / empty-text），一次实现全站生效
 - **3 个评论界面接入**：
@@ -1232,6 +1316,7 @@ ALTER TABLE notices ADD COLUMN target_url TEXT;
 - **删除策略**：删主评论连同所有子评论一起删（朋友圈同款）；删子评论只删自己
 
 ### 后端变更
+
 - `POST /api/articles/:id/comments`：接受 `parent_id` 可选；`null` = 主评论，否则为该评论的回复
 - `POST /api/pages/:id/comments`：同上（论坛/博客/公告共享）
 - `DELETE /api/articles/:id/comments/:commentId`：
@@ -1242,6 +1327,7 @@ ALTER TABLE notices ADD COLUMN target_url TEXT;
 - 经验值：仅主评论给文章作者 +1（避免回复刷经验）
 
 ### 数据库变更
+
 ```sql
 ALTER TABLE article_comments ADD COLUMN parent_id INTEGER;
 ALTER TABLE page_comments ADD COLUMN parent_id INTEGER;
@@ -1250,6 +1336,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ```
 
 ### 前端变更
+
 - `src/components/CommentTree.vue` 🆕 公共组件（~450 行，含 .vue + .css）
 - `src/api/index.ts` ✏️ `addArticleComment` / `addPageComment` 加可选 `parentId` 参数
 - `src/views/ArticleView.vue` ✏️ 替换 17 行内联评论 → 11 行 `<CommentTree ...>`
@@ -1257,6 +1344,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - `src/views/SubjectForumPostView.vue` ✏️ 同上
 
 ### 验证
+
 - `npm run build` 通过（exit 0，13.60s）
 - 沙箱产物验证：`CommentTree-BHxiGr7N.js` 独立 chunk，3 个评论界面（ArticleView / BlogDetailView / SubjectForumPostView）都正确引用
 - 线上：`CommentTree-CuCsvXVW.js` 已部署，命中 `parent_id` / `回复` / `展开` 关键文案
@@ -1265,6 +1353,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - 沙箱出网受限（HTTP 000 已知问题）→ 实际效果由用户在生产环境验证
 
 ### 修改文件（6 个，+455/-136）
+
 - 🆕 `src/components/CommentTree.vue`（公共组件）
 - `src/api/index.ts` ✏️ addArticleComment / addPageComment 加 parentId
 - `src/views/ArticleView.vue` ✏️ 接入 CommentTree
@@ -1279,6 +1368,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 个人主页经验值进度条 bug：除 Lv.1 外均显示满条
 
 ### 修复
+
 - **根因**：`ProfileView.vue` 手写 `calcProgress()` 算法错误（行 74-80）
   ```ts
   // 旧代码（错）
@@ -1301,6 +1391,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **删除**：`calcProgress()` 函数 + `expToNextLevel` / `levelFromExp` 旧 import（改用 `expProgress` + computed）
 
 ### 验证
+
 - `npm run build` 通过（exit 0，14.47s）
 - 沙箱 Node 跑 13 个测试点（0/10/30/59/60/80/120/180/200/240/300/599/600 EXP），所有档位进度 + 距离下一级都正确
 - 关键用例：200 EXP（旧算法满条）→ 新算法 33%；120 EXP → 0%（刚到 Lv.3）；599 EXP → 98%
@@ -1308,6 +1399,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - 后端 `worker-api.ts` / `server/index.ts` 本轮零改动（铁律：bug 全在前端可解就不动后端）
 
 ### 修改文件
+
 - `src/views/ProfileView.vue` ✏️ import 改 expProgress + 删 calcProgress + 加 expLeftToNext computed + 模板用新函数
 
 ---
@@ -1317,6 +1409,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 经验值说明页「发布论坛帖」规则在用户面显示为英文 key（forum_post）bug 修复
 
 ### 修复
+
 - **根因**：v4.1.0 学科论坛上线时，worker-api 在论坛帖自动通过 / 审核通过时调用 `addExp(uid, undefined, 'forum_post', ...)` 写经验值（worker-api.ts 行 2900 / 2964）。
   - **管理员后台** `ExpRulesView.vue` 的 `RULE_META` 同步加了 `forum_post` 的中文 label
   - 但**用户面** `ExpDocView.vue`（经验值说明）和 `GuideView.vue`（网站说明 → 经验值获取规则）的 `RULE_DESC` 字典**漏加**这条 → 命中 fall-through `{ label: k, icon: '⭐', desc: '' }` → 用户看到英文 key `forum_post` + 空描述
@@ -1326,12 +1419,14 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - desc：「论坛帖子审核通过/自动通过」
 
 ### 验证
+
 - `npm run build` 通过（exit 0，14.19s）
 - 沙箱：`grep -lE "发布论坛帖|论坛帖子审核通过"` 在产物中命中 ExpRulesView + GuideView 两个 chunk（ExpDocView 被合并到 index 主 chunk），新文案已就位
 - 本轮按规则"先奏后斩"——前端 build 通过 + 沙箱验证完成 + git push → Cloudflare Pages 自动构建
 - 后端 `worker-api.ts` / `server/index.ts` 本轮零改动（铁律：bug 全在前端可解就不动后端）
 
 ### 修改文件
+
 - `src/views/ExpDocView.vue` ✏️ RULE_DESC 加 forum_post
 - `src/views/GuideView.vue` ✏️ RULE_DESC 加 forum_post
 
@@ -1342,17 +1437,20 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 学科论坛侧栏：最新帖子 → 最热帖子（与主列表时间排序去重）
 
 ### 修复
+
 - **侧栏"最新帖子"与主列表重复**：主列表本就按 `created_at` 倒序，侧栏再放一份"最新"完全冗余 → 改为"🔥 最热帖子"
 - **热度算法**：每条帖子计算 `_heat = views * 0.4 + comment_count * 0.6`，按 `_heat` 倒序；同分按 `created_at` 倒序（新帖优先）。取前 5 条
 - **UI 增强**：前 3 名加奖牌色编号（🥇 金 / 🥈 银 / 🥉 铜），副标题同时显示作者 / 浏览数 / 评论数，让"热"有依据
 
 ### 验证
+
 - `npm run build` 通过（exit 0，14.54s）
 - 沙箱：相同数据下，原"最新"→ 新"最热"会按加权分重排，主列表的顺序不受影响（仍按时间排）
 - 本轮按规则"先奏后斩"——前端 build 通过 + 沙箱验证完成 + git push → Cloudflare Pages 自动构建
 - 后端 `worker-api.ts` / `server/index.ts` 本轮零改动（铁律：bug 全在前端可解就不动后端）
 
 ### 修改文件
+
 - `src/views/SubjectForumView.vue` ✏️ 模板：最新 → 最热（加 rk1/2/3 奖牌 + 浏览/评论数显示） + JS：latestPosts → hotPosts（加权热度算法） + CSS：.hot-rank 三色
 
 ---
@@ -1362,6 +1460,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 论坛 bug 二次修复：预览后空白彻底根治 + 免审阈值 UI 内嵌到论坛模块卡
 
 ### 修复
+
 - **预览后编辑器空白（v4.1.2 未根治，二次修复）**：
   - 根因复盘：v4.1.2 用 `v-if` 切换 editor/preview，切换时 editor div 重建 + `innerHTML` 回填存在 Vue 两次 nextTick 竞态；`watch(editorContent)` 兜底又**仅在失焦时回填**，焦点仍在编辑器时永远不触发。
   - 改为 **`v-show` 替代 `v-if`**：editor 和 preview 两个 div 永远在 DOM 里，切换只是 `display:none/block`，`editorRef` 永不重建，`innerHTML` 永不丢。
@@ -1373,12 +1472,14 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - 删掉已无用的 `.forum-thresh` / `.ft-hint` 样式。
 
 ### 验证
+
 - `npm run build` 通过（exit 0，14.43s，4 条论坛路由全在，SubjectForumEditView 懒加载 chunk 11.4KB）
 - 沙箱：v-show 切换不重建 DOM，光标/选区/contenteditable 状态全程保留 → 预览后编辑必不空白
 - 本轮按规则"先奏后斩"——前端 build 通过 + 沙箱验证完成 + git push → Cloudflare Pages 自动构建
 - 后端 `worker-api.ts` / `server/index.ts` 本轮零改动（铁律：bug 全在前端可解就不动后端）
 
 ### 修改文件
+
 - `src/views/SubjectForumEditView.vue` ✏️ v-if → v-show + 简化 togglePreview + 删 watch 兜底
 - `src/views/admin/SubjectsAdminView.vue` ✏️ 论坛模块卡内嵌阈值输入框 + .mc-sub CSS
 
@@ -1389,6 +1490,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 论坛体验补完：发帖改为独立页（含草稿自动保存）+ 桌面两栏中央阅读 + 修复预览后编辑器空白
 
 ### 新增
+
 - **论坛发帖独立页 `SubjectForumEditView.vue`**（参考 `BlogEditView`）：
   - 路由 `/subject/:slug/forum/new`（新帖）、`/subject/:slug/forum/post/:id/edit`（编辑）
   - 桌面两栏：左侧主编辑区（标题 / 话题 / 推荐语 / 富文本 / 预览 / 草稿状态 / 操作），右侧写作助手（话题快捷打标 / 发帖规则 / 学科教师提示）
@@ -1411,20 +1513,23 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - 评论/审核 UI 完全保留
 
 ### 修复
+
 - **论坛预览后编辑器空白**：`togglePreview()` 切回编辑态时**把 `editorContent` 重新写回 `editorRef.innerHTML`**（`nextTick` 内），解决 `v-if` 切换 contenteditable div 重建后内容丢失的 bug；并加 `watch(editorContent, …)` 兜底运行期内容回填
 
 ### 数据库变更
+
 - 无（仅前端）
 
 ---
 
 ## [v4.1.1] - 2026-08-28
 
-> 论坛 v4.1.0 上线后的体验补完：模块开关/桌面适配/审核复用/免审阈值/富文本发帖
-> 提交：`ea832d6` v4.1.1 学科论坛：模块开关/桌面适配/审核复用美文流/<1000字免审/富文本发帖
+> 论坛 v4.1.0 上线后的体验补完：模块开关/桌面适配/审核复用/免审阈值/富文本发帖  
+> 提交：`ea832d6` v4.1.1 学科论坛：模块开关/桌面适配/审核复用美文流/<1000字免审/富文本发帖  
 > 提交：`0eeb595` feat(论坛审核): AuditView 加论坛 tab 模板块（与美文/资料完全同 UI 流程）；帖子列表移除快捷审核按钮统一走审核中心
 
 ### 新增
+
 - **超管可控制论坛模块显隐**：`SubjectsAdminView` 把 `forum` 列入模块开关列表，关闭后 `SubjectView` 的「学科论坛」tab 自动隐藏
 - **论坛免审阈值配置（按学科）**：`subjects.forum_auto_approve_threshold` 字段（0=关闭，>0 时纯文本字数 ≤ 阈值自动 `published`），`SubjectsAdminView` 在论坛模块开启时显示「论坛免审阈值」设置项（步进 100，0~10000）
 - **`POST /api/subjects/:id/forum/posts` 自动免审逻辑**：超管/本学科教师直接 `published`；其他角色若 `threshold > 0` 且 纯文本字数 ≤ 阈值则自动 `published`（返回 `autoApproved: true`），否则 `pending`
@@ -1438,10 +1543,12 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **`api/index.ts` 新增 3 个 API 方法**：`updateSubjectForumConfig` / `adminAuditForumPosts` / `auditForumPost`
 
 ### 修复
+
 - **论坛 canManageSubject 调用缺少 subject_id 入参的最后一处**：`forum-config` PATCH 已补传 `subject_id` 兜底字段
 - **`SubjectForumPostView` 桌面端宽度限制**：详情页加入 `max-width` + 居中布局，避免大屏拉满
 
 ### 数据库变更
+
 - D1 `subjects` 表新增 `forum_auto_approve_threshold`（INTEGER，default 0）
 
 ---
@@ -1449,6 +1556,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v4.1.0] - 2026-08-27
 
 ### 新增
+
 - **学科论坛（每个学科一个）** — 复用 `pages` 表 + 新表 `forum_topics`：
   - 帖子（ptype='forum'）走 `subject_id` 区分学科
   - 话题标签独立维护，可选 1-3 个贴在帖子上，话题带颜色
@@ -1472,14 +1580,17 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **`api/index.ts` 新增 9 个 API 方法**：`forumTopics/createForumTopic/updateForumTopic/deleteForumTopic/forumPosts/forumPost/createForumPost/updateForumPost/deleteForumPost`
 
 ### 修复
+
 - **论坛 canManageSubject 漏传 subject_id**：7 处论坛路由原本只传 `{id, role}`，导致只填了 `users.subject_id` 而没进 `class_members` 的教师被错判 403。已补传 `subject_id` 字段，兜底逻辑生效
 - **教师编辑话题 PATCH 同上 bug**：单独修一处
 
 ### 数据库变更
+
 - D1 `pages` 表新增 `subject_id`（INTEGER，nullable）、`topic_ids`（TEXT，default `'[]'`）
 - D1 新表 `forum_topics`（id, subject_id, name, color, created_by, created_at）+ 索引 `(subject_id)`
 
 ### 修改文件
+
 - `worker-api.ts`（+11 个路由 + canManageSubject 7 处补传 subject_id）
 - `server/index.ts`（同步）
 - `src/api/index.ts`（+9 个 API 方法）
@@ -1489,6 +1600,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - `src/views/SubjectForumPostView.vue`（新建）
 
 ### 部署
+
 - Worker 版本：`65d5ef7a-d45d-45b2-adc4-5909f9793446`
 - 前端：通过 GitHub push → Cloudflare Pages 自动构建
 - 沙箱 E2E：19/19 全部通过（教师/学生/超管；CRUD 全部 + 跨权限拒绝）
@@ -1498,6 +1610,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v4.0.2] - 2026-08-27
 
 ### 修复
+
 - **Bug-教师跨学科读列表 403 反弹**（按用户最新意图反 v4.0.1 的收紧）：
   - `GET /api/resources`：删除"教师传 subjectId 时必须在本任教学科内"的 403，改为"跨学科同学生只看 approved；本学科额外看自己上传的全部状态"
   - `GET /api/articles`：同上（删 403）
@@ -1511,12 +1624,14 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - `QuizEditView.vue:259` `el-dialog title=...` → `<template #header>`
 
 ### 修改文件
+
 - `worker-api.ts`（resources/articles/quizzes/questions/stats 共 5 处）
 - `server/index.ts`（同步本地后端 5 处）
 - `src/views/quiz/QuizListView.vue`（el-dialog 兼容性）
 - `src/views/quiz/QuizEditView.vue`（el-dialog 兼容性）
 
 ### 部署
+
 - Worker 版本：`523d6d03-265f-4388-b880-f139e5291c17`
 - 验收账号：teacher1 / 123456（已重置），主学科=1（语文）
 
@@ -1525,6 +1640,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v4.0.0] - 2026-08-25
 
 ### 修复
+
 - **Bug1 经验值缺失（超管/教师直接 approved 不加经验）**：`POST /api/resources` 在 status='approved' 时立即 `addExp(id, undefined, 'resource', ...)`，不再依赖审核流。
 - **Bug3 学科教师权限（支持多学科任教）**：`canManageSubject` 改为 async + 复用 `teachingSubjects`（从 class_members.role_in_class='TEACHER' 聚合），不再只看 `user.subject_id` 单字段。
 - **Bug4-9 教师跨学科越权**：
@@ -1543,6 +1659,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **Bug15 通知全部已读**：`PUT /api/notices/read-all` 校验 SQL 关键字 `UPDATE notices SET read=1 WHERE user_id=? AND read=0`，read=0 过滤确保不重置已读。
 
 ### 修改文件
+
 - `worker-api.ts`（+200/-54，权限/兼容/聚合/博客/通知 多处）
 - `server/index.ts`（+46/-15，与 Worker 同步）
 - `server/auth.ts`（+31，权限工具函数）
@@ -1550,11 +1667,13 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - `src/views/BlogEditView.vue`（+103，编辑模式）
 
 ### 部署
+
 - 前端：`git push origin main`（Pages 自动构建）
 - 后端：`wrangler deploy` → version `5c07bc6d-8adf-4cfb-9f63-4fd12050b4e9`
 - 沙箱验证：前端/后端 health/guide 全部 HTTP 200，超管登录后 users/resources/quizzes/notices/exp/logs 全部 200
 
 ### 待办（积分恢复后继续）
+
 - Phase A10 前端：字体弹窗修复 / 编辑器空格保留 / 博客编辑入口在更多页面
 - Phase D 轻量编辑器：学科公告用 纯 Markdown 文本 + 预览（你已选）
 - 完整三角色端到端浏览器测试（学生/教师/超管各操作一遍）
@@ -1564,6 +1683,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.10] - 2026-08-25
 
 ### 修复
+
 - **通知中心跑到左上方（真正根因找到）**：
   - 真正根因：NavBar.vue里`<el-drawer direction="right">`用了Element Plus**无效的方向值**。Element Plus 2.x drawer的direction prop是枚举类型 `ltr | rtl | ttb | btt`，传`"right"`或`"left"`会触发Vue prop validation警告，但fallback到原始值作为class名渲染出`<div class="el-drawer right">`（**没有`rtl`/`ltr` class**），导致`el-drawer.rtl { right: 0 }`等所有方向相关CSS选择器**全部失效**，drawer用默认position:absolute但没有right/left值，于是出现在包含块（el-overlay）的左上角
   - 修复：
@@ -1572,6 +1692,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
     3. main.css：全局`.el-drawer`显式设置`position: absolute !important; top: 0; bottom: 0`；`.el-drawer.rtl { right: 0 !important; left: auto !important }`；`.el-drawer.ltr { left: 0 !important; right: auto !important }`——三层防御确保方向永远正确
 
 ### 修改文件
+
 - `src/components/NavBar.vue`（direction枚举值修正）
 - `src/styles/main.css`（el-drawer全局position/方向强制定位）
 
@@ -1580,6 +1701,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.9] - 2026-08-25
 
 ### 修复
+
 - **导航栏不固定（根本原因已找到并修复）**：
   - 真正根因：main.css中`html, body { overflow-x: hidden; }`（第2318行）和`.zg-root { overflow-x: hidden; }`（第2319行）会创建新的BFC/隐式滚动容器，破坏sticky定位的containing block，导致sticky元素跟随容器一起滚动
   - 修复：
@@ -1592,6 +1714,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - `.el-overlay`移除之前v3.0.8的`position:fixed !important; inset:0`（Element Plus内部已经设了fixed，重复设置反而可能干扰drawer）
 
 ### 修改文件
+
 - `src/styles/main.css`（彻底修复overflow-x:hidden→clip、移除zg-root overflow、移除错误的is-drawer和el-overlay强制fixed）
 
 ---
@@ -1599,6 +1722,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.8] - 2026-08-25
 
 ### 修复
+
 - **导航栏不固定（跟着页面乱跑）根因修复**：
   - 根源1：`html, body, #app { height: 100%; }`配合body的`overflow-x: hidden`，导致浏览器隐式创建滚动容器，破坏sticky定位
   - 根源2：`.zg-inkgold .nav`和`.zg-inkgold-dark .nav`之前设了`position: relative !important`覆盖了sticky（上一版已修复），但经典模式的nav依赖组件scoped样式的`position:sticky; top:0`
@@ -1613,6 +1737,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
     5. 经典模式（全局.el-drawer）和墨金模式的抽屉定位都得到修复
 
 ### 修改文件
+
 - `src/styles/main.css`（修复html/body/#app高度和overflow、el-overlay fixed定位、is-drawer类排除flex居中）
 
 ---
@@ -1620,6 +1745,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.7] - 2026-08-25
 
 ### 修复
+
 - **导航栏不固定（跟着页面乱跑）根因修复**：
   - 根源：main.css中`.zg-inkgold .nav`（第1127行）和`.zg-inkgold-dark .nav`（第1668行）设置了`position: relative !important`，用!important覆盖了组件scoped样式中的`position: sticky`，导致sticky定位完全失效
   - 修复：改为`position: sticky !important; top: 14px`（桌面端配合margin:14px形成悬浮胶囊效果），移动端top:8px配合margin:8px；所有5处移动端media query中的导航栏样式统一修复
@@ -1629,6 +1755,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - 修复：art-card padding改为0，ac-body单独设padding；ac-cover强制`width:100%; background-size:cover !important; margin:0; border-radius:0; height:180px`，封面完全填满卡片顶部
 
 ### 修改文件
+
 - `src/styles/main.css`（修复导航栏position:sticky、top值、圆角统一；修复art-card padding）
 - `src/views/HomeView.vue`（ac-cover强制cover填充模式、art-card padding:0）
 
@@ -1637,6 +1764,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.6] - 2026-08-25
 
 ### 修复
+
 - **移动端抽屉/弹窗直角问题彻底修复（根源）**：
   - 根源：main.css中有**8个**`@media (max-width: 768px)`媒体查询块，其中B8块（第2032行）和"全面适配"块（第2474行）在最后面设置了`border-radius: 20px 0 0 20px`单侧圆角，覆盖了前面所有四个圆角设置
   - 深色档全局样式（第1465行、第1792行）也设置了单侧圆角，不在media query里，覆盖了移动端
@@ -1652,6 +1780,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **深色档抽屉圆角修复**：深色档单侧圆角移入桌面端media query，移动端四个圆角
 
 ### 修改文件
+
 - `src/styles/main.css`（彻底重构抽屉CSS三层结构、删除所有重复冲突的单侧圆角、修复底栏错误覆盖、导航栏圆角增大、Hero更透）
 - `src/components/NavBar.vue`（导航栏圆角28px胶囊）
 
@@ -1660,6 +1789,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.5] - 2026-08-23
 
 ### 修复
+
 - **移动端抽屉/弹窗直角问题彻底修复**：
   - 根源1：`.zg-inkgold .el-drawer.ltr`/`.rtl`全局单侧圆角样式（不在media query里），用!important覆盖了移动端的四个圆角
   - 根源2：基础样式预设了`border-left`和单侧圆角，移动端清除不彻底
@@ -1668,6 +1798,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **移动端抽屉悬浮卡片效果**：左侧抽屉left:12px/right:48px/top:12px/bottom:12px，右侧抽屉right:12px/left:48px/top:12px/bottom:12px，形成四周留白的悬浮玻璃卡片
 
 ### 修改文件
+
 - `src/styles/main.css`（重构抽屉CSS：基础样式+桌面端媒体查询+移动端媒体查询三层结构，删除全局ltr/rtl单侧圆角）
 
 ---
@@ -1675,6 +1806,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.4] - 2026-08-23
 
 ### 修复
+
 - **严重BUG：通知中心出现在页面上方而非右侧**：main.css错误地给`.zg-inkgold .el-drawer`加了`position: relative`，覆盖了Element Plus默认的`position: fixed`，导致抽屉无法固定在视口右侧，而是在页面流中显示在顶部。已移除el-drawer/el-dialog的position:relative。
 - **移动端弹窗/抽屉直角问题**：
   - 原因1：之前用`[direction="left"]`属性选择器，但Element Plus实际用`.ltr`/`.rtl`类名，导致左侧抽屉用了右侧抽屉的圆角样式（左上左下圆角、右上右下直角）
@@ -1684,6 +1816,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **底栏未读数同步**：MobileTabBar直接调用api获取通知未读数，并监听`messages-read`事件即时刷新
 
 ### 修改文件
+
 - `src/styles/main.css`（移除el-drawer/el-dialog的position:relative、移动端弹窗/抽屉四个圆角、修复类名选择器）
 - `src/components/MobileTabBar.vue`（完美胶囊形状、新增通知按钮+未读红点、修复圆角一致性、修复TS类型错误）
 
@@ -1692,6 +1825,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.3] - 2026-08-23
 
 ### 核心修复
+
 - **浅色背景玻璃参数重大修正**：深色背景和浅色背景玻璃参数完全不同！之前错误地把深色参数(大blur/内底暗边)用到浅色暖白背景上，导致玻璃发灰、发脏、像廉价塑料
 - **blur值下调**：浅色背景用中blur(12-16px)而非大blur(24-28px)，大blur在浅色上会过度模糊导致糊成一片
 - **移除内底暗边**：浅色背景上inset 0 -1px 0 rgba(120,90,30,0.04-0.06)看起来是脏线！不是厚度！只在深色档保留内底暗边
@@ -1700,6 +1834,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **背景填充更实**：从0.45-0.60提高到0.65-0.80，浅色上需要更实的填充才有质感，不是越透明越好
 
 ### 问题修复清单
+
 - **NavBar双position冲突**：修复了同时存在`position: sticky`和`position: relative`的矛盾，统一用sticky
 - **Hero金色发光品牌条被覆盖**：之前错误地用.hero::before做顶部高光，覆盖了原本的金色发光品牌标识，已恢复品牌金色光线
 - **stats统计区散乱小玻璃块**：hero-stats改为整体一块玻璃容器，内部数据项不再各自为战做独立玻璃，视觉更整体
@@ -1708,16 +1843,19 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **所有组件统一使用CSS变量**：不再硬编码blur(24px) saturate(180%)，统一引用--zg-glass-blur/--zg-glass-sat
 
 ### 移动端补充适配
+
 - **导航栏移动端圆角**：border-radius:16px，max-width:calc(100% - 16px)，margin:8px auto
 - **弹窗移动端适配**：宽度calc(100% - 24px)，margin:12px auto，圆角18px，内边距适配
 - **抽屉移动端圆角**：右侧抽屉border-radius:18px 0 0 18px，左侧抽屉0 18px 18px 0
 - **移动端内容边距统一**：内边距从12px/18px统一规范
 
 ### 深色档独立参数
+
 - 深色档保留：大blur(20-24px)+暖白边框+内顶高光+内底暗边的正确参数组合
 - 深色档独立设置所有CSS变量，不与浅色档混用
 
 ### 修改文件
+
 - `src/styles/main.css`（v17.1浅色玻璃参数修正、深色档独立变量、移动端弹窗/抽屉适配）
 - `src/components/NavBar.vue`（移除双position、用户按钮blur修正、高光透明度降低）
 - `src/components/MobileTabBar.vue`（dock blur统一用变量、移除透镜内底暗边、高光透明度降低）
@@ -1728,6 +1866,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.2] - 2026-08-23
 
 ### 新增
+
 - **v17真液态玻璃效果全面重写**：参考用户提供的液态玻璃实现，采用大blur(20-28px)+1px边框+多层阴影(外阴影+inset顶部白边+inset底部暗边)+saturate(180%)+顶部1px细高光条的真实玻璃质感
 - **四级玻璃层级**：LE悬浮层(28px blur/0.72填充)、L1导航层(24px blur/0.55填充)、L2内容层(24px blur/0.60填充)、L3元素层(20px blur/0.55填充)
 - **多层阴影组合（精髓）**：外投射阴影+内顶部高光白边+内底部暗边（暖金色调rgba(120,90,30,0.04-0.06)），三层缺一不可才有厚度感
@@ -1737,6 +1876,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **移除z-index:3内容层叠调整**：不需要了（没有覆盖全区域的伪元素）
 
 ### 修复
+
 - **所有玻璃元素必须有border:1px solid**：参考文件关键细节，1px半透明白边框(rgba(255,255,255,0.35-0.55))
 - **blur值大幅提升**：从之前的8-16px改为20-28px大blur，真正的毛玻璃透镜感
 - **saturate统一180%**：增强色彩饱和度，玻璃下的内容更鲜艳
@@ -1745,6 +1885,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **抽屉阴影方向正确**：右侧抽屉左侧投影，左侧抽屉右侧投影
 
 ### 移动端适配全面重做
+
 - **弹窗居中显示**：移动端margin:16px，宽度calc(100%-32px)，圆角18px，非底部sheet
 - **抽屉宽度88%**：移动端左右抽屉宽度88%，圆角20px
 - **玻璃元素移动端圆角减小**：卡片16px，弹窗18px，抽屉20px
@@ -1756,6 +1897,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **底部dock栏安全区域**：env(safe-area-inset-bottom)适配
 
 ### 修改文件
+
 - `src/styles/main.css`（v17玻璃材质系统重写、移动端全面适配、深色档同步更新）
 - `src/components/NavBar.vue`（L1层玻璃参数、移除大渐变、移动端汉堡菜单44px）
 - `src/components/MobileTabBar.vue`（L1层dock玻璃、顶部1px高光、安全区域适配）
@@ -1766,6 +1908,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v3.0.1] - 2026-08-22
 
 ### 修复
+
 - **移动端底栏真正悬浮**：彻底重做MobileTabBar，实现iOS 26风格floating capsule dock——底部32px+左右24px留白，不贴屏幕边缘，宽度自适应内容（fit-content）
 - **移除emoji图标**：所有底栏图标改为精致SVG线性图标（学术雅致风格），墨金学术模式禁用表情图标
 - **严格遵循铁律14**：玻璃材质系统从错误的0.38~0.50"白瓷不透光"改回正确的L1=0.08/L2=0.10/L3=0.12极薄玻璃
@@ -1781,6 +1924,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **删除旧全局样式**：清理main.css中旧的tabbar全局padding覆盖，避免组件样式冲突
 
 ### 修改文件
+
 - `src/components/MobileTabBar.vue`（完全重写：真正悬浮dock+SVG图标+精确滑动透镜）
 - `src/styles/main.css`（玻璃token回退铁律14正确值、背景修正、清理旧样式）
 - `src/views/HomeView.vue`（Hero/卡片玻璃参数修正）
@@ -1794,19 +1938,22 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 > 里程碑：墨金学术主题 + 全站液态玻璃质感正式上线（此前 v2.1.x 为经典暖橘单主题）。
 
 ### 新增
+
 - **墨金学术主题（双档）**：`designMode=inkgold` + `inkgoldTone=light/dark`，超级管理员后台可切换，全站全用户生效（浅色暖米白 #FAF8F4 + 沉稳金 #BA7517；深色温润暖黑 #1B1710）。
-- **全站液态玻璃材质系统 v7**：对标 Apple / OPPO / vivo / 华为 / 小米级真柔光玻璃。三级材质 L1/L2/L3（`--zg-glass-1/2/3` 几乎透明 0.08~0.12 + blur 10~12px + 明显亮边 0.6~0.7），多层柔影只「浮」不「框」，移除所有静态面板的 `--zg-rim` 发丝金边（矩形界限根因）。
+- **全站液态玻璃材质系统 v7**：对标 Apple / OPPO / vivo / 华为 / 小米级真柔光玻璃。三级材质 L1/L2/L3（`--zg-glass-1/2/3` 几乎透明 0.08~~0.12 + blur 10~~12px + 明显亮边 0.6~0.7），多层柔影只「浮」不「框」，移除所有静态面板的 `--zg-rim` 发丝金边（矩形界限根因）。
 - **主题背景图**：`public/bg/inkgold-paper.svg`（浅）/ `inkgold-paper-dark.svg`（深），网格 + 光斑 + 丝光纹理，玻璃透出其质感。
 - **自托管衬线字体**：`public/fonts/noto-serif-sc-{600,700,800}.woff2`（Noto Serif SC 简体中文，零 CDN 依赖），墨金 Hero 标题用高级衬线。
 - **渐变文字**：`.zg-grad-text` 用于导航栏「追光」与首页 Hero 问候/站名，统一高级渐变质感。
 
 ### 修复
+
 - **Bug14 输入框金色直角矩形边框**：`:focus-visible` 的 `outline` 不跟随 `border-radius`，改为排除 `.el-input__wrapper / .el-textarea__inner / .el-select__wrapper / .el-input__inner`（commit `3e3bc9d67f`）。
 - **Bug15 弹窗 header/footer 灰色矩形条**：`.el-dialog__header/__footer` 灰色渐变背景改为 `transparent`。
 - **Bug16 Hero 仍显矩形边框**：移除原 `box-shadow: inset 0 1px 0` 顶部釉光（像边框），改为 `box-shadow: none` + `border-radius:0` 开放釉光区。
 - **Bug17 墨金深浅两档 CSS 特异性**：深档选择器必须为 `html.zg-inkgold.zg-inkgold-dark`（特异性 ≥ 浅档 `html.zg-inkgold`），否则深档变量永不生效（曾致深底深字不可读）。
 
 ### 修改文件
+
 - `src/styles/main.css`（玻璃 token 块、`.zg-grad-text`、`:focus-visible`、弹窗透明化、深档变量块）
 - `src/views/HomeView.vue`（Hero 开放化、美文卡/快捷入口/学科 chip 改 L2/L3 液态玻璃、移动端适配）
 - `src/store/theme.ts`、`src/views/admin/ThemeView.vue`（深浅档开关）
@@ -1818,6 +1965,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.19] - 2026-08-16
 
 ### 文档完善
+
 - **全量文档更新**：所有 md 文件和 txt 提示词同步更新，版本号统一为 v2.1.19
 - **域名统一**：所有文档中混用的域名统一，确认正确 API 地址为 `api.xkzg.dpdns.org`，用户访问地址为 `xkzg.de5.net`
 - **DEPLOY_CHECKLIST.md 重写**：从已废弃的 Render 部署方案重写为 Cloudflare Workers + D1 + Pages 部署清单
@@ -1825,11 +1973,13 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **提示词合并重写**：两个提示词文件合并为一个，详细说明项目规则、必读文档、铁律和操作流程
 
 ### 修复
+
 - **Cloudflare Pages 构建失败**：移除 `@vitejs/plugin-legacy@8.2.3`（要求 vite@^8 与项目 vite@5 冲突）
 - **清理液态玻璃残留代码**：删除 `theme.ts` 中 `visualMode`/`setGlobalVisualMode`、`ThemeView.vue` 中界面风格切换 UI、`App.vue` 中 localStorage 兜底逻辑
 - **修复 API 域名错误**：`src/api/http.ts` 默认 API 地址回退为 `https://api.xkzg.dpdns.org`
 
 ### 修改文件
+
 - `README.md`、`CHANGELOG.md`、`FAQ.md`、`CONTRIBUTING.md`、`DEPLOY_CHECKLIST.md`
 - `交接文档.md`、`给新AI维护者的提示词_首条消息必贴.txt`
 - `工作日志_追光学科共享平台.md`、`开发工作日志_追光平台.md`
@@ -1841,10 +1991,12 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.18] - 2026-08-14
 
 ### 修复
+
 - **× 关闭按钮消失问题**：此前 `transition: opacity .2s` + 悬停 `opacity: .6` 导致 MessageBox 的 × 默认不可见。改为 `opacity: 1` 强制可见、`display: flex` 居中、字号 18→20px。
 - **通知中心（el-drawer）发黄诡异**：此前 drawer 无自定义背景，遮罩层 `rgba(0,0,0,0.4)` + `backdrop-filter` 叠加导致发黄脏色。给 `.el-drawer` / `.el-drawer__body` 加实色 `#FFFBEB` 暖背景 + 左侧柔和阴影；header 加分层+分割线；关闭按钮统一风格。无圆角（按用户要求）。
 
 ### 修改文件
+
 - `src/styles/main.css`
 
 ---
@@ -1852,9 +2004,11 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.17] - 2026-08-14
 
 ### 修复
+
 - **所有弹窗 × 关闭按钮统一风格**：此前 `.el-dialog__headerbtn` 有自定义样式但 `.el-message-box__headerbtn` 完全没有覆盖（"群发通知"等 MessageBox 弹窗用 EP 默认灰色 40×40 样式，与 el-dialog 格格不入）。现在两者统一：无背景、无圆圈、极简线条、颜色匹配标题色、悬停仅变色不变背景，参考用户提供的图二风格。
 
 ### 修改文件
+
 - `src/styles/main.css`
 
 ---
@@ -1862,6 +2016,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.16] - 2026-08-14
 
 ### 重构
+
 - **弹窗样式全面重构为 macOS 风格**：放弃半透明毛玻璃路线（alpha 0.55 导致全透明异常），改回实色暖渐变背景保证可读性。
 - **遮罩层**：暗化至 `rgba(0,0,0,0.4)` + `blur(8px)`，建立明暗对比让弹窗浮出。
 - **弹窗本体**：实色 `linear-gradient(145deg,#FFFBEB,#FEF3C7)` 暖渐变背景 + 白色高光边框 + 多层柔和阴影（`0 12px 40px` + `inset 0 1px 0`），参考 macOS 悬浮质感。
@@ -1870,6 +2025,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **header/footer 微渐变分层**：上下渐变过渡，增强层次感。
 
 ### 修改文件
+
 - `src/styles/main.css`
 
 ---
@@ -1877,11 +2033,13 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.15] - 2026-08-14
 
 ### 优化
+
 - **弹窗高斯模糊效果增强**：弹窗背景透明度从 0.82 降至 0.55，让 `backdrop-filter: blur()` 真正透出高斯毛玻璃质感；MessageBox 同步调整。
 - **遮罩层修正**：颜色从 `rgba(40,25,0,0.35)` 暗褐色改为 `rgba(0,0,0,0.25)` 中性黑，避免在暖色主题下产生脏黄褐色；模糊从 `3px` 提升至 `8px`。
 - **关闭按钮美化**：改为 36px 圆形按钮，× 字号 18→22px、字重 300 更纤细，悬停时半透明主色背景高亮 + × 变主色。
 
 ### 修改文件
+
 - `src/styles/main.css`
 
 ---
@@ -1889,10 +2047,12 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.14] - 2026-08-14
 
 ### 修复
+
 - **Cloudflare 构建失败修复**：移除冗余依赖 `@vitejs/plugin-legacy@8.2.3`，该包要求 `vite@^8.0.0` 与项目 `vite@^5` 产生 peer 冲突，导致 Cloudflare 环境下 `npm ci` 直接 ERESOLVE 报错。该依赖在 `vite.config.ts` 及全项目源码中均无引用，移除不影响任何功能。
 - **Element Plus 弹窗样式彻底修复**：此前多次修改"毫无改观"的根因是使用了 Element UI 1.x 的旧类名 `.el-dialog__wrapper` / `.el-message-box__wrapper`，而 Element Plus 2.x 真实居中容器类名为 `.el-overlay-dialog` / `.el-overlay-message-box`，旧类名在 DOM 中不存在，故 flex 居中规则完全不生效。
 
 ### 变更
+
 - **居中**：对真实容器 `.el-overlay-dialog` / `.el-overlay-message-box` 使用 flex 居中；`.el-dialog` / `.el-message-box` 用 `margin:auto` 覆盖默认 `15vh auto 50px`，内容超高时 auto 边距归零、顶部可见可滚动。
 - **毛玻璃**：`backdrop-filter: blur(var(--zg-blur)) saturate(180%)`，模糊强度跟随「界面风格」滑块（由 `store/theme.ts` 的 `applyTheme` 动态注入 `--zg-blur`）。
 - **圆角**：`border-radius: var(--zg-radius)`，圆角大小跟随「界面风格」滑块。
@@ -1902,6 +2062,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 - **移动端**：移除错误的 `.el-dialog__wrapper` 和 `transform: translate(-50%,-50%)` hack，居中统一由全局 flex 处理。
 
 ### 修改文件
+
 - `src/styles/main.css`
 
 ---
@@ -1909,12 +2070,14 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.13] - 2026-08-13
 
 ### 新功能
+
 - **Markdown 空格保留支持**
   - 新增 `renderMarkdownPreserveSpaces` 函数
   - 公告栏和页脚文字保留空格和换行符
   - 将 `<p>` 标签替换为 `<br>` 以正确显示格式
 
 ### 修改文件
+
 - `src/utils/markdown.ts`
 - `src/views/HomeView.vue`
 
@@ -2026,6 +2189,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.11] - 2026-08-12
 
 ### 修复
+
 - **删除美文时评论经验值未回收的 bug**
   - 问题：删除美文时只删除了 article 和 like 的经验值记录，没有删除 comment 的记录
   - 修复：在 SQL 查询中添加 'comment' 到 action_type 过滤条件
@@ -2034,6 +2198,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ## [v2.1.12] - 2026-08-12
 
 ### 新功能
+
 - **Markdown 编辑器支持**
   - 网站公告栏支持 Markdown 格式
   - 页脚文字支持 Markdown 格式
@@ -2041,5 +2206,6 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
   - 前端使用 marked 库渲染 Markdown
 
 ### 修改文件
+
 - `src/views/admin/SiteConfigView.vue`
 - `src/views/HomeView.vue`
