@@ -5,6 +5,30 @@
 
 ---
 
+## [v4.4.8] - 2026-09-04 头像/封面上传修复（PATCH profile 真修 + pages 加固）
+
+> 用户反馈：① 博客封面上传显示成功但图片位置白色；② 编辑器上传相关几乎瘫痪；③ 头像功能完全抽风；④ 美文上传封面失灵。
+> 排查结论：v4.4.7 已修「图片 inline 显示」（BUG #3），但 **`PATCH /api/profile` 头像保存 500 根因未修**，另 `POST /api/pages` 对 undefined 字段脆弱。本版补修。
+
+### 🐞 根因与修复
+
+| # | BUG | 真因 | 修复 |
+|---|---|---|---|
+| 1 | 头像功能完全抽风（PATCH /api/profile 返回 500「服务器内部错误」） | 旧实现 `UPDATE users SET real_name=?, email=?, avatar=?` 一次性 bind 三个字段；前端 `uploadAvatar` 只发 `{ avatar }`，`realName/email` 为 `undefined` → D1 拒绝 undefined 绑定 → `D1_TYPE_ERROR: Type 'undefined' not supported` → 500，头像永远存不进去。 | **后端** `worker-api.ts` 的 `PATCH /api/profile` 改为真·部分更新：仅把前端传入的非 `undefined` 字段拼进 `SET`，未传字段保持原值；最后 `pub(u)` 返回最新用户。 |
+| 2 | 博客/美文/编辑器上传相关偶发 500（潜在瘫痪） | `POST /api/pages`（博客创建）的 `b.title / b.content` 无 undefined 兜底，前端缺字段时 D1 抛 `D1_TYPE_ERROR`。 | **后端** `POST /api/pages` 引入与 `POST /api/articles` 一致的 `safe(v, def)` 兜底，所有字段过滤 `undefined/null`。 |
+
+### 📦 部署
+
+- 后端：`npx wrangler deploy`（沙箱受 Cloudflare API Token 来源 IP 白名单限制无法自动部署，需本地执行）
+- 前端：`git push origin main` → Cloudflare Pages 自动构建（src 无改动，仅同步提交）
+
+### ⚠️ 关联说明
+
+- 「上传图片/封面显示成功但位置是白色」在 **v4.4.7** 已修（`/api/file/:fileId` 对 `image/avatar/cover` purpose 默认 `mode='preview'` → `inline`）；本版仅补修头像 PATCH 与 pages 加固。
+- **用户操作**：部署后务必浏览器**强制刷新**（Ctrl+Shift+R）清除 v4.4.5 之前的旧 JS 缓存，否则旧前端仍会触发旧行为。
+
+---
+
 ## [v4.4.7] - 2026-09-02 BUG #2 #3 #4 真修（沙箱真实 API 全场景验证）
 
 > v4.4.6 只修了 BUG #1（资料下载次数），BUG #2/#3/#4 当时未复现（登录卡点 + token 过期）。

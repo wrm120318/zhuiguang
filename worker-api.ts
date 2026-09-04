@@ -1399,8 +1399,22 @@ app.patch('/api/users/:id/exp', auth, requireRole('SUPER_ADMIN'), async (c) => {
 
 app.patch('/api/profile', auth, async (c) => {
   const id = c.get('user').id
-  const { realName, email, avatar } = await c.req.json()
-  await run('UPDATE users SET real_name=?, email=?, avatar=? WHERE id=?', realName, email, avatar, id)
+  const b = await c.req.json().catch(() => ({}))
+  // 【v4.4.8 头像修复】真·部分更新：只更新前端传入的非 undefined 字段，未传字段保持原值。
+  // 旧实现一次性 bind(realName,email,avatar,id)，前端 uploadAvatar 只发 {avatar} 时
+  // realName/email 为 undefined → D1 拒绝 undefined 绑定 → 500「服务器内部错误」（头像抽风根因）。
+  const fields: string[] = []
+  const args: any[] = []
+  if (b.realName !== undefined) { fields.push('real_name=?'); args.push(b.realName) }
+  if (b.email !== undefined) { fields.push('email=?'); args.push(b.email) }
+  if (b.avatar !== undefined) { fields.push('avatar=?'); args.push(b.avatar) }
+  if (!fields.length) {
+    const u = await get<any>('SELECT * FROM users WHERE id=?', id)
+    return c.json({ user: pub(u) })
+  }
+  fields.push('id=?')
+  args.push(id)
+  await run(`UPDATE users SET ${fields.join(', ')} WHERE id=?`, ...args)
   const u = await get<any>('SELECT * FROM users WHERE id=?', id)
   return c.json({ user: pub(u) })
 })
@@ -3839,9 +3853,11 @@ app.post('/api/pages', auth, async (c) => {
   }
   const pinned = b.pinned ? 1 : 0
   const pinnedScope = pinned ? (b.pinnedScope || b.scope || 'site') : 'none'
+  // 【v4.4.8 加固】过滤 undefined 字段，避免 D1 拒绝 undefined 绑定导致博客/公告发布 500（与 POST /api/articles 一致）
+  const safe = (v: any, def: any = null) => (v === undefined || v === null) ? def : v
   const r = await run(
     `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
-    b.ptype, b.scope || 'site', b.classId || null, b.title, b.content, b.cover || '', JSON.stringify(b.images || []), JSON.stringify(b.attachments || []), uid, me?.real_name || '', 'published', pinned, pinnedScope
+    safe(b.ptype), safe(b.scope, 'site'), safe(b.classId, null), safe(b.title), safe(b.content), safe(b.cover, ''), JSON.stringify(Array.isArray(b.images) ? b.images : []), JSON.stringify(Array.isArray(b.attachments) ? b.attachments : []), uid, me?.real_name || '', 'published', pinned, pinnedScope
   )
   if (b.ptype === 'blog') {
     await addExp(uid, undefined, 'blog', `发布博客《${b.title}》`)
