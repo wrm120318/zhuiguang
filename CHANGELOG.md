@@ -5,6 +5,45 @@
 
 ---
 
+## [v4.4.13] - 2026-09-12
+
+> 修复：题库/练习**题目附件**点击提示「请先登录后下载」无法查看（401 + 404 双重拦截）
+
+### 🐞 背景与根因
+
+- 用户反馈：题库题目的附件点击后显示 `{"message":"请先登录后下载","needLogin":true}`，要求改成「图片直接预览、文件点击自动下载」。
+- 经排查是**两个相互独立的 Bug**叠加：
+
+| 层 | 现象 | 根因 |
+| --- | --- | --- |
+| 前端 | 裸 `<a href>` 不带鉴权 → 401 | 浏览器对裸链接不附带 JWT（token 存在 localStorage，非 cookie），`/api/file/:fileId` 要求登录即返回 401 |
+| 后端 | 带 token 仍返回 404「资源不存在」 | 题目附件经 `/api/upload/file` 上传，`file_meta.purpose='resource'`，但**并未写入 `resources` 表**；`/api/file/:fileId` 的 `resourceCheck` 一律按"资源不存在"拦截，登录用户也拿不到 |
+
+- 题目附件 `a.url` 形如 `https://api.xkzg.dpdns.org/api/file/{fileId}`（前端 `uploadFile`→`filePath` 已补全为绝对地址），图片 MIME 走 `inline`（预览）、其余走 `attachment`（下载）。
+
+### ✅ 修复
+
+- **前端**：新增 `attachmentUrl(a)` 工具函数（`src/utils/helpers.ts`），从 `a.url` 提取 `fileId` 并拼出带 `?token=` 的鉴权绝对地址（兼容绝对/相对两种 `a.url`）。
+  - 题库/练习全部题目附件渲染改为 `:href="attachmentUrl(a)"`：`QuizTakeView.vue`、`PracticeTakeView.vue`（作答/回顾两处）、`PracticeStatsView.vue`、`PracticeRecordsView.vue`。
+- **后端**（`worker-api.ts`）：`/api/file/:fileId` 与 `/api/file/:fileId/preview` 两处 `resourceCheck` 调整——当 `resources` 表无对应行时（独立附件，非资源库条目），已通过登录校验即放行，与「站内信全员可见」一致；真实 `resources` 行的待审核权限校验保持不变。
+
+### ✅ 验证（线上实测）
+
+- 上传测试文件（走 `/api/upload/file`，`purpose=resource` 无 `resources` 行）：
+  - 带 token 访问 `/api/file/{id}` → **200**，`Content-Disposition: attachment`（文件点击自动下载）✓
+  - 带 token 访问 `/api/file/{id}/preview` → **200**，`inline` ✓
+  - 上传 PNG 测试：`/api/file/{id}` 默认即 `Content-Disposition: inline` + `image/png`（图片直接预览）✓
+  - 无 token 访问 → **401**「请先登录后下载」（登录门槛保留，正确）✓
+
+### 🔧 工程
+
+- 后端已部署（Worker 版本 `01b4f412`）；前端已构建通过（`npm run build` 无错），`git push` → Pages 自动重建。
+- 本地 / Cloudflare Worker / GitHub 三端一致。
+
+> 备注：公告详情（`AnnouncementDetailView.vue`）、美文/页面详情（`BlogDetailView.vue`）的附件渲染为同一时期裸 `<a href="a.url">` 写法，同样存在"无 token → 401"问题，但非本次用户反馈范围；如需一并修复可单独提。
+
+---
+
 ## [v4.4.12] - 2026-09-12
 
 > 新增：运行监控「未关联文件一键清理」功能（超管）

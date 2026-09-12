@@ -79,6 +79,25 @@ export function fileUrl(url?: string | null): string {
   return clean
 }
 
+// 【v4.4.13 修复】题库/练习/论坛/站内信等「题目/消息附件」可带鉴权访问地址。
+// 附件 a.url 形如  https://api.xkzg.dpdns.org/api/file/{fileId}
+//   （也可能为相对 /api/file/{fileId}，兼容旧数据）。
+// 这类附件经 /api/upload/file 上传，file_meta.purpose='resource'、且未写入 resources 表，
+// 属于私有文件，必须带 token 才能经 /api/file/:fileId 访问；
+// 若用裸 <a href> 直接跳转，浏览器不会附带 JWT（token 存在 localStorage），
+// 后端返回 401「请先登录后下载」。故这里拼出带 ?token= 的绝对地址。
+// 后端按 mime 决定响应方式：图片 inline（浏览器直接预览）、文件 attachment（点击自动下载）。
+export function attachmentUrl(a?: any): string {
+  if (!a) return ''
+  const raw = String(a.url || '')
+  const m = raw.match(/\/api\/file\/([^/?#]+)/)
+  if (!m) return raw // 兜底：非预期格式原样返回，避免整块崩掉
+  const fileId = m[1]
+  const token =
+    (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
+  return `${API_BASE}/api/file/${fileId}?token=${encodeURIComponent(token)}`
+}
+
 
 // 经验值获得粒子特效
 export function burstParticles(x: number, y: number, color = '#a5b4fc') {

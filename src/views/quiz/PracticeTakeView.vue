@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
+import { attachmentUrl } from '@/utils/helpers'
 
 const router = useRouter()
 const route = useRoute()
@@ -165,7 +166,7 @@ async function deleteSubmission() {
       <div class="pb-content q-content markdown-body" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
-        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
+        <a v-for="(a, i) in q.attachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 客观题选项 -->
@@ -264,7 +265,7 @@ async function deleteSubmission() {
       <div class="grade-content q-content markdown-body" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
-        <a v-for="(a, i) in q.attachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
+        <a v-for="(a, i) in q.attachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 学生作答 -->

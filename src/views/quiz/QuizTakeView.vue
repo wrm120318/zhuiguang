@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 import { renderMarkdown as renderMd } from '@/utils/markdown'
+import { attachmentUrl } from '@/utils/helpers'
 
 const router = useRouter()
 const route = useRoute()
@@ -147,7 +148,7 @@ async function submit() {
       <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="q-attachments">
-        <a v-for="(a, idx) in q.attachments" :key="idx" :href="`/api/resources/${a.url}/download`" target="_blank" class="qa-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
+        <a v-for="(a, idx) in q.attachments" :key="idx" :href="attachmentUrl(a)" target="_blank" class="qa-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
       </div>
 
       <!-- 单选/判断 -->

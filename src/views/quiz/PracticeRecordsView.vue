@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
+import { attachmentUrl } from '@/utils/helpers'
 import { useUserStore } from '@/store/user'
 
 const router = useRouter()
@@ -83,7 +84,7 @@ onMounted(() => load(1))
 
         <!-- 附件 -->
         <div v-if="rec.qattachments?.length" class="rc-atts">
-          <a v-for="(a, i) in rec.qattachments" :key="i" :href="a.url" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
+          <a v-for="(a, i) in rec.qattachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
         </div>
 
         <div class="rc-foot">

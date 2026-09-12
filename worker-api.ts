@@ -968,7 +968,10 @@ app.get('/api/file/:fileId', async (c) => {
   if (meta.purpose === 'resource') {
     resourceCheck = async () => {
       const r = await get<any>('SELECT * FROM resources WHERE file_id=?', fileId)
-      if (!r) return { ok: false, status: 404, message: '资源不存在' }
+      // 【v4.4.13 修复】题库/练习/论坛/站内信附件经 /api/upload/file 上传后 file_meta.purpose='resource'，
+      // 但并未写入 resources 表。此类"独立附件"本就属于题目/消息内容，且已通过上面的登录校验，
+      // 任何已登录用户均可访问（与「站内信全员可见」一致），故不再以「资源不存在」拦截。
+      if (!r) return { ok: true }
       if (r.status !== 'approved') {
         const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', user!.id)
         const isOwner = Number(r.user_id) === Number(user!.id)
@@ -1007,7 +1010,10 @@ app.get('/api/file/:fileId/preview', async (c) => {
   if (meta.purpose === 'resource') {
     resourceCheck = async () => {
       const r = await get<any>('SELECT * FROM resources WHERE file_id=?', fileId)
-      if (!r) return { ok: false, status: 404, message: '资源不存在' }
+      // 【v4.4.13 修复】题库/练习/论坛/站内信附件经 /api/upload/file 上传后 file_meta.purpose='resource'，
+      // 但并未写入 resources 表。此类"独立附件"本就属于题目/消息内容，且已通过上面的登录校验，
+      // 任何已登录用户均可访问（与「站内信全员可见」一致），故不再以「资源不存在」拦截。
+      if (!r) return { ok: true }
       if (r.status !== 'approved') {
         const me = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', user!.id)
         const isOwner = Number(r.user_id) === Number(user!.id)
