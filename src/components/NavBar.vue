@@ -289,6 +289,7 @@ function stopNoticePolling() {
         <div class="d-item" v-if="settings.isEnabled('leaderboard')" @click="go('/leaderboard')"><el-icon><Trophy /></el-icon><span>经验榜</span></div>
         <div class="d-item" @click="go('/profile')"><el-icon><User /></el-icon><span>个人中心</span></div>
         <div class="d-item" v-if="showNotice" @click="noticeVisible = true"><el-icon><Bell /></el-icon><span>通知中心</span><span v-if="unread" class="d-badge">{{ unread }}</span></div>
+        <div class="d-item" v-if="showMessage" @click="go('/messages')"><el-icon><ChatDotRound /></el-icon><span>站内信</span><span v-if="messageUnread" class="d-badge">{{ messageUnread }}</span></div>
         <div class="d-item" v-if="settings.isEnabled('favorites')" @click="go('/favorites')"><el-icon><Star /></el-icon><span>我的收藏</span></div>
         <div class="d-item" v-if="user.isStaff" @click="go('/admin')"><el-icon><Setting /></el-icon><span>管理后台</span></div>
         <div class="d-item" @click="drawerVisible = false; settingsVisible = true"><el-icon><ZoomIn /></el-icon><span>字体设置</span></div>
