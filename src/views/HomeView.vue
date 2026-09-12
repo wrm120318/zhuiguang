@@ -327,8 +327,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
 /* 标题：经典=无衬线渐变展示；墨金=优雅衬线（字体族与 600 字重由 main.css 强制，报告 §2.4） */
 .hero-title { margin: 0 0 14px; line-height: 1.12; font-size: 42px; font-weight: 800; letter-spacing: -1.5px; color: var(--zg-text); }
-.hero-greet { font-weight: 600; opacity: .7; }
-.hero-name { background: linear-gradient(118deg, var(--zg-primary-2), var(--zg-primary) 55%, var(--zg-accent)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; }
+.hero-greet { font-weight: 800; opacity: .8; }
+.hero-name { background: linear-gradient(118deg, var(--zg-primary-2), var(--zg-primary) 55%, var(--zg-accent)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; }
 .hero-dot { color: var(--zg-primary-2); -webkit-text-fill-color: var(--zg-primary-2); }
 .hero-slogan { margin: 0 0 34px; font-size: 19px; line-height: 1.7; max-width: 660px; font-weight: 500; opacity: .82; letter-spacing: .2px; }
 
@@ -346,7 +346,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-.zg-inkgold .hero-greet { opacity: 0.85; font-weight: 600; }
+.zg-inkgold .hero-greet { opacity: 0.85; font-weight: 800; }
 .zg-inkgold .hero-dot { color: var(--zg-primary); -webkit-text-fill-color: var(--zg-primary); }
 .zg-inkgold .hero-slogan { color: var(--zg-text-dim); opacity: .92; font-size: 17px; max-width: 30em; }
 
@@ -667,7 +667,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* ===== 移动端（≤767px）：Hero 单栏 · 触控 ≥44px · 高级留白节奏 ===== */
 @media (max-width: 768px) {
   .home-page { overflow-x: hidden; }
-  .hero { margin: 0 0 18px; padding: 22px 18px 20px; border-radius: 22px; min-height: auto; }
+  .hero { margin: 0 0 14px; padding: 18px 16px 16px; border-radius: 20px; min-height: auto; }
   .hero-meta { margin-bottom: 12px; }
   .hero-kicker { font-size: 11px; letter-spacing: .04em; }
   .hero-tag { font-size: 11px; padding: 5px 12px; }
@@ -677,15 +677,16 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .cta { flex: 1; min-height: 44px; padding: 10px 16px; font-size: 14px; border-radius: 12px; }
   .hero-title { font-size: clamp(22px, 6.5vw, 27px); letter-spacing: -0.5px; line-height: 1.3; margin-bottom: 10px; }
   .zg-inkgold .hero-title { font-size: clamp(21px, 6.3vw, 26px); letter-spacing: .01em; line-height: 1.32; }
-  .hero-name { font-weight: 700; }
+  .hero-name { font-weight: 900; }
   .hero-slogan { font-size: 13px; line-height: 1.7; margin-bottom: 20px; color: var(--zg-text-dim); }
   .zg-inkgold .hero-slogan { font-size: 13px; }
-  /* 移动端 stats：固定 2 列，紧凑密度（推荐方案） */
-  .hero-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 8px; padding: 14px 14px; border-radius: 18px; }
-  .hs-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 12px; }
+  /* 移动端 stats：单行横向滑动条，省垂直空间（不再两行占位） */
+  .hero-stats { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 16px; padding: 12px 14px; border-radius: 16px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .hero-stats::-webkit-scrollbar { display: none; }
+  .hs-item { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 4px; min-width: 50px; }
   .hs-divider { display: none; }
-  .hs-num { font-size: 20px; line-height: 1.1; }
-  .hs-label { font-size: 10px; letter-spacing: .08em; }
+  .hs-num { font-size: 19px; line-height: 1.1; }
+  .hs-label { font-size: 10px; letter-spacing: .08em; white-space: nowrap; }
   .announce-bar { padding: 13px 16px; margin-bottom: 22px; border-radius: 16px; }
   .zg-inkgold .announce-bar { border-radius: 0 12px 12px 0; padding: 12px 14px; }
   .ab-text { font-size: 13px; line-height: 1.6; }
@@ -712,13 +713,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .zg-footer { padding: 44px 0 calc(100px + env(safe-area-inset-bottom)); margin-top: 52px; }
 
   /* 墨金移动端：hero 圆角24px玻璃 */
-  .zg-inkgold .hero { padding: 28px 20px 24px !important; border-radius: 24px !important; margin: 0 0 18px !important; min-height: auto !important; }
+  .zg-inkgold .hero { padding: 20px 16px 18px !important; border-radius: 22px !important; margin: 0 0 14px !important; min-height: auto !important; }
   .zg-inkgold .hero-title { font-size: clamp(20px, 6.2vw, 25px); line-height: 1.32; }
   .zg-inkgold .hero-slogan { font-size: 13px; margin-bottom: 20px; }
-  .zg-inkgold .hero-stats { padding: 0; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .zg-inkgold .hs-item { padding: 12px 10px; border-radius: 16px; min-width: 0; }
-  .zg-inkgold .hs-num { font-size: 20px; }
-  .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .05em; }
+  .zg-inkgold .hero-stats { display: flex; flex-wrap: nowrap; overflow-x: auto; padding: 12px 14px; gap: 4px; grid-template-columns: none; border-radius: 16px; scrollbar-width: none; }
+  .zg-inkgold .hero-stats::-webkit-scrollbar { display: none; }
+  .zg-inkgold .hs-item { flex: none; padding: 2px 6px; border-radius: 14px; min-width: 52px; }
+  .zg-inkgold .hs-num { font-size: 19px; }
+  .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .04em; white-space: nowrap; }
   /* 资产区收为顶部细光带（瓷盘不占高），并进一步弱化 */
   .zg-inkgold .hero-grid { display: contents; }
   .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(var(--zg-primary-rgb), .10); }
@@ -751,10 +753,10 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-stats { gap: 10px; padding: 16px 12px; }
   .hs-num { font-size: 22px; }
   .quick-row { gap: 8px; }
-  .zg-inkgold .hero { padding: 22px 16px 20px !important; border-radius: 22px !important; margin: 0 0 18px !important; min-height: auto !important; }
+  .zg-inkgold .hero { padding: 18px 14px 16px !important; border-radius: 20px !important; margin: 0 0 12px !important; min-height: auto !important; }
   .zg-inkgold .hero-title { font-size: clamp(19px, 6vw, 23px); }
-  .zg-inkgold .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .zg-inkgold .hs-item { padding: 10px 8px; border-radius: 14px; min-width: 0; }
+  .zg-inkgold .hero-stats { gap: 2px; padding: 10px 12px; }
+  .zg-inkgold .hs-item { padding: 2px 4px; border-radius: 12px; }
   .zg-inkgold .hs-num { font-size: 18px; }
   .zg-inkgold .qr-item { padding: 12px 14px; min-height: 50px; }
   .section { margin: 24px 0; }

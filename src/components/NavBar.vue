@@ -591,7 +591,7 @@ html:not(.zg-inkgold) .nav::before { display: none; }
   /* 顶栏纳入刘海安全区 */
   .nav {
     padding-top: env(safe-area-inset-top);
-    border-radius: 16px;
+    border-radius: 22px;
     margin: 8px auto 0;
     max-width: calc(100% - 16px);
   }
