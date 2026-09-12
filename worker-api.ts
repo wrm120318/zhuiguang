@@ -4348,6 +4348,8 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
         cleanedSize += f.size || 0
       } catch {}
     }
+    // 清理后清空监控缓存，保证前端列表即时刷新
+    clearAllCache()
     return c.json({
       ok: true,
       message: `已清理 ${cleanedCount} 个孤立文件，释放 ${fmtBytes(cleanedSize)} 空间`,
@@ -4678,6 +4680,21 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
     const m = /^\/api\/file\/([A-Za-z0-9]+)/.exec(r.file_path || '')
     if (m) monitorResourceByFid.set(m[1], r)
   }
+  // 【v4.4.12】全表引用扫描：与 clean_orphaned 完全一致，使前端「未关联」标签 = 一键清理实际会删的文件，
+  //   避免「列表标了 N 个未关联，点清理却没清掉（其实被文章/留言/页面引用着）」的误导。
+  const referencedSet = new Set<string>()
+  const refScanFields: Array<[string, string]> = [
+    ['resources', 'file_path'], ['articles', 'cover'], ['articles', 'images'],
+    ['pages', 'cover'], ['pages', 'images'], ['pages', 'attachments'],
+    ['messages', 'attachments'], ['quiz_questions', 'attachments'], ['subject_questions', 'attachments'],
+  ]
+  for (const [t, col] of refScanFields) {
+    const rows = await all<any>(`SELECT ${col} AS v FROM ${t} WHERE ${col} LIKE '%/api/file/%' LIMIT 5000`).catch(() => [])
+    for (const r of rows) {
+      const m = String(r.v || '').match(/\/api\/file\/[A-Za-z0-9]+/g)
+      if (m) for (const s of m) referencedSet.add(s.replace('/api/file/', ''))
+    }
+  }
   const topStorageFiles = topRawFiles.map(f => {
     const linked = monitorResourceByFid.get(f.file_id)
     return {
@@ -4689,8 +4706,8 @@ app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
       resourceTitle: linked?.title || '',
       resourceStatus: linked?.status || '',
       hasResource: !!linked,
-      // D1 里查不到任何资源引用它 → 可疑残留（可能是上传后未提交/已删除资源）
-      isOrphan: !linked,
+      // 全表扫描后仍无任何引用 → 真正的孤儿文件（与 clean_orphaned 判定一致）
+      isOrphan: !referencedSet.has(f.file_id),
     }
   })
 

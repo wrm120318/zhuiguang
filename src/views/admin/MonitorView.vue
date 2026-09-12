@@ -100,6 +100,28 @@ async function optimizeAction(action: string) {
   }
 }
 
+// 一键清理未关联（孤儿）文件：带二次确认，清理后同时刷新监控与存储监控两个数据源
+const cleaningOrphans = ref(false)
+async function cleanOrphans() {
+  try {
+    await ElMessageBox.confirm(
+      '确定清理全部「未关联文件」？这些文件在数据库查无归属（疑似上传后未提交或已删除资源残留），清理后不可恢复。',
+      '确认清理未关联文件',
+      { type: 'warning', confirmButtonText: '确认清理', cancelButtonText: '取消' },
+    )
+  } catch { return }
+  cleaningOrphans.value = true
+  try {
+    const res: any = await api.storageOptimize('clean_orphaned')
+    ElMessage.success(res?.message || '未关联文件已清理')
+    await Promise.all([load(), loadStorage()])
+  } catch (e: any) {
+    ElMessage.error('清理失败: ' + (e?.response?.data?.message || e?.message || ''))
+  } finally {
+    cleaningOrphans.value = false
+  }
+}
+
 function scheduleRender(attempt: number) {
   if (attempt > 3) return
   const r1 = document.querySelector<HTMLElement>('[data-chart="c1"]') || chart1.value
@@ -782,8 +804,18 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-if="orphanCount > 0" class="orphan-summary">
                   <ZgGlyph emoji="⚠️" />
-                  检测到 <b>{{ orphanCount }}</b> 个未关联文件（数据库查无归属，疑似残留），
-                  合计 <b>{{ orphanSizeFmt }}</b>，可安全清理
+                  <span>
+                    检测到 <b>{{ orphanCount }}</b> 个未关联文件（数据库查无归属，疑似残留），
+                    合计 <b>{{ orphanSizeFmt }}</b>，
+                  </span>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    :loading="cleaningOrphans"
+                    @click="cleanOrphans"
+                  >
+                    <ZgGlyph emoji="🧹" /> 一键清理未关联文件
+                  </el-button>
                 </div>
               </div>
             </template>
