@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS articles (
   cover TEXT, images TEXT DEFAULT '[]', tags TEXT DEFAULT '[]', category TEXT,
   status TEXT DEFAULT 'pending', likes INTEGER DEFAULT 0, views INTEGER DEFAULT 0,
   actual_user_id INTEGER DEFAULT NULL,
-  created_at TEXT DEFAULT (datetime('now','+8 hours'))
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 资源表

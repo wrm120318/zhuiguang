@@ -5,6 +5,30 @@
 
 ---
 
+## [v4.4.10] - 2026-09-12
+
+> 紧急修复：美文编辑提交报「服务器内部错误」（HTTP 500），编辑功能自上线即不可用
+
+### 🐞 根因
+
+- **现象**：美文进入编辑页、改完点「保存修改」→ 提示「服务器内部错误」，无法保存。
+- **真因**：`PATCH /api/articles/:id`（`worker-api.ts`）在更新时会执行 `updated_at=datetime('now','+8 hours')`，但 `articles` 表自建库起**从未创建 `updated_at` 列**（仅 `created_at`）。每次编辑都触发 `D1_ERROR: no such column: updated_at` → HTTP 500。
+- **旁证**：`users` / `pages` / `themes` 等表均有 `updated_at` 列，唯独 `articles` 漏建；博客、公告的编辑接口不引用该列，故未受影响。
+
+### ✅ 修复
+
+- **数据库迁移** `migrations/0002_articles_updated_at.sql`（已执行到远程 D1）：
+  - `ALTER TABLE articles ADD COLUMN updated_at TEXT DEFAULT ''`（D1 不允许 `ALTER` 用非恒定默认值，故用空串默认，绕开 code 7500）。
+  - `UPDATE articles SET updated_at = created_at WHERE ...` 回填全部存量美文，保持「编辑时间」语义一致。
+- **本地 schema 同步** `schema.sql`：`articles` 表补 `updated_at` 列（`DEFAULT (datetime('now','+8 hours'))`，建表合法）。
+- **无需改 Worker / 无需重新部署**：线上 handler 本就正确写了 `updated_at`，补列后即恢复（已线上实测 `PATCH /api/articles/64` 由 500 → 200）。
+
+### 🔧 工程
+
+- 本地 / Cloudflare Worker（已含正确 handler，未改动）/ GitHub 三端一致：Worker 代码未变、DB 已补列、GitHub 新增 `migrations/0002_articles_updated_at.sql` 与 `schema.sql` 变更。
+
+---
+
 ## [v4.4.9] - 2026-09-04 整站图片裂图/白色紧急修复（VITE_API_BASE_URL 换行污染）
 
 > 用户反馈：美文、博客封面「图片确确实实传上去了，但是显示白色」。实测确认为**整站图片（封面/头像/插图）全白**。
