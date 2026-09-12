@@ -300,7 +300,7 @@ async function submit() {
 .ep-row { margin-bottom: 12px; }
 .ep-row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .cover-label { font-size: 13px; color: var(--zg-text-sub); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-.cover-preview { width: 100%; height: 90px; background-size: cover; background-position: center; border-radius: 8px; margin-top: 8px; }
+.cover-preview { width: 100%; height: 132px; background-size: cover; background-position: center; border-radius: 12px; margin-top: 8px; border: 1px solid rgba(var(--zg-primary-rgb),.18); box-shadow: 0 6px 18px rgba(15,23,42,.12); }
 .topic-empty { font-size: 12px; color: var(--zg-text-sub); padding: 8px 0; }
 .topic-mini { display: flex; flex-wrap: wrap; gap: 6px; }
 .topic-chip { padding: 4px 10px; font-size: 12px; border-radius: 999px; background: rgba(148, 163, 184, 0.15); color: var(--zg-text); cursor: pointer; border: 1px solid transparent; }

@@ -151,8 +151,14 @@ async function delPost(p: any) {
               ><ZgGlyph emoji="🗑" /> 删除</el-button>
             </div>
 
-            <div v-if="b.cover" class="bl-cover" :style="{ backgroundImage: `url(${fileUrl(b.cover)})` }"></div>
-            <div v-else class="bl-cover bl-placeholder"><ZgGlyph emoji="✍️" /></div>
+            <div v-if="b.cover" class="bl-cover">
+              <img :src="fileUrl(b.cover)" :alt="b.title" loading="lazy" />
+              <span class="bl-cover-shade"></span>
+            </div>
+            <div v-else class="bl-cover bl-placeholder">
+              <ZgGlyph class="ph-emoji" emoji="✍️" />
+              <span class="ph-text">暂无封面</span>
+            </div>
 
             <h3 class="bl-card-title">
               <span v-if="b.pinned" class="bl-pin"><ZgGlyph emoji="📌" /> 置顶</span>
@@ -253,17 +259,22 @@ async function delPost(p: any) {
 
 .bl-card { padding: 0; border-radius: 16px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; overflow: hidden; }
 .bl-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-.bl-card-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 18px 0; gap: 8px; }
+.bl-card-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 16px 0; gap: 8px; }
 .bl-card-author { display: flex; gap: 10px; align-items: center; }
 .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #f0f0f0; }
 .bl-card-name { font-weight: 700; font-size: 14px; }
 .bl-card-meta { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
-.bl-cover { height: 140px; background-size: cover; background-position: center; }
-.bl-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; }
-.bl-card-title { font-size: 17px; font-weight: 700; margin: 12px 18px 6px; line-height: 1.4; }
+.bl-cover { position: relative; margin: 14px 16px 0; height: 170px; border-radius: 12px; overflow: hidden; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.18), rgba(var(--zg-primary-2-rgb),.12)); }
+.bl-cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .55s var(--zg-ease); }
+.bl-card:hover .bl-cover img { transform: scale(1.06); }
+.bl-cover-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgba(15,23,42,.34), rgba(15,23,42,0) 48%); }
+.bl-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.22), rgba(var(--zg-primary-2-rgb),.16)); }
+.bl-placeholder .ph-emoji { font-size: 38px; opacity: .5; }
+.bl-placeholder .ph-text { font-size: 12px; color: var(--zg-text-sub); }
+.bl-card-title { font-size: 17px; font-weight: 700; margin: 12px 16px 6px; line-height: 1.4; }
 .bl-pin { color: var(--zg-primary); font-size: 12px; margin-right: 4px; }
-.bl-card-excerpt { font-size: 13px; color: var(--zg-text-sub); line-height: 1.6; margin: 0 18px 12px; }
-.bl-card-tags { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 18px 16px; }
+.bl-card-excerpt { font-size: 13px; color: var(--zg-text-sub); line-height: 1.6; margin: 0 16px 12px; }
+.bl-card-tags { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 16px; }
 .bl-card-tag { padding: 2px 8px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }
 
 .bl-side { display: flex; flex-direction: column; gap: 14px; }
