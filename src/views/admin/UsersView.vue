@@ -126,7 +126,9 @@ async function saveEdit() {
       role: editForm.value.role,
       subjectId: editForm.value.subjectId,
       email: editForm.value.email,
-      classId: editForm.value.classId,
+      // 关键：el-select 清空后 classId 为 undefined，JSON.stringify 会丢弃该键，
+      // 导致后端收不到 classId、跳过删除逻辑。规整为 null 确保"清除班级"生效。
+      classId: editForm.value.classId ?? null,
     })
     ElMessage.success('用户信息已更新')
     editVisible.value = false

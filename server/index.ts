@@ -558,8 +558,8 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (req, res)
 })
 
 app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) => {
-  const { realName, username, email, role, subjectId } = req.body
-  const u = await get('SELECT id FROM users WHERE id=?', req.params.id)
+  const { realName, username, email, role, subjectId, classId } = req.body
+  const u = await get('SELECT id, role FROM users WHERE id=?', req.params.id)
   if (!u) return res.status(404).json({ message: '用户不存在' })
   // 超管可修改用户名（唯一性校验）
   if (username !== undefined && username.trim()) {
@@ -571,6 +571,11 @@ app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (req, res) =
   if (email !== undefined) await run('UPDATE users SET email=? WHERE id=?', email, req.params.id)
   if (role !== undefined) await run('UPDATE users SET role=? WHERE id=?', role, req.params.id)
   if (subjectId !== undefined) await run('UPDATE users SET subject_id=? WHERE id=?', subjectId ?? null, req.params.id)
+  if (classId !== undefined) {
+    // 先删除该用户的 STUDENT 班级关联，再按新值插入（null 表示移出班级）；教师 TEACHER 关联由班级管理页维护，此处不动
+    await run('DELETE FROM class_members WHERE user_id=? AND role_in_class=?', req.params.id, 'STUDENT')
+    if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, req.params.id, 'STUDENT')
+  }
   res.json({ ok: true })
 })
 

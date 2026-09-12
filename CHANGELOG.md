@@ -5,6 +5,22 @@
 
 ---
 
+## [v4.4.23] - 2026-09-12
+
+> 修复超管用户编辑界面"清除班级 / 不归属班级"不生效。
+
+### 🐞 根因
+- 前端 `UsersView.vue` 的 `saveEdit` 把 `classId: editForm.classId` 直接进请求体。Element Plus `el-select` 清空时 `valueOnClear` 默认是 `undefined`，于是 `classId` 变 `undefined`；而 `JSON.stringify` 会**丢弃 undefined 的键**，导致请求体里根本不含 `classId`。
+- 后端 `PATCH /api/users/:id` 用 `if (classId !== undefined)` 判断是否处理班级，收不到 `classId` 就整段跳过 → 班级关联未被删除 → "清除班级"看似无效。
+- 附带发现：本地后端 `server/index.ts` 的 PATCH 处理块**完全没有 classId 逻辑**，与 Worker 不同步（铁律：双后端必须同步）。
+
+### ✅ 修复（前端 + 本地后端同步，Worker 无需改动）
+- 前端：`classId: editForm.value.classId ?? null`，清空后规整为 `null` 随请求体发出，后端即可正确删除关联。
+- 本地后端：补上与 Worker 一致的 `classId` 处理（收 `classId !== undefined` 时先删该用户 STUDENT 班级关联、再按新值插入；`null` 即移出班级）。教师 TEACHER 关联由班级管理页维护，此处不动。
+- Worker 该段逻辑本就正确（正确处理 `classId: null`），无需重部署。
+
+---
+
 ## [v4.4.22] - 2026-09-12
 
 > 修复移动端无站内信访问入口。
