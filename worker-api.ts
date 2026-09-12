@@ -216,7 +216,9 @@ export async function addExp(userId: number, change: number | undefined, actionT
   if (delta === undefined || delta === null || isNaN(delta as number)) return
   // 即使 delta=0 也要写 exp_logs 记录（用于每日登录防重复检查）
   if (delta !== 0) {
-    await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
+    // 基于更新后的经验值重算等级（SQLite 同语句中 exp 引用为旧值，故用 exp+? 取新值）
+    // 基于更新后的经验值重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
+    await run('UPDATE users SET exp = MAX(0, exp + ?), level = CAST(MAX(0, exp + ?) / 60 AS INTEGER) + 1 WHERE id = ?', delta, delta, userId)
   }
   await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc)
 }
@@ -1816,7 +1818,9 @@ app.delete('/api/articles/:id', auth, async (c) => {
     // 删除相关经验值记录
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND description LIKE ?", expUid, `%${a.title}%`)
     // 更新用户经验值
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, expUid)
+    // 经验回退后同步重算等级（level 基于更新后的 exp = MAX(0, exp-total)）
+    // 经验回退后同步重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, expUid)
   }
   await run('DELETE FROM article_comments WHERE article_id=?', id)
   // 统计并修正点赞数
@@ -2131,7 +2135,9 @@ app.delete('/api/resources/:id', auth, async (c) => {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, r.user_id)
+    // 经验回退后同步重算等级
+    // 经验回退后同步重算等级；CAST 确保整数
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, r.user_id)
   }
   // v4.4.0 删除存储文件：优先 file_meta（B2）→ legacy file_path（Supabase）
   if (r.file_id) {
@@ -2431,7 +2437,9 @@ app.delete('/api/query/tasks/:id', auth, requireStaff, async (c) => {
     for (const [userId, total] of byUser) {
       if (total) {
         await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND description LIKE ?", userId, `%${t.title}%`)
-        await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, userId)
+        // 经验回退后同步重算等级
+        // 经验回退后同步重算等级；CAST 确保整数
+        await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, userId)
       }
     }
   }
@@ -3935,7 +3943,9 @@ app.delete('/api/pages/:id', auth, async (c) => {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, p.author_id)
+    // 经验回退后同步重算等级
+    // 经验回退后同步重算等级；CAST 确保整数
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, p.author_id)
   }
   await run('DELETE FROM page_comments WHERE page_id=?', id)
   await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'page', id)
