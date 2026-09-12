@@ -26,7 +26,8 @@ export async function getExpRules(): Promise<Record<string, number>> {
 export function refreshExpRules() { expRulesCache = null }
 
 // 给指定行为加分。change 为 undefined 时，按规则表查 actionType 对应的经验值；传数字直接用
-export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string) {
+// subjectId：经验来源学科（用于学科榜按学科统计贡献）；不传则为全站经验
+export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string, subjectId?: number | null) {
   let delta = change
   if (delta === undefined) {
     const rules = await getExpRules()
@@ -34,7 +35,7 @@ export async function addExp(userId: number, change: number | undefined, actionT
   }
   if (!delta) return
   await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
-  await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description) VALUES (?,?,?,?)', userId, actionType, delta, desc)
+  await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id) VALUES (?,?,?,?,?)', userId, actionType, delta, desc, subjectId ?? null)
 }
 
 export async function addNotice(userId: number, title: string, content: string, type: string, targetUrl?: string) {

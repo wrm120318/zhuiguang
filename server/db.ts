@@ -104,7 +104,7 @@ export async function initDB() {
     CREATE TABLE IF NOT EXISTS exp_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL, action_type TEXT, exp_change INTEGER,
-      description TEXT, created_at TEXT DEFAULT (datetime('now','localtime'))
+      description TEXT, subject_id INTEGER, created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS notices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

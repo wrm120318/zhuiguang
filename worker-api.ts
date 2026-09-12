@@ -207,7 +207,7 @@ export async function getExpRules(): Promise<Record<string, number>> {
 
 export function refreshExpRules() { expRulesCache = null }
 
-export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string) {
+export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string, subjectId?: number | null) {
   let delta = change
   if (delta === undefined) {
     const rules = await getExpRules()
@@ -220,7 +220,7 @@ export async function addExp(userId: number, change: number | undefined, actionT
     // 基于更新后的经验值重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
     await run('UPDATE users SET exp = MAX(0, exp + ?), level = CAST(MAX(0, exp + ?) / 60 AS INTEGER) + 1 WHERE id = ?', delta, delta, userId)
   }
-  await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc)
+  await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc, subjectId ?? null)
 }
 
 export async function addNotice(userId: number, title: string, content: string, type: string, targetUrl?: string) {
@@ -725,6 +725,8 @@ app.use('*', async (c, next) => {
       await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_site_topics_name ON site_topics(name)`).run()
       // 博客推荐语/摘要（之前论坛 recommendation 字段未落库，本次统一补齐）
       try { await D1.prepare("ALTER TABLE pages ADD COLUMN recommendation TEXT DEFAULT ''").run() } catch {}
+      // ===== v4.4.24 学科榜按学科贡献排名：exp_logs 补 subject_id 列（记录经验来源学科）=====
+      try { await D1.prepare("ALTER TABLE exp_logs ADD COLUMN subject_id INTEGER").run() } catch {}
     } catch {}
   }
   await next()
@@ -1772,7 +1774,7 @@ app.post('/api/articles', auth, async (c) => {
   }
   if (status === 'approved') {
     const expUid = actualUserId || id
-    await addExp(expUid, undefined, 'article', `美文《${b.title}》发布`)
+    await addExp(expUid, undefined, 'article', `美文《${b.title}》发布`, subjectId)
   }
   clearAllCache()
   return c.json({ id: aid, status })
@@ -1793,7 +1795,7 @@ app.patch('/api/articles/:id/status', auth, async (c) => {
     const expUid = Number(a.actual_user_id) || Number(a.user_id)
     const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='article' AND description LIKE ?", expUid, `%${a.title}%`)
     if (!already) {
-      await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`)
+      await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`, a.subject_id)
     }
     await addNotice(a.user_id, '美文审核通过', `你的《${a.title}》已通过审核，已公开展示。`, 'audit')
     if (a.actual_user_id) {
@@ -1897,10 +1899,10 @@ app.post('/api/articles/:id/like', auth, async (c) => {
   }
   await run('INSERT INTO likes_map (user_id,target_type,target_id) VALUES (?,?,?)', uid, 'article', id)
   await run('UPDATE articles SET likes = likes + 1 WHERE id=?', id)
-  const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
+  const a = await get<any>('SELECT user_id, actual_user_id, title, subject_id FROM articles WHERE id=?', id)
   if (a) {
     const owner = Number(a.actual_user_id) || Number(a.user_id)
-    if (owner !== uid) await addExp(owner, 1, 'like', `美文《${a.title}》获得点赞`)
+    if (owner !== uid) await addExp(owner, 1, 'like', `美文《${a.title}》获得点赞`, a.subject_id)
     // 【v4.2.1】通知作者收到点赞（自己点自己不通知）
     if (owner !== uid) {
       const u = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
@@ -1971,10 +1973,10 @@ app.post('/api/articles/:id/comments', auth, async (c) => {
   const newCommentId = Number(r.lastInsertRowid)
   // 仅给主评论（顶级）加经验：避免回复刷经验
   if (parentId == null) {
-    const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', id)
+    const a = await get<any>('SELECT user_id, actual_user_id, title, subject_id FROM articles WHERE id=?', id)
     if (a) {
       const expUid = Number(a.actual_user_id) || Number(a.user_id)
-      if (expUid !== uid) await addExp(expUid, 1, 'comment', `《${a.title}》获得评论`)
+      if (expUid !== uid) await addExp(expUid, 1, 'comment', `《${a.title}》获得评论`, a.subject_id)
       // 【v4.2.1】通知作者收到评论（自己评自己不通知）
       if (expUid !== uid) {
         await addNotice(expUid, '美文收到新评论', `${u?.real_name || '有人'} 评论了你的美文《${a.title}》：${content.slice(0, 40)}${content.length > 40 ? '…' : ''}`, 'comment', `/article/${id}#comment-${newCommentId}`)
@@ -2003,10 +2005,10 @@ app.delete('/api/articles/:id/comments/:commentId', auth, async (c) => {
   if (comment.user_id !== uid && u?.role !== 'SUPER_ADMIN') return c.json({ message: '无权限删除' }, 403)
   // 【v4.2.0】如果是主评论，回收经验（仅算自己的，不算子评论带来的重复计算）
   if (comment.parent_id == null) {
-    const a = await get<any>('SELECT user_id, actual_user_id, title FROM articles WHERE id=?', articleId)
+    const a = await get<any>('SELECT user_id, actual_user_id, title, subject_id FROM articles WHERE id=?', articleId)
     if (a) {
       const expUid = Number(a.actual_user_id) || Number(a.user_id)
-      if (expUid !== Number(comment.user_id)) await addExp(expUid, -1, 'comment', `《${a.title}》评论被删除回收经验`)
+      if (expUid !== Number(comment.user_id)) await addExp(expUid, -1, 'comment', `《${a.title}》评论被删除回收经验`, a.subject_id)
     }
   }
   // 【v4.2.0】主评论 → 连同所有子评论一起删；子评论 → 仅删自己
@@ -2105,7 +2107,7 @@ app.post('/api/resources', auth, async (c) => {
     b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status, fileId)
   const rid = Number(r.lastInsertRowid)
   if (status === 'approved') {
-    await addExp(id, undefined, 'resource', `上传资料《${b.title}》`)
+    await addExp(id, undefined, 'resource', `上传资料《${b.title}》`, b.subjectId)
     // v4.4.0 审核通过（教师/超管直传即 approved）→ 关联文件翻为公开可缓存
     if (fileId) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fileId)
   }
@@ -2123,7 +2125,7 @@ app.patch('/api/resources/:id/status', auth, async (c) => {
   if (!(await canManageSubject(u, r.subject_id, myId))) return c.json({ message: '无权限审核该学科的资料' }, 403)
   await run('UPDATE resources SET status=? WHERE id=?', newStatus, id)
   if (newStatus === 'approved' && r.status !== 'approved') {
-    await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`)
+    await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`, r.subject_id)
     await addNotice(r.user_id, '资料审核通过', `《${r.title}》已通过审核。`, 'audit')
     // v4.4.0 审核通过 → 关联文件翻为公开可缓存
     const fid = r.file_id || (r.file_path && r.file_path.startsWith('/api/file/') ? r.file_path.replace('/api/file/', '') : null)
@@ -2369,7 +2371,7 @@ app.post('/api/query/tasks/:id/query', auth, async (c) => {
   const allRows = rows.map(r => j(r.data_row))
   const myRows = allRows.filter(r => String(r[matchField]) === String(user.real_name))
   const headers = j(t.headers)
-  await addExp(uid, undefined, 'query', `完成数据查询：${t.title}`)
+  await addExp(uid, undefined, 'query', `完成数据查询：${t.title}`, t.subject_id)
   return c.json({
     task: { ...t, headers, show_comment: !!t.show_comment, allow_export: !!t.allow_export },
     headers: t.show_comment ? headers : headers.filter((h: string) => h !== '评语'),
@@ -2627,10 +2629,16 @@ app.get('/api/leaderboard', async (c) => {
     list = list.filter(u => cIds.has(u.id))
   }
 
+  // 经验值聚合：学科榜按 subject_id 过滤，确保显示"用户对本学科的贡献"而非全站总经验
+  const subjArg = (scope === 'subject' && subjectId) ? Number(subjectId) : null
+  const subjClause = subjArg !== null ? ' AND subject_id = ?' : ''
+
   if (period === 'total') {
-    // 总榜：从 exp_logs 聚合全部经验值（与周榜/月榜数据源一致，确保不会出现月榜>总榜）
+    // 总榜：从 exp_logs 聚合经验值（与周榜/月榜数据源一致，确保不会出现月榜>总榜）
+    // 学科榜额外按 subject_id 过滤
     const allExps = await all<{ user_id: number; total: number }>(
-      'SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs GROUP BY user_id'
+      `SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE 1=1${subjClause} GROUP BY user_id`,
+      ...(subjArg !== null ? [subjArg] : [])
     )
     const expMap = new Map<number, number>()
     for (const r of allExps) expMap.set(r.user_id, r.total)
@@ -2658,10 +2666,10 @@ app.get('/api/leaderboard', async (c) => {
         String(beijingNow.getMonth() + 1).padStart(2, '0') + '-01'
     }
 
-    // 查询时间段内各用户的经验值增量
+    // 查询时间段内各用户的经验值增量（学科榜按 subject_id 过滤）
     const periodExps = await all<{ user_id: number; total: number }>(
-      'SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE substr(created_at,1,10) >= ? GROUP BY user_id',
-      startDate
+      `SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE substr(created_at,1,10) >= ?${subjClause} GROUP BY user_id`,
+      ...(subjArg !== null ? [startDate, subjArg] : [startDate])
     )
     const expMap = new Map<number, number>()
     for (const r of periodExps) expMap.set(r.user_id, r.total)
@@ -3037,7 +3045,7 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
       id, uid, JSON.stringify({ answers, graded }), totalScore, maxScore, status, uid
     )
     subId = Number(r.lastInsertRowid)
-    await addExp(uid, undefined, 'quiz_pass', `完成题库自测：${quiz.title}（得分 ${totalScore}/${maxScore}）`)
+    await addExp(uid, undefined, 'quiz_pass', `完成题库自测：${quiz.title}（得分 ${totalScore}/${maxScore}）`, quiz.subject_id)
   } else {
     const r = await run(
       `INSERT INTO quiz_submissions (quiz_id,user_id,answers,total_score,max_score,status,submitted_at) VALUES (?,?,?,?,?,?,?)`,
@@ -3085,7 +3093,7 @@ app.post('/api/quizzes/:id/submissions/:sid/grade', auth, requireStaff, async (c
     `UPDATE quiz_submissions SET answers=?, total_score=?, status='graded', graded_at=datetime('now','+8 hours'), graded_by=? WHERE id=?`,
     JSON.stringify({ answers: data.answers, graded }), fullTotal, reviewerId, sid
   )
-  await addExp(sub.user_id, undefined, 'quiz_pass', `题库《${quiz.title}》批改完成（得分 ${fullTotal}/${sub.max_score}）`)
+  await addExp(sub.user_id, undefined, 'quiz_pass', `题库《${quiz.title}》批改完成（得分 ${fullTotal}/${sub.max_score}）`, quiz.subject_id)
   await addNotice(sub.user_id, '题库批改完成', `《${quiz.title}》已批改，得分 ${fullTotal}/${sub.max_score}。`, 'teacher')
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 《${quiz.title}》整张试卷已批改完成\n批改人：${teacherName}\n最终得分：${fullTotal} / ${sub.max_score} 分\n完整测评报告已生成，点击「题库 → 查看报告」即可查看。`
@@ -3343,7 +3351,7 @@ app.post('/api/subjects/:id/forum/posts', auth, async (c) => {
   const pid = Number(r.lastInsertRowid)
   // 教师/超管直接发布 → 发放经验
   if ((isSuper || isStaff) && status === 'published') {
-    try { await addExp(u.id, undefined, 'forum_post', `论坛帖子《${b.title}》发布`) } catch {}
+    try { await addExp(u.id, undefined, 'forum_post', `论坛帖子《${b.title}》发布`, sid) } catch {}
   }
   return c.json({ id: pid, status, autoApproved })
 })
@@ -3407,7 +3415,7 @@ app.patch('/api/subjects/:id/forum/posts/:pid/status', auth, async (c) => {
     const expUid = Number(p.author_id)
     const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='forum_post' AND description LIKE ?", expUid, `%${p.title}%`)
     if (!already) {
-      try { await addExp(expUid, undefined, 'forum_post', `论坛帖子《${p.title}》审核通过`) } catch {}
+      try { await addExp(expUid, undefined, 'forum_post', `论坛帖子《${p.title}》审核通过`, p.subject_id) } catch {}
     }
     await addNotice(expUid, '论坛帖子审核通过', `你的《${p.title}》已通过审核，已公开展示。`, 'audit')
   } else if (newStatus === 'rejected') {
@@ -3594,7 +3602,7 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   const isCorrect = sc >= sub.max_score
   await run('UPDATE practice_submissions SET score=?, status=?, comment=?, graded_at=datetime(\'now\',\'+8 hours\'), graded_by=?, correct=? WHERE id=?',
     sc, 'graded', comment || '', reviewerId, isCorrect ? 1 : 0, id)
-  await addExp(sub.user_id, undefined, 'practice_pass', `单题训练批改完成（${sc}/${sub.max_score}）`)
+  await addExp(sub.user_id, undefined, 'practice_pass', `单题训练批改完成（${sc}/${sub.max_score}）`, sub.subject_id)
   const teacherName = (await get<any>('SELECT real_name FROM users WHERE id=?', reviewerId))?.real_name || '老师'
   const msg = `✅ 你的一道单题训练主观题已被批改\n批改人：${teacherName}\n得分：${sc} / ${sub.max_score}` + (comment ? `\n评语：${comment}` : '')
   await run(`INSERT INTO messages (from_id,to_id,content,attachments,created_at) VALUES (?,?,?,?,datetime('now','+8 hours'))`, reviewerId, sub.user_id, msg, '[]')

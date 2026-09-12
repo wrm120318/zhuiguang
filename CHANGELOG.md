@@ -5,6 +5,26 @@
 
 ---
 
+## [v4.4.24] - 2026-09-12
+
+> 修复学科子站「学科榜」逻辑：应按用户对本学科的贡献排名，而非拉取全站总经验值。
+
+### 🐞 根因
+- 学科榜前端调用 `api.leaderboard({ scope: 'subject', subjectId })` 正确，但后端 `GET /api/leaderboard` 仅对**人员**做了学科筛选（师生/作者），计算排名经验 `pe` 时**未做任何学科过滤**——`SUM(exp_change) FROM exp_logs` 直接聚合并发回了用户**全站总经验**。
+- 更深层原因：`exp_logs` 表**没有 `subject_id` 列**，`addExp()` 写经验日志时从不记录"这条经验因哪个学科的操作产生"，后端压根没有按学科归因的数据。
+
+### ✅ 修复（双后端同步：worker-api.ts + server/index.ts + server/helpers.ts + schema）
+- `exp_logs` 新增 `subject_id INTEGER` 列（生产库经 `AUTO_MIGRATION` 幂等 `ALTER TABLE` 自动补列；`schema.sql` / `server/db.ts` 建表同步）。
+- `addExp()` 增加 `subjectId?: number | null` 形参，写入 `exp_logs.subject_id`；不传则留空（全站经验，如登录/注册/博客）。
+- `GET /api/leaderboard`：`scope === 'subject'` 时，聚合经验按 `subject_id = ?` 过滤（总榜/周榜/月榜均生效），真正统计"本学科贡献"。`all`/`class` 范围不受影响。
+- 各经验发放点传入学科来源：文章发布/审核、资料上传/审核、论坛帖子发布/审核、数据查询、题库自测/批改、单题训练批改；文章点赞/评论/删评的 SELECT 补 `subject_id`。博客（站级）不传。
+
+### ⚠️ 部署注意
+- 需重新部署 Worker（`source .env && npx wrangler deploy`）；首请求触发 AUTO_MIGRATION 自动加列。
+- **历史经验日志的 `subject_id` 为空**：只能从本次修复上线后新产生的经验开始准确归因为学科，历史贡献无法可靠回填（无可靠 mapping）。属已知限制。
+
+---
+
 ## [v4.4.23] - 2026-09-12
 
 > 修复超管用户编辑界面"清除班级 / 不归属班级"不生效。

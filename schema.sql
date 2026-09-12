@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS query_rows (
 CREATE TABLE IF NOT EXISTS exp_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL, action_type TEXT, exp_change INTEGER,
-  description TEXT, created_at TEXT DEFAULT (datetime('now','+8 hours'))
+  description TEXT, subject_id INTEGER, created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
 -- 通知表
