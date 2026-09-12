@@ -7,6 +7,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderMarkdown } from '@/utils/markdown'
 import { fileUrl } from '@/utils/helpers'
 import CommentTree from '@/components/CommentTree.vue'
+import ZgGlyph from '@/components/ZgGlyph.vue'
 const md = renderMarkdown
 
 const route = useRoute()
@@ -16,6 +17,11 @@ const blog = ref<any>(null)
 const loading = ref(true)
 const liked = ref(false)
 const comments = ref<any[]>([])
+const topics = ref<any[]>([])
+const relatedPosts = ref<any[]>([])
+
+const topicNameMap = ref<Record<number, string>>({})
+const topicColorMap = ref<Record<number, string>>({})
 
 async function loadComments() {
   try { comments.value = (await api.pageComments(Number(route.params.id))) as any } catch { /* */ }
@@ -23,13 +29,33 @@ async function loadComments() {
 
 onMounted(async () => {
   try {
-    blog.value = await api.page(Number(route.params.id))
+    const [b, tps] = await Promise.all([
+      api.page(Number(route.params.id)),
+      api.blogTopics(),
+    ])
+    blog.value = b
+    const tp: any = tps
+    topics.value = tp
+    topicNameMap.value = Object.fromEntries(tp.map((t: any) => [t.id, t.name]))
+    topicColorMap.value = Object.fromEntries(tp.map((t: any) => [t.id, t.color]))
     if (user.isLogin) {
       try { const r: any = await api.pageLiked(Number(route.params.id)); liked.value = r.liked } catch { /* */ }
     }
     await loadComments()
+    await loadRelated()
   } finally { loading.value = false }
 })
+
+async function loadRelated() {
+  if (!blog.value) return
+  try {
+    const all: any[] = (await api.blogPosts()) as any
+    const tids = (blog.value.topic_ids || []).map(Number).filter(Boolean)
+    relatedPosts.value = all
+      .filter(p => p.id !== blog.value.id && (tids.length === 0 || (p.topic_ids || []).some((id: number) => tids.includes(id))))
+      .slice(0, 5)
+  } catch { relatedPosts.value = [] }
+}
 
 async function like() {
   if (!user.isLogin) { ElMessage.warning('请先登录'); return }
@@ -45,7 +71,6 @@ async function like() {
 async function onCommentSubmit(content: string, parentId: number | null) {
   try {
     await api.addPageComment(blog.value.id, content, parentId ?? undefined)
-    // 【v4.2.5 终极修复】全量 reload 兜底，绕过所有 Vue 响应式追踪失效场景
     await loadComments()
     ElMessage.success(parentId == null ? '评论已发布' : '回复成功')
   } catch (e: any) {
@@ -86,57 +111,109 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 <template>
   <div class="page zg-container" v-loading="loading">
     <div class="back" @click="router.back()"><ZgGlyph emoji="←" /> 返回博客列表</div>
-    <article v-if="blog" class="glass-strong detail">
-      <div v-if="blog.cover" class="cover" :style="{ backgroundImage: `url(${fileUrl(blog.cover)})` }"></div>
-      <h1 class="d-title">{{ blog.title }}</h1>
-      <div class="d-meta">
-        <span><ZgGlyph emoji="👤" /> {{ blog.author_name }}</span>
-        <span><ZgGlyph emoji="👁" /> {{ blog.views }} 次阅读</span>
-        <span><ZgGlyph emoji="📅" /> {{ blog.created_at?.slice(0, 16) }}</span>
-        <!-- 【v4.0.1 Bug12 修复】编辑按钮：作者本人或超管可见，点击跳 /blog/:id/edit -->
-        <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="primary" size="small" @click="edit"><ZgGlyph emoji="✏️" /> 编辑</el-button>
-        <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="danger" size="small" @click="del"><ZgGlyph emoji="🗑" /> 删除</el-button>
-      </div>
-      <div class="d-content markdown-body" v-html="md(blog.content)"></div>
+    <div v-if="blog" class="bd-grid">
+      <!-- 中央：正文 + 评论 -->
+      <div class="bd-main">
+        <article class="glass-strong detail">
+          <div v-if="blog.cover" class="cover" :style="{ backgroundImage: `url(${fileUrl(blog.cover)})` }"></div>
+          <h1 class="d-title">{{ blog.title }}</h1>
+          <div v-if="blog.topic_ids?.length" class="d-tags">
+            <span
+              v-for="tid in (blog.topic_ids||[]).map(Number).filter(Boolean)"
+              :key="tid"
+              class="d-tag"
+              :style="{ background: topicColorMap[tid] || '#94A3B8' }"
+            >{{ topicNameMap[tid] || '#'+tid }}</span>
+          </div>
+          <div class="d-meta">
+            <span><ZgGlyph emoji="👤" /> {{ blog.author_name }}</span>
+            <span><ZgGlyph emoji="👁" /> {{ blog.views }} 次阅读</span>
+            <span><ZgGlyph emoji="📅" /> {{ blog.created_at?.slice(0, 16) }}</span>
+            <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="primary" size="small" @click="edit"><ZgGlyph emoji="✏️" /> 编辑</el-button>
+            <el-button v-if="user.isSuperAdmin || blog.author_id === user.current?.id" text type="danger" size="small" @click="del"><ZgGlyph emoji="🗑" /> 删除</el-button>
+          </div>
+          <div class="d-content markdown-body" v-html="md(blog.content)"></div>
 
-      <div v-if="blog.attachments?.length" class="d-attachments">
-        <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ blog.attachments.length }}）</div>
-        <a v-for="(a, i) in blog.attachments" :key="i" :href="a.url" target="_blank" class="da-item">
-          <ZgGlyph emoji="📄" /> {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> <ZgGlyph emoji="⬇" />
-        </a>
+          <div v-if="blog.attachments?.length" class="d-attachments">
+            <div class="da-title"><ZgGlyph emoji="📎" /> 附件下载（{{ blog.attachments.length }}）</div>
+            <a v-for="(a, i) in blog.attachments" :key="i" :href="a.url" target="_blank" class="da-item">
+              <ZgGlyph emoji="📄" /> {{ a.name }} <span v-if="a.size">({{ fmtSize(a.size) }})</span> <ZgGlyph emoji="⬇" />
+            </a>
+          </div>
+
+          <div class="like-bar">
+            <div class="like-btn" :class="{ on: liked }" @click="like">
+              <span class="lb-icon"><ZgGlyph v-if="liked" emoji="❤️" /><ZgGlyph v-else emoji="🤍" /></span>
+              <span class="lb-text">{{ liked ? '已赞' : '点赞' }}</span>
+              <span class="lb-count">{{ blog.likes || 0 }}</span>
+            </div>
+          </div>
+        </article>
+
+        <section class="glass comment-box">
+          <CommentTree
+            :comments="comments"
+            :current-user="user.current"
+            :can-delete="canDeleteComment"
+            :on-submit="onCommentSubmit"
+            :on-delete="onCommentDelete"
+            empty-text="还没有评论，来抢沙发～"
+          />
+        </section>
       </div>
 
-      <!-- 点赞 -->
-      <div class="like-bar">
-        <div class="like-btn" :class="{ on: liked }" @click="like">
-          <span class="lb-icon"><ZgGlyph v-if="liked" emoji="❤️" /><ZgGlyph v-else emoji="🤍" /></span>
-          <span class="lb-text">{{ liked ? '已赞' : '点赞' }}</span>
-          <span class="lb-count">{{ blog.likes || 0 }}</span>
+      <!-- 侧栏 -->
+      <aside class="bd-side">
+        <div class="bd-side-card glass">
+          <h3 class="bd-side-title"><ZgGlyph emoji="👤" /> 作者</h3>
+          <div class="bd-author">
+            <img class="avatar lg" :src="blog.author_avatar || 'https://api.dicebear.com/7.x/shapes/svg?seed=zg'" :alt="blog.author_name" />
+            <div>
+              <div class="bd-author-name">{{ blog.author_name }}</div>
+              <div class="bd-author-meta">本文作者</div>
+            </div>
+          </div>
         </div>
-      </div>
-    </article>
-    <ZgState v-else-if="!loading" type="404" title="博客不存在" desc="这篇博客可能已被删除或链接有误。" />
 
-    <!-- 评论区【v4.2.0】统一用 CommentTree，支持二级回复 -->
-    <section v-if="blog" class="glass comment-box">
-      <CommentTree
-        :comments="comments"
-        :current-user="user.current"
-        :can-delete="canDeleteComment"
-        :on-submit="onCommentSubmit"
-        :on-delete="onCommentDelete"
-        empty-text="还没有评论，来抢沙发～"
-      />
-    </section>
+        <div v-if="relatedPosts.length" class="bd-side-card glass">
+          <h3 class="bd-side-title"><ZgGlyph emoji="🔗" /> 相关博客</h3>
+          <div class="bd-related">
+            <div
+              v-for="rp in relatedPosts"
+              :key="rp.id"
+              class="bd-related-item"
+              @click="router.push(`/blog/${rp.id}`)"
+            >
+              <div class="t">{{ rp.title }}</div>
+              <div class="m">{{ rp.author_name }} · <ZgGlyph emoji="💬" /> {{ rp.comment_count || 0 }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bd-side-card glass">
+          <h3 class="bd-side-title"><ZgGlyph emoji="📊" /> 博客信息</h3>
+          <div class="bd-stat-row"><div class="lab">发布于</div><div class="val">{{ blog.created_at?.slice(0, 10) }}</div></div>
+          <div class="bd-stat-row"><div class="lab">阅读量</div><div class="val">{{ blog.views }}</div></div>
+          <div class="bd-stat-row"><div class="lab">评论数</div><div class="val">{{ comments.length }}</div></div>
+        </div>
+      </aside>
+    </div>
+    <ZgState v-else-if="!loading" type="404" title="博客不存在" desc="这篇博客可能已被删除或链接有误。" />
   </div>
 </template>
 
 <style scoped>
 .back { padding: 12px 0; color: var(--zg-text-dim); cursor: pointer; width: fit-content; font-size: 14px; }
 .back:hover { color: var(--zg-primary); }
-.detail { padding: 32px; margin-top: 8px; }
+.bd-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; margin-top: 8px; }
+.bd-main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.bd-side { display: flex; flex-direction: column; gap: 14px; }
+
+.detail { padding: 32px; }
 .cover { height: 220px; background-size: cover; background-position: center; border-radius: 14px; margin-bottom: 20px; }
 .d-title { font-size: 28px; font-weight: 800; line-height: 1.3; }
+.d-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
+.d-tag { padding: 3px 10px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }
 .d-meta { display: flex; gap: 16px; align-items: center; color: var(--zg-text-dim); font-size: 13px; margin: 12px 0 24px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb),.15); }
 .d-content { font-size: 15px; line-height: 1.9; color: var(--zg-text); }
 .d-content :deep(h2) { font-size: 22px; margin: 24px 0 12px; }
@@ -157,18 +234,31 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 .lb-text { font-weight: 600; font-size: 14px; }
 .lb-count { font-size: 14px; font-weight: 700; color: var(--zg-primary); }
 .like-btn.on .lb-count { color: #ef4444; }
-.comment-box { margin-top: 16px; padding: 24px; }
-.section-title { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
-.comment-input { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
-.ci-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
-.comment-list { display: flex; flex-direction: column; gap: 16px; }
-.comment-item { display: flex; gap: 12px; }
-.cm-avatar { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; }
-.cm-body { flex: 1; min-width: 0; }
-.cm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.cm-name { font-weight: 600; font-size: 13px; }
-.cm-time { font-size: 12px; color: var(--zg-text-dim); }
-.cm-text { font-size: 14px; line-height: 1.6; color: var(--zg-text); word-break: break-word; }
-.cm-text :deep(img) { max-width: 100%; border-radius: 8px; }
-@media (max-width: 768px) { .detail { padding: 20px; } .d-title { font-size: 22px; } .cover { height: 160px; } .comment-box { padding: 18px; } }
+.comment-box { padding: 24px; }
+
+.bd-side-card { padding: 16px 18px; border-radius: 16px; }
+.bd-side-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; display: flex; align-items: center; gap: 6px; }
+.bd-author { display: flex; gap: 12px; align-items: center; }
+.avatar.lg { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #f0f0f0; }
+.bd-author-name { font-weight: 700; font-size: 14px; }
+.bd-author-meta { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.bd-related { display: flex; flex-direction: column; gap: 10px; }
+.bd-related-item { cursor: pointer; padding: 6px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.25); }
+.bd-related-item:last-child { border-bottom: none; }
+.bd-related-item:hover .t { color: var(--zg-primary); }
+.bd-related-item .t { font-size: 13px; font-weight: 600; line-height: 1.5; }
+.bd-related-item .m { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.bd-stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.bd-stat-row .lab { color: var(--zg-text-sub); }
+.bd-stat-row .val { font-weight: 700; }
+
+@media (max-width: 1024px) {
+  .bd-grid { grid-template-columns: 1fr; }
+  .bd-side { flex-direction: row; flex-wrap: wrap; }
+  .bd-side-card { flex: 1 1 220px; }
+}
+@media (max-width: 768px) {
+  .detail { padding: 20px; } .d-title { font-size: 22px; } .cover { height: 160px; }
+  .comment-box { padding: 18px; } .bd-side { flex-direction: column; } .bd-side-card { padding: 14px; }
+}
 </style>

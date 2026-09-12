@@ -341,6 +341,12 @@ export const api = {
   pageLiked: (id: number) => http.get(`/api/pages/${id}/liked`),
   pageComments: (id: number) => http.get(`/api/pages/${id}/comments`),
   addPageComment: (id: number, content: string, parentId?: number) => http.post(`/api/pages/${id}/comments`, { content, parent_id: parentId }),
+  // ===== 网站博客（v4.4.16 论坛化）=====
+  blogPosts: (params?: { topicId?: number; mine?: string; userId?: number }) => http.get('/api/blog/posts', { params }),
+  blogTopics: () => http.get('/api/blog/topics'),
+  createBlogTopic: (data: { name: string; color?: string }) => http.post('/api/blog/topics', data),
+  updateBlogTopic: (tid: number, data: { name?: string; color?: string }) => http.patch(`/api/blog/topics/${tid}`, data),
+  deleteBlogTopic: (tid: number) => http.delete(`/api/blog/topics/${tid}`),
   // ===== 学科论坛 =====
   forumTopics: (subjectId: number) => http.get(`/api/subjects/${subjectId}/forum/topics`),
   createForumTopic: (subjectId: number, data: { name: string; color?: string }) => http.post(`/api/subjects/${subjectId}/forum/topics`, data),

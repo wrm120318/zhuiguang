@@ -714,6 +714,17 @@ app.use('*', async (c, next) => {
         refs_updated INTEGER DEFAULT 0, status TEXT DEFAULT 'done', created_at INTEGER)`).run()
       await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_b2_migration_fid ON b2_migration_log(file_id)`).run()
       try { await D1.prepare("ALTER TABLE resources ADD COLUMN file_id TEXT").run() } catch {}
+      // ===== v4.4.16 博客论坛化：站级话题分类（镜像 forum_topics，去掉 subject_id 外键）=====
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS site_topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        color TEXT DEFAULT '#F59E0B',
+        created_by INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now','+8 hours'))
+      )`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_site_topics_name ON site_topics(name)`).run()
+      // 博客推荐语/摘要（之前论坛 recommendation 字段未落库，本次统一补齐）
+      try { await D1.prepare("ALTER TABLE pages ADD COLUMN recommendation TEXT DEFAULT ''").run() } catch {}
     } catch {}
   }
   await next()
@@ -3763,6 +3774,23 @@ app.post('/api/pages/:id/like', auth, async (c) => {
   return c.json({ liked: true })
 })
 
+// ===== v4.4.16 博客论坛化：站点博客列表（镜像论坛 posts 路由，site 级）=====
+app.get('/api/blog/posts', auth, async (c) => {
+  const topicId = c.req.query('topicId')
+  const mine = c.req.query('mine')
+  const userId = c.req.query('userId')
+  let sql = `SELECT p.*, u.real_name AS author_name, u.avatar AS author_avatar,
+      (SELECT COUNT(*) FROM page_comments WHERE page_id=p.id) AS comment_count
+    FROM pages p LEFT JOIN users u ON p.author_id=u.id
+    WHERE p.ptype='blog' AND p.scope='site' AND p.status='published'`
+  const args: any[] = []
+  if (topicId) { sql += ' AND p.topic_ids LIKE ?'; args.push(`%"${topicId}"%`) }
+  if (mine === '1' && userId) { sql += ' AND p.author_id=?'; args.push(userId) }
+  sql += ' ORDER BY p.pinned DESC, p.id DESC'
+  const list = await all<any>(sql, ...args)
+  return c.json(list.map((p: any) => ({ ...p, images: j(p.images), attachments: j(p.attachments), topic_ids: j(p.topic_ids) })))
+})
+
 // 我是否已点赞
 app.get('/api/pages/:id/liked', auth, async (c) => {
   const uid = c.get('user').id
@@ -3870,8 +3898,8 @@ app.post('/api/pages', auth, async (c) => {
   // 【v4.4.8 加固】过滤 undefined 字段，避免 D1 拒绝 undefined 绑定导致博客/公告发布 500（与 POST /api/articles 一致）
   const safe = (v: any, def: any = null) => (v === undefined || v === null) ? def : v
   const r = await run(
-    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
-    safe(b.ptype), safe(b.scope, 'site'), safe(b.classId, null), safe(b.title), safe(b.content), safe(b.cover, ''), JSON.stringify(Array.isArray(b.images) ? b.images : []), JSON.stringify(Array.isArray(b.attachments) ? b.attachments : []), uid, me?.real_name || '', 'published', pinned, pinnedScope
+    `INSERT INTO pages (ptype,scope,class_id,title,content,cover,images,attachments,author_id,author_name,status,pinned,pinned_scope,topic_ids,recommendation,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'))`,
+    safe(b.ptype), safe(b.scope, 'site'), safe(b.classId, null), safe(b.title), safe(b.content), safe(b.cover, ''), JSON.stringify(Array.isArray(b.images) ? b.images : []), JSON.stringify(Array.isArray(b.attachments) ? b.attachments : []), uid, me?.real_name || '', 'published', pinned, pinnedScope, safe(b.topicIds ? JSON.stringify(b.topicIds) : '[]'), safe(b.recommendation ?? '', '')
   )
   if (b.ptype === 'blog') {
     await addExp(uid, undefined, 'blog', `发布博客《${b.title}》`)
@@ -3889,6 +3917,53 @@ app.patch('/api/pages/:id/pin', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const pinVal = pinned ? 1 : 0
   const scopeVal = pinned ? (pinnedScope || 'site') : 'none'
   await run('UPDATE pages SET pinned=?, pinned_scope=? WHERE id=?', pinVal, scopeVal, id)
+  clearAllCache()
+  return c.json({ ok: true })
+})
+
+// ===== v4.4.16 博客论坛化：站级话题分类（仅超管管理，对标论坛 forum_topics）=====
+app.get('/api/blog/topics', auth, async (c) => {
+  const list = await all<any>('SELECT * FROM site_topics ORDER BY id ASC')
+  return c.json(list)
+})
+app.post('/api/blog/topics', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const u = c.get('user')
+  const b = await c.req.json()
+  const name = (b.name || '').trim()
+  if (!name) return c.json({ message: '话题名称不能为空' }, 400)
+  const color = b.color || '#F59E0B'
+  const r = await run('INSERT INTO site_topics (name, color, created_by, created_at) VALUES (?,?,?,datetime(\'now\',\'+8 hours\'))', name, color, u.id)
+  clearAllCache()
+  return c.json({ id: Number(r.lastInsertRowid) })
+})
+app.patch('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const tid = Number(c.req.param('tid'))
+  const b = await c.req.json()
+  const exist = await get<any>('SELECT id FROM site_topics WHERE id=?', tid)
+  if (!exist) return c.json({ message: '话题不存在' }, 404)
+  const sets: string[] = []
+  const args: any[] = []
+  if (b.name !== undefined) { sets.push('name=?'); args.push(String(b.name).trim()) }
+  if (b.color !== undefined) { sets.push('color=?'); args.push(b.color) }
+  if (!sets.length) return c.json({ ok: true })
+  args.push(tid)
+  await run(`UPDATE site_topics SET ${sets.join(',')} WHERE id=?`, ...args)
+  clearAllCache()
+  return c.json({ ok: true })
+})
+app.delete('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const tid = Number(c.req.param('tid'))
+  const exist = await get<any>('SELECT id FROM site_topics WHERE id=?', tid)
+  if (!exist) return c.json({ message: '话题不存在' }, 404)
+  // 仅解绑：博客的 topic_ids 中移除该话题，但保留博客本身
+  const rows = await all<any>("SELECT id, topic_ids FROM pages WHERE ptype='blog' AND topic_ids LIKE ?", `%"${tid}"%`)
+  for (const r of rows) {
+    try {
+      const ids: number[] = JSON.parse(r.topic_ids || '[]').filter((x: number) => Number(x) !== tid)
+      await run('UPDATE pages SET topic_ids=? WHERE id=?', JSON.stringify(ids), r.id)
+    } catch { /* 容错：损坏的 JSON 跳过 */ }
+  }
+  await run('DELETE FROM site_topics WHERE id=?', tid)
   clearAllCache()
   return c.json({ ok: true })
 })
@@ -3923,6 +3998,12 @@ app.patch('/api/pages/:id', auth, async (c) => {
   if (b.images !== undefined) { fields.push('images=?'); args.push(JSON.stringify(b.images)) }
   if (b.attachments !== undefined) { fields.push('attachments=?'); args.push(JSON.stringify(b.attachments)) }
   if (b.classId !== undefined) { fields.push('class_id=?'); args.push(b.classId) }
+  // 【v4.4.16】博客论坛化：支持编辑话题标签
+  if (b.topicIds !== undefined) {
+    const ids = Array.isArray(b.topicIds) ? b.topicIds.map(Number).filter(Boolean) : []
+    fields.push('topic_ids=?'); args.push(JSON.stringify(ids))
+  }
+  if (b.recommendation !== undefined) { fields.push('recommendation=?'); args.push(b.recommendation ?? '') }
   if (!fields.length) return c.json({ ok: true, message: '无修改' })
   fields.push("updated_at=datetime('now','+8 hours')")
   args.push(id)

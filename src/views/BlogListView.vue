@@ -1,81 +1,310 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { mdExcerpt } from '@/utils/markdown'
 import { fileUrl } from '@/utils/helpers'
+import ZgGlyph from '@/components/ZgGlyph.vue'
 
 const router = useRouter()
 const user = useUserStore()
 const list = ref<any[]>([])
+const topics = ref<any[]>([])
 const loading = ref(false)
 const myOnly = ref(false)
+const activeTopicId = ref<number | null>(null)
+const defaultAvatar = 'https://api.dicebear.com/7.x/shapes/svg?seed=zg'
 
 async function load() {
   loading.value = true
   try {
-    const params: any = { ptype: 'blog' }
-    if (myOnly.value) { params.mine = '1'; params.userId = user.current?.id }
-    list.value = (await api.pages(params)) as any
+    const [posts, tps] = await Promise.all([
+      api.blogPosts({ ...(myOnly.value ? { mine: '1', userId: user.current?.id } : {}) }),
+      api.blogTopics(),
+    ])
+    list.value = posts as any
+    topics.value = tps as any
   } finally { loading.value = false }
 }
 onMounted(load)
 
-const filtered = computed(() => list.value)
+const topicNameMap = computed(() => Object.fromEntries(topics.value.map(t => [t.id, t.name])))
+const topicColorMap = computed(() => Object.fromEntries(topics.value.map(t => [t.id, t.color])))
 
-function excerpt(md: string) {
-  return mdExcerpt(md, 100)
+const filteredPosts = computed(() =>
+  activeTopicId.value
+    ? list.value.filter(p => (p.topic_ids || []).includes(activeTopicId.value!))
+    : list.value
+)
+const countByTopic = computed(() => {
+  const m: Record<number, number> = {}
+  for (const p of list.value) for (const tid of (p.topic_ids || [])) m[tid] = (m[tid] || 0) + 1
+  return m
+})
+// 【v4.4.16】热门博客：浏览 0.4 + 评论 0.6 加权（同论坛热帖）
+const hotPosts = computed(() =>
+  [...list.value]
+    .map(p => ({
+      ...p,
+      _heat: (Number(p.views || 0)) * 0.4 + (Number(p.comment_count || 0)) * 0.6,
+    }))
+    .sort((a, b) => {
+      if (b._heat !== a._heat) return b._heat - a._heat
+      return (b.created_at || '').localeCompare(a.created_at || '')
+    })
+    .slice(0, 5)
+)
+
+function filterByTopic(id: number | null) { activeTopicId.value = id }
+function excerpt(md: string) { return mdExcerpt(md, 100) }
+
+function canEditOrDel(p: any) {
+  if (!user.current) return false
+  return p.author_id === user.current.id || user.isSuperAdmin
+}
+async function delPost(p: any) {
+  try {
+    await ElMessageBox.confirm('确认删除该博客？', '删除', { type: 'warning' })
+  } catch { return }
+  await api.deletePage(p.id)
+  ElMessage.success('已删除')
+  await load()
 }
 </script>
 
 <template>
-  <div class="page zg-container">
-    <div class="head">
-      <h1 class="zg-page-title"><ZgGlyph emoji="✍️" /> 网站博客</h1>
-      <div class="head-actions">
-        <el-radio-group v-model="myOnly" size="small" @change="load">
-          <el-radio-button :value="false">全部</el-radio-button>
-          <el-radio-button :value="true">我的</el-radio-button>
-        </el-radio-group>
-        <el-button type="primary" round @click="router.push('/blog/new')">+ 写博客</el-button>
+  <div class="bl-page">
+    <div class="bl-header glass">
+      <div class="bl-title">
+        <ZgGlyph emoji="✍️" />
+        <h2>网站博客</h2>
       </div>
+      <p class="bl-sub">学习心得、经验分享、好文推荐。支持话题标签、评论互动与热门排行。</p>
     </div>
 
-    <div v-loading="loading" class="grid">
-      <div v-for="b in filtered" :key="b.id" class="blog-card glass zg-card" @click="router.push(`/blog/${b.id}`)">
-        <div v-if="b.cover" class="bc-cover" :style="{ backgroundImage: `url(${fileUrl(b.cover)})` }"></div>
-        <div v-else class="bc-cover bc-placeholder"><ZgGlyph emoji="✍️" /></div>
-        <div class="bc-body">
-          <div class="bc-title">{{ b.title }}</div>
-          <div class="bc-excerpt">{{ excerpt(b.content) }}</div>
-          <div class="bc-meta">
-            <span><ZgGlyph emoji="👤" /> {{ b.author_name }}</span>
-            <span><ZgGlyph emoji="👁" /> {{ b.views }}</span>
-            <span><ZgGlyph emoji="📅" /> {{ b.created_at?.slice(5, 10) }}</span>
+    <div class="bl-layout">
+      <!-- 主区 -->
+      <div class="bl-main">
+        <!-- 话题筛选 chips -->
+        <div class="bl-topics glass">
+          <div class="bl-topics-left">
+            <div class="bl-chip" :class="{ on: !activeTopicId }" @click="filterByTopic(null)">
+              <ZgGlyph emoji="📚" /> 全部 <span class="bl-chip-n">{{ list.length }}</span>
+            </div>
+            <div
+              v-for="t in topics"
+              :key="t.id"
+              class="bl-chip"
+              :class="{ on: activeTopicId === t.id }"
+              :style="{ '--chip': t.color }"
+              @click="filterByTopic(t.id)"
+            >
+              <span class="dot" :style="{ background: t.color }"></span>
+              {{ t.name }} <span class="bl-chip-n">{{ countByTopic[t.id] || 0 }}</span>
+            </div>
+          </div>
+          <div class="bl-topics-right">
+            <el-radio-group v-model="myOnly" size="small" @change="load">
+              <el-radio-button :value="false">全部</el-radio-button>
+              <el-radio-button :value="true">我的</el-radio-button>
+            </el-radio-group>
           </div>
         </div>
+
+        <div class="bl-actions">
+          <div class="bl-stat">共 {{ filteredPosts.length }} 篇博客</div>
+          <el-button type="primary" round @click="router.push('/blog/new')">
+            <ZgGlyph emoji="✍️" /> 写博客
+          </el-button>
+        </div>
+
+        <div v-loading="loading" class="bl-grid">
+          <div v-if="!filteredPosts.length" class="bl-empty">
+            <el-empty :description="activeTopicId ? '此话题下还没有博客' : '还没有博客，来写第一篇吧！'">
+              <el-button type="primary" @click="router.push('/blog/new')">写第一篇</el-button>
+            </el-empty>
+          </div>
+          <article
+            v-for="b in filteredPosts"
+            :key="b.id"
+            class="bl-card glass"
+            @click="router.push(`/blog/${b.id}`)"
+          >
+            <div class="bl-card-head">
+              <div class="bl-card-author">
+                <img class="avatar" :src="b.author_avatar || defaultAvatar" :alt="b.author_name" />
+                <div>
+                  <div class="bl-card-name">{{ b.author_name }}</div>
+                  <div class="bl-card-meta">
+                    {{ (b.created_at || '').slice(0, 16) }} ·
+                    <ZgGlyph emoji="👁" /> {{ b.views || 0 }} ·
+                    <ZgGlyph emoji="💬" /> {{ b.comment_count || 0 }}
+                  </div>
+                </div>
+              </div>
+              <el-button
+                v-if="canEditOrDel(b)"
+                size="small" text type="danger"
+                @click.stop="delPost(b)"
+              ><ZgGlyph emoji="🗑" /> 删除</el-button>
+            </div>
+
+            <div v-if="b.cover" class="bl-cover" :style="{ backgroundImage: `url(${fileUrl(b.cover)})` }"></div>
+            <div v-else class="bl-cover bl-placeholder"><ZgGlyph emoji="✍️" /></div>
+
+            <h3 class="bl-card-title">
+              <span v-if="b.pinned" class="bl-pin"><ZgGlyph emoji="📌" /> 置顶</span>
+              {{ b.title }}
+            </h3>
+            <p class="bl-card-excerpt">{{ excerpt(b.content) }}</p>
+
+            <div v-if="b.topic_ids?.length" class="bl-card-tags">
+              <span
+                v-for="tid in b.topic_ids"
+                :key="tid"
+                class="bl-card-tag"
+                :style="{ background: topicColorMap[tid] || '#94A3B8' }"
+              >{{ topicNameMap[tid] || '#'+tid }}</span>
+            </div>
+          </article>
+        </div>
       </div>
-      <ZgState v-if="!loading && !filtered.length" type="empty" title="还没有博客" desc="记录学习心得、写下第一篇吧～">
-        <template #actions>
-          <el-button type="primary" @click="router.push('/blog/new')">写第一篇</el-button>
-        </template>
-      </ZgState>
+
+      <!-- 侧栏 -->
+      <aside class="bl-side">
+        <div class="bl-side-card glass">
+          <h3 class="bl-side-title"><ZgGlyph emoji="🔥" /> 热门博客</h3>
+          <div v-if="!hotPosts.length" class="bl-side-empty">还没有博客</div>
+          <div v-else class="bl-side-hot">
+            <div
+              v-for="(p, i) in hotPosts"
+              :key="p.id"
+              class="bl-side-hot-item"
+              @click="router.push(`/blog/${p.id}`)"
+            >
+              <div class="t">
+                <span v-if="i < 3" class="hot-rank" :class="`rk${i+1}`">{{ i + 1 }}</span>
+                {{ p.title }}
+              </div>
+              <div class="m">
+                <ZgGlyph emoji="👤" /> {{ p.author_name }} ·
+                <ZgGlyph emoji="💬" /> {{ p.comment_count || 0 }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bl-side-card glass">
+          <h3 class="bl-side-title"><ZgGlyph emoji="🏷️" /> 博客话题</h3>
+          <div v-if="!topics.length" class="bl-side-empty">暂无话题</div>
+          <div v-else class="bl-side-topics">
+            <div
+              v-for="t in topics"
+              :key="t.id"
+              class="bl-side-topic"
+              :class="{ on: activeTopicId === t.id }"
+              @click="filterByTopic(t.id)"
+            >
+              <span class="dot" :style="{ background: t.color }"></span>
+              <span class="name">{{ t.name }}</span>
+              <span class="count">{{ countByTopic[t.id] || 0 }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bl-side-card glass">
+          <h3 class="bl-side-title"><ZgGlyph emoji="📊" /> 博客统计</h3>
+          <div class="bl-side-stat-row"><div class="lab">博客总数</div><div class="val">{{ list.length }}</div></div>
+          <div class="bl-side-stat-row"><div class="lab">话题数</div><div class="val">{{ topics.length }}</div></div>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
 
 <style scoped>
-.head { display: flex; justify-content: space-between; align-items: center; margin: 16px 0; flex-wrap: wrap; gap: 12px; }
-.zg-page-title { font-size: 26px; font-weight: 800; }
-.head-actions { display: flex; gap: 10px; align-items: center; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.blog-card { overflow: hidden; cursor: pointer; }
-.bc-cover { height: 140px; background-size: cover; background-position: center; }
-.bc-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; }
-.bc-body { padding: 16px; }
-.bc-title { font-weight: 700; font-size: 16px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.bc-excerpt { color: var(--zg-text-dim); font-size: 13px; line-height: 1.6; margin: 8px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.bc-meta { display: flex; gap: 12px; font-size: 12px; color: var(--zg-text-dim); }
-@media (max-width: 768px) { .grid { grid-template-columns: 1fr; } .zg-page-title { font-size: 22px; } }
+.bl-page { max-width: 1280px; margin: 16px auto 64px; padding: 0 20px; }
+.bl-header { padding: 22px 28px; border-radius: 20px; }
+.bl-title { display: flex; align-items: center; gap: 10px; }
+.bl-title h2 { font-size: 22px; font-weight: 800; margin: 0; }
+.bl-sub { font-size: 13px; color: var(--zg-text-sub); margin: 6px 0 0; line-height: 1.6; }
+
+.bl-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; margin-top: 16px; }
+.bl-main { min-width: 0; }
+
+.bl-topics { padding: 12px 16px; border-radius: 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.bl-topics-left { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.bl-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: rgba(148, 163, 184, 0.15); border-radius: 999px; font-size: 13px; cursor: pointer; transition: all 0.18s; user-select: none; }
+.bl-chip:hover { transform: translateY(-1px); }
+.bl-chip.on { background: var(--chip, #F59E0B); color: #fff; font-weight: 700; }
+.bl-chip.on .dot { background: rgba(255,255,255,0.7) !important; }
+.bl-chip.on .bl-chip-n { color: #fff; }
+.bl-chip-n { font-size: 11px; color: var(--zg-text-sub); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.bl-actions { display: flex; justify-content: space-between; align-items: center; margin: 16px 4px 10px; }
+.bl-stat { font-size: 13px; color: var(--zg-text-sub); }
+
+.bl-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 1100px) { .bl-grid { grid-template-columns: repeat(2, 1fr); } }
+.bl-empty { grid-column: 1 / -1; padding: 60px 0; }
+
+.bl-card { padding: 0; border-radius: 16px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; overflow: hidden; }
+.bl-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+.bl-card-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 18px 0; gap: 8px; }
+.bl-card-author { display: flex; gap: 10px; align-items: center; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #f0f0f0; }
+.bl-card-name { font-weight: 700; font-size: 14px; }
+.bl-card-meta { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
+.bl-cover { height: 140px; background-size: cover; background-position: center; }
+.bl-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.2), rgba(var(--zg-primary-2-rgb),.15)); font-size: 48px; }
+.bl-card-title { font-size: 17px; font-weight: 700; margin: 12px 18px 6px; line-height: 1.4; }
+.bl-pin { color: var(--zg-primary); font-size: 12px; margin-right: 4px; }
+.bl-card-excerpt { font-size: 13px; color: var(--zg-text-sub); line-height: 1.6; margin: 0 18px 12px; }
+.bl-card-tags { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 18px 16px; }
+.bl-card-tag { padding: 2px 8px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }
+
+.bl-side { display: flex; flex-direction: column; gap: 14px; }
+.bl-side-card { padding: 16px 18px; border-radius: 16px; }
+.bl-side-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; display: flex; align-items: center; gap: 6px; }
+.bl-side-empty { font-size: 12px; color: var(--zg-text-sub); text-align: center; padding: 12px 0; }
+.bl-side-hot { display: flex; flex-direction: column; gap: 10px; }
+.bl-side-hot-item { cursor: pointer; padding: 6px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.25); }
+.bl-side-hot-item:last-child { border-bottom: none; }
+.bl-side-hot-item:hover .t { color: var(--zg-primary); }
+.bl-side-hot-item .t { font-size: 13px; font-weight: 600; line-height: 1.5; display: flex; align-items: center; gap: 6px; }
+.bl-side-hot-item .m { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.hot-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 800; color: #fff; flex: none; }
+.hot-rank.rk1 { background: linear-gradient(135deg, #F59E0B, #D97706); box-shadow: 0 2px 6px rgba(217, 119, 6, 0.35); }
+.hot-rank.rk2 { background: linear-gradient(135deg, #94A3B8, #64748B); box-shadow: 0 2px 6px rgba(100, 116, 139, 0.3); }
+.hot-rank.rk3 { background: linear-gradient(135deg, #B45309, #92400E); box-shadow: 0 2px 6px rgba(180, 83, 9, 0.3); }
+.bl-side-topics { display: flex; flex-direction: column; gap: 6px; }
+.bl-side-topic { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; cursor: pointer; transition: background .15s; }
+.bl-side-topic:hover { background: rgba(var(--zg-primary-rgb), 0.06); }
+.bl-side-topic.on { background: rgba(var(--zg-primary-rgb), 0.12); font-weight: 600; }
+.bl-side-topic .name { flex: 1; font-size: 13px; }
+.bl-side-topic .count { font-size: 11px; color: var(--zg-text-sub); background: rgba(148, 163, 184, 0.2); padding: 1px 8px; border-radius: 999px; }
+.bl-side-stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
+.bl-side-stat-row .lab { color: var(--zg-text-sub); }
+.bl-side-stat-row .val { font-weight: 700; }
+
+@media (max-width: 1024px) {
+  .bl-layout { grid-template-columns: 1fr; }
+  .bl-side { flex-direction: row; flex-wrap: wrap; }
+  .bl-side-card { flex: 1 1 220px; }
+}
+@media (max-width: 640px) {
+  .bl-page { padding: 0 12px; }
+  .bl-header { padding: 16px; }
+  .bl-topics { padding: 10px 12px; }
+  .bl-topics-left { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .bl-topics-left::-webkit-scrollbar { display: none; }
+  .bl-chip { flex: 0 0 auto; min-height: 34px; }
+  .bl-grid { grid-template-columns: 1fr; gap: 10px; }
+  .bl-card-title { font-size: 16px; }
+  .bl-side { flex-direction: column; }
+  .bl-side-card { padding: 14px; }
+}
 </style>

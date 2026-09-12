@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS pages (
   likes INTEGER DEFAULT 0,
   pinned INTEGER DEFAULT 0,
   pinned_scope TEXT DEFAULT 'none',
+  recommendation TEXT DEFAULT '',  -- v4.4.16 博客论坛化：推荐语/摘要
   created_at TEXT DEFAULT (datetime('now','+8 hours')),
   updated_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
@@ -234,6 +235,16 @@ CREATE TABLE IF NOT EXISTS forum_topics (
   created_by INTEGER NOT NULL,       -- 与生产 D1 一致
   created_at TEXT DEFAULT (datetime('now','+8 hours')),
   FOREIGN KEY(subject_id) REFERENCES subjects(id),
+  FOREIGN KEY(created_by) REFERENCES users(id)
+);
+
+-- 站级话题分类（v4.4.16 博客论坛化）：网站博客的「话题标签」，对标 forum_topics 但去掉 subject_id 外键
+CREATE TABLE IF NOT EXISTS site_topics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#F59E0B',
+  created_by INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
   FOREIGN KEY(created_by) REFERENCES users(id)
 );
 
