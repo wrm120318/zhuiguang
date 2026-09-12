@@ -1116,11 +1116,12 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'Microsoft YaHei', 'PingFang SC', sans-serif !important;
 }
 /* 报告 §2.4-2 字重降到与 logo 小标题同款优雅档：Hero 由 700–800 → 600，
-   字距由负追踪改舒展 .01em，开启视觉字号优化。根治"用户名巨难看（800 粗体衬线笨重）"。 */
+   字距由负追踪改舒展 .01em，开启视觉字号优化。根治"用户名巨难看（800 粗体衬线笨重）"。
+   v4.4.20 起：用户反馈偏细，依次上调 600→700→800（真实字重已自托管，font-synthesis-weight:none 不影响）。 */
 .zg-inkgold .hero-title,
 .zg-inkgold .hero-greet,
 .zg-inkgold .hero-name {
-  font-weight: 600 !important;
+  font-weight: 800 !important;
   letter-spacing: .01em !important;
   font-optical-sizing: auto;
   font-synthesis-weight: none; /* 禁止浏览器合成假粗体，避免衬线被"描粗"变脏 */
@@ -1657,11 +1658,11 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .lc-logo h1 {
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif !important;
 }
-/* 字重 600 优雅档（深档特异性 (0,2,1) ≥ 浅档 (0,1,1)，守铁律8） */
+/* 字重 800 优雅档（深档特异性 (0,2,1) ≥ 浅档 (0,1,1)，守铁律8；v4.4.20 由 600 上调至 800 解决偏细） */
 html.zg-inkgold.zg-inkgold-dark .hero-title,
 html.zg-inkgold.zg-inkgold-dark .hero-greet,
 html.zg-inkgold.zg-inkgold-dark .hero-name {
-  font-weight: 600 !important;
+  font-weight: 800 !important;
   letter-spacing: .01em !important;
   font-optical-sizing: auto;
   font-synthesis-weight: none;

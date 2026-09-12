@@ -5,6 +5,22 @@
 
 ---
 
+## [v4.4.21] - 2026-09-12
+
+> 修复 Hero 问候语/用户名"加粗无效"根因：墨金档全局 `!important` 强制 600 覆盖了组件 scoped 样式。
+
+### 🐞 根因（为什么 v4.4.20 的加粗没生效）
+- `src/styles/main.css` 墨金浅档（原 1118 行）与深档（原 1661 行）各有 `.zg-inkgold(.dark) .hero-title/.hero-greet/.hero-name { font-weight: 600 !important; font-synthesis-weight: none }`。
+- `!important` 优先级高于 `HomeView.vue` 内 scoped 的 `font-weight: 800/900`，且 `font-synthesis-weight: none` 禁止合成假粗体——所以此前在墨金主题下无论组件怎么设都被压回 600，表现为"太细"。
+- v4.4.20 只改了组件 scoped 样式，未触碰这条全局规则，故墨金用户无感知；其余改动（移动端 hero 压缩、数据横滑、导航圆角）不与 `!important` 冲突，正常生效。
+
+### ✅ 修复（仅前端，无后端 / 数据库）
+- 两档墨金 `.hero-title/.hero-greet/.hero-name` 字重 `600 !important` → `800 !important`（Noto Serif SC 800 字重已自托管加载，`font-synthesis-weight: none` 不影响真实字重渲染）。
+- 同步更新两处注释，说明 v4.4.20 起自 600 经 700 上调至 800 的来龙去脉。
+- 经典档字重（问候语 800 / 用户名 900）维持 v4.4.20 不变。
+
+---
+
 ## [v4.4.20] - 2026-09-12
 
 > 首页 Hero 与移动端体验修复：问候语/用户名加粗、移动端 hero 压缩 + 数据改为单行横滑、导航栏移动端圆角加大。
