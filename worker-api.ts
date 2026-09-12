@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx'
 // ===== v4.4.0 统一存储抽象层（B2 原生 + Supabase 适配器 + 流式代理） =====
 import {
   initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
-  getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, supaExtractKey,
+  getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, b2DownloadStream, supaExtractKey,
   runBucketCensus, getOfficialDaily, setOfficialDaily,
 } from './storage-layer'
 
@@ -4213,11 +4213,27 @@ async function traceFileOrigins(keys: string[]): Promise<Map<string, FileOrigin>
   return out
 }
 
+// 【v4.4.10】按 file_id / object_key / original_name 解析文件元数据（B2/Supabase 通用）
+async function resolveFileMeta(key: string): Promise<any | null> {
+  if (!key) return null
+  // 1) file_id（最精确，前端大体积列表的 fileId 也走这里）
+  let m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', key)
+  if (m) return m
+  // 2) object_key（含路径，如 resource/xxx.pdf）
+  m = await get<any>('SELECT * FROM file_meta WHERE object_key=?', key)
+  if (m) return m
+  // 3) original_name（非唯一，取最近一个，用于老前端传文件名的兼容）
+  const rows = await all<any>('SELECT * FROM file_meta WHERE original_name=? ORDER BY created_at DESC LIMIT 1', key).catch(() => [])
+  return rows && rows.length ? rows[0] : null
+}
+
 // ==============================================================================
 // 【v4.3.2】GET /api/admin/storage/file?key=xxx&mode=preview|download
 //   超管专用：直接按存储 key 预览/下载文件（含「数据库查不到归属」的孤儿文件）
 //   与下面的 DELETE /api/admin/storage/file 同路径不同 method，Hono 按 method 分发，互不干扰。
 //   前端用 fetch + Blob 方式取流，token 走 Authorization header，URL 里不会出现 token。
+// 【v4.4.10】B2 化：key 支持 file_id / object_key / original_name 三种解析；
+//   B2 文件走 b2DownloadStream（私有桶授权下载 + CF 边缘缓存），Supabase 孤儿回退 downloadFile。
 // ==============================================================================
 app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const rawKey = (c.req.query('key') || '').trim()
@@ -4227,27 +4243,49 @@ app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) =
   if (rawKey.includes('..') || rawKey.startsWith('/') || rawKey.startsWith('\\')) {
     return c.json({ message: '非法的文件路径' }, 400)
   }
-  const safeKey = extractKey(rawKey)
-  if (!safeKey) return c.json({ message: '非法的文件路径' }, 400)
-  if (!getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+  const meta = await resolveFileMeta(rawKey)
+  if (!meta) return c.json({ message: '文件不存在或已被删除' }, 404)
 
+  // B2 后端：授权流式下载（私有桶也可取，CF 边缘缓存提速）
+  if (meta.backend === 'b2' && meta.object_key) {
+    const upstream = await b2DownloadStream(meta.object_key, Number(CACHE_TTL_PUBLIC) || 86400).catch(() => null)
+    if (!upstream || !upstream.ok) return c.json({ message: '文件不存在或已被删除' }, 404)
+    const maxBytes = Number(upstream.headers.get('Content-Length') || 0)
+    const MAX_SIZE = 50 * 1024 * 1024
+    if (maxBytes > MAX_SIZE) {
+      return c.json({ message: `文件过大（${(maxBytes / 1024 / 1024).toFixed(1)}MB），超过 50MB 无法在线预览/下载` }, 413)
+    }
+    const ct = upstream.headers.get('Content-Type') || guessContentType(meta.object_key)
+    const filename = (meta.original_name || meta.object_key.split('/').pop() || meta.object_key).replace(/"/g, '')
+    const encoded = encodeURIComponent(filename)
+    const disposition = (mode === 'download' ? 'attachment' : 'inline') + `; filename="${encoded}"; filename*=UTF-8''${encoded}`
+    const headers = new Headers()
+    headers.set('Content-Type', ct)
+    headers.set('Content-Disposition', disposition)
+    if (maxBytes) headers.set('Content-Length', String(maxBytes))
+    headers.set('Cache-Control', 'no-store')
+    headers.set('Access-Control-Allow-Origin', c.req.header('Origin') || '*')
+    headers.set('Access-Control-Allow-Credentials', 'true')
+    headers.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length')
+    return new Response(upstream.body, { status: 200, headers })
+  }
+
+  // 兜底：Supabase 孤儿文件
+  const safeKey = extractKey(meta.object_key || rawKey)
+  if (!safeKey || !getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
   const file = await downloadFile(safeKey)
   if (!file) return c.json({ message: '文件不存在或已被删除' }, 404)
-
-  // 体积保护：Workers 内存有限，超过 50MB 不予在线取流
   const size = file.buffer.byteLength
   const MAX_SIZE = 50 * 1024 * 1024
   if (size > MAX_SIZE) {
     return c.json({ message: `文件过大（${(size / 1024 / 1024).toFixed(1)}MB），超过 50MB 无法在线预览/下载` }, 413)
   }
-
   const ct = file.contentType || guessContentType(safeKey)
   const filename = (safeKey.split('/').pop() || safeKey).replace(/"/g, '')
   const encoded = encodeURIComponent(filename)
   const disposition = mode === 'download'
     ? `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`
     : `inline; filename="${encoded}"; filename*=UTF-8''${encoded}`
-
   return new Response(file.buffer, {
     headers: {
       'Content-Type': ct,
@@ -4354,21 +4392,29 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
 })
 
 // 删除指定存储文件（超管专用，支持预览后删除）
+// 【v4.4.10】B2 化：fileName 支持 file_id / object_key / original_name；
+//   B2 文件真正调用 b2Delete 删除对象 + 清理 file_meta 行，Supabase 孤儿回退 deleteFile。
 app.delete('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
   const { fileName } = await c.req.json()
   if (!fileName) return c.json({ message: '缺少文件名' }, 400)
 
-  // 查找关联的资源记录
-  const linked = await get<any>('SELECT id, title, file_path, status FROM resources WHERE file_path LIKE ? LIMIT 1', `%${fileName}%`)
+  // 解析文件元数据（兼容前端传 original_name / file_id）
+  const meta = await resolveFileMeta(fileName)
+  if (!meta) return c.json({ message: '文件不存在或已被删除' }, 404)
 
-  // 删除 Supabase 存储中的文件
+  // 删除存储后端中的真实对象
   try {
-    await deleteFile(fileName)
+    if (meta.backend === 'b2' && meta.object_key && meta.b2_file_id) {
+      await b2Delete(meta.object_key, meta.b2_file_id)
+    } else {
+      await deleteFile(meta.object_key || meta.file_id)
+    }
   } catch (e: any) {
     return c.json({ message: '删除文件失败: ' + (e.message || ''), error: true }, 500)
   }
 
-  // 如果有关联资源记录，清除 file_path 并标记
+  // 查找并清除关联的资源记录引用
+  const linked = await get<any>('SELECT id, title, file_path, status FROM resources WHERE file_path LIKE ? LIMIT 1', `%${meta.file_id}%`)
   let resourceCleared = false
   if (linked) {
     await run('UPDATE resources SET file_path = NULL WHERE id = ?', linked.id)
@@ -4382,10 +4428,13 @@ app.delete('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c
     } catch {}
   }
 
+  // 删除 file_meta 元数据行（彻底从「大体积文件排行」等列表中移除）
+  try { await run('DELETE FROM file_meta WHERE file_id=?', meta.file_id) } catch {}
+
   clearAllCache()
   return c.json({
     ok: true,
-    message: `文件「${fileName}」已删除${resourceCleared ? `，关联资源「${linked.title}」的文件引用已清除` : ''}`,
+    message: `文件「${meta.original_name || meta.file_id}」已删除${resourceCleared ? `，关联资源「${linked.title}」的文件引用已清除` : ''}`,
     resourceCleared,
     resourceId: linked?.id || null,
     resourceTitle: linked?.title || '',

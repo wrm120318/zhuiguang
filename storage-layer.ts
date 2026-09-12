@@ -215,7 +215,7 @@ export async function b2Delete(fileName: string, fileId: string): Promise<void> 
  *   · 非 cacheable（私有资源）→ 短 TTL（默认 300s），既提速又限制越权窗口
  *     （权限校验已在 Worker 层完成，缓存的是文件字节本身，不外泄给无权用户）
  */
-async function b2DownloadStream(fileName: string, ttlSec?: number): Promise<Response> {
+export async function b2DownloadStream(fileName: string, ttlSec?: number): Promise<Response> {
   const a = await b2Authorize()
   const url = `${a.downloadUrl}/file/${CFG.B2_BUCKET_NAME}/${encodeURIComponent(fileName)}`
   const ttl = typeof ttlSec === 'number' ? ttlSec : Number(CFG.CACHE_TTL_PUBLIC || 86400)

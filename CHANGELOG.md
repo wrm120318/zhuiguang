@@ -5,6 +5,39 @@
 
 ---
 
+## [v4.4.11] - 2026-09-12
+
+> 紧急修复：运行监控「文件管理」删除/预览/下载全面失效（B2 迁移遗留）
+
+### 🐞 根因
+
+- **现象**：超管在「网站运行监控 → 文件管理（大体积文件排行）」中：① 点「🗑️ 删除」提示失败/无效；② 点「👁️ 预览」「⬇️ 下载」报 500；③ 其它监控模块亦有异常。
+- **真因（v4.4.0 B2 迁移未改彻底）**：`GET/DELETE /api/admin/storage/file` 仍走 **Supabase** 实现（`deleteFile`/`downloadFile`/`getSupabase()`），但文件自 v4.4.0 起已存 **B2 私有桶**：
+  - 预览/下载：`getSupabase()` 虽配置存在，但 `downloadFile` 从 Supabase 取不到 B2 文件 → 500。
+  - 删除：`deleteFile` 调 `Supabase.remove` 对 B2 对象是无操作，仅清空资源引用并返回"成功"，**B2 对象与 file_meta 行从未真正删除** → 用户看到"删了但还在/列表没变"。
+  - 前端实际传的是 `file.name`（`original_name || file_id`），与 B2 的 `object_key` 也对不上。
+
+### ✅ 修复
+
+- 新增 `resolveFileMeta(key)`：按 `file_id` / `object_key` / `original_name` 三种方式解析 `file_meta`，兼容前端任意传参。
+- `storage-layer.ts`：`b2DownloadStream`（私有桶授权流式下载，原仅内部使用）**导出**，供管理接口复用。
+- `GET /api/admin/storage/file`（预览/下载）：B2 文件改走 `b2DownloadStream`（带 CF 边缘缓存、50MB 上限、Content-Disposition），Supabase 孤儿文件回退原逻辑。
+- `DELETE /api/admin/storage/file`：B2 文件真正调用 `b2Delete(object_key, b2_file_id)` 删除对象，并 `DELETE` 对应 `file_meta` 行；Supabase 孤儿回退 `deleteFile`。
+
+### ✅ 验证（线上实测）
+
+- 预览（传 file_id / original_name）均 `200 application/pdf`，文件头 `%PDF-1.4`。
+- 下载模式 `200`。
+- 删除孤立 B2 文件：返回 `ok:true`，且 `file_meta` 行真正消失（B2 对象经 `b2Delete` 实际删除）。
+- 主监控 `/api/admin/monitor`、存储监控 `/api/admin/storage/monitor` 均 `200` 正常。
+
+### 🔧 工程
+
+- 后端已部署（Worker 版本 `e5b28404`）；前端无需改动（`file.name` 传参经 `resolveFileMeta` 兼容）。
+- 本地 / Cloudflare Worker / GitHub 三端一致。
+
+---
+
 ## [v4.4.10] - 2026-09-12
 
 > 紧急修复：美文编辑提交报「服务器内部错误」（HTTP 500），编辑功能自上线即不可用
