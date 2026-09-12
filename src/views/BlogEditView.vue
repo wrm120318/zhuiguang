@@ -99,7 +99,10 @@ async function loadForEdit() {
     }
     form.value = { title: r.title || '', content: r.content || '', cover: r.cover || '', recommendation: r.recommendation || '' }
     images.value = Array.isArray(r.images) ? r.images : []
-    topicIds.value = (r.topic_ids || []).map(Number).filter(Boolean)
+    const rawTids = typeof r.topic_ids === 'string'
+      ? (() => { try { return JSON.parse(r.topic_ids || '[]') } catch { return [] } })()
+      : (r.topic_ids || [])
+    topicIds.value = rawTids.map(Number).filter(Boolean)
     try {
       attachments.value = typeof r.attachments === 'string' ? JSON.parse(r.attachments) : (r.attachments || [])
     } catch { attachments.value = [] }

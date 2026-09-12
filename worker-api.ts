@@ -3276,7 +3276,11 @@ app.get('/api/subjects/:id/forum/posts', auth, async (c) => {
     FROM pages p LEFT JOIN users u ON p.author_id=u.id
     WHERE p.subject_id=? AND p.ptype='forum'`
   const args: any[] = [sid]
-  if (topicId) { sql += ' AND p.topic_ids LIKE ?'; args.push(`%"${topicId}"%`) }
+  if (topicId) {
+    const t = Number(topicId)
+    sql += ' AND (p.topic_ids LIKE ? OR p.topic_ids LIKE ? OR p.topic_ids LIKE ? OR p.topic_ids LIKE ?)'
+    args.push(`[${t},%`, `%,${t},%`, `%,${t}]`, `[${t}]`)
+  }
   if (!isSuper && !isStaff) {
     sql += " AND (p.status='published' OR p.author_id=?)"
     args.push(u.id)
@@ -3784,7 +3788,11 @@ app.get('/api/blog/posts', auth, async (c) => {
     FROM pages p LEFT JOIN users u ON p.author_id=u.id
     WHERE p.ptype='blog' AND p.scope='site' AND p.status='published'`
   const args: any[] = []
-  if (topicId) { sql += ' AND p.topic_ids LIKE ?'; args.push(`%"${topicId}"%`) }
+  if (topicId) {
+    const t = Number(topicId)
+    sql += ' AND (p.topic_ids LIKE ? OR p.topic_ids LIKE ? OR p.topic_ids LIKE ? OR p.topic_ids LIKE ?)'
+    args.push(`[${t},%`, `%,${t},%`, `%,${t}]`, `[${t}]`)
+  }
   if (mine === '1' && userId) { sql += ' AND p.author_id=?'; args.push(userId) }
   sql += ' ORDER BY p.pinned DESC, p.id DESC'
   const list = await all<any>(sql, ...args)
@@ -3956,7 +3964,7 @@ app.delete('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) 
   const exist = await get<any>('SELECT id FROM site_topics WHERE id=?', tid)
   if (!exist) return c.json({ message: '话题不存在' }, 404)
   // 仅解绑：博客的 topic_ids 中移除该话题，但保留博客本身
-  const rows = await all<any>("SELECT id, topic_ids FROM pages WHERE ptype='blog' AND topic_ids LIKE ?", `%"${tid}"%`)
+  const rows = await all<any>("SELECT id, topic_ids FROM pages WHERE ptype='blog' AND (topic_ids LIKE ? OR topic_ids LIKE ? OR topic_ids LIKE ? OR topic_ids LIKE ?)", `[${tid},%`, `%,${tid},%`, `%,${tid}]`, `[${tid}]`)
   for (const r of rows) {
     try {
       const ids: number[] = JSON.parse(r.topic_ids || '[]').filter((x: number) => Number(x) !== tid)

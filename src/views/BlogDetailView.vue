@@ -33,7 +33,9 @@ onMounted(async () => {
       api.page(Number(route.params.id)),
       api.blogTopics(),
     ])
-    blog.value = b
+    const bAny: any = b
+    if (typeof bAny.topic_ids === 'string') { try { bAny.topic_ids = JSON.parse(bAny.topic_ids || '[]') } catch { bAny.topic_ids = [] } }
+    blog.value = bAny
     const tp: any = tps
     topics.value = tp
     topicNameMap.value = Object.fromEntries(tp.map((t: any) => [t.id, t.name]))
