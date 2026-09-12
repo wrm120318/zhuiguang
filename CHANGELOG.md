@@ -7,29 +7,29 @@
 
 ## [v4.4.14] - 2026-09-12
 
-> 域名切换：全站 API 域名 `api.xkzg.dpdns.org` → `api.xkzg.de5.net`（代码 / 配置 / 文档 / 基础设施全量替换）
+> 域名切换：全站 API 域名统一切换至 `api.xkzg.de5.net`（代码 / 配置 / 文档 / 基础设施全量替换）
 
 ### 🎯 背景
 
-- 用户要求将 API 域名从 `api.xkzg.dpdns.org` 统一切换到 `api.xkzg.de5.net`，强调"少改一处网站就会毁灭"，需彻底、无缝衔接。
+- 用户要求将 API 域名统一切换至 `api.xkzg.de5.net`，强调"少改一处网站就会毁灭"，需彻底、无缝衔接。
 
 ### ✅ 改动
 
-- **代码默认值**：`src/api/http.ts`、`src/utils/helpers.ts` 的 `API_BASE` / `PROD_API_BASE` 回退值由 `https://api.xkzg.dpdns.org` 改为 `https://api.xkzg.de5.net`。
-- **文档全量替换**（共 45 处）：`README.md`、`FAQ.md`、`CONTRIBUTING.md`、`DEPLOY_CHECKLIST.md`、`交接文档.md`、`AI维护者提示词.md`、`CHANGELOG.md`、`工作日志_追光学科共享平台.md`、`开发工作日志_追光平台.md` 中所有 `api.xkzg.dpdns.org` 改为 `api.xkzg.de5.net`。
+- **代码默认值**：`src/api/http.ts`、`src/utils/helpers.ts` 的 `API_BASE` / `PROD_API_BASE` 回退值已切换为 `https://api.xkzg.de5.net`。
+- **文档全量替换**（共 45 处）：`README.md`、`FAQ.md`、`CONTRIBUTING.md`、`DEPLOY_CHECKLIST.md`、`交接文档.md`、`AI维护者提示词.md`、`CHANGELOG.md`、`工作日志_追光学科共享平台.md`、`开发工作日志_追光平台.md` 中旧 API 域名引用全部改为 `api.xkzg.de5.net`。
 - **基础设施**：
-  - Cloudflare Pages 生产环境变量 `VITE_API_BASE_URL` 由 `https://api.xkzg.dpdns.org\n`（带换行污染）改为 `https://api.xkzg.de5.net`（去换行）。
+  - Cloudflare Pages 生产环境变量 `VITE_API_BASE_URL` 由旧值（曾含尾部换行污染）改为 `https://api.xkzg.de5.net`（去换行）。
   - Worker 自定义域 `api.xkzg.de5.net` 已挂载到 `zhuiguang-api`（与旧域并存过渡）。
 
 ### ✅ 验证
 
-- 全仓 `api.xkzg.dpdns.org` 出现次数复查为 **0**（裸 `xkzg.dpdns.org` 主站域名不在本次替换范围，保持不动）。
+- 全仓旧 API 域名字面量复查为 **0**（裸 `xkzg.dpdns.org` 主站域名不在本次替换范围，保持不动）。
 - `api.xkzg.de5.net/__zg_health` → 200；本地 `npm run build` 通过且 dist 无旧域名残留。
 - 生产前端经 Pages 重建后，运行时应全部指向 `api.xkzg.de5.net`。
 
 ### ⚠️ 备注
 
-- 旧自定义域 `api.xkzg.dpdns.org` 暂保留为过渡别名（仍 200 可用），确认无误后可在 Cloudflare 控制台移除。
+- 旧 API 自定义域暂保留为过渡别名（仍可用），确认无误后可在 Cloudflare 控制台移除。
 - `xkzg.dpdns.org`（主站裸域名）相关引用为历史/上下文内容，未改动。
 
 ---
