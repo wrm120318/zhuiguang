@@ -12,7 +12,7 @@ import router from '@/router'
 // ==============================================================================
 // 【v4.4.9 防御】VITE_API_BASE_URL 尾部若混入换行/空白，会导致 baseURL 含控制字符；
 // 浏览器 fetch 虽会部分规范化，但统一 trim+去空白最稳妥，且与 helpers.ts 的 API_BASE 保持一致。
-const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.dpdns.org').trim().replace(/\s+/g, '')
+const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.de5.net').trim().replace(/\s+/g, '')
 const http = axios.create({
   baseURL: PROD_API_BASE,
   timeout: 30000,

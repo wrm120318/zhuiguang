@@ -5,6 +5,35 @@
 
 ---
 
+## [v4.4.14] - 2026-09-12
+
+> 域名切换：全站 API 域名 `api.xkzg.dpdns.org` → `api.xkzg.de5.net`（代码 / 配置 / 文档 / 基础设施全量替换）
+
+### 🎯 背景
+
+- 用户要求将 API 域名从 `api.xkzg.dpdns.org` 统一切换到 `api.xkzg.de5.net`，强调"少改一处网站就会毁灭"，需彻底、无缝衔接。
+
+### ✅ 改动
+
+- **代码默认值**：`src/api/http.ts`、`src/utils/helpers.ts` 的 `API_BASE` / `PROD_API_BASE` 回退值由 `https://api.xkzg.dpdns.org` 改为 `https://api.xkzg.de5.net`。
+- **文档全量替换**（共 45 处）：`README.md`、`FAQ.md`、`CONTRIBUTING.md`、`DEPLOY_CHECKLIST.md`、`交接文档.md`、`AI维护者提示词.md`、`CHANGELOG.md`、`工作日志_追光学科共享平台.md`、`开发工作日志_追光平台.md` 中所有 `api.xkzg.dpdns.org` 改为 `api.xkzg.de5.net`。
+- **基础设施**：
+  - Cloudflare Pages 生产环境变量 `VITE_API_BASE_URL` 由 `https://api.xkzg.dpdns.org\n`（带换行污染）改为 `https://api.xkzg.de5.net`（去换行）。
+  - Worker 自定义域 `api.xkzg.de5.net` 已挂载到 `zhuiguang-api`（与旧域并存过渡）。
+
+### ✅ 验证
+
+- 全仓 `api.xkzg.dpdns.org` 出现次数复查为 **0**（裸 `xkzg.dpdns.org` 主站域名不在本次替换范围，保持不动）。
+- `api.xkzg.de5.net/__zg_health` → 200；本地 `npm run build` 通过且 dist 无旧域名残留。
+- 生产前端经 Pages 重建后，运行时应全部指向 `api.xkzg.de5.net`。
+
+### ⚠️ 备注
+
+- 旧自定义域 `api.xkzg.dpdns.org` 暂保留为过渡别名（仍 200 可用），确认无误后可在 Cloudflare 控制台移除。
+- `xkzg.dpdns.org`（主站裸域名）相关引用为历史/上下文内容，未改动。
+
+---
+
 ## [v4.4.13] - 2026-09-12
 
 > 修复：题库/练习**题目附件**点击提示「请先登录后下载」无法查看（401 + 404 双重拦截）
@@ -19,7 +48,7 @@
 | 前端 | 裸 `<a href>` 不带鉴权 → 401 | 浏览器对裸链接不附带 JWT（token 存在 localStorage，非 cookie），`/api/file/:fileId` 要求登录即返回 401 |
 | 后端 | 带 token 仍返回 404「资源不存在」 | 题目附件经 `/api/upload/file` 上传，`file_meta.purpose='resource'`，但**并未写入 `resources` 表**；`/api/file/:fileId` 的 `resourceCheck` 一律按"资源不存在"拦截，登录用户也拿不到 |
 
-- 题目附件 `a.url` 形如 `https://api.xkzg.dpdns.org/api/file/{fileId}`（前端 `uploadFile`→`filePath` 已补全为绝对地址），图片 MIME 走 `inline`（预览）、其余走 `attachment`（下载）。
+- 题目附件 `a.url` 形如 `https://api.xkzg.de5.net/api/file/{fileId}`（前端 `uploadFile`→`filePath` 已补全为绝对地址），图片 MIME 走 `inline`（预览）、其余走 `attachment`（下载）。
 
 ### ✅ 修复
 
@@ -136,10 +165,10 @@
 > 用户反馈：美文、博客封面「图片确确实实传上去了，但是显示白色」。实测确认为**整站图片（封面/头像/插图）全白**。
 
 ### 🐞 根因（与 v4.4.8 完全不同的新根因）
-- 直接证据：生产库 `cover` 字段真实值为 `https://api.xkzg.dpdns.org\n/api/file/7va8r3xfxm5genzyvg39u4os`——**URL 中间夹一个换行符 `\n`**。
+- 直接证据：生产库 `cover` 字段真实值为 `https://api.xkzg.de5.net\n/api/file/7va8r3xfxm5genzyvg39u4os`——**URL 中间夹一个换行符 `\n`**。
 - 来源：Cloudflare Pages 环境变量 `VITE_API_BASE_URL` 值尾部混入换行符，`fileUrl()`/`API_BASE` 纯字符串拼接把换行带入封面绝对地址。
 - 为何 API 正常而图片全白：axios `baseURL` 带换行时浏览器 `fetch` 会自动规范化控制字符，接口正常；但 `<img>`/CSS 背景图用同一脏 URL，浏览器加载图片不规范化 → 落到前端域名 `xkzg.de5.net/api/file/...` → SPA 兜底返回 `index.html`（HTML）→ 图片位置白色。
-- 区分点：`api.xkzg.dpdns.org/api/file/{id}` 本身返回 `200 image/webp inline`（curl 实测正常），故非 content-disposition 问题，是**前端域名返回 HTML（SPA 兜底）**。
+- 区分点：`api.xkzg.de5.net/api/file/{id}` 本身返回 `200 image/webp inline`（curl 实测正常），故非 content-disposition 问题，是**前端域名返回 HTML（SPA 兜底）**。
 
 ### 🔧 修复（纯前端，无需改库/无需后端部署）
 - `src/utils/helpers.ts`：`API_BASE` 与 `fileUrl()` 入参统一 `trim().replace(/\s+/g,'')`，全局去空白/换行。
@@ -257,8 +286,8 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 - 部署后命令：
   ```bash
   npx wrangler deploy
-  # 验证：curl -I https://api.xkzg.dpdns.org/api/file/d3wg3p0dhv7kzrwwq7vwzj4u
-  #       curl https://api.xkzg.dpdns.org/api/resources?status=approved | jq '.[0].downloads'
+  # 验证：curl -I https://api.xkzg.de5.net/api/file/d3wg3p0dhv7kzrwwq7vwzj4u
+  #       curl https://api.xkzg.de5.net/api/resources?status=approved | jq '.[0].downloads'
   #       多次下载后 downloads 应递增
   ```
 
@@ -288,7 +317,7 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
   - D1 binding：`DB` → `zhuiguang-db` (id: `996ab327-1a44-47fb-ac1d-5ab963dd04a5`)。
   - `compatibility_flags = ["nodejs_compat"]`（worker-api.ts 用 `node:crypto` 必须）。
 - **依赖** `package.json`：新增 `wrangler@^4.127.1` 到 devDependencies（沙箱本地部署后端用）。
-- **沙箱验证**（curl 实测，`https://api.xkzg.dpdns.org`）：
+- **沙箱验证**（curl 实测，`https://api.xkzg.de5.net`）：
   - 上传：`POST /api/upload/image` → `HTTP 200 {"url":"/api/file/xxx","fileId":"xxx"}` ✅
   - file_meta 落库：`backend='b2'`, `is_public=1`, `cacheable=1`, `purpose='image'` ✅
   - 资源下载：`GET /file/r/17` 前 downloads=0 → 触发后 downloads=1 ✅（BUG #1 修复已验证）
@@ -323,7 +352,7 @@ BUG #4: 4 种 purpose 全部 200 + fileId 正常 ✅
 
 - **后端** `worker-api.ts`：`/api/file/:id` 与 `/api/file/:id/preview` 对 `is_public=1` 的公开文件（头像/封面/图片/公告/站点/Logo）**免登录直出**；待审核资料（`purpose=resource`）仍强制登录。
 - **前端** 新增 `fileUrl()`（`src/utils/helpers.ts`）：
-  - 把相对 `/api/file/` 补全为绝对 API 地址（`https://api.xkzg.dpdns.org/api/file/...`），Pages 域下可正常跨域取图。
+  - 把相对 `/api/file/` 补全为绝对 API 地址（`https://api.xkzg.de5.net/api/file/...`），Pages 域下可正常跨域取图。
   - `directUpload` 返回绝对 URL；封面（美文/博客/首页/学科/列表）、头像（`ZgAvatar`）、正文图片（`renderMarkdown` 渲染层统一兜底重写）全部走 `fileUrl`。
 - **美文封面上传恢复** `ArticleEditView.vue`：加回 `el-upload :http-request` 上传按钮，保留「🖼️ 换一张美图」（Bing）。现在美文封面：可上传自定义图 / 可贴 URL / 可换 Bing 美图。
 
@@ -854,7 +883,7 @@ const sids = await teachingSubjects(user.id)   // user.id === undefined
 - v4.2.7 部署过的 Service Worker（`public/sw-download.js`）在用户浏览器中已注册
 - v4.2.8 试图用 `navigator.serviceWorker.getRegistrations().unregister()` 清理
 - **但 SW 卸载是异步的**——旧 SW 在 unregister 真正完成前仍会响应 fetch 事件
-- 旧 SW 的 `event.respondWith()` 对 `api.xkzg.dpdns.org/api/upload/presign` POST 没处理，但**它仍会被触发**，可能因 SW 接管而**延迟或卡住大文件上传**（小文件不受影响）
+- 旧 SW 的 `event.respondWith()` 对 `api.xkzg.de5.net/api/upload/presign` POST 没处理，但**它仍会被触发**，可能因 SW 接管而**延迟或卡住大文件上传**（小文件不受影响）
 
 ### 修法（双管齐下）
 
@@ -941,7 +970,7 @@ v4.2.6 改用 `fetch + blob + <a download>` 后，用户反馈「明明下载完
 2. ✅ URL **完全不暴露 token**（不要让用户拿到 url）
 3. ✅ 不开任何新标签页（不要跳转链接）
 
-这三者在跨域架构（页面 `xkzg.de5.net` ≠ 后端 `api.xkzg.dpdns.org`）下**无 Service Worker 救不活**——HTML form 不能设置 Authorization Header，且 Cookie 跨域不共享。
+这三者在跨域架构（页面 `xkzg.de5.net` ≠ 后端 `api.xkzg.de5.net`）下**无 Service Worker 救不活**——HTML form 不能设置 Authorization Header，且 Cookie 跨域不共享。
 
 ### 修法：Service Worker 拦截 `/api/download/*` 路径
 
@@ -954,7 +983,7 @@ v4.2.6 改用 `fetch + blob + <a download>` 后，用户反馈「明明下载完
        ↓
 SW 拦截 → 通过 MessageChannel 从 page 端拿 zg_token（localStorage）
        ↓
-SW 用 token 调真实 URL（api.xkzg.dpdns.org 后端已配 CORS）
+SW 用 token 调真实 URL（api.xkzg.de5.net 后端已配 CORS）
        ↓
 流回响应（含 Content-Disposition: attachment）→ 浏览器
        ↓
@@ -2093,7 +2122,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 ### 文档完善
 
 - **全量文档更新**：所有 md 文件和 txt 提示词同步更新，版本号统一为 v2.1.19
-- **域名统一**：所有文档中混用的域名统一，确认正确 API 地址为 `api.xkzg.dpdns.org`，用户访问地址为 `xkzg.de5.net`
+- **域名统一**：所有文档中混用的域名统一，确认正确 API 地址为 `api.xkzg.de5.net`，用户访问地址为 `xkzg.de5.net`
 - **DEPLOY_CHECKLIST.md 重写**：从已废弃的 Render 部署方案重写为 Cloudflare Workers + D1 + Pages 部署清单
 - **交接文档更新**：版本号、架构演进表、文档更新记录同步
 - **提示词合并重写**：两个提示词文件合并为一个，详细说明项目规则、必读文档、铁律和操作流程
@@ -2102,7 +2131,7 @@ CREATE INDEX IF NOT EXISTS idx_page_c_p ON page_comments(parent_id);
 
 - **Cloudflare Pages 构建失败**：移除 `@vitejs/plugin-legacy@8.2.3`（要求 vite@^8 与项目 vite@5 冲突）
 - **清理液态玻璃残留代码**：删除 `theme.ts` 中 `visualMode`/`setGlobalVisualMode`、`ThemeView.vue` 中界面风格切换 UI、`App.vue` 中 localStorage 兜底逻辑
-- **修复 API 域名错误**：`src/api/http.ts` 默认 API 地址回退为 `https://api.xkzg.dpdns.org`
+- **修复 API 域名错误**：`src/api/http.ts` 默认 API 地址回退为 `https://api.xkzg.de5.net`
 
 ### 修改文件
 

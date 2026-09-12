@@ -12,7 +12,7 @@
  *   3. SW 用 token 调真实 URL（后端已配 CORS 允许 Authorization）
  *   4. SW 把响应流回浏览器，浏览器按 Content-Disposition: attachment 触发下载
  */
-const REAL_API_BASE = 'https://api.xkzg.dpdns.org'
+const REAL_API_BASE = 'https://api.xkzg.de5.net'
 const DOWNLOAD_PATH_PREFIX = '/api/download/'
 const TOKEN_TIMEOUT_MS = 3000
 

@@ -342,7 +342,7 @@ app.get('/api/articles/:id', auth, ...)
 
 - **必须**测试 1MB 以上的文件上传（不能只测 10KB 小文件）。
 - 验证上传成功后文件可在列表查看/下载。
-- 验证图片能在页面正常显示（公开图片免登录直出，绝对地址 `https://api.xkzg.dpdns.org/api/file/{id}`）。
+- 验证图片能在页面正常显示（公开图片免登录直出，绝对地址 `https://api.xkzg.de5.net/api/file/{id}`）。
 
 #### （3）美文审核流程测试
 

@@ -72,7 +72,7 @@
 
 1. **确认 B2 配置**：`wrangler.toml` 的 `[vars]` 需含 `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET_ID` / `B2_BUCKET_NAME`（缺失时 Worker 会回退 Supabase 并报错）。
 2. **F12 Network 面板**：看 `/api/upload/image`、`/api/upload/file` 是否返回 200 与 `{ url, fileId }`。
-3. **图片显示检查**：图片直链形如 `https://api.xkzg.dpdns.org/api/file/{id}`，公开图片（头像/封面/配图）**免登录可直接打开**；若需登录说明该文件是待审核资料（正常）。
+3. **图片显示检查**：图片直链形如 `https://api.xkzg.de5.net/api/file/{id}`，公开图片（头像/封面/配图）**免登录可直接打开**；若需登录说明该文件是待审核资料（正常）。
 4. **测试大文件**：务必测试 1MB 以上文件，不能只测 10KB 小文件。
 
 ### 注意

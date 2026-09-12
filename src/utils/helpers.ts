@@ -64,11 +64,11 @@ export function zgCover(seed?: string): string {
 // 所以展示层统一把 /api/file/ 前缀补全为绝对 API 地址（v4.4.3 修复图片裂图）。
 //
 // 【v4.4.9 紧急修复】Cloudflare Pages 环境变量 VITE_API_BASE_URL 历史上曾混入尾部换行符(\n)，
-// 导致 API_BASE 变成 "https://api.xkzg.dpdns.org\n"，fileUrl 拼出的绝对地址夹带换行
+// 导致 API_BASE 变成 "https://api.xkzg.de5.net\n"，fileUrl 拼出的绝对地址夹带换行
 // → <img>/CSS 背景图请求落到 SPA 兜底返回 HTML → 整站图片(封面/头像/插图)裂图/白色。
 // 故对 API_BASE 与入参统一做 trim + 全局去空白，彻底防御环境变量/存储污染（根因修复）。
 export const API_BASE: string =
-  String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.dpdns.org').trim().replace(/\s+/g, '')
+  String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.de5.net').trim().replace(/\s+/g, '')
 
 // 把存储返回的（可能相对的）/api/file/{id} 补全为可在任意域下直接访问的绝对地址
 export function fileUrl(url?: string | null): string {
@@ -80,7 +80,7 @@ export function fileUrl(url?: string | null): string {
 }
 
 // 【v4.4.13 修复】题库/练习/论坛/站内信等「题目/消息附件」可带鉴权访问地址。
-// 附件 a.url 形如  https://api.xkzg.dpdns.org/api/file/{fileId}
+// 附件 a.url 形如  https://api.xkzg.de5.net/api/file/{fileId}
 //   （也可能为相对 /api/file/{fileId}，兼容旧数据）。
 // 这类附件经 /api/upload/file 上传，file_meta.purpose='resource'、且未写入 resources 表，
 // 属于私有文件，必须带 token 才能经 /api/file/:fileId 访问；

@@ -40,7 +40,7 @@ ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT
 项目类型：中学校园师生学科学习共享站
 
 用户访问域名：<https://xkzg.de5.net>  
-后端 API 域名：<https://api.xkzg.dpdns.org>  
+后端 API 域名：<https://api.xkzg.de5.net>  
 GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 
 服务人群：中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65）  
@@ -49,7 +49,7 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 当前生产架构：Cloudflare Workers + D1 + Pages（全免费、不绑卡、无服务器）
 
 - 前端（Vue 3 SPA）部署到 Cloudflare Pages → <https://xkzg.de5.net>
-- 后端（Hono 框架，147+ 路由）部署到 Cloudflare Workers → <https://api.xkzg.dpdns.org>
+- 后端（Hono 框架，147+ 路由）部署到 Cloudflare Workers → <https://api.xkzg.de5.net>
 - 数据库：Cloudflare D1（SQLite 兼容，24 张表，含 v4.1.0 新增 forum_topics）
 - 文件存储：Supabase Storage（Bucket: zhuiguang，Public）
 - 前后端同源模式：前端访问 /api/xxx，由 Cloudflare 路由到 Workers
@@ -119,8 +119,8 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 ✅ 第二件：检查服务当前状态，确保能跑通  
 → 执行以下命令，确认都返回 HTTP 200：  
 1\. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://xkzg.de5.net>  
-2\. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://api.xkzg.dpdns.org/\_\_zg_health>  
-3\. curl -s <https://api.xkzg.dpdns.org/api/pages/guide> | head -c 200  
+2\. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://api.xkzg.de5.net/\_\_zg_health>  
+3\. curl -s <https://api.xkzg.de5.net/api/pages/guide> | head -c 200  
 4\. cd /workspace && npx wrangler tail --format=json 2>&1 | head -20
 
 ✅ 第三件：搞清楚现在要你做什么（5个W，有模糊就问我）  
@@ -310,11 +310,11 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 
 - 项目目录：/workspace
 - 网站域名：<https://xkzg.de5.net（Cloudflare> Pages）
-- API 域名：<https://api.xkzg.dpdns.org（Cloudflare> Workers）
+- API 域名：<https://api.xkzg.de5.net（Cloudflare> Workers）
 - 超管账号：admin / admin123456
 - 代码仓库：<https://github.com/wrm120318/zhuiguang>
 - 前端环境变量：Cloudflare Pages → Settings → Environment Variables  
-  → VITE_API_BASE_URL = <https://api.xkzg.dpdns.org>
+  → VITE_API_BASE_URL = <https://api.xkzg.de5.net>
 - 后端部署命令：cd /workspace && source .env && npx wrangler deploy
 - 前端部署：git push origin main（Pages 自动构建）
 - 数据库名：zhuiguang-db
@@ -329,8 +329,8 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 先做【第四部分的第二件事】，检查服务当前状态，把4条命令的执行结果贴给我看：
 
 1. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://xkzg.de5.net>
-2. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://api.xkzg.dpdns.org/\_\_zg_health>
-3. curl -s <https://api.xkzg.dpdns.org/api/pages/guide> | head -c 200
+2. curl -s -o /dev/null -w "HTTP: %{http_code}\n" <https://api.xkzg.de5.net/\_\_zg_health>
+3. curl -s <https://api.xkzg.de5.net/api/pages/guide> | head -c 200
 4. cd /workspace && npx wrangler tail --format=json 2>&1 | head -20
 
 然后告诉我：  
