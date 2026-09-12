@@ -119,7 +119,6 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
         <article class="glass-strong detail">
           <div v-if="blog.cover" class="cover">
             <img :src="fileUrl(blog.cover)" :alt="blog.title" />
-            <span class="cover-shade"></span>
           </div>
           <h1 class="d-title">{{ blog.title }}</h1>
           <div v-if="blog.topic_ids?.length" class="d-tags">
@@ -218,7 +217,6 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 .cover { position: relative; height: 240px; border-radius: 16px; overflow: hidden; margin-bottom: 22px; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.18), rgba(var(--zg-primary-2-rgb),.12)); box-shadow: var(--zg-shadow-lg); }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .6s var(--zg-ease); }
 .cover:hover img { transform: scale(1.04); }
-.cover-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgba(15,23,42,.30), rgba(15,23,42,0) 46%); }
 .d-title { font-size: 28px; font-weight: 800; line-height: 1.3; }
 .d-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
 .d-tag { padding: 3px 10px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }

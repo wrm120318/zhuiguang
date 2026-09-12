@@ -153,11 +153,9 @@ async function delPost(p: any) {
 
             <div v-if="b.cover" class="bl-cover">
               <img :src="fileUrl(b.cover)" :alt="b.title" loading="lazy" />
-              <span class="bl-cover-shade"></span>
             </div>
             <div v-else class="bl-cover bl-placeholder">
               <ZgGlyph class="ph-emoji" emoji="✍️" />
-              <span class="ph-text">暂无封面</span>
             </div>
 
             <h3 class="bl-card-title">
@@ -267,10 +265,10 @@ async function delPost(p: any) {
 .bl-cover { position: relative; margin: 14px 16px 0; height: 170px; border-radius: 12px; overflow: hidden; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.18), rgba(var(--zg-primary-2-rgb),.12)); }
 .bl-cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .55s var(--zg-ease); }
 .bl-card:hover .bl-cover img { transform: scale(1.06); }
-.bl-cover-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgba(15,23,42,.34), rgba(15,23,42,0) 48%); }
-.bl-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.22), rgba(var(--zg-primary-2-rgb),.16)); }
-.bl-placeholder .ph-emoji { font-size: 38px; opacity: .5; }
-.bl-placeholder .ph-text { font-size: 12px; color: var(--zg-text-sub); }
+.bl-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.24), rgba(var(--zg-primary-2-rgb),.18)); }
+.bl-placeholder::before { content: ''; position: absolute; width: 210px; height: 210px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.6), rgba(255,255,255,0) 70%); filter: blur(20px); top: 50%; left: 50%; transform: translate(-50%,-50%); pointer-events: none; }
+.bl-placeholder::after { content: ''; position: absolute; width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle, rgba(var(--zg-accent-rgb),.55), rgba(var(--zg-accent-rgb),0) 70%); filter: blur(16px); top: 28%; left: 22%; pointer-events: none; }
+.bl-placeholder .ph-emoji { font-size: 46px; opacity: .3; position: relative; z-index: 1; }
 .bl-card-title { font-size: 17px; font-weight: 700; margin: 12px 16px 6px; line-height: 1.4; }
 .bl-pin { color: var(--zg-primary); font-size: 12px; margin-right: 4px; }
 .bl-card-excerpt { font-size: 13px; color: var(--zg-text-sub); line-height: 1.6; margin: 0 16px 12px; }
