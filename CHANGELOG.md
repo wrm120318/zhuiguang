@@ -5,6 +5,27 @@
 
 ---
 
+## [v4.4.26] - 2026-09-14
+
+> 修复超级管理员「内容审核中心 → 资料」删除：v4.4.25 仅修了前端报错可见性与补 `file_id` 列，但后端删除路由把 **D1 返回的 BigInt `user_id`/`file_id` 直接当 SQL 绑定参数**，生产 D1 下抛 `D1_TYPE_ERROR`(500)，删除始终失败。
+
+### 🐞 根因
+- `worker-api.ts` 与 `server/index.ts` 的 `DELETE /api/resources/:id` 在做经验回退（`exp_logs` 删除 / `users` 经验与等级重算）与 `file_meta` 清理时，直接把 `r.user_id`、`r.file_id` 作为绑定参数。
+- `get()`（`worker-api.ts:78`）直接返回 D1 结果，INTEGER 列返回 **BigInt**；D1 不支持 `bigint` 类型绑定参数，故绑定处抛 `D1_TYPE_ERROR` → 接口 500 → 删除失败。
+- v4.4.25 只把前端 `catch` 改成透传错误，未动后端这条 BigInt 绑定链路，故"无法使用"依旧。
+- 本地后端用 libSQL（`server/db.ts`），INTEGER 返回 number，故本地验证正常，唯独生产 D1 暴露（与铁律9「BigInt 必须 Number() 转换」同源）。
+- 对照 `DELETE /api/articles/:id`（v4.3.0 已用 `Number(a.user_id)`）工作正常，唯独资料删除遗漏该转换。
+
+### ✅ 修复（双后端同步）
+- `worker-api.ts` `DELETE /api/resources/:id`：经验回退与 `file_meta` 清理改用 `const rUid = Number(r.user_id)`、`const rFid = Number(r.file_id)` 后绑参；`isOwner` 比较也转 `Number`。
+- `server/index.ts` 删除路由同步：同样的 `Number()` 转换，保持双端等价。
+
+### ⚠️ 部署注意
+- 后端（worker-api.ts）+ 双后端同步需 `source .env && npx wrangler deploy`（前端 AuditView.vue 已是 v4.4.25 可见报错版，无需改动）。
+- 无需数据库迁移。
+
+---
+
 ## [v4.4.25] - 2026-09-14
 
 > 修复超级管理员「内容审核中心 → 资料」删除功能：存储文件（B2/Supabase）及 `file_meta` 元数据删不干净，且前端静默吞掉报错导致"点了没反应"。

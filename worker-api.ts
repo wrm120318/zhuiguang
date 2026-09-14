@@ -2143,23 +2143,26 @@ app.delete('/api/resources/:id', auth, async (c) => {
   const myId = c.get('user').id
   // 【v4.3.0 修复】必须查 id —— 漏查导致教师删除资料 500 D1_TYPE_ERROR
   const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
-  const isOwner = r.user_id === myId
+  const isOwner = Number(r.user_id) === myId
   if (!isOwner && !(await canManageSubject(u, r.subject_id, myId))) return c.json({ message: '无权限删除' }, 403)
+  // 【v4.4.26 修复】r.user_id / r.file_id 是 D1 返回的 BigInt，直接绑参会抛 D1_TYPE_ERROR(500)。
+  //   必须 Number() 转换后再绑参（铁律9）。v4.4.25 只修了前端错误可见性，未修此处 BigInt 绑定。
+  const rUid = Number(r.user_id)
+  const rFid = r.file_id != null ? Number(r.file_id) : null
   // 删除前直接删除相关的经验值记录
-  if (r.user_id && r.title) {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
+  if (rUid && r.title) {
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", rUid, `%${r.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
-    // 经验回退后同步重算等级
-    // 经验回退后同步重算等级；CAST 确保整数
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, r.user_id)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", rUid, `%${r.title}%`)
+    // 经验回退后同步重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, rUid)
   }
   // v4.4.0 删除存储文件：优先 file_meta（B2）→ legacy file_path（Supabase）
-  if (r.file_id) {
-    const m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', r.file_id)
+  if (rFid) {
+    const m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', rFid)
     if (m) {
       try { if (m.backend === 'supabase') await supaDelete(m.object_key); else await b2Delete(m.object_key, m.b2_file_id) } catch {}
-      try { await run('DELETE FROM file_meta WHERE file_id=?', r.file_id) } catch {}
+      try { await run('DELETE FROM file_meta WHERE file_id=?', rFid) } catch {}
     }
   } else if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
   await run('DELETE FROM likes_map WHERE target_type IN (?,?) AND target_id=?', 'resource', 'fav_resource', id)
