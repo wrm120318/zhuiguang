@@ -1002,7 +1002,8 @@ app.patch('/api/articles/:id/status', auth, async (req, res) => {
   if (newStatus === 'approved' && a.status !== 'approved') {
     // 【v4.3.0 同步 Worker 端】审核通过给实际作者发经验值（防重复：检查是否已发放过）
     const expUid = Number(a.actual_user_id) || Number(a.user_id)
-    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='article' AND description LIKE ?", expUid, `%${a.title}%`)
+    // 【v4.4.28 同步 Worker】description LIKE '%title%' 在标题含特殊字符时触发 SQLite "LIKE or GLOB pattern too complex" 而 500；改用 INSTR(description,?)>0
+    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='article' AND INSTR(description, ?) > 0", expUid, a.title)
     if (!already) {
       await addExp(expUid, undefined, 'article', `美文《${a.title}》审核通过`, a.subject_id)
     }
@@ -1031,10 +1032,10 @@ app.delete('/api/articles/:id', auth, async (req, res) => {
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
     // 计算要回收的经验值（用于更新用户exp）
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND description LIKE ?", expUid, `%${a.title}%`)
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     // 删除相关经验值记录
-    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND description LIKE ?", expUid, `%${a.title}%`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
     // 更新用户经验值
     if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, expUid)
   }
@@ -1092,8 +1093,8 @@ app.post('/api/articles/:id/like', auth, async (req, res) => {
     const a = await get<any>('SELECT user_id, actual_user_id, title, subject_id FROM articles WHERE id=?', req.params.id)
     if (a) {
       const owner = Number(a.actual_user_id) || Number(a.user_id)
-      // 删除点赞时的 +1 记录
-      await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='like' AND description LIKE ?", owner, `%${a.title}%获得点赞%`)
+      // 删除点赞时的 +1 记录；INSTR 双条件等价原 LIKE '%title%获得点赞%'
+      await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='like' AND INSTR(description, ?) > 0 AND INSTR(description, ?) > 0", owner, a.title, '获得点赞')
     }
     return res.json({ liked: false })
   }
@@ -1303,12 +1304,14 @@ app.delete('/api/resources/:id', auth, async (req, res) => {
   // 【v4.4.26 同步 Worker】r.user_id / r.file_id 必须 Number() 转换（D1 返回 BigInt，直接绑参抛 D1_TYPE_ERROR）。
   //   本地 libSQL 返回 number 故本地不报错，但双后端需保持等价实现。
   const rUid = Number(r.user_id)
-  const rFid = r.file_id != null ? Number(r.file_id) : null
+  const rFid = r.file_id != null ? r.file_id : null
   // 删除前回退相关的经验值记录，并同步重算等级（v4.4.15 修复：等级需随经验回退）
+  // 【v4.4.28 修复】原 `description LIKE '%title%'` 在标题含 ~ + 【】 等特殊字符时触发 SQLite
+  //   "LIKE or GLOB pattern too complex" 而 500。改用 INSTR(description,?)>0 等价子串匹配。
   if (rUid && r.title) {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", rUid, `%${r.title}%`)
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", rUid, `%${r.title}%`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
     if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, rUid)
   }
   // v4.4.0 删除存储文件：优先 file_meta（B2/Supabase）→ legacy file_path
@@ -1517,12 +1520,12 @@ app.delete('/api/query/tasks/:id', auth, requireStaff, async (req, res) => {
   if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) return res.status(403).json({ message: '无权限删除' })
   // 删除前回收已发放的经验
   if (t.title) {
-    const logs = await all<{ user_id: number; exp_change: number }>("SELECT user_id, exp_change FROM exp_logs WHERE action_type='query' AND description LIKE ?", `%${t.title}%`)
+    const logs = await all<{ user_id: number; exp_change: number }>("SELECT user_id, exp_change FROM exp_logs WHERE action_type='query' AND INSTR(description, ?) > 0", t.title)
     const byUser = new Map<number, number>()
     for (const l of logs) { byUser.set(l.user_id, (byUser.get(l.user_id) || 0) + (l.exp_change || 0)) }
     for (const [userId, total] of byUser) {
       if (total) {
-        await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND description LIKE ?", userId, `%${t.title}%`)
+        await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND INSTR(description, ?) > 0", userId, t.title)
         await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, userId)
       }
     }
@@ -2341,7 +2344,7 @@ app.patch('/api/subjects/:id/forum/posts/:pid/status', auth, async (req, res) =>
     newStatus, u.id, note, pid)
   if (newStatus === 'published' && p.status !== 'published') {
     const expUid = Number(p.author_id)
-    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='forum_post' AND description LIKE ?", expUid, `%${p.title}%`)
+    const already = await get("SELECT id FROM exp_logs WHERE user_id=? AND action_type='forum_post' AND INSTR(description, ?) > 0", expUid, p.title)
     if (!already) {
       try { await addExp(expUid, undefined, 'forum_post', `论坛帖子《${p.title}》审核通过`, p.subject_id) } catch {}
     }
@@ -2800,9 +2803,9 @@ app.delete('/api/pages/:id', auth, async (req, res) => {
   if (!isOwner && u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '无权限删除' })
   // 删除前直接删除相关的经验值记录
   if (p.author_id && p.title && p.ptype === 'blog') {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
+    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
-    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND description LIKE ?", p.author_id, `%${p.title}%`)
+    await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
     if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, p.author_id)
   }
   await run('DELETE FROM page_comments WHERE page_id=?', req.params.id)
