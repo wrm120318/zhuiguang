@@ -26,6 +26,26 @@
 
 ---
 
+## [v4.4.27] - 2026-09-14
+
+> 修正 v4.4.26 引入的回归：资料删除时不再清理存储文件（存储泄漏）。
+
+### 🐞 根因
+- v4.4.26 为修 BigInt 绑定，写成 `const rFid = r.file_id != null ? Number(r.file_id) : null`。
+- 但 `resources.file_id` 是 **TEXT 列**，D1 返回字符串（如 `'a1b2c3...'`），`Number('a1b2c3')` 得到 `NaN`。
+- 于是 `if (rFid)` 恒为假，**文件删除分支被整体跳过**：删资料后 `file_meta` 行与 B2/Supabase 实际文件都成孤儿，存储只增不减。
+- 该问题不引发 500（与 v4.4.26 修的删除 500 是两回事），属于存储泄漏。
+
+### ✅ 修复（双后端同步）
+- `worker-api.ts` `DELETE /api/resources/:id`：`const rFid = r.file_id != null ? r.file_id : null`（TEXT 字符串直接绑参）。
+- `server/index.ts` 删除路由本就用 `r.file_id` 原值，无需改动，双端等价。
+- 修正 v4.4.26 日志中"file_id 系 BigInt"的不准确描述（`user_id` 才是 INTEGER→BigInt，`file_id` 是 TEXT→字符串）。
+
+### ⚠️ 部署注意
+- 需 `source .env && npx wrangler deploy`；前端无需改动；无需数据库迁移。
+
+---
+
 ## [v4.4.25] - 2026-09-14
 
 > 修复超级管理员「内容审核中心 → 资料」删除功能：存储文件（B2/Supabase）及 `file_meta` 元数据删不干净，且前端静默吞掉报错导致"点了没反应"。

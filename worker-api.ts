@@ -2145,10 +2145,10 @@ app.delete('/api/resources/:id', auth, async (c) => {
   const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', myId)
   const isOwner = Number(r.user_id) === myId
   if (!isOwner && !(await canManageSubject(u, r.subject_id, myId))) return c.json({ message: '无权限删除' }, 403)
-  // 【v4.4.26 修复】r.user_id / r.file_id 是 D1 返回的 BigInt，直接绑参会抛 D1_TYPE_ERROR(500)。
-  //   必须 Number() 转换后再绑参（铁律9）。v4.4.25 只修了前端错误可见性，未修此处 BigInt 绑定。
+  // 【v4.4.26 修复】r.user_id 是 D1 INTEGER 列返回的 BigInt，直接绑参会抛 D1_TYPE_ERROR(500)，必须 Number()（铁律9）。
+  //   r.file_id 是 TEXT 列，D1 返回的是字符串（如 'a1b2c3'）——绝不可 Number()：会变成 NaN 导致文件删除分支被跳过（孤儿文件）。
   const rUid = Number(r.user_id)
-  const rFid = r.file_id != null ? Number(r.file_id) : null
+  const rFid = r.file_id != null ? r.file_id : null
   // 删除前直接删除相关的经验值记录
   if (rUid && r.title) {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", rUid, `%${r.title}%`)
