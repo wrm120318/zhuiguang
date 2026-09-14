@@ -1294,19 +1294,26 @@ app.patch('/api/resources/:id/status', auth, async (req, res) => {
 })
 
 app.delete('/api/resources/:id', auth, async (req, res) => {
-  const r = await get<any>('SELECT user_id, file_path, subject_id, title FROM resources WHERE id=?', req.params.id)
+  // 【v4.4.25 同步 Worker】必须带 file_id，否则 file_meta 存储文件删不掉
+  const r = await get<any>('SELECT user_id, file_path, subject_id, title, file_id FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
   const isOwner = r.user_id === (req as any).user.id
   if (!isOwner && !(await canManageSubject(u, r.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限删除' })
-  // 删除前直接删除相关的经验值记录
+  // 删除前回退相关的经验值记录，并同步重算等级（v4.4.15 修复：等级需随经验回退）
   if (r.user_id && r.title) {
     const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
     const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND description LIKE ?", r.user_id, `%${r.title}%`)
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, r.user_id)
+    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, r.user_id)
   }
-  if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
+  // v4.4.0 删除存储文件：优先 file_meta（B2/Supabase）→ legacy file_path
+  if (r.file_id) {
+    try {
+      const m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', r.file_id)
+      if (m) { try { await deleteFile(m.object_key) } catch {}; try { await run('DELETE FROM file_meta WHERE file_id=?', r.file_id) } catch {} }
+    } catch {}
+  } else if (r.file_path) { try { await deleteFile(extractKey(r.file_path)) } catch {} }
   await run('DELETE FROM likes_map WHERE target_type IN (?,?) AND target_id=?', 'resource', 'fav_resource', req.params.id)
   await run('DELETE FROM resources WHERE id=?', req.params.id)
   res.json({ ok: true })

@@ -248,6 +248,15 @@ export async function initDB() {
   try { await db.execute("ALTER TABLE pages ADD COLUMN updated_at TEXT DEFAULT NULL") } catch {}
   // 迁移：为 resources 补齐 creator_name 列
   try { await db.execute("ALTER TABLE resources ADD COLUMN creator_name TEXT DEFAULT ''") } catch {}
+  // 【v4.4.25 同步生产】v4.4.0 B2 存储：resources 补 file_id 列 + 新建 file_meta 表
+  try { await db.execute("ALTER TABLE resources ADD COLUMN file_id TEXT") } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS file_meta (
+      file_id TEXT PRIMARY KEY, b2_file_id TEXT, original_name TEXT, size INTEGER, mime TEXT,
+      backend TEXT DEFAULT 'b2', bucket TEXT, object_key TEXT, is_public INTEGER DEFAULT 0,
+      cacheable INTEGER DEFAULT 0, purpose TEXT, is_convert_webp INTEGER DEFAULT 0,
+      file_hash TEXT, uploader_id INTEGER, created_at INTEGER, updated_at INTEGER
+    )`) } catch {}
 
   await seed()
 }

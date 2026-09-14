@@ -5,6 +5,29 @@
 
 ---
 
+## [v4.4.25] - 2026-09-14
+
+> 修复超级管理员「内容审核中心 → 资料」删除功能：存储文件（B2/Supabase）及 `file_meta` 元数据删不干净，且前端静默吞掉报错导致"点了没反应"。
+
+### 🐞 根因
+- `worker-api.ts` 的 `DELETE /api/resources/:id` 路由做 `SELECT user_id, file_path, subject_id, title, status` 时**漏了 `file_id` 列**，而下游 `if (r.file_id) { 删 file_meta + 删存储 }` 依赖该列 → `file_id` 恒为 `undefined` → 走 `file_meta`（v4.4.0 B2 迁移后新上传）的资料**存储文件与 `file_meta` 行永远删不掉**（与 v4.4.11 同类老问题复燃；审核通过路由 `2120` 行已正确 SELECT `file_id`，唯独删除路由遗漏）。
+- `src/views/admin/AuditView.vue` 的 `deleteResourceItem` 用 `catch { /* */ }` **静默吞掉 403/500**，超管点了删除没任何反馈，误以为功能坏了（与 v4.3.0 修复美文删除时记录的同类问题）。
+- 双后端漂移：`server/index.ts`（本地）删除路由同样缺 `file_id`，且**漏了 v4.4.15 加的经验回退时同步 `level`**；`schema.sql`、`server/db.ts` 缺 `file_id` 列与 `file_meta` 表，与线上 AUTO_MIGRATION 后的真实库结构不一致。
+
+### ✅ 修复（双后端同步）
+- `worker-api.ts` `DELETE /api/resources/:id`：SELECT 补 `file_id`，`if (r.file_id)` 分支恢复生效，真正删除 `file_meta` 行与 B2/Supabase 存储对象。
+- `src/views/admin/AuditView.vue` `deleteResourceItem`：`catch` 改为透传后端 `message`（`ElMessage.error`），删除失败可见原因。
+- `server/index.ts` 删除路由同步：补 `file_id` SELECT + `file_meta` 清理 + 补回经验回退时的 `level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1`。
+- `server/db.ts`：`initDB` 补 `resources.file_id` 迁移 + 新建 `file_meta` 表（与线上一致）。
+- `schema.sql`：`resources` 加 `file_id` 列 + 新增 `file_meta` 表及索引（建库脚本与线上同步）。
+
+### ⚠️ 部署注意
+- 前端（AuditView.vue）需 `git push origin main` → Pages 自动重建。
+- 后端（worker-api.ts）+ 双后端同步需 `source .env && npx wrangler deploy`。
+- 无需单独跑数据库迁移：`file_id`/`file_meta` 已存在于线上库（AUTO_MIGRATION 历史已加），`schema.sql`/`server/db.ts` 仅影响全新建库。
+
+---
+
 ## [v4.4.24] - 2026-09-12
 
 > 修复学科子站「学科榜」逻辑：应按用户对本学科的贡献排名，而非拉取全站总经验值。

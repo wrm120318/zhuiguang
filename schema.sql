@@ -69,8 +69,19 @@ CREATE TABLE IF NOT EXISTS resources (
   user_id INTEGER, class_id INTEGER,
   status TEXT DEFAULT 'pending', downloads INTEGER DEFAULT 0,
   likes INTEGER DEFAULT 0, collects INTEGER DEFAULT 0, version INTEGER DEFAULT 1,
+  file_id TEXT,
   created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
+
+-- 【v4.4.25 同步生产】v4.4.0 B2 存储：文件元数据表（resources.file_id → file_meta.file_id）
+CREATE TABLE IF NOT EXISTS file_meta (
+  file_id TEXT PRIMARY KEY, b2_file_id TEXT, original_name TEXT, size INTEGER, mime TEXT,
+  backend TEXT DEFAULT 'b2', bucket TEXT, object_key TEXT, is_public INTEGER DEFAULT 0,
+  cacheable INTEGER DEFAULT 0, purpose TEXT, is_convert_webp INTEGER DEFAULT 0,
+  file_hash TEXT, uploader_id INTEGER, created_at INTEGER, updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fm_uploader ON file_meta(uploader_id);
+CREATE INDEX IF NOT EXISTS idx_fm_purpose ON file_meta(purpose);
 
 -- 查询任务表
 CREATE TABLE IF NOT EXISTS query_tasks (

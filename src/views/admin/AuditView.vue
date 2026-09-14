@@ -143,7 +143,11 @@ async function deleteResourceItem(id: number) {
     await api.deleteResource(id)
     resources.value = resources.value.filter(r => r.id !== id)
     ElMessage.success('已删除')
-  } catch { /* */ }
+  } catch (e: any) {
+    // 【v4.4.25 修复】原来静默吞掉 403/500，超管点了没反应还以为坏了（与 v4.3.0 美文删除同类修复）
+    const msg = e?.response?.data?.message || e?.message
+    if (msg) ElMessage.error(msg)
+  }
 }
 
 // 论坛帖子审核（与美文/资料同流程）

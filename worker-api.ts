@@ -2136,7 +2136,9 @@ app.patch('/api/resources/:id/status', auth, async (c) => {
 
 app.delete('/api/resources/:id', auth, async (c) => {
   const id = c.req.param('id')
-  const r = await get<any>('SELECT user_id, file_path, subject_id, title, status FROM resources WHERE id=?', id)
+  // 【v4.4.25 修复】必须带 file_id —— 漏查导致 `if (r.file_id)` 恒为 false，
+  //   走 file_meta（B2/Supabase）存储的新上传资料存储文件永远删不掉（与 v4.4.11 同类老问题复燃）
+  const r = await get<any>('SELECT user_id, file_path, subject_id, title, status, file_id FROM resources WHERE id=?', id)
   if (!r) return c.json({ message: '不存在' }, 404)
   const myId = c.get('user').id
   // 【v4.3.0 修复】必须查 id —— 漏查导致教师删除资料 500 D1_TYPE_ERROR
