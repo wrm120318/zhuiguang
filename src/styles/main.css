@@ -2150,50 +2150,42 @@ html.zg-inkgold-dark {
    ============================================================ */
 @media (max-width: 768px) {
   /* ============================================================
-     v4.4.30 移动端性能治理（铁律6/7：桌面 :root 与墨金作用域不变，功能/特效全保留）
-     掉帧卡断根因 = 固定毛玻璃底栏 + 滚动列表里几十层玻璃，每帧重新 backdrop-filter 合成。
-     做法：把玻璃模糊变量在移动端置 0（保留渐变+金边+阴影+圆角的磨砂面板观感，
-     仅去掉逐帧高斯模糊这一 GPU 杀手），单独关掉底栏 dock 的硬编码模糊、
-     隐藏巨型背景光斑、关闭页面级永久动画。
+     v4.4.30c 移动端性能治理（铁律6/7：桌面 :root 与墨金作用域不变，功能/特效全保留）
+     掉帧卡断根因 = 滚动列表里几十层玻璃，每帧重新 backdrop-filter 合成。
+     做法：移动端彻底关闭毛玻璃（backdrop-filter:none，零每帧合成开销），
+     改用「高不透明度填充」保证文字清晰可读（玻璃观感由渐变+金边+阴影保留）。
+     之前 v4.4.30b 恢复 8px 模糊导致再次卡顿，本次从根上关掉模糊、用不透明度换可读性。
      ============================================================ */
   :root, .zg-inkgold, .zg-inkgold-dark, html:not(.zg-inkgold) {
-    /* v4.4.30b 可读性回归：上版移动端完全去模糊，半透明卡片在花哨背景上对比度过低、文字难读。
-       恢复「够读但不卡」的中等模糊（8px，比桌面 14/16/24px 明显更轻）；巨型光斑与常驻动画已移除，流畅度仍有保障。 */
-    --zg-glass-blur: 8px !important;
-    --zg-glass-e-blur: 10px !important;
-    --zg-blur: 8px !important;
-    /* 移动端玻璃填充略提，进一步增强文字对比度（仍保持薄雾观感，不变成白瓷墙） */
-    --zg-glass-1-bg: rgba(255,255,255,0.62) !important;
-    --zg-glass-1-bg-2: rgba(255,253,248,0.58) !important;
-    --zg-glass-2-bg: rgba(255,255,255,0.80) !important;
-    --zg-glass-2-bg-2: rgba(255,253,248,0.75) !important;
+    --zg-glass-blur: 0px !important;
+    --zg-glass-e-blur: 0px !important;
+    --zg-blur: 0px !important;
+    /* 高不透明度填充：半透明卡片在花哨背景上对比度过低、文字难读；
+       提到近实色后即可读，且无需模糊（无卡顿）。仍保留薄雾层次感，不变成死白瓷墙。 */
+    --zg-glass-1-bg: rgba(255,255,255,0.90) !important;
+    --zg-glass-1-bg-2: rgba(255,253,248,0.86) !important;
+    --zg-glass-2-bg: rgba(255,255,255,0.94) !important;
+    --zg-glass-2-bg-2: rgba(255,253,248,0.90) !important;
   }
-  /* 墨金深色档：同步略提深色玻璃填充，保证暗色背景下文字可读 */
+  /* 墨金深色档：同步提高深色玻璃填充，保证暗色背景下文字可读 */
   .zg-inkgold-dark {
-    --zg-glass-1-bg: rgba(25,20,12,0.52) !important;
-    --zg-glass-1-bg-2: rgba(20,16,10,0.44) !important;
-    --zg-glass-2-bg: rgba(25,20,12,0.56) !important;
-    --zg-glass-2-bg-2: rgba(20,16,10,0.48) !important;
+    --zg-glass-1-bg: rgba(25,20,12,0.82) !important;
+    --zg-glass-1-bg-2: rgba(20,16,10,0.74) !important;
+    --zg-glass-2-bg: rgba(25,20,12,0.86) !important;
+    --zg-glass-2-bg-2: rgba(20,16,10,0.78) !important;
   }
-  /* 底栏 dock：恢复轻量磨砂（8px），保留悬浮玻璃质感且可读；固定层故比桌面 20/24px 更轻 */
-  .tabbar-dock,
-  .zg-inkgold-dark .tabbar-dock,
-  html:not(.zg-inkgold) .tabbar-dock {
-    -webkit-backdrop-filter: blur(8px) saturate(140%) !important;
-    backdrop-filter: blur(8px) saturate(140%) !important;
-  }
+  /* 真正禁用移动端毛玻璃合成（含固定底栏），从源头消除卡顿；玻璃质感由渐变/金边/阴影保留 */
+  * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
   /* 隐藏巨型背景光斑（blur 80~110px 的 350~420px 动图）：纯装饰、手机看不到且极耗 paint */
   .zg-orb { display: none !important; }
   /* 关闭页面级永久动画（背景呼吸/渐变位移/光斑浮动），消除常驻合成与重绘 */
   .zg-inkgold .zg-bg::before { animation: none !important; }
   .zg-inkgold-dark .zg-bg { animation: none !important; }
-  /* 触摸目标：主要操作按钮舒适高度（不误触）；图标/文字/小型按钮保持紧凑，避免「过大不合理」 */
-  .el-button:not(.el-button--small):not(.is-circle):not(.el-button--text):not(.is-link) { min-height: 40px; }
-  .el-button--small { min-height: 34px; }
+  /* 触摸目标：表单输入保持舒适高度；按钮恢复 Element Plus 默认尺寸（不再强制放大，避免「过大不合理」） */
   .el-input__wrapper, .el-textarea__inner, .el-select__wrapper { min-height: 44px; }
   /* 容器左右留白收窄，充分利用手机宽度 */
   .zg-container { padding: 0 14px; }
-  /* 顶栏/底栏在安全区之上再留白，避免被刘海/手势条遮挡（底栏已加高至 72px） */
+  /* 顶栏/底栏在安全区之上再留白，避免被刘海/手势条遮挡（底栏高度 72px） */
   .app-main.has-tabbar { padding-bottom: calc(116px + env(safe-area-inset-bottom)); }
 }
 .zg-swipe-actions .zg-swipe-btn {
@@ -2443,12 +2435,12 @@ html, body { overflow-x: clip; }
     border-radius: 16px !important;
   }
 
-  /* Hero区域移动端 */
+  /* Hero区域移动端：顶部留足与固定顶栏的间距（之前 12px 太挤） */
   .zg-inkgold .hero,
   .zg-inkgold-dark .hero {
     border-radius: 16px !important;
     padding: 24px 16px !important;
-    margin: 12px 0 !important;
+    margin: 24px 0 16px !important;
   }
   .zg-inkgold .hero-greet,
   .zg-inkgold-dark .hero-greet { font-size: 14px !important; }
@@ -2566,12 +2558,12 @@ html, body { overflow-x: clip; }
     margin: 8px 16px !important;
   }
 
-  /* 按钮触控目标 ≥44px */
+  /* 按钮触控目标：恢复到 Element Plus 默认尺寸的适中值（不再强制拉大，避免「过大不合理」） */
   .zg-inkgold .el-button,
   .zg-inkgold-dark .el-button {
-    min-height: 44px;
-    padding: 10px 18px !important;
-    font-size: 15px;
+    min-height: 38px;
+    padding: 8px 16px !important;
+    font-size: 14px;
   }
 
   /* 下拉菜单/Popover移动端 */
