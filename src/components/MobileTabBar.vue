@@ -201,10 +201,10 @@ function handleTab(t: any) {
   justify-content: center !important;
   width: fit-content !important;
   min-width: 300px !important;
-  height: 68px !important;
+  height: 72px !important;
   margin: 0 auto !important;
-  padding: 6px !important;
-  border-radius: 34px !important;
+  padding: 8px !important;
+  border-radius: 36px !important;
   /* L1层真液态玻璃 */
   background: linear-gradient(165deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
   -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
@@ -234,10 +234,10 @@ function handleTab(t: any) {
 /* 滑动透镜 */
 .tab-lens {
   position: absolute !important;
-  top: 6px !important;
-  left: 6px !important;
-  height: 60px !important;
-  border-radius: 32px !important;
+  top: 8px !important;
+  left: 8px !important;
+  height: 64px !important;
+  border-radius: 34px !important;
   background: linear-gradient(145deg,
     rgba(255,255,255,0.25),
     rgba(255,250,230,0.10)
@@ -258,7 +258,7 @@ function handleTab(t: any) {
   z-index: 2 !important;
   flex: 1 1 0 !important;
   min-width: 0 !important;
-  min-height: 60px !important;
+  min-height: 64px !important;
   border: none !important;
   background: transparent !important;
   cursor: pointer !important;
@@ -266,7 +266,7 @@ function handleTab(t: any) {
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
+  gap: 5px !important;
   color: var(--zg-text-dim) !important;
   opacity: 0.7 !important;
   transition: color 0.3s var(--zg-ease),
@@ -283,14 +283,14 @@ function handleTab(t: any) {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 28px !important;
-  height: 28px !important;
+  width: 30px !important;
+  height: 30px !important;
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 .t-ic {
-  width: 26px !important;
-  height: 26px !important;
+  width: 28px !important;
+  height: 28px !important;
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
               stroke-width 0.25s ease !important;
 }
@@ -304,7 +304,7 @@ function handleTab(t: any) {
 }
 
 .t-lb {
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 500 !important;
   line-height: 1 !important;
   letter-spacing: 0.02em !important;
@@ -365,13 +365,13 @@ html:not(.zg-inkgold) .tabbar-dock {
   backdrop-filter: blur(20px) saturate(150%) !important;
   box-shadow: 0 -4px 20px rgba(245,158,11,0.12) !important;
   border: 1px solid rgba(245,158,11,0.15) !important;
-  border-radius: 34px !important;
+  border-radius: 36px !important;
   width: fit-content !important;
   max-width: 420px !important;
   min-width: 300px !important;
   margin: 0 auto !important;
-  height: 68px !important;
-  padding: 6px !important;
+  height: 72px !important;
+  padding: 8px !important;
 }
 html:not(.zg-inkgold) .tabbar-dock::before { display: none !important; }
 html:not(.zg-inkgold) .tabbar {
@@ -385,8 +385,8 @@ html:not(.zg-inkgold) .tab-lens {
 html:not(.zg-inkgold) .tab { color: #92400E !important; opacity: 0.6 !important; border-radius: 25px !important; }
 html:not(.zg-inkgold) .tab.on { color: #F59E0B !important; opacity: 1 !important; }
 
-/* v4.4.29 6 个 tab 时防止 dock 超出屏幕宽度 */
+/* v4.4.29 6 个 tab 时防止 dock 超出屏幕宽度；v4.4.30b 略微加宽至近满宽，按钮更舒展不显窄 */
 @media (max-width: 768px) {
-  .tabbar-dock { max-width: calc(100vw - 24px) !important; min-width: 0 !important; }
+  .tabbar-dock { max-width: calc(100vw - 8px) !important; min-width: 0 !important; }
 }
 </style>

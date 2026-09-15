@@ -667,7 +667,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 /* ===== 移动端（≤767px）：Hero 单栏 · 触控 ≥44px · 高级留白节奏 ===== */
 @media (max-width: 768px) {
   .home-page { overflow-x: hidden; }
-  .hero { margin: 0 0 14px; padding: 18px 16px 16px; border-radius: 20px; min-height: auto; }
+  .hero { margin: 16px 0 14px; padding: 18px 16px 16px; border-radius: 20px; min-height: auto; }
   .hero-meta { margin-bottom: 12px; }
   .hero-kicker { font-size: 11px; letter-spacing: .04em; }
   .hero-tag { font-size: 11px; padding: 5px 12px; }
@@ -713,7 +713,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .zg-footer { padding: 44px 0 calc(100px + env(safe-area-inset-bottom)); margin-top: 52px; }
 
   /* 墨金移动端：hero 圆角24px玻璃 */
-  .zg-inkgold .hero { padding: 20px 16px 18px !important; border-radius: 22px !important; margin: 0 0 14px !important; min-height: auto !important; }
+  .zg-inkgold .hero { padding: 20px 16px 18px !important; border-radius: 22px !important; margin: 16px 0 14px !important; min-height: auto !important; }
   .zg-inkgold .hero-title { font-size: clamp(20px, 6.2vw, 25px); line-height: 1.32; }
   .zg-inkgold .hero-slogan { font-size: 13px; margin-bottom: 20px; }
   .zg-inkgold .hero-stats { display: flex; flex-wrap: nowrap; overflow-x: auto; padding: 12px 14px; gap: 4px; grid-template-columns: none; border-radius: 16px; scrollbar-width: none; }

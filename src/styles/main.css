@@ -2187,14 +2187,14 @@ html.zg-inkgold-dark {
   /* 关闭页面级永久动画（背景呼吸/渐变位移/光斑浮动），消除常驻合成与重绘 */
   .zg-inkgold .zg-bg::before { animation: none !important; }
   .zg-inkgold-dark .zg-bg { animation: none !important; }
-  /* 触摸目标放大：按钮/输入 ≥44px（苹果 HIG 舒适下限），更跟手、不误触 */
-  .el-button { min-height: 44px; }
-  .el-button--small { min-height: 38px; }
+  /* 触摸目标：主要操作按钮舒适高度（不误触）；图标/文字/小型按钮保持紧凑，避免「过大不合理」 */
+  .el-button:not(.el-button--small):not(.is-circle):not(.el-button--text):not(.is-link) { min-height: 40px; }
+  .el-button--small { min-height: 34px; }
   .el-input__wrapper, .el-textarea__inner, .el-select__wrapper { min-height: 44px; }
   /* 容器左右留白收窄，充分利用手机宽度 */
   .zg-container { padding: 0 14px; }
-  /* 顶栏/底栏在安全区之上再留白，避免被刘海/手势条遮挡（底栏已加高） */
-  .app-main.has-tabbar { padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
+  /* 顶栏/底栏在安全区之上再留白，避免被刘海/手势条遮挡（底栏已加高至 72px） */
+  .app-main.has-tabbar { padding-bottom: calc(116px + env(safe-area-inset-bottom)); }
 }
 .zg-swipe-actions .zg-swipe-btn {
   border: none; color: #fff; font-size: 13px; font-weight: 600;
