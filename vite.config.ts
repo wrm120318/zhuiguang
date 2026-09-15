@@ -28,10 +28,17 @@ export default defineConfig({
     modulePreload: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'element-plus-color-picker': ['element-plus/es/components/color-picker/index'],
-          'element-plus-input-number': ['element-plus/es/components/input-number/index'],
-          'element-plus-switch': ['element-plus/es/components/switch/index'],
+        // v4.4.29 性能：把重型依赖拆成独立 vendor chunk，缩小首屏主包、并行加载。
+        // 经典/墨金视觉与全部功能保持不变，仅改变产物切分。
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
+          if (id.includes('xlsx')) return 'xlsx'
+          if (id.includes('katex')) return 'katex'
+          if (id.includes('marked')) return 'marked'
+          if (id.includes('element-plus') || id.includes('@element-plus/icons-vue')) return 'element-plus'
+          if (id.includes('axios')) return 'axios'
+          if (id.includes('/vue/') || id.includes('vue-router') || id.includes('/pinia/') || id.includes('@vue/')) return 'vue-vendor'
         }
       }
     },

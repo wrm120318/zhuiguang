@@ -140,4 +140,14 @@ onMounted(() => load(1))
 .empty-hint { margin-top: 40px; }
 .empty-tip { margin-top: 40px; text-align: center; color: var(--zg-text-dim); }
 .q-content :deep(img) { max-width: 100%; border-radius: 8px; }
+
+@media (max-width: 768px) {
+  .record-card { padding: 16px 14px; }
+  .rc-head { gap: 6px; }
+  .rc-score { margin-left: 0; width: 100%; }
+  .rc-foot { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .rc-actions { margin-left: 0; width: 100%; }
+  .rc-actions .el-button { flex: 1; }
+  .pager { flex-wrap: wrap; gap: 10px; padding: 14px 0; }
+}
 </style>

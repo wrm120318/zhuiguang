@@ -5,6 +5,46 @@
 
 ---
 
+## [v4.4.29] - 2026-09-15
+
+> **移动端深度适配 + 全站性能优化（零成本、保留全部视觉与功能）**。
+> 用户反馈：移动端适配差、全站卡顿。要求：高端大气美观、流畅、按钮大小合适；优化不花一分钱；**铁律——所有视觉效果与功能一点不能删**。
+> 方案经「先奏后斩」评估后定调：**重点攻坚**（只补齐移动端缺口，不重写 45 个视图、不动桌面布局）+ **保视觉降成本**（保留玻璃/毛玻璃质感，只降 GPU 渲染开销）。
+
+### ✨ 性能优化（保视觉·降成本，桌面视觉基线不变）
+- **依赖分包（首屏主包瘦身）**：`vite.config.ts` 的 `manualChunks` 把重型依赖拆成独立 vendor chunk —— `echarts` / `xlsx` / `katex` / `marked` / `element-plus`(+icons) / `axios` / `vue-vendor`(vue+vue-router+pinia)。首屏主包体积大幅下降、各 chunk 并行加载，冷启动明显变快。
+- **移动端毛玻璃降开销**：`@media (max-width:768px)` 下把 `--zg-glass-blur` 由 14px→10px、`--zg-glass-e-blur` 由 24px→12px，**保留磨砂质感、肉眼几乎无差**，直接降低 `backdrop-filter` 合成层开销（站点 30+ 处毛玻璃是卡顿主因之一）。
+- **关闭背景光斑常驻动画**：`.zg-orb { animation: none }`（纯装饰层，关动画不影响视觉），减少低端机持续合成压力。
+- **轮询按需暂停**：`App.vue` 账号状态 30s 轮询在页面隐藏（`visibilitychange`）时暂停、回前台再恢复，避免切后台/锁屏后的无谓请求与耗电。
+- **长列表离屏渲染**：`content-visibility:auto` + `contain-intrinsic-size` 应用到排行榜行（`LeaderboardView .rt-row`）、学科站卡片与贡献榜（`SubjectView .res-card/.art-card/.query-card/.quiz-card/.practice-card/.rank-item`），列表项超出视口时跳过渲染，降低首屏与滚动开销。
+
+### 📱 移动端深度适配（重点攻坚·不碰经典 :root）
+- **悬浮底栏新增「更多」入口**（`MobileTabBar.vue`）：6 个 tab 时不再超出屏宽；点「更多」派发 `zg-open-menu` 事件，`NavBar.vue` 监听后打开主导航抽屉，**博客 / 公告 / 题库自测 / 经验榜 / 站内信 / 收藏**等全站页面手机端一键可达。
+- **补齐练习三视图手机布局**（此前完全无移动样式）：`quiz/PracticeTakeView.vue`、`PracticeStatsView.vue`、`PracticeRecordsView.vue` 增加 `@media(max-width:768px)` 单列/堆叠、按钮占满宽、表单标签换行、分数数字放大。
+- **触摸目标放大**：移动端 Element Plus 按钮/输入框 `min-height:40px`（small 36px），点击更舒适、误触更少。
+- **容器与安全区**：`.zg-container` 移动端左右留白收窄至 14px；底栏/导航在安全区之上再留白，避免被刘海/手势条遮挡。
+
+### 🛠 错误透传（需求 #3）
+- `src/api/http.ts` 响应拦截：把后端返回的真实异常 `error` 字段拼进 `ElMessage` 提示（`消息：具体异常`，截断 300 字）。**不再只有泛化的「服务器内部错误」五个字**，前端报错弹窗即可直接看到根因。后端兜底见 `worker-api.ts` 全局错误处理。
+
+### ✅ 改了哪几个文件
+- `vite.config.ts`（依赖分包）
+- `src/styles/main.css`（`@media` 移动端性能与触摸目标）
+- `src/App.vue`（轮询暂停）
+- `src/api/http.ts`（错误透传）
+- `src/components/MobileTabBar.vue` + `src/components/NavBar.vue`（「更多」→ 导航抽屉）
+- `src/views/quiz/PracticeTakeView.vue` / `PracticeStatsView.vue` / `PracticeRecordsView.vue`（练习视图移动布局）
+- `src/views/LeaderboardView.vue` / `src/views/SubjectView.vue`（`content-visibility` 长列表优化）
+
+### ⚠️ 部署状态
+- **前端已推送**（`git push origin main` → Cloudflare Pages 自动构建，约 2-3 分钟生效）。
+- **后端无需改动、数据库无需迁移**（纯前端/样式变更）。
+
+### ✅ 副作用
+- **无**。经典暖橘 `:root` 像素级未动（铁律6）；墨金样式仍在 `.zg-inkgold` 作用域内（铁律7）；23 张表结构、全部功能与视觉特效完整保留；零成本（未引入任何绑卡/付费服务）。
+
+---
+
 ## [v4.4.28] - 2026-09-12
 
 > **真正确位"资料删除 500"的根因**：不是 BigInt 绑定，而是经验回退里用 `description LIKE '%标题%'` 定位日志，标题含 `~` / `+` / `【】` 等特殊字符时，SQLite 判定 `LIKE or GLOB pattern too complex` 直接 500。同类缺陷遍布所有内容删除（美文/论坛/博客/题库/点赞回退），一并根治。

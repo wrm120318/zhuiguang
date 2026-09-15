@@ -87,12 +87,19 @@ const IconSettings = () => [
   h('path', { d: 'M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z' })
 ]
 
+const IconMore = () => [
+  h('circle', { cx: '5', cy: '12', r: '1.7' }),
+  h('circle', { cx: '12', cy: '12', r: '1.7' }),
+  h('circle', { cx: '19', cy: '12', r: '1.7' })
+]
+
 const baseTabs = [
   { to: '/', lb: '首页', icon: IconHome, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
   { to: '/subjects', lb: '科目', icon: IconBook, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
   { key: 'notice', lb: '通知', icon: IconBell, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
   { to: '/profile', lb: '我的', icon: IconUser, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
   { to: '/admin', lb: '管理', icon: IconSettings, roles: ['SUPER_ADMIN','TEACHER'] },
+  { key: 'more', lb: '更多', icon: IconMore, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
 ]
 
 const tabs = computed(() => baseTabs.filter(t => t.roles.includes((user as any).role || 'STUDENT')))
@@ -159,6 +166,11 @@ onUnmounted(() => {
 function handleTab(t: any) {
   if (t.key === 'notice') {
     window.dispatchEvent(new CustomEvent('zg-open-notice'))
+    return
+  }
+  // v4.4.29 手机端「更多」→ 打开主导航抽屉（博客/公告/题库/经验榜/站内信/收藏等全页面一键可达）
+  if (t.key === 'more') {
+    window.dispatchEvent(new CustomEvent('zg-open-menu'))
     return
   }
   router.push(t.to)
@@ -372,4 +384,9 @@ html:not(.zg-inkgold) .tab-lens {
 }
 html:not(.zg-inkgold) .tab { color: #92400E !important; opacity: 0.6 !important; border-radius: 25px !important; }
 html:not(.zg-inkgold) .tab.on { color: #F59E0B !important; opacity: 1 !important; }
+
+/* v4.4.29 6 个 tab 时防止 dock 超出屏幕宽度 */
+@media (max-width: 768px) {
+  .tabbar-dock { max-width: calc(100vw - 24px) !important; min-width: 0 !important; }
+}
 </style>

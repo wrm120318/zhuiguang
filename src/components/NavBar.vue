@@ -88,13 +88,18 @@ onMounted(() => {
   window.addEventListener('messages-read', refreshUnread)
   // 手机端底栏「通知中心」按钮 → 打开通知抽屉
   window.addEventListener('zg-open-notice', openNoticeFromBar)
+  // v4.4.29 手机端底栏「更多」按钮 → 打开主导航抽屉（博客/公告/题库/经验榜等全页面一键可达）
+  window.addEventListener('zg-open-menu', openMenuFromBar)
   // 【v4.2.1】启动通知轮询
   startNoticePolling()
 })
 function openNoticeFromBar() { noticeVisible.value = true }
+// v4.4.29 手机端底栏「更多」→ 打开主导航抽屉
+function openMenuFromBar() { drawerVisible.value = true }
 onUnmounted(() => {
   window.removeEventListener('messages-read', refreshUnread)
   window.removeEventListener('zg-open-notice', openNoticeFromBar)
+  window.removeEventListener('zg-open-menu', openMenuFromBar)
   stopNoticePolling()
 })
 

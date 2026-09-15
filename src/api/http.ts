@@ -54,7 +54,14 @@ function stripUndefined(obj: any): any {
 http.interceptors.response.use(
   res => res.data,
   err => {
-    const msg = err.response?.data?.message || err.message || '请求失败'
+    const data = err.response?.data
+    let msg: string = data?.message || err.message || '请求失败'
+    // 【v4.4.29 错误透传】把后端返回的真实异常(error 字段)拼进提示，便于直接定位根因，
+    // 不再只有泛化的「服务器内部错误」五个字（后端兜底见 worker-api.ts 全局错误处理）。
+    const detail = data?.error
+    if (detail && typeof detail === 'string' && detail !== msg) {
+      msg = `${msg}：${detail}`.slice(0, 300)
+    }
     if (err.response?.status === 401) {
       localStorage.removeItem('zg_token')
       localStorage.removeItem('zg_user')

@@ -118,7 +118,7 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
 .rank-table { padding:8px; margin-top:20px; }
 .rt-head, .rt-row { display:grid; grid-template-columns: 80px 1fr 100px 100px 120px; align-items:center; padding:12px 16px; }
 .rt-head { color:var(--zg-text-dim); font-size:13px; border-bottom:1px solid rgba(var(--zg-primary-rgb),.1); }
-.rt-row { border-radius:10px; transition:background .2s; }
+.rt-row { border-radius:10px; transition:background .2s; content-visibility:auto; contain-intrinsic-size:auto 52px; }
 .rt-row:hover { background:rgba(var(--zg-primary-rgb),.06); }
 .rt-row.me { background:rgba(var(--zg-primary-rgb),.15); border:1px solid rgba(var(--zg-primary-rgb),.3); }
 .rt-avatar { width:30px; height:30px; border-radius:50%; margin-right:10px; vertical-align:middle; object-fit:cover; }

@@ -202,4 +202,16 @@ onMounted(load)
 .empty-hint { margin: 20px 0; }
 .q-content :deep(img) { max-width: 100%; border-radius: 8px; }
 .q-content :deep(pre) { background: rgba(0,0,0,0.05); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+
+@media (max-width: 768px) {
+  .qs-meta { gap: 8px; }
+  .qs-meta .el-button { flex: 1; }
+  .qs-stats { gap: 8px; }
+  .qs-card { flex: 1 1 calc(50% - 8px); min-width: 0; padding: 12px 8px; }
+  .qs-num { font-size: 22px; }
+  .question-view { padding: 16px; }
+  .pc-actions, .rc-actions { gap: 8px; }
+  .pc-actions .el-button, .rc-actions .el-button { flex: 1; }
+  .rc-head { gap: 6px; }
+}
 </style>

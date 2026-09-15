@@ -708,4 +708,8 @@ async function submitResource() {
   .rank-item { padding: 14px 18px; gap: 16px; }
   .rank-avatar { width: 40px; height: 40px; }
 }
+
+/* v4.4.29 长列表离屏渲染优化：列表项超出视口时跳过渲染，降低首屏与滚动开销，视觉不变 */
+.res-card, .art-card, .query-card, .quiz-card, .practice-card { content-visibility: auto; contain-intrinsic-size: auto 200px; }
+.rank-item { content-visibility: auto; contain-intrinsic-size: auto 56px; }
 </style>

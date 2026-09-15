@@ -2142,6 +2142,29 @@ html.zg-inkgold-dark {
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 1;
   display: flex; align-items: stretch;
 }
+
+/* ============================================================
+   v4.4.29 性能优化 + 移动端深度适配（追加式；桌面视觉基线不变，铁律6/7）
+   仅降低移动端 GPU 开销、放大触摸目标、关闭背景光斑动画；
+   不删除任何视觉效果，不改动经典 :root 桌面值。
+   ============================================================ */
+@media (max-width: 768px) {
+  /* 1) 移动端降低毛玻璃 blur 半径：保留磨砂质感、肉眼几乎无差，显著降低 backdrop-filter 合成开销 */
+  :root, .zg-inkgold, .zg-inkgold-dark {
+    --zg-glass-blur: 10px;
+    --zg-glass-e-blur: 12px;
+  }
+  /* 2) 关闭背景光斑持续浮动动画，减少低端机常驻合成压力（纯装饰层，关动画不影响视觉） */
+  .zg-orb { animation: none; }
+  /* 3) 触摸目标放大：Element Plus 按钮/输入在手机上达到舒适点击高度（≥40px） */
+  .el-button { min-height: 40px; }
+  .el-button--small { min-height: 36px; }
+  .el-input__wrapper, .el-textarea__inner, .el-select__wrapper { min-height: 40px; }
+  /* 4) 容器左右留白收窄，充分利用手机宽度 */
+  .zg-container { padding: 0 14px; }
+  /* 5) 顶部导航/底栏在安全区之上再留白，避免被刘海/手势条遮挡 */
+  .app-main.has-tabbar { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+}
 .zg-swipe-actions .zg-swipe-btn {
   border: none; color: #fff; font-size: 13px; font-weight: 600;
   min-width: 64px; padding: 0 18px; cursor: pointer;

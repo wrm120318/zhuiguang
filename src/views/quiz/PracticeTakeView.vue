@@ -368,4 +368,17 @@ async function deleteSubmission() {
 .grade-form-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .grade-form-label { font-size: 14px; color: var(--zg-text); font-weight: 600; min-width: 80px; padding-top: 8px; }
 .grade-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+@media (max-width: 768px) {
+  .practice-box, .result-box, .grade-box { padding: 18px 16px; }
+  .pb-foot, .grade-form-actions { flex-direction: column-reverse; }
+  .pb-foot .el-button, .grade-form-actions .el-button { width: 100%; }
+  .grade-student { flex-wrap: wrap; }
+  .grade-form-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .grade-form-label { min-width: 0; padding-top: 0; }
+  .grade-current-score { flex-wrap: wrap; }
+  .opt { padding: 14px; }
+  .opt-letter { width: 26px; height: 26px; font-size: 14px; }
+  .subj-area :deep(.el-textarea__inner), .grade-form :deep(.el-textarea__inner) { font-size: 16px; }
+}
 </style>

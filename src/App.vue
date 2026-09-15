@@ -31,12 +31,27 @@ async function checkDisabledAndHandle() {
   try {
     const r: any = await api.meStatus()
     if (r.disabled) {
-      if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+      stopStatusTimer()
       user.logout()
       await ElMessageBox.alert('您的账号已被管理员禁用，请联系管理员。', '账号已禁用', { type: 'error', showClose: false, confirmButtonText: '知道了' })
       router.push('/login')
     }
   } catch { /* ignore */ }
+}
+
+// v4.4.29 性能：30s 轮询在页面隐藏(切后台/锁屏)时暂停，回到前台再恢复，避免无谓请求与耗电
+function startStatusTimer() {
+  stopStatusTimer()
+  statusTimer = setInterval(async () => {
+    if (user.isLogin && !document.hidden) await checkDisabledAndHandle()
+  }, 30000)
+}
+function stopStatusTimer() {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+}
+function handleVisibility() {
+  if (document.hidden) stopStatusTimer()
+  else startStatusTimer()
 }
 
 onMounted(async () => {
@@ -49,13 +64,15 @@ onMounted(async () => {
   } finally {
     ready.value = true
   }
-  // Bug4: 每30秒轮询账号禁用状态
-  statusTimer = setInterval(async () => {
-    if (user.isLogin) await checkDisabledAndHandle()
-  }, 30000)
+  // Bug4: 每30秒轮询账号禁用状态（页面隐藏时自动暂停）
+  startStatusTimer()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 
-onBeforeUnmount(() => { if (statusTimer) { clearInterval(statusTimer); statusTimer = null } })
+onBeforeUnmount(() => {
+  stopStatusTimer()
+  document.removeEventListener('visibilitychange', handleVisibility)
+})
 </script>
 
 <template>
