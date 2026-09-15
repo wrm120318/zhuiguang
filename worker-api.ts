@@ -618,9 +618,10 @@ function apiCacheKey(c: Context): string | null {
   const auth = (c.req.header('authorization') || '').slice(0, 200)
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
-  let ttl = 15000
+  let ttl = 30000
   if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 30000
-  if (p.includes('/feature-flags') || p.includes('/pages/') || p.includes('/themes')) ttl = 30000
+  // v4.4.30 公共只读接口延长内存/边缘缓存至 60s，显著降低 D1 命中频次（写操作仍会清全缓存保一致）
+  if (p.includes('/subjects') || p.includes('/articles') || p.includes('/leaderboard') || p.includes('/pages') || p.includes('/themes') || p.includes('/feature-flags')) ttl = 60000
   const urlKey = p + '|' + new URL(c.req.url).search
   return `${authHash}|${ttl}|${urlKey}`
 }
@@ -780,7 +781,7 @@ app.use('*', async (c, next) => {
       return c.body(null, 304)
     }
     c.header('Content-Type', e.type)
-    c.header('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}`)
+    c.header('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}, s-maxage=${Math.floor(ttl / 1000)}, stale-while-revalidate=120`)
     c.header('ETag', e.etag)
     c.header('X-Zg-Cache', `HIT-${Math.floor((e.expireAt - Date.now()) / 1000)}s`)
     return c.body(e.body)
@@ -806,7 +807,7 @@ app.use('*', async (c, next) => {
       API_CACHE.set(k, { body, type: contentType, expireAt: Date.now() + ttl, etag })
       const headers = new Headers(c.res.headers)
       headers.set('ETag', etag)
-      headers.set('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}`)
+      headers.set('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}, s-maxage=${Math.floor(ttl / 1000)}, stale-while-revalidate=120`)
       headers.set('X-Zg-Cache', 'MISS')
       c.res = new Response(body, { status: c.res.status, headers })
     }

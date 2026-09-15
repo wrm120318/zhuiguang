@@ -5,6 +5,30 @@
 
 ---
 
+## [v4.4.30] - 2026-09-15
+
+> **继续优化：移动端掉帧卡顿根治 + 底栏放大 + D1 提速（零成本、保留全部视觉与功能）**。
+> 用户反馈 v4.4.29 后仍十分卡顿、移动端底栏太小、动画掉帧卡断严重、D1 拉取太慢。延续「保视觉降成本」定调。
+
+### 🐢 移动端卡顿根治（掉帧卡断主因）
+- **关闭移动端实时毛玻璃合成**：`@media (max-width:768px)` 下把 `--zg-glass-blur` / `--zg-glass-e-blur` / `--zg-blur` 置 `0px`（保留渐变+金边+阴影+圆角的磨砂面板观感，仅去掉逐帧高斯模糊这一 GPU 杀手）；固定底栏 dock 硬编码的 `blur(20/24px)` 单独置 `none`。站点 43 处 `backdrop-filter` 在手机滚动时每帧重新合成正是掉帧卡断元凶，此改动从根上消除。
+- **隐藏巨型背景光斑**：`.zg-orb`（blur 80~110px 的 350~420px 动图）在移动端 `display:none`，纯装饰、手机看不到且极耗 paint。
+- **关闭页面级永久动画**：`.zg-inkgold .zg-bg::before`（背景呼吸）、`.zg-inkgold-dark .zg-bg`（渐变位移）在移动端 `animation:none`，消除常驻合成与重绘。
+- **桌面视觉基线不变**（铁律6/7）：上述全部仅作用于 `max-width:768px` 媒体查询内；经典 `:root`、墨金作用域、弹窗/抽屉/遮罩的毛玻璃完整保留。
+
+### 📱 移动端底栏放大
+- `MobileTabBar.vue`：dock 高度 58→68px、圆角 29→34px；选中透镜 50→60px；图标 22→26px；标签 10→12px；tab 触摸高度 50→60px、间距 3→4px；经典档 dock 同步加高加宽。每个按钮占地明显变大、更跟手。
+- 触摸目标：按钮/输入 `min-height` 由 40→**44px**（苹果 HIG 舒适下限），更跟手、不误触。
+
+### ⚡ 后端 D1 提速（worker-api.ts，待有效部署凭证后上线）
+- API 内存缓存默认 TTL 15s→**30s**；公共只读接口（`/subjects`、`/articles`、`/leaderboard`、`/pages`、`/themes`、`/feature-flags`）延长至 **60s**。
+- `Cache-Control` 由 `public, max-age=N` 升级为 `public, max-age=N, s-maxage=N, stale-while-revalidate=120`：公共只读响应走 Cloudflare 边缘缓存（连 Worker/D1 都不碰），重复读取近乎瞬时；浏览器/CDN 在过期后先返回略旧缓存、后台再刷新，感知延迟趋近于零。写操作仍会清全缓存保证一致。
+- 热路径（`/api/subjects`、`/api/leaderboard` 等）本就是单条批量查询、无 N+1，瓶颈确为缓存 TTL 过短与缺 SWR，本次已对症。
+
+> ⚠️ 后端变更已写入 `worker-api.ts` 并完成代码审阅，但本环境 `.cf_token` 已失效（Cloudflare 返回 `Invalid access token [code: 9109]`），暂无法 `wrangler deploy`。前端（Pages）已随 `git push` 自动构建生效；后端部分需使用有效 `CLOUDFLARE_API_TOKEN` 重新 `npx wrangler deploy` 后方生效。
+
+---
+
 ## [v4.4.29] - 2026-09-15
 
 > **移动端深度适配 + 全站性能优化（零成本、保留全部视觉与功能）**。

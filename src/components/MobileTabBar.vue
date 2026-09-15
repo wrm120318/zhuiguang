@@ -200,11 +200,11 @@ function handleTab(t: any) {
   align-items: center !important;
   justify-content: center !important;
   width: fit-content !important;
-  min-width: 280px !important;
-  height: 58px !important;
+  min-width: 300px !important;
+  height: 68px !important;
   margin: 0 auto !important;
-  padding: 4px !important;
-  border-radius: 29px !important;
+  padding: 6px !important;
+  border-radius: 34px !important;
   /* L1层真液态玻璃 */
   background: linear-gradient(165deg, var(--zg-glass-1-bg), var(--zg-glass-1-bg-2)) !important;
   -webkit-backdrop-filter: blur(var(--zg-glass-blur)) saturate(var(--zg-glass-sat)) !important;
@@ -234,10 +234,10 @@ function handleTab(t: any) {
 /* 滑动透镜 */
 .tab-lens {
   position: absolute !important;
-  top: 4px !important;
-  left: 4px !important;
-  height: 50px !important;
-  border-radius: 25px !important;
+  top: 6px !important;
+  left: 6px !important;
+  height: 60px !important;
+  border-radius: 32px !important;
   background: linear-gradient(145deg,
     rgba(255,255,255,0.25),
     rgba(255,250,230,0.10)
@@ -258,7 +258,7 @@ function handleTab(t: any) {
   z-index: 2 !important;
   flex: 1 1 0 !important;
   min-width: 0 !important;
-  min-height: 50px !important;
+  min-height: 60px !important;
   border: none !important;
   background: transparent !important;
   cursor: pointer !important;
@@ -266,7 +266,7 @@ function handleTab(t: any) {
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 3px !important;
+  gap: 4px !important;
   color: var(--zg-text-dim) !important;
   opacity: 0.7 !important;
   transition: color 0.3s var(--zg-ease),
@@ -283,14 +283,14 @@ function handleTab(t: any) {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 24px !important;
-  height: 24px !important;
+  width: 28px !important;
+  height: 28px !important;
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 .t-ic {
-  width: 22px !important;
-  height: 22px !important;
+  width: 26px !important;
+  height: 26px !important;
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
               stroke-width 0.25s ease !important;
 }
@@ -304,7 +304,7 @@ function handleTab(t: any) {
 }
 
 .t-lb {
-  font-size: 10px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
   line-height: 1 !important;
   letter-spacing: 0.02em !important;
@@ -365,13 +365,13 @@ html:not(.zg-inkgold) .tabbar-dock {
   backdrop-filter: blur(20px) saturate(150%) !important;
   box-shadow: 0 -4px 20px rgba(245,158,11,0.12) !important;
   border: 1px solid rgba(245,158,11,0.15) !important;
-  border-radius: 29px !important;
+  border-radius: 34px !important;
   width: fit-content !important;
-  max-width: 360px !important;
-  min-width: 280px !important;
+  max-width: 420px !important;
+  min-width: 300px !important;
   margin: 0 auto !important;
-  height: 58px !important;
-  padding: 4px !important;
+  height: 68px !important;
+  padding: 6px !important;
 }
 html:not(.zg-inkgold) .tabbar-dock::before { display: none !important; }
 html:not(.zg-inkgold) .tabbar {
