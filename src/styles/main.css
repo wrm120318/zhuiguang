@@ -2184,6 +2184,13 @@ html.zg-inkgold-dark {
   .glass, .zg-card, .tabbar-dock, .nav-drawer, .el-dialog, .el-drawer {
     will-change: transform;
   }
+  /* 关键修复：把「滚动内容」(.app-main) 与背景层也提升为独立合成层。
+     固定顶栏/底栏和列表卡片的毛玻璃，在滚动时采样的是「已合成好的缓存纹理」，
+     而非每帧重新栅格化背后的滚动 DOM —— 这是 backdrop-filter 在手机上顺滑的核心，磨砂观感完全保留。
+     （NavBar/底栏是 .app-main 的兄弟节点，提升 .app-main 不会破坏它们的 fixed 定位） */
+  .app-main, .zg-bg, .zg-bgimg {
+    will-change: transform;
+  }
   /* 长列表离屏跳过渲染：把「同屏真实渲染的模糊层」压到最低，是滚动流畅的关键；
      仅对列表卡片/行生效，含近似高度避免滚动跳动 */
   .art-card, .res-card, .query-card, .quiz-card, .practice-card, .rank-item,
