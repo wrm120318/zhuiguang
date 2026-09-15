@@ -2150,32 +2150,51 @@ html.zg-inkgold-dark {
    ============================================================ */
 @media (max-width: 768px) {
   /* ============================================================
-     v4.4.30c 移动端性能治理（铁律6/7：桌面 :root 与墨金作用域不变，功能/特效全保留）
-     掉帧卡断根因 = 滚动列表里几十层玻璃，每帧重新 backdrop-filter 合成。
-     做法：移动端彻底关闭毛玻璃（backdrop-filter:none，零每帧合成开销），
-     改用「高不透明度填充」保证文字清晰可读（玻璃观感由渐变+金边+阴影保留）。
-     之前 v4.4.30b 恢复 8px 模糊导致再次卡顿，本次从根上关掉模糊、用不透明度换可读性。
+     v4.4.30d 移动端「真实高斯模糊 + 高性能」双目标方案（铁律6/7：桌面 :root 与墨金作用域不变）
+     目标：恢复磨砂玻璃观感，同时滚动顺滑不卡。三管齐下：
+       1) 模糊半径比桌面(14/24px)略降为 12/16px，成本可控且仍是清晰磨砂玻璃；
+       2) 长列表 content-visibility:auto —— 把「同屏真实渲染的模糊层」压到最低（仅可见卡片参与合成）；
+       3) 玻璃层 will-change:transform 提升为独立合成层，模糊仅对缓存纹理合成，避免逐帧重栅格化。
+     配合保留：巨型光斑隐藏、页面级无限动画关闭（paint 炸弹），进一步保流畅。
+     之前 v4.4.30c 直接关模糊虽不卡但失去磨砂观感；本次在保流畅前提下把真实模糊还回来。
      ============================================================ */
   :root, .zg-inkgold, .zg-inkgold-dark, html:not(.zg-inkgold) {
-    --zg-glass-blur: 0px !important;
-    --zg-glass-e-blur: 0px !important;
-    --zg-blur: 0px !important;
-    /* 高不透明度填充：半透明卡片在花哨背景上对比度过低、文字难读；
-       提到近实色后即可读，且无需模糊（无卡顿）。仍保留薄雾层次感，不变成死白瓷墙。 */
-    --zg-glass-1-bg: rgba(255,255,255,0.90) !important;
-    --zg-glass-1-bg-2: rgba(255,253,248,0.86) !important;
-    --zg-glass-2-bg: rgba(255,255,255,0.94) !important;
-    --zg-glass-2-bg-2: rgba(255,253,248,0.90) !important;
+    /* v4.4.30d 真实高斯模糊回归：比桌面 14/24px 略轻（12/14px），成本可控且仍是清晰磨砂玻璃。
+       不再用 0px 关模糊，而是用「适度半透明填充 + 略降半径 + 离屏跳过渲染」三者兼得流畅与清晰。 */
+    --zg-glass-blur: 12px !important;
+    --zg-glass-e-blur: 14px !important;
+    --zg-blur: 12px !important;
+    /* 适度半透明填充：让模糊真正透出背景、又有足够对比保证可读（高于桌面基线 0.55，低于 30c 的 0.90 近实色） */
+    --zg-glass-1-bg: rgba(255,255,255,0.66) !important;
+    --zg-glass-1-bg-2: rgba(255,253,248,0.60) !important;
+    --zg-glass-2-bg: rgba(255,255,255,0.80) !important;
+    --zg-glass-2-bg-2: rgba(255,253,248,0.74) !important;
   }
-  /* 墨金深色档：同步提高深色玻璃填充，保证暗色背景下文字可读 */
+  /* 墨金深色档：同步恢复真实模糊，半径比桌面 24px 降到 16px（暗色背景下仍清晰） */
   .zg-inkgold-dark {
-    --zg-glass-1-bg: rgba(25,20,12,0.82) !important;
-    --zg-glass-1-bg-2: rgba(20,16,10,0.74) !important;
-    --zg-glass-2-bg: rgba(25,20,12,0.86) !important;
-    --zg-glass-2-bg-2: rgba(20,16,10,0.78) !important;
+    --zg-glass-blur: 16px !important;
+    --zg-glass-e-blur: 18px !important;
+    --zg-glass-1-bg: rgba(25,20,12,0.58) !important;
+    --zg-glass-1-bg-2: rgba(20,16,10,0.50) !important;
+    --zg-glass-2-bg: rgba(25,20,12,0.64) !important;
+    --zg-glass-2-bg-2: rgba(20,16,10,0.56) !important;
   }
-  /* 真正禁用移动端毛玻璃合成（含固定底栏），从源头消除卡顿；玻璃质感由渐变/金边/阴影保留 */
-  * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  /* 玻璃层提升为独立合成层：滚动时模糊仅对缓存纹理做合成，避免逐帧重栅格化
+     （配合下方 content-visibility 控制「同时存在的模糊层」数量，避免无脑 will-change 拖垮内存） */
+  .glass, .zg-card, .tabbar-dock, .nav-drawer, .el-dialog, .el-drawer {
+    will-change: transform;
+  }
+  /* 长列表离屏跳过渲染：把「同屏真实渲染的模糊层」压到最低，是滚动流畅的关键；
+     仅对列表卡片/行生效，含近似高度避免滚动跳动 */
+  .art-card, .res-card, .query-card, .quiz-card, .practice-card, .rank-item,
+  .bl-card, .fav-card, .result-card, .ann-card, .sp-card, .exp-item, .my-art-item, .pending-item, .stat-card,
+  .msg-row, .ab-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 200px;
+  }
+  .rt-row { content-visibility: auto; contain-intrinsic-size: auto 52px; }
+  .rank-item { contain-intrinsic-size: auto 56px; }
+  .msg-row, .ab-row { contain-intrinsic-size: auto 72px; }
   /* 隐藏巨型背景光斑（blur 80~110px 的 350~420px 动图）：纯装饰、手机看不到且极耗 paint */
   .zg-orb { display: none !important; }
   /* 关闭页面级永久动画（背景呼吸/渐变位移/光斑浮动），消除常驻合成与重绘 */
