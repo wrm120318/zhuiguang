@@ -2157,16 +2157,30 @@ html.zg-inkgold-dark {
      隐藏巨型背景光斑、关闭页面级永久动画。
      ============================================================ */
   :root, .zg-inkgold, .zg-inkgold-dark, html:not(.zg-inkgold) {
-    --zg-glass-blur: 0px !important;
-    --zg-glass-e-blur: 0px !important;
-    --zg-blur: 0px !important;
+    /* v4.4.30b 可读性回归：上版移动端完全去模糊，半透明卡片在花哨背景上对比度过低、文字难读。
+       恢复「够读但不卡」的中等模糊（8px，比桌面 14/16/24px 明显更轻）；巨型光斑与常驻动画已移除，流畅度仍有保障。 */
+    --zg-glass-blur: 8px !important;
+    --zg-glass-e-blur: 10px !important;
+    --zg-blur: 8px !important;
+    /* 移动端玻璃填充略提，进一步增强文字对比度（仍保持薄雾观感，不变成白瓷墙） */
+    --zg-glass-1-bg: rgba(255,255,255,0.62) !important;
+    --zg-glass-1-bg-2: rgba(255,253,248,0.58) !important;
+    --zg-glass-2-bg: rgba(255,255,255,0.80) !important;
+    --zg-glass-2-bg-2: rgba(255,253,248,0.75) !important;
   }
-  /* 底栏 dock 硬编码了 blur(20/24px)，单独关（固定层，卡顿第一元凶） */
+  /* 墨金深色档：同步略提深色玻璃填充，保证暗色背景下文字可读 */
+  .zg-inkgold-dark {
+    --zg-glass-1-bg: rgba(25,20,12,0.52) !important;
+    --zg-glass-1-bg-2: rgba(20,16,10,0.44) !important;
+    --zg-glass-2-bg: rgba(25,20,12,0.56) !important;
+    --zg-glass-2-bg-2: rgba(20,16,10,0.48) !important;
+  }
+  /* 底栏 dock：恢复轻量磨砂（8px），保留悬浮玻璃质感且可读；固定层故比桌面 20/24px 更轻 */
   .tabbar-dock,
   .zg-inkgold-dark .tabbar-dock,
   html:not(.zg-inkgold) .tabbar-dock {
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
+    -webkit-backdrop-filter: blur(8px) saturate(140%) !important;
+    backdrop-filter: blur(8px) saturate(140%) !important;
   }
   /* 隐藏巨型背景光斑（blur 80~110px 的 350~420px 动图）：纯装饰、手机看不到且极耗 paint */
   .zg-orb { display: none !important; }
