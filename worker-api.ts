@@ -640,6 +640,41 @@ function clearAllCache() {
   API_CACHE.clear()
 }
 
+// ===== v4.4.30 边缘缓存（Cloudflare Cache API / caches.default）=====
+// 背景：api.xkzg.de5.net 是 Worker 自定义域名，前置无自动 CDN 缓存层；
+//       内存缓存 API_CACHE 仅单实例有效，跨实例/冷启动仍会回源 D1（实测 5~8s）。
+//       caches.default 是跨全部实例/节点共享的边缘缓存，把「所有用户内容完全一致」
+//       的公共只读结果缓存 60s，重复读取毫秒级命中、不再打 D1，从根上解决「D1 拉取太慢」。
+// 安全：仅缓存 subjects/leaderboard/pages/themes/feature-flags 等公共接口（内容对所有用户一致），
+//       绝不缓存任何角色相关/私有数据，杜绝越权或信息泄漏。
+function edgeCacheablePath(c) {
+  if (c.req.method !== 'GET') return null
+  const p = new URL(c.req.url).pathname
+  if (!p.startsWith('/api/')) return null
+  if (p.includes('/subjects') || p.includes('/leaderboard') || p.includes('/pages') || p.includes('/themes') || p.includes('/feature-flags')) {
+    return p + new URL(c.req.url).search
+  }
+  return null
+}
+async function edgeCacheMatch(c) {
+  try {
+    const req = new Request(c.req.url, { method: 'GET' })
+    const hit = await caches.default.match(req)
+    if (hit && hit.status === 200) return hit
+  } catch {}
+  return null
+}
+async function edgeCachePut(c, body, status, ttlSec) {
+  try {
+    const req = new Request(c.req.url, { method: 'GET' })
+    // 复制 c.res 全部响应头（含中间件2写入的 CORS），仅覆盖缓存策略与标记头
+    const h = new Headers(c.res.headers)
+    h.set('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+    h.set('X-Zg-Cache', 'EDGE-MISS')
+    await caches.default.put(req, new Response(body, { status, headers: h }))
+  } catch {}
+}
+
 // ==============================================================================
 // Hono App
 // ==============================================================================
@@ -760,7 +795,7 @@ app.use('*', async (c, next) => {
   await next()
 })
 
-// ===== 中间件4：API 短期内存缓存 =====
+// ===== 中间件4：API 短期内存缓存 + 边缘缓存（Cache API，跨实例共享）=====
 app.use('*', async (c, next) => {
   maybeCleanupCache()
   const k = apiCacheKey(c)
@@ -773,6 +808,23 @@ app.use('*', async (c, next) => {
   }
   const [, ttlStr] = k.split('|', 3)
   const ttl = parseInt(ttlStr || '15000', 10)
+  const ttlSec = Math.floor(ttl / 1000)
+  const edgeKey = edgeCacheablePath(c)
+
+  // --- ① 边缘缓存命中（跨全部实例共享，毫秒级，不再打 D1）---
+  if (edgeKey) {
+    const hit = await edgeCacheMatch(c)
+    if (hit) {
+      // 用 c.body() + c.header() 继承中间件2写入的 CORS 头，避免跨域请求失败
+      c.header('Content-Type', hit.headers.get('Content-Type') || 'application/json; charset=utf-8')
+      c.header('Cache-Control', hit.headers.get('Cache-Control') || `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+      const etag = hit.headers.get('ETag'); if (etag) c.header('ETag', etag)
+      c.header('X-Zg-Cache', 'EDGE-HIT')
+      return c.body(hit.body, 200)
+    }
+  }
+
+  // --- ② 内存缓存命中（单实例）---
   const e = API_CACHE.get(k)
   if (e && e.expireAt > Date.now()) {
     const ifNm = c.req.header('if-none-match')
@@ -781,7 +833,7 @@ app.use('*', async (c, next) => {
       return c.body(null, 304)
     }
     c.header('Content-Type', e.type)
-    c.header('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}, s-maxage=${Math.floor(ttl / 1000)}, stale-while-revalidate=120`)
+    c.header('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
     c.header('ETag', e.etag)
     c.header('X-Zg-Cache', `HIT-${Math.floor((e.expireAt - Date.now()) / 1000)}s`)
     return c.body(e.body)
@@ -807,9 +859,11 @@ app.use('*', async (c, next) => {
       API_CACHE.set(k, { body, type: contentType, expireAt: Date.now() + ttl, etag })
       const headers = new Headers(c.res.headers)
       headers.set('ETag', etag)
-      headers.set('Cache-Control', `public, max-age=${Math.floor(ttl / 1000)}, s-maxage=${Math.floor(ttl / 1000)}, stale-while-revalidate=120`)
+      headers.set('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
       headers.set('X-Zg-Cache', 'MISS')
       c.res = new Response(body, { status: c.res.status, headers })
+      // --- ③ 写入边缘缓存（跨实例共享，覆盖冷启动/跨节点回源）---
+      if (edgeKey) await edgeCachePut(c, body, c.res.status, ttlSec)
     }
   } catch {}
 })

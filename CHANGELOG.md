@@ -20,12 +20,11 @@
 - `MobileTabBar.vue`：dock 高度 58→68px、圆角 29→34px；选中透镜 50→60px；图标 22→26px；标签 10→12px；tab 触摸高度 50→60px、间距 3→4px；经典档 dock 同步加高加宽。每个按钮占地明显变大、更跟手。
 - 触摸目标：按钮/输入 `min-height` 由 40→**44px**（苹果 HIG 舒适下限），更跟手、不误触。
 
-### ⚡ 后端 D1 提速（worker-api.ts，待有效部署凭证后上线）
+### ⚡ 后端 D1 提速（worker-api.ts，已部署上线）
 - API 内存缓存默认 TTL 15s→**30s**；公共只读接口（`/subjects`、`/articles`、`/leaderboard`、`/pages`、`/themes`、`/feature-flags`）延长至 **60s**。
-- `Cache-Control` 由 `public, max-age=N` 升级为 `public, max-age=N, s-maxage=N, stale-while-revalidate=120`：公共只读响应走 Cloudflare 边缘缓存（连 Worker/D1 都不碰），重复读取近乎瞬时；浏览器/CDN 在过期后先返回略旧缓存、后台再刷新，感知延迟趋近于零。写操作仍会清全缓存保证一致。
-- 热路径（`/api/subjects`、`/api/leaderboard` 等）本就是单条批量查询、无 N+1，瓶颈确为缓存 TTL 过短与缺 SWR，本次已对症。
-
-> ⚠️ 后端变更已写入 `worker-api.ts` 并完成代码审阅，但本环境 `.cf_token` 已失效（Cloudflare 返回 `Invalid access token [code: 9109]`），暂无法 `wrangler deploy`。前端（Pages）已随 `git push` 自动构建生效；后端部分需使用有效 `CLOUDFLARE_API_TOKEN` 重新 `npx wrangler deploy` 后方生效。
+- **边缘缓存（根治「D1 拉取太慢」）**：实测 `api.xkzg.de5.net` 是 Worker 自定义域名、前置无自动 CDN 缓存层，`Cache-Control: s-maxage` 头被忽略（响应头无 `cf-cache-status`、跨实例仍回源 5~8s）。改为在 `worker-api.ts` 用 Cloudflare **Cache API（`caches.default`）** 显式做边缘缓存，跨全部实例/节点共享；公共只读接口（`/subjects`、`/leaderboard`、`/pages`、`/themes`、`/feature-flags`，内容对所有用户一致）缓存 60s，重复读取毫秒级命中、不再打 D1。命中响应带 `X-Zg-Cache: EDGE-HIT`，经 `c.body()` 继承 CORS 头避免跨域失败。
+- 热路径（`/api/subjects`、`/api/leaderboard` 等）本就是单条批量查询、无 N+1，瓶颈确为缓存 TTL 过短且无跨实例缓存，本次已对症。
+- **部署**：已用有效 `CLOUDFLARE_API_TOKEN` 完成 `npx wrangler deploy`，`zhuiguang-api` v4.4.30 已上线（Version ID 见部署日志）。前端（Pages）此前已随 `git push` 生效。
 
 ---
 
