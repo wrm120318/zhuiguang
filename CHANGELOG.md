@@ -20,6 +20,11 @@
 - Markdown 此前被暴力降级为纯文本（公式删光、图片变`[图片]`）→ 现公式转图、图片内嵌。
 - 答题卡此前为裸"答：____" → 现选择题带填涂格。
 
+### 🔧 维护（双后端同步 · 满足"双后端必须同步"铁律）
+- **背景**：v4.5.0 热修与 v4.5.1 只改了生产 Worker（`worker-api.ts`），本地后端 `server/index.ts` 未同步。
+- `server/index.ts` 补齐：新增 `parseFileId()`（兼容 `/api/file/{id}`、绝对外链、裸 id；本地原始存储 key 含扩展名→返回 null，安全 no-op）；`POST /api/resources` 归一化 `file_path` 并写入 `file_id`、审核通过翻 `file_meta` 公开；`PATCH /api/resources/:id/status` 补 `file_id`/`file_path` 与 `file_meta` 翻公开；`POST /api/resources/:id/download` 先经 `file_meta→object_key` 取文件再 legacy 兜底；新增 `GET /api/users/me/wrong-questions`（错题卡后端，与 Worker 同逻辑）。
+- 验证：`tsx` 启动正常；超管登录后该端点 200；资源创建 `parseFileId` 对原始 key 为 no-op、`file_id=null`；PATCH→approved 200。**仅本地后端改动，不影响生产。**
+
 ## [v4.5.0-hotfix] - 2026-09-18
 
 > **紧急热修：修复文件上传标签错误导致下载瘫痪。**

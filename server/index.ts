@@ -1220,6 +1220,20 @@ app.delete('/api/pages/:id/comments/:commentId', auth, async (req, res) => {
 })
 
 // ============ 资料 ============
+// 从各种形态的输入中提取 fileId（v4.5.0 热修 / v4.5.1 同步 Worker）：
+//   /api/file/{id}                 → {id}
+//   https://host/api/file/{id}     → {id}（前端 fileUrl() 会把相对路径补全为绝对外链写入库，需兼容）
+//   裸 id（字母数字串）             → 原样返回
+// 注意：本地 dev 上传返回的是原始存储 key（含扩展名如 file_xxx.pdf），正则不匹配 → 返回 null，保持原样。
+function parseFileId(input?: string | null): string | null {
+  if (!input) return null
+  const s = String(input).trim()
+  const m = s.match(/\/api\/file\/([A-Za-z0-9_-]+)/)
+  if (m) return m[1]
+  if (/^[A-Za-z0-9_-]{8,}$/.test(s)) return s
+  return null
+}
+
 app.get('/api/resources', async (req, res) => {
   const { subjectId, status, mine, userId } = req.query
   const me = await parseOptionalAuth(req)
@@ -1271,18 +1285,24 @@ app.post('/api/resources', auth, async (req, res) => {
   }
   // 教师/管理员上传的资料自动审核通过；学生上传需待审核
   const status = (u?.role === 'SUPER_ADMIN' || u?.role === 'TEACHER') ? 'approved' : 'pending'
-  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status)
+  // 【v4.5.0 热修 / v4.5.1 同步 Worker】前端 fileUrl() 可能把 /api/file/{id} 补全为绝对外链写入库，
+  // 这里统一归一化为相对路径 /api/file/{id}（本地 dev 上传返回的是原始 key，parseFileId 对其返回 null，保持原样）。
+  const fileId = b.fileId || parseFileId(b.filePath)
+  const filePath = fileId ? `/api/file/${fileId}` : (b.filePath || '')
+  const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status,file_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, filePath, b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status, fileId)
   const rid = Number(r.lastInsertRowid)
   // 【v4 Bug1】资料上传者直接加经验值（教师/超管直接 approved 不会再走 status 审核路径）
   if (status === 'approved') {
     await addExp(id, undefined, 'resource', `上传资料《${b.title}》`, b.subjectId)
+    // v4.4.0 审核通过（教师/超管直传即 approved）→ 关联文件翻为公开可缓存
+    if (fileId) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fileId)
   }
   res.json({ id: rid, status })
 })
 
 app.patch('/api/resources/:id/status', auth, async (req, res) => {
-  const r = await get<any>('SELECT title, user_id, status, subject_id FROM resources WHERE id=?', req.params.id)
+  const r = await get<any>('SELECT title, user_id, status, subject_id, file_id, file_path FROM resources WHERE id=?', req.params.id)
   if (!r) return res.status(404).json({ message: '不存在' })
   const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', (req as any).user.id)
   if (!(await canManageSubject(u, r.subject_id, (req as any).user.id))) return res.status(403).json({ message: '无权限审核该学科的资料' })
@@ -1290,6 +1310,9 @@ app.patch('/api/resources/:id/status', auth, async (req, res) => {
   if (req.body.status === 'approved' && r.status !== 'approved') {
     await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`, r.subject_id)
     await addNotice(r.user_id, '资料审核通过', `《${r.title}》已通过审核。`, 'audit')
+    // v4.4.0 审核通过 → 关联文件翻为公开可缓存（兼容绝对外链形式的 file_path）
+    const fid = r.file_id || parseFileId(r.file_path)
+    if (fid) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fid)
   }
   res.json({ ok: true })
 })
@@ -1337,7 +1360,15 @@ app.post('/api/resources/:id/download', auth, async (req, res) => {
     }
   }
   if (!r.file_path) return res.status(404).json({ message: '文件不存在，可能已被清理' })
-  const file = await downloadFile(r.file_path)
+  // 【v4.5.0 热修 / v4.5.1 同步 Worker】file_path 为 /api/file/{id} 或前端补全的绝对外链时，
+  // 统一经 file_meta 解析 object_key 后下载（兼容 B2 / Supabase / 本地磁盘）；本地原始 key 则走 legacy 分支。
+  let file: { buffer: Buffer; contentType?: string } | null = null
+  const dlFid = parseFileId(r.file_path)
+  if (dlFid) {
+    const m = await get<any>('SELECT * FROM file_meta WHERE file_id=?', dlFid)
+    if (m?.object_key) file = await downloadFile(m.object_key)
+  }
+  if (!file) file = await downloadFile(r.file_path) // legacy 兜底（本地原始 key）
   if (!file) return res.status(404).json({ message: '文件不存在，可能已被清理' })
   const filename = r.file_name || r.title || 'download'
   setDownloadHeaders(res, filename)
@@ -1359,6 +1390,21 @@ app.post('/api/resources/:id/like', auth, async (req, res) => {
     await addNotice(Number(r.user_id), '资料收到点赞', `${u?.real_name || '有人'} 点赞了你的资料《${r.title}》`, 'like', `/resource/${req.params.id}`)
   }
   res.json({ liked: true })
+})
+
+// 学生错题本：返回当前用户答错（correct=0）的去重题目，可附 subject_id 过滤（对标智学网错题卡；v4.5.1 同步 Worker）
+app.get('/api/users/me/wrong-questions', auth, async (req, res) => {
+  const uid = (req as any).user.id
+  const sid = req.query.subject_id as string | undefined
+  const rows = await all<any>(`SELECT DISTINCT sq.*, s.name AS subject_name, ps.submitted_at
+    FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id LEFT JOIN subjects s ON s.id=sq.subject_id
+    WHERE ps.user_id=? AND ps.correct=0 ${sid ? 'AND sq.subject_id=?' : ''}
+    ORDER BY ps.submitted_at DESC`, ...(sid ? [uid, Number(sid)] : [uid]))
+  const out = await Promise.all(rows.map(async (r: any) => {
+    const kp = await all<any>('SELECT kp.id, kp.name FROM question_knowledge qk JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id WHERE qk.question_id=?', r.id)
+    return { ...r, options: j(r.options), knowledge_points: kp }
+  }))
+  res.json(out)
 })
 
 // ============ 收藏 ============
