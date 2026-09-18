@@ -471,7 +471,7 @@ async function onExport() {
       </el-form-item>
       <el-form-item label="字号"><el-slider v-model="cfg.fontSize" :min="10" :max="16" /> <span class="fs-hint">{{ cfg.fontSize }}pt</span></el-form-item>
       <el-alert type="info" :closable="false" title="说明"
-        description="Word 导出在浏览器端完成，使用免费开源库 docx.js，零成本。公式通过 KaTeX 渲染为图片、图片内嵌进文档；复杂排版建议在网页端最终校对。" />
+        description="Word 导出在浏览器端完成，使用免费开源库 docx.js，零成本。公式导出为 Word 原生公式（OMML），可直接在 Word 中编辑；复杂排版建议在网页端最终校对。" />
       <el-button type="primary" :disabled="!props.items.length" @click="onExport" icon="Download">生成并下载 Word</el-button>
     </el-form>
   </div>
