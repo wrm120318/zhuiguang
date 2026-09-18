@@ -5,6 +5,17 @@
 
 ---
 
+## [v4.5.0-hotfix] - 2026-09-18
+
+> **紧急热修：修复文件上传标签错误导致下载瘫痪。**
+
+### 🐛 修复
+- **根因**：v4.4.3 起 `fileUrl()` 把上传返回的 `/api/file/{id}` 补全为绝对外链 `https://api.xkzg.de5.net/api/file/{id}` 并写入 `resources.file_path`；而资源下载路由只在 `file_path` 以 `/api/file/` 开头时才走 `serveFileById`，绝对外链掉进 `downloadFile()`（Supabase 旧分支）→ 文件实际在 B2 → "文件不存在"，下载全部瘫痪。
+- **下载端点**（POST /api/resources/:id/download）：新增 `parseFileId`，兼容 `/api/file/{id}`、绝对外链、裸 id 三种形态，统一走 `serveFileById` 经 B2/Supabase 取文件。
+- **资源创建/审核端点**：从绝对外链正确提取 `file_id` 并归一化 `file_path` 为相对路径。
+- **生产数据修复**：将 `resources.file_path` 中绝对外链归一化为相对路径、补 `file_id`，已审核资源的 `file_meta` 翻为公开可缓存（头像等旧 Supabase 形态链接保持不变）。
+- 端到端验证：原瘫痪资料 `id=23`（.docx, 600KB）经 `https://api.xkzg.de5.net/api/file/nfay...` 返回 HTTP 200、正确 Content-Type 与中文文件名。
+
 ## [v4.5.0] - 2026-09-18
 
 > **全新「智能题库（在线组卷平台）」上线：在原有学科题库/单题自测基础上，升级为围绕智能选题、自主组卷、格式导出、在线测评四大能力的一站式组卷平台；同时补齐知识点体系、题目二次编辑、多学科教师、纠错反馈、个人题库等能力。零成本、铁律6/7/11。**
