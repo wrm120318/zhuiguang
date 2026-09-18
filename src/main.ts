@@ -36,6 +36,19 @@ const ZG_ICONS = [
   'SwitchButton', 'HomeFilled', 'Reading', 'Notebook', 'EditPen', 'Promotion', 'Edit',
   'ZoomIn', 'Key', 'DataLine', 'UserFilled', 'School', 'CircleCheck', 'TrendCharts',
   'Tickets', 'Grid', 'Brush', 'Monitor', 'ArrowLeft', 'Tools', 'Loading',
+  // 【v4.5.2 修复】智能题库/题库导出等页面图标全部无法显示：
+  //   图标以 <el-button icon="Xxx" /> 字符串形式使用，必须全局注册才能解析；
+  //   ZgGlyph（emoji→SVG）内部映射引用的名称同样需注册，否则墨金模式下图标空白。
+  'Aim', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Basketball', 'Bottom',
+  'Box', 'Calendar', 'Camera', 'CaretBottom', 'CaretTop', 'Cellphone',
+  'ChatLineRound', 'Check', 'CircleClose', 'CirclePlus', 'Clock', 'Cloudy',
+  'Coin', 'Collection', 'Compass', 'Connection', 'Cpu', 'Delete',
+  'Document', 'Download', 'Files', 'Film', 'Flag', 'Folder',
+  'FolderOpened', 'GoldMedal', 'Lightning', 'Link', 'LocationFilled', 'Lock',
+  'MagicStick', 'Medal', 'Memo', 'OfficeBuilding', 'Operation', 'Paperclip',
+  'Picture', 'Plus', 'Pointer', 'Postcard', 'Present', 'PriceTag',
+  'Printer', 'Refresh', 'Switch', 'Timer', 'Top', 'Upload',
+  'VideoCamera', 'View', 'Warning',
 ]
 for (const name of ZG_ICONS) {
   app.component(name, (ElementPlusIconsVue as Record<string, any>)[name])

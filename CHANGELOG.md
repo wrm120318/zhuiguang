@@ -5,6 +5,19 @@
 
 ---
 
+## [v4.5.2] - 2026-09-18
+
+> **热修：智能题库（及全站）图标全部无法显示。**
+
+### 🐛 修复
+- **根因**：图标以字符串形式使用（`<el-button icon="MagicStick" />`），Element Plus 需**全局注册**该图标组件才能解析。`src/main.ts` 的 `ZG_ICONS` 白名单只注册了 30 个，而 v4.5.0/v4.5.1 新增页面用到的 `MagicStick`/`Postcard`/`Collection`/`Printer`/`CirclePlus`/`Top`/`Bottom`/`Upload`/`Download`/`Delete`/`Plus`/`Check`/`Files` 等**均未注册** → 渲染为空白。
+- 叠加：`ZgGlyph.vue`（emoji→金色 SVG 双渲染）内部映射了 **80 个**图标名，其中 **41 个未注册**（`Aim`/`Paperclip`/`Timer`/`Clock`/`Calendar`/`Memo`/`Pointer`/`Folder`/`Picture` 等）→ 墨金模式下全站 emoji 图标同样空白。
+- **修复**：`ZG_ICONS` 白名单补注册 **57 个**图标（30 → 87）。已校验 87 个名称全部真实存在于 `@element-plus/icons-vue`，且覆盖全站 86 个需求图标，**零遗漏、零无效名**。
+
+### 🧪 验证
+- `npm run build` 通过；产物中 16 个关键图标全部存在。
+- 无头浏览器实测：应用正常挂载、**控制台零错误**、SVG 图标正确渲染。
+
 ## [v4.5.1] - 2026-09-18
 
 > **智能题库高端化（对标组卷网/智学网）：修掉导出 bug + 补齐专业组卷/制卡能力。**
