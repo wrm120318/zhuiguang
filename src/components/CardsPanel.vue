@@ -60,8 +60,8 @@ const qtName = (t: any) => QT[t] || t
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
             <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
           </div>
-          <div class="card-ans"><b>答案：</b>{{ q.answer }}</div>
-          <div v-if="q.analysis" class="card-ana"><b>解析：</b>{{ q.analysis }}</div>
+          <div class="card-ans"><b>答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
+          <div v-if="q.analysis" class="card-ana"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>
           <div v-if="q.knowledge_points?.length" class="card-kp"><el-tag v-for="k in q.knowledge_points" :key="k.id" size="small" type="warning" effect="plain">{{ k.name }}</el-tag></div>
         </div>
       </template>
@@ -76,8 +76,8 @@ const qtName = (t: any) => QT[t] || t
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
             <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
           </div>
-          <div class="card-ans"><b>正确答案：</b>{{ q.answer }}</div>
-          <div v-if="q.analysis" class="card-ana"><b>解析：</b>{{ q.analysis }}</div>
+          <div class="card-ans"><b>正确答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
+          <div v-if="q.analysis" class="card-ana"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>
         </div>
       </template>
 
@@ -85,10 +85,10 @@ const qtName = (t: any) => QT[t] || t
       <template v-else>
         <div v-if="!kpGroups.length" class="empty">暂无知识点关联的题目。</div>
         <div v-for="g in kpGroups" :key="g.id" class="card kp">
-          <div class="card-head kp-head">📘 {{ g.name }}（{{ g.items.length }} 题）</div>
+          <div class="card-head kp-head"><ZgGlyph emoji="📘" /> {{ g.name }}（{{ g.items.length }} 题）</div>
           <div v-for="(q, i) in g.items" :key="q.id" class="kp-item">
             <div class="card-q" v-html="renderMarkdown(q.content)" />
-            <div class="card-ans"><b>答案：</b>{{ q.answer }}</div>
+            <div class="card-ans"><b>答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
           </div>
         </div>
       </template>
@@ -107,9 +107,21 @@ const qtName = (t: any) => QT[t] || t
 .ct { font-size: 12px; color: #BA7517; background: rgba(245,158,11,0.12); padding: 0 8px; border-radius: 6px; }
 .cs { font-size: 12px; color: #888; }
 .card-q { line-height: 1.7; }
-.card-opts { margin: 6px 0; display: flex; flex-direction: column; gap: 2px; }
-.card-ans { margin-top: 6px; font-weight: 600; }
-.card-ana { margin-top: 2px; color: #555; }
+/* 【v4.5.3】选项字母与内容同行（与题库页同一修复） */
+.card-opts { margin: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.card-opts > div { display: flex; align-items: baseline; gap: 6px; line-height: 1.7; }
+.card-opts > div > b { flex: 0 0 auto; min-width: 18px; }
+.card-opts > div > span { flex: 1 1 auto; min-width: 0; }
+.card-opts > div > span :deep(p) { display: inline; margin: 0; }
+.card-opts > div > span :deep(.katex-display) { display: inline-block; margin: 0; vertical-align: middle; }
+.card-ans { margin-top: 6px; font-weight: 600; display: flex; align-items: baseline; gap: 4px; }
+.card-ans > b { flex: 0 0 auto; }
+.card-ans > span { flex: 1 1 auto; min-width: 0; font-weight: 400; }
+.card-ans > span :deep(p) { display: inline; margin: 0; }
+.card-ana { margin-top: 4px; color: #555; display: flex; align-items: baseline; gap: 4px; }
+.card-ana > b { flex: 0 0 auto; }
+.card-ana > span { flex: 1 1 auto; min-width: 0; }
+.card-ana > span :deep(p) { display: inline; margin: 0; }
 .card-kp { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 .kp-item { border-top: 1px dashed rgba(0,0,0,0.08); padding-top: 6px; margin-top: 6px; }
 .empty { padding: 30px; text-align: center; color: #999; }

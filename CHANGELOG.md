@@ -5,6 +5,36 @@
 
 ---
 
+## [v4.5.3] - 2026-09-18
+
+> **智能题库体验修复（第 1 批）：选项排版崩坏 / 答案不可见 / 版面浪费 / Word 导出公式丢失。**
+
+### 🐛 修复（实测定位）
+- **选项排版断裂**：`.q-opt` 无 flex 布局，`renderMarkdown` 输出的块级元素（KaTeX 公式等）把选项字母挤到上一行，出现「A.⏎√2」断裂。改为 flex 行内对齐 + 选项内块级元素转行内。
+- **列表看不到答案/解析**：核对题目必须点进编辑页，效率极低。新增「显示答案」开关，题目卡内联展示答案 + 解析（组卷场景高频）。
+- **版面浪费**：`.bank-page` 限宽 1080px，1440 屏右侧大片留白。对齐全站 `zg-container` 约定改为 1280px + 左右内边距。
+- **Word 导出公式全丢（真修，两层根因）**：
+  - 第一层：`blob:` URL + SVG `foreignObject` 会**污染 canvas**，`toBlob` 抛 `SecurityError: Tainted canvases may not be exported`，被 `catch` 静默吞掉 → 导出 **0 张图片**，LaTeX 原文（`\sqrt{2}`、`\pi`）直接漏进正文。
+  - 第二层：改用 `data:` URL 后 canvas 不再污染，但 **KaTeX 字体（`KaTeX_Main` 等）在 SVG/canvas 上下文中处于 unloaded 状态**，字形画不出来 → 导出的是**空白图片**（非白像素 0）。
+  - **最终方案**：放弃图片路线，改用 **docx v9 内置 OMML 原生公式**（`Math`/`MathRun`/`MathFraction`/`MathRadical`/`MathSubScript`/`MathSuperScript`/`MathSubSuperScript`）。矢量清晰、**在 Word 中可直接编辑**、零字体依赖、体积小、零成本。图片路线保留为兜底。
+- **`Math` 导入冲突**：docx 导出的组件名就叫 `Math`，会**覆盖全局 `Math` 对象**，导致 `Math.max/min/round/floor` 全部 TS2339 + 运行时异常。必须 `import { Math as MathOMML }` 重命名。
+- **`<script setup>` 禁止 ESM 导出**：`latexToOmml` 一度写成 `export function`，构建直接失败（`<script setup> cannot contain ES module exports`）。
+
+### ✨ 优化
+- 难度徽标改为「星级 + 文字」复合显示（`难度 3`），并补「满分 N」标签，信息密度更接近组卷网。
+- 星级尺寸收敛（14px），消除灰幽灵观感。
+- `CardsPanel` 答案/解析改为 `renderMarkdown()` 渲染（此前裸 `v-html`，公式不渲染）；`📘` 硬编码 emoji 换 `ZgGlyph`。
+- 清理死代码 `collectKatexCss`。
+
+### 🧪 验证（浏览器实测，非推断）
+- **OMML 转换器单元测试**：用 esbuild 编译**线上同一份实现**，跑 25 个中学公式用例（含 `\sqrt[n]{}`、嵌套分式、上下标、化学方程式、`\text{}`），**25/25 通过**，空串与未闭合 `\frac{1` 均安全兜底不抛异常。
+- **端到端导出实测**：无头浏览器登录 → 题库 → 入篮 6 题 → 试题篮 → 导出 Word。
+  - 产物 `all.docx` 10472 字节；解包 `word/document.xml` 核对：**`<m:oMath>` × 20**、`<m:f>` 分式 × 4、`<m:rad>` 根式 × 4、`<m:sSup>` 上标 × 10、`<m:sSub>` 下标 × 6、**图片 0 张**、**LaTeX 反斜杠残留 0**。
+  - 嵌套结构正确：`\frac{-b+\sqrt{b^2-4ac}}{2a}` → `<m:f>` 分母 `2a`、分子内含 `<m:rad>` 包 `<m:sSup>`。
+- 无头浏览器全程**控制台零错误**、**零 `[katexToImage]` 兜底日志**（说明 20 个公式全部走 OMML，无一个降级）。
+- `npm run build` 通过（`vue-tsc --noEmit` 干净）。
+- 测试用题目 #6 已删除，本地库恢复原始 5 题，未留脏数据。
+
 ## [v4.5.2] - 2026-09-18
 
 > **热修：智能题库（及全站）图标全部无法显示。**

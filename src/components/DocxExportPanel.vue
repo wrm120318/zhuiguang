@@ -7,7 +7,9 @@
 //  · 专业答题卡（选择题填涂格 + 非选择作答区）
 //  · 3 套模板真正生效、字号生效、公式(KaTeX→图)/图片尽力保留
 import { ref, reactive } from 'vue'
-import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, PageBreak, Table, TableRow, TableCell, WidthType, BorderStyle } from 'docx'
+// 【v4.5.3】docx 的 Math 组件必须重命名导入：它叫 Math，会覆盖全局 Math 对象，
+// 导致 Math.max/min/round/floor 全部报错（TS2339）。统一别名 MathOMML。
+import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, PageBreak, Table, TableRow, TableCell, WidthType, BorderStyle, Math as MathOMML, MathRun, MathFraction, MathRadical, MathSubScript, MathSuperScript, MathSubSuperScript } from 'docx'
 import { saveAs } from 'file-saver'
 import katex from 'katex'
 import { API_BASE } from '@/utils/helpers'
@@ -66,18 +68,183 @@ async function fetchImage(url: string): Promise<{ data: ArrayBuffer; type: 'png'
   } catch { return null }
 }
 
-let _katexCss = ''
-function collectKatexCss() {
-  if (_katexCss) return _katexCss
-  try {
-    for (const ss of Array.from(document.styleSheets)) {
-      let rules: any[] = []
-      try { rules = Array.from(ss.cssRules) } catch { continue }
-      for (const rule of rules) { const t = (rule as any).cssText || ''; if (t.includes('katex')) _katexCss += t + '\n' }
+/**
+ * 【v4.5.3 真修】把 KaTeX 渲染出的 DOM 的**计算样式内联**到每个节点。
+ * 原因：SVG <img> 加载时，<style> 里的 CSS 类规则不会应用到 foreignObject 内的 HTML
+ *      （只认元素上的内联 style），因此直接把 computedStyle 拍到 style 属性上。
+ * 只保留影响视觉的关键属性，避免体积爆炸。
+ */
+const INLINE_STYLE_PROPS = [
+  'display', 'position', 'top', 'left', 'margin', 'margin-top', 'margin-left', 'margin-right', 'margin-bottom',
+  'padding', 'border-width', 'border-style', 'border-color', 'font-family', 'font-size', 'font-weight', 'font-style',
+  'line-height', 'vertical-align', 'white-space', 'letter-spacing', 'color', 'background-color', 'text-align',
+  'width', 'height', 'min-width', 'min-height', 'max-width', 'box-sizing', 'overflow', 'transform', 'top', 'bottom',
+]
+function inlineComputedStyles(src: HTMLElement): string {
+  const clone = src.cloneNode(true) as HTMLElement
+  const srcNodes = [src, ...Array.from(src.querySelectorAll<HTMLElement>('*'))]
+  const cloneNodes = [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('*'))]
+  for (let i = 0; i < srcNodes.length; i++) {
+    const s = window.getComputedStyle(srcNodes[i])
+    const cl = cloneNodes[i]
+    if (!cl) continue
+    const parts: string[] = []
+    for (const prop of INLINE_STYLE_PROPS) {
+      const v = s.getPropertyValue(prop)
+      if (v && v !== 'normal' && v !== 'auto' && v !== 'none' && v !== '0px' && v !== 'rgba(0, 0, 0, 0)') parts.push(`${prop}:${v}`)
     }
-  } catch { /* ignore */ }
-  return _katexCss
+    cl.setAttribute('style', parts.join(';'))
+  }
+  return clone.outerHTML
 }
+
+// ============================================================================
+// 【v4.5.3 真修】LaTeX → OMML（Word 原生公式）
+// 背景：此前用「KaTeX 渲染 → SVG(foreignObject) → canvas → PNG」，
+//   ① blob: URL 会让 canvas 被污染（toBlob 抛 SecurityError）；
+//   ② 改用 data: URL 后仍失败——KaTeX 字体（KaTeX_Main 等）在 SVG/canvas 上下文中
+//      处于 unloaded 状态，字形画不出来 → 导出的是**空白图片**。
+// 方案：直接生成 Word 原生公式（OMML），docx v9 内置 Math* 组件支持。
+//   优点：矢量清晰、可在 Word 中编辑、无字体依赖、体积小。零成本。
+//   仅覆盖中学题库常见语法；无法解析的退化为纯文本（绝不丢内容）。
+// ============================================================================
+const MATH_TEX_CMD: Record<string, string> = {
+  '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\epsilon': 'ε', '\\varepsilon': 'ε',
+  '\\theta': 'θ', '\\lambda': 'λ', '\\mu': 'μ', '\\pi': 'π', '\\rho': 'ρ', '\\sigma': 'σ', '\\tau': 'τ',
+  '\\phi': 'φ', '\\varphi': 'φ', '\\omega': 'ω', '\\Delta': 'Δ', '\\Omega': 'Ω', '\\Sigma': 'Σ', '\\Lambda': 'Λ',
+  '\\times': '×', '\\div': '÷', '\\pm': '±', '\\mp': '∓', '\\cdot': '·', '\\ast': '∗',
+  '\\le': '≤', '\\leq': '≤', '\\ge': '≥', '\\geq': '≥', '\\ne': '≠', '\\neq': '≠', '\\approx': '≈', '\\equiv': '≡',
+  '\\infty': '∞', '\\in': '∈', '\\notin': '∉', '\\subset': '⊂', '\\subseteq': '⊆', '\\cup': '∪', '\\cap': '∩',
+  '\\emptyset': '∅', '\\varnothing': '∅', '\\forall': '∀', '\\exists': '∃', '\\nabla': '∇',
+  '\\rightarrow': '→', '\\to': '→', '\\leftarrow': '←', '\\Rightarrow': '⇒', '\\Leftarrow': '⇐',
+  '\\leftrightarrow': '↔', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '…', '\\angle': '∠', '\\perp': '⊥',
+  '\\parallel': '∥', '\\sim': '∼', '\\cong': '≅', '\\because': '∵', '\\therefore': '∴', '\\degree': '°',
+  '\\sin': 'sin', '\\cos': 'cos', '\\tan': 'tan', '\\cot': 'cot', '\\sec': 'sec', '\\csc': 'csc',
+  '\\log': 'log', '\\ln': 'ln', '\\lg': 'lg', '\\max': 'max', '\\min': 'min', '\\lim': 'lim',
+  '\\circ': '∘', '\\prime': '′', '\\%': '%', '\\{': '{', '\\}': '}', '\\_': '_', '\\$': '$', '\\&': '&', '\\#': '#',
+}
+
+/** 把一段简单 LaTeX 文本转为 MathRun 序列（处理转义命令与单字符） */
+function texToMathRuns(tex: string): any[] {
+  const runs: any[] = []
+  let buf = ''
+  const flush = () => { if (buf) { runs.push(new MathRun(buf)); buf = '' } }
+  let i = 0
+  while (i < tex.length) {
+    const ch = tex[i]
+    if (ch === '\\') {
+      // 命令：尽可能取最长匹配（\alpha、\leq…）
+      let cmd = ch
+      let j = i + 1
+      if (j < tex.length && /[a-zA-Z]/.test(tex[j])) {
+        while (j < tex.length && /[a-zA-Z]/.test(tex[j])) j++
+        cmd = tex.slice(i, j)
+      } else { j = i + 2; cmd = tex.slice(i, j) }
+      flush()
+      runs.push(new MathRun(MATH_TEX_CMD[cmd] ?? cmd.replace(/^\\/, '')))
+      i = j
+      continue
+    }
+    if (ch === '{' || ch === '}') { i++; continue } // 分组括号本身不出现在行内
+    if (ch === ' ') { flush(); runs.push(new MathRun(' ')); i++; continue }
+    buf += ch; i++
+  }
+  flush()
+  return runs.length ? runs : [new MathRun('')]
+}
+
+/** 取出 {…} 分组内容（支持一层嵌套），返回 [内容, 新索引] */
+function readGroup(tex: string, start: number): [string, number] {
+  while (start < tex.length && tex[start] === ' ') start++
+  if (tex[start] !== '{') {
+    // 无花括号：单个字符或单个命令
+    if (tex[start] === '\\') { let j = start + 1; while (j < tex.length && /[a-zA-Z]/.test(tex[j])) j++; return [tex.slice(start, j), j] }
+    return [tex.slice(start, start + 1), start + 1]
+  }
+  let depth = 0, i = start, out = ''
+  for (; i < tex.length; i++) {
+    const c = tex[i]
+    if (c === '{') { depth++; if (depth === 1) continue }
+    else if (c === '}') { depth--; if (depth === 0) { i++; break } }
+    out += c
+  }
+  return [out, i]
+}
+
+/**
+ * LaTeX → OMML（Word 原生公式）。
+ * 支持：\frac、\sqrt（含 \sqrt[n]）、上下标 _ ^、\text/\mathrm、常见符号命令。
+ * 返回 Math 组件；解析异常时返回 null（调用方退化为纯文本）。
+ */
+function latexToOmml(tex: string): any | null {
+  try {
+    return new MathOMML({ children: parseTexNode(tex) })
+  } catch { return null }
+}
+
+function parseTexNode(tex: string): any[] {
+  const out: any[] = []
+  let i = 0
+  const pushRuns = (s: string) => { if (s) out.push(...texToMathRuns(s)) }
+  let pending = ''
+  while (i < tex.length) {
+    const rest = tex.slice(i)
+    // \frac{a}{b}
+    if (rest.startsWith('\\frac') || rest.startsWith('\\dfrac') || rest.startsWith('\\tfrac')) {
+      pushRuns(pending); pending = ''
+      const cmdLen = rest.startsWith('\\dfrac') || rest.startsWith('\\tfrac') ? 6 : 5
+      const [num, j1] = readGroup(tex, i + cmdLen)
+      const [den, j2] = readGroup(tex, j1)
+      out.push(new MathFraction({
+        numerator: parseTexNode(num),
+        denominator: parseTexNode(den),
+      }))
+      i = j2; continue
+    }
+    // \sqrt[n]{a} 或 \sqrt{a}
+    if (rest.startsWith('\\sqrt')) {
+      pushRuns(pending); pending = ''
+      let j = i + 5
+      let degree: any = null
+      if (tex[j] === '[') { const close = tex.indexOf(']', j); if (close > -1) { degree = parseTexNode(tex.slice(j + 1, close)); j = close + 1 } }
+      const [rad, j2] = readGroup(tex, j)
+      const opts: any = { children: parseTexNode(rad) }
+      if (degree) opts.degree = degree
+      out.push(new MathRadical(opts))
+      i = j2; continue
+    }
+    // 上标/下标：^ 与 _ 可组合
+    if (tex[i] === '^' || tex[i] === '_') {
+      pushRuns(pending); pending = ''
+      const base = out.pop() ?? new MathRun('')
+      let sup: any[] | null = null, sub: any[] | null = null
+      let j = i
+      for (let k = 0; k < 2 && j < tex.length && (tex[j] === '^' || tex[j] === '_'); k++) {
+        const isSup = tex[j] === '^'
+        const [g, j2] = readGroup(tex, j + 1)
+        if (isSup) sup = parseTexNode(g); else sub = parseTexNode(g)
+        j = j2
+      }
+      if (sup && sub) out.push(new MathSubSuperScript({ children: [base], subScript: sub, superScript: sup }))
+      else if (sup) out.push(new MathSuperScript({ children: [base], superScript: sup }))
+      else if (sub) out.push(new MathSubScript({ children: [base], subScript: sub }))
+      else out.push(base)
+      i = j; continue
+    }
+    // \text{…} / \mathrm{…} → 直排文字
+    if (rest.startsWith('\\text') || rest.startsWith('\\mathrm') || rest.startsWith('\\operatorname')) {
+      pushRuns(pending); pending = ''
+      const cmd = rest.startsWith('\\operatorname') ? 13 : (rest.startsWith('\\mathrm') ? 7 : 5)
+      const [g, j2] = readGroup(tex, i + cmd)
+      pushRuns(g)
+      i = j2; continue
+    }
+    pending += tex[i]; i++
+  }
+  pushRuns(pending)
+  return out
+}
+
 async function katexToImage(tex: string): Promise<{ data: ArrayBuffer; type: 'png'; w: number; h: number } | null> {
   try {
     const host = document.createElement('div')
@@ -85,30 +252,39 @@ async function katexToImage(tex: string): Promise<{ data: ArrayBuffer; type: 'pn
     document.body.appendChild(host)
     katex.render(tex, host, { throwOnError: false, displayMode: false })
     const ke = host.querySelector('.katex') as HTMLElement
-    if (!ke) { document.body.removeChild(host); return null }
+    if (!ke) { document.body.removeChild(host); console.warn('[katexToImage] 未渲染出 .katex:', tex); return null }
     const w = Math.max(ke.offsetWidth, 12), h = Math.max(ke.offsetHeight, 12)
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><style>${collectKatexCss()}</style><foreignObject x="0" y="0" width="${w}" height="${h}">${ke.outerHTML}</foreignObject></svg>`
-    const blob = new Blob([svg], { type: 'image/svg+xml' })
-    const u = URL.createObjectURL(blob)
+    // 内联计算样式后再塞进 foreignObject（<style> 类规则在 <img> 中不生效，会导致空白图）
+    const inner = inlineComputedStyles(ke)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">${inner}</foreignObject></svg>`
+    // 【v4.5.3 真修】必须用 data: URL，绝不能用 blob: URL。
+    //   blob: 加载的 SVG（含 foreignObject）会污染 canvas，toBlob 抛
+    //   "SecurityError: Tainted canvases may not be exported"，导致公式转图全部失败并静默降级成 LaTeX 原文。
+    const u = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
     const img = new Image()
-    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(); img.src = u })
+    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('svg img load fail')); img.src = u })
     const scale = 2
     const canvas = document.createElement('canvas')
     canvas.width = w * scale; canvas.height = h * scale
     const ctx = canvas.getContext('2d')
-    if (!ctx) { URL.revokeObjectURL(u); document.body.removeChild(host); return null }
+    if (!ctx) { document.body.removeChild(host); console.warn('[katexToImage] 无 2d context'); return null }
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     const png = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'))
-    URL.revokeObjectURL(u); document.body.removeChild(host)
-    if (!png) return null
+    document.body.removeChild(host)
+    if (!png) { console.warn('[katexToImage] toBlob 返回 null:', tex); return null }
     return { data: await png.arrayBuffer(), type: 'png', w: Math.min(w, 360), h: Math.round(h * Math.min(w, 360) / w) }
-  } catch { return null }
+  } catch (e) { console.warn('[katexToImage] 异常:', tex, String(e)); return null }
 }
 
 const INLINE_RE = /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\!\[[^\]]*\]\([^)]*\))|(\*\*[^*]+\*\*)/g
-async function inlineRuns(text: string, size: number): Promise<any[]> {
+async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<any[]> {
   const runs: any[] = []
+  // 【v4.5.3】boldPrefix：句首加粗标签（如「【答案】」），避免事后对 TextRun 做内省（docx v9 无公开 text 属性）
+  if (boldPrefix && text.startsWith(boldPrefix)) {
+    runs.push(new TextRun({ text: boldPrefix, bold: true, size }))
+    text = text.slice(boldPrefix.length)
+  }
   let last = 0, m: RegExpExecArray | null
   INLINE_RE.lastIndex = 0
   while ((m = INLINE_RE.exec(text))) {
@@ -116,9 +292,16 @@ async function inlineRuns(text: string, size: number): Promise<any[]> {
     const t = m[0]
     if (t.startsWith('$') && t.length > 2) {
       const tex = t.replace(/^\$\$?|\$\$?$/g, '').trim()
-      const img = await katexToImage(tex)
-      if (img) runs.push(new ImageRun({ data: img.data, type: 'png', transformation: { width: img.w, height: img.h } }))
-      else runs.push(new TextRun({ text: ` ${tex} `, size, italics: true }))
+      // 【v4.5.3】优先 OMML 原生公式（矢量、Word 内可编辑，不依赖 KaTeX 字体）
+      let omml: any = null
+      try { omml = latexToOmml(tex) } catch (e) { console.warn('[omml] 转换失败，回退图片:', tex, String(e)); omml = null }
+      if (omml) {
+        runs.push(omml)
+      } else {
+        const img = await katexToImage(tex)
+        if (img) runs.push(new ImageRun({ data: img.data, type: 'png', transformation: { width: img.w, height: img.h } }))
+        else runs.push(new TextRun({ text: ` ${tex} `, size, italics: true }))
+      }
     } else if (t.startsWith('![')) {
       const url = (t.match(/\(([^)]+)\)/) || [])[1]
       if (url) { const img = await fetchImage(url); if (img) runs.push(new ImageRun({ data: img.data, type: img.type, transformation: { width: 360, height: 'auto' as any } })) }
@@ -189,14 +372,16 @@ async function buildQuestions(withAnswers: boolean): Promise<Paragraph[]> {
     out.push(P(`${grp.short}（每题 ${scoreOf(list[0])} 分，共 ${list.length} 题）`, size + 1, { bold: true, spacing: { before: 160, after: 80 } }))
     for (const it of list) {
       idx++
+      // 【v4.5.3】题干改为 inlineRuns：保留 KaTeX 公式（转图片）与行内图片，不再粗暴降级为纯文本
       out.push(new Paragraph({
-        children: [new TextRun({ text: `${idx}.（${grp.label}）`, bold: true, size }), new TextRun({ text: ` ${mdPlain(it.content)}（${scoreOf(it)}分）`, size })],
+        children: [new TextRun({ text: `${idx}.（${grp.label}）`, bold: true, size }), ...(await inlineRuns(` ${it.content}（${scoreOf(it)}分）`, size))],
         spacing: { before: 80, after: 30 },
       }))
       for (const o of (it.options || [])) out.push(new Paragraph({ children: await inlineRuns(`${optLetter((it.options || []).indexOf(o))}. ${o}`, size), indent: { left: 360 }, spacing: { after: 14 } }))
       if (withAnswers) {
-        out.push(new Paragraph({ children: [new TextRun({ text: `【答案】${mdPlain(it.answer)}`, size, bold: true })], indent: { left: 360 }, spacing: { before: 20, after: 14 } }))
-        if (it.analysis) out.push(P(`【解析】${mdPlain(it.analysis)}`, size, { indent: { left: 360 }, spacing: { after: 14 } }))
+        // 【v4.5.3】答案/解析改用 inlineRuns：保留 KaTeX 公式（转图片）与行内图片（原为 mdPlain 纯文本，公式会被丢弃）
+        out.push(new Paragraph({ children: await inlineRuns(`【答案】${it.answer || '（未填写）'}`, size, '【答案】'), indent: { left: 360 }, spacing: { before: 20, after: 14 } }))
+        if (it.analysis) out.push(new Paragraph({ children: await inlineRuns(`【解析】${it.analysis}`, size, '【解析】'), indent: { left: 360 }, spacing: { after: 14 } }))
       }
     }
   }

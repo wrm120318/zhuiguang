@@ -26,6 +26,10 @@ const showBasket = ref(false)
 const showExport = ref(false)
 const showImport = ref(false)
 const showCards = ref(false)
+// 【v4.5.3】题目列表内联展开答案/解析——组卷场景高频需求，避免每题点进编辑页才能核对
+const showAnswer = ref(false)
+const expanded = ref<Record<number, boolean>>({})
+function toggleExpand(id: number) { expanded.value[id] = !expanded.value[id] }
 
 const filters = reactive({
   keyword: '', qtype: '', difficulty: '', textbook_version: '', region: '', chapter: '', knowledge_point_id: '',
@@ -161,6 +165,9 @@ async function smartAssemble() {
         <el-option v-for="k in kpList" :key="k.id" :label="k.name" :value="k.id" />
       </el-select>
       <el-button type="primary" @click="loadQuestions" icon="Search">筛选</el-button>
+      <el-button text @click="showAnswer = !showAnswer" :icon="showAnswer ? 'View' : 'Warning'">
+        {{ showAnswer ? '隐藏答案' : '显示答案' }}
+      </el-button>
       <el-button text @click="showKpManager = !showKpManager" icon="Collection">知识点管理</el-button>
     </div>
 
@@ -187,7 +194,11 @@ async function smartAssemble() {
       <div v-for="q in questions" :key="q.id" class="q-card glass">
         <div class="q-meta">
           <el-tag size="small">{{ qtypeLabels[q.qtype] || q.qtype }}</el-tag>
-          <el-rate :model-value="q.difficulty || 3" disabled size="small" />
+          <span class="diff-badge" :title="`难度 ${q.difficulty || 3} / 5`">
+            <el-rate :model-value="q.difficulty || 3" disabled size="small" />
+            <span class="diff-txt">难度 {{ q.difficulty || 3 }}</span>
+          </span>
+          <span v-if="q.score" class="tag">满分 {{ q.score }}</span>
           <span v-if="q.textbook_version" class="tag">{{ q.textbook_version }}</span>
           <span v-if="q.region" class="tag">{{ q.region }}</span>
           <span v-if="q.chapter" class="tag">{{ q.chapter }}</span>
@@ -200,6 +211,17 @@ async function smartAssemble() {
         </div>
         <div v-if="q.knowledge_points?.length" class="q-kp">
           <el-tag v-for="k in q.knowledge_points" :key="k.id" size="small" type="warning" effect="plain">{{ k.name }}</el-tag>
+        </div>
+        <!-- 【v4.5.3】答案/解析展开区（对标组卷网的题目预览） -->
+        <div v-if="showAnswer" class="q-answer">
+          <div class="qa-row">
+            <b>答案：</b>
+            <span v-html="renderMarkdown(q.answer || '（未填写）')" />
+          </div>
+          <div v-if="q.analysis" class="qa-row qa-analysis">
+            <b>解析：</b>
+            <span v-html="renderMarkdown(q.analysis)" />
+          </div>
         </div>
         <div class="q-actions">
           <el-button size="small" @click="addToBasket(q)" icon="CirclePlus">入篮</el-button>
@@ -275,7 +297,7 @@ async function smartAssemble() {
 </template>
 
 <style scoped>
-.bank-page { max-width: 1080px; margin: 0 auto; padding: 16px 0 60px; }
+.bank-page { max-width: 1280px; margin: 0 auto; padding: 16px 20px 60px; }
 .bank-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .bank-head h2 { font-size: 20px; margin: 0; flex: 1; }
 .head-actions { display: flex; gap: 8px; }
@@ -289,10 +311,32 @@ async function smartAssemble() {
 .q-card { padding: 14px 16px; border-radius: 14px; }
 .q-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .tag { font-size: 12px; color: #b06a00; background: rgba(245,158,11,0.12); padding: 1px 8px; border-radius: 6px; }
+/* 【v4.5.3】难度徽标：星级 + 文字，紧凑排版，避免星级灰幽灵观感 */
+.diff-badge { display: inline-flex; align-items: center; gap: 6px; }
+.diff-badge :deep(.el-rate) { height: 18px; line-height: 18px; }
+.diff-badge :deep(.el-rate__icon) { font-size: 14px; margin-right: 1px; }
+.diff-txt { font-size: 12px; color: #999; }
 .q-content { line-height: 1.7; }
-.q-options { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
-.q-opt { line-height: 1.6; }
+.q-options { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+/* 【v4.5.3 修复】选项字母与内容必须同行：
+   此前 .q-opt 无 flex，renderMarkdown 输出的块级元素（KaTeX 公式等）会把 "A." 挤到上一行，
+   出现「A.⏎√2」的断裂排版。改为 flex 行内对齐，并让内容区可换行。 */
+.q-opt { display: flex; align-items: baseline; gap: 6px; line-height: 1.7; }
+.q-opt > b { flex: 0 0 auto; min-width: 18px; font-weight: 600; color: #b06a00; }
+.q-opt > span { flex: 1 1 auto; min-width: 0; }
+/* 选项内的块级元素（KaTeX 独立公式/段落）改为与文字同行，避免断行 */
+.q-opt > span :deep(p) { display: inline; margin: 0; }
+.q-opt > span :deep(.katex-display) { display: inline-block; margin: 0; vertical-align: middle; }
+.q-opt > span :deep(.katex) { font-size: 1.02em; }
 .q-kp { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+/* 【v4.5.3】答案/解析区样式 */
+.q-answer { margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; background: rgba(245,158,11,0.07); border-left: 3px solid rgba(245,158,11,0.5); }
+.qa-row { display: flex; align-items: baseline; gap: 6px; line-height: 1.75; }
+.qa-row > b { flex: 0 0 auto; color: #b06a00; }
+.qa-row > span { flex: 1 1 auto; min-width: 0; }
+.qa-row > span :deep(p) { display: inline; margin: 0; }
+.qa-analysis { margin-top: 4px; color: #6b7280; }
+.qa-analysis > span :deep(.katex-display) { display: inline-block; margin: 0; vertical-align: middle; }
 .q-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .basket-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06); }
 .bi-order { display: flex; flex-direction: column; }
