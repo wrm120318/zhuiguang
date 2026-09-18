@@ -344,6 +344,19 @@ export async function downloadFile(filePath: string): Promise<{ buffer: ArrayBuf
   return { buffer: await data.arrayBuffer(), contentType: (data as any).type }
 }
 
+// 从各种形态的输入中提取 fileId：
+//   /api/file/{id}                 → {id}
+//   https://host/api/file/{id}     → {id}（v4.4.3 起前端会把相对路径补全为绝对外链写入库，需兼容）
+//   裸 id（字母数字串）             → 原样返回
+function parseFileId(input?: string | null): string | null {
+  if (!input) return null
+  const s = String(input).trim()
+  const m = s.match(/\/api\/file\/([A-Za-z0-9_-]+)/)
+  if (m) return m[1]
+  if (/^[A-Za-z0-9_-]{8,}$/.test(s)) return s
+  return null
+}
+
 // ==============================================================================
 // 🔒 全局双层缓存鉴权系统（/file/* 站内路由专用）
 // 第一层：JWT 登录校验（支持 query param + header 双模式）
@@ -2215,9 +2228,12 @@ app.post('/api/resources', auth, async (c) => {
   }
   // 【v4 Bug1】教师/超管上传直接 approved，立刻给上传者加经验值（之前只走 status 审核路径，导致超管/教师上传没经验）
   const status = (u?.role === 'SUPER_ADMIN' || u?.role === 'TEACHER') ? 'approved' : 'pending'
-  const fileId = b.fileId || (typeof b.filePath === 'string' && b.filePath.startsWith('/api/file/') ? b.filePath.replace('/api/file/', '') : null)
+  const fileId = b.fileId || parseFileId(b.filePath)
+  // v4.4.3 起前端会把 /api/file/{id} 补全为绝对外链（https://api.xkzg.de5.net/api/file/{id}）写入库，
+  // 这里统一归一化为相对路径 /api/file/{id}，保证下载路由判定与 file_meta 关联稳定。
+  const filePath = fileId ? `/api/file/${fileId}` : (b.filePath || '')
   const r = await run(`INSERT INTO resources (subject_id,title,description,file_name,file_type,file_size,file_path,category,tags,user_id,class_id,status,file_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
-    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, b.filePath || '', b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status, fileId)
+    b.subjectId, b.title, b.description || '', b.fileName || '', b.fileType || '', b.fileSize || 0, filePath, b.category || '', JSON.stringify(b.tags || []), id, b.classId || 1, status, fileId)
   const rid = Number(r.lastInsertRowid)
   if (status === 'approved') {
     await addExp(id, undefined, 'resource', `上传资料《${b.title}》`, b.subjectId)
@@ -2240,8 +2256,8 @@ app.patch('/api/resources/:id/status', auth, async (c) => {
   if (newStatus === 'approved' && r.status !== 'approved') {
     await addExp(r.user_id, undefined, 'resource', `资料《${r.title}》审核通过`, r.subject_id)
     await addNotice(r.user_id, '资料审核通过', `《${r.title}》已通过审核。`, 'audit')
-    // v4.4.0 审核通过 → 关联文件翻为公开可缓存
-    const fid = r.file_id || (r.file_path && r.file_path.startsWith('/api/file/') ? r.file_path.replace('/api/file/', '') : null)
+    // v4.4.0 审核通过 → 关联文件翻为公开可缓存（兼容绝对外链形式的 file_path）
+    const fid = r.file_id || parseFileId(r.file_path)
     if (fid) await run('UPDATE file_meta SET is_public=1, cacheable=1, updated_at=? WHERE file_id=?', Date.now(), fid)
   }
   return c.json({ ok: true })
@@ -2326,9 +2342,11 @@ app.post('/api/resources/:id/download', auth, async (c) => {
     }
   }
 
-  // ===== 修复 BUG #1：file_path 是新 /api/file/{fileId} 路径时走 serveFileById 统一文件代理 =====
-  if (r.file_path && r.file_path.startsWith('/api/file/')) {
-    const fid = r.file_path.replace('/api/file/', '')
+  // ===== 修复 BUG #1：file_path 为相对 /api/file/{id} 或前端补全的绝对外链时，
+  //            统一走 serveFileById 经 B2/Supabase 取文件（v4.4.3 起库内可能存在绝对外链形式）=====
+  const dlFid = parseFileId(r.file_path)
+  if (dlFid) {
+    const fid = dlFid
     const filename = r.file_name || r.title || 'download'
     const encoded = encodeURIComponent(filename)
     c.executionCtx.waitUntil(run('UPDATE resources SET downloads = downloads + 1 WHERE id=?', id).catch(() => {}))
