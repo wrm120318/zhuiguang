@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/practice/:id', name: 'practice-take', component: () => import('@/views/quiz/PracticeTakeView.vue') },
   { path: '/practice/my-records', name: 'practice-records', component: () => import('@/views/quiz/PracticeRecordsView.vue') },
   { path: '/practice/stats/:questionId', name: 'practice-stats', component: () => import('@/views/quiz/PracticeStatsView.vue') },
+  // 【v4.5.0】智能题库（学科内子模块）
+  { path: '/subject/:slug/bank', name: 'question-bank', component: () => import('@/views/quiz/QuestionBankView.vue') },
+  { path: '/subject/:slug/bank/add', name: 'question-add', component: () => import('@/views/quiz/QuestionEditView.vue') },
+  { path: '/subject/:slug/bank/:qid/edit', name: 'question-edit', component: () => import('@/views/quiz/QuestionEditView.vue') },
+  // 【v4.5.0】教师批改新界面（侧显参考答案）
+  { path: '/practice/grade/:id', name: 'practice-grade', component: () => import('@/views/quiz/PracticeGradeView.vue') },
   // 品牌 404（B5 / B10）：未匹配路由统一落地
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
   {

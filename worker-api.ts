@@ -236,7 +236,13 @@ export async function userClassIds(userId: number): Promise<number[]> {
 }
 
 export async function teachingSubjects(userId: number): Promise<number[]> {
-  const rows = await all<{ subject_id: number }>('SELECT DISTINCT subject_id FROM class_members WHERE user_id = ? AND role_in_class = ? AND subject_id IS NOT NULL', userId, 'TEACHER')
+  const rows = await all<{ subject_id: number }>(
+    'SELECT DISTINCT subject_id FROM (' +
+    'SELECT subject_id FROM class_members WHERE user_id = ? AND role_in_class = ? AND subject_id IS NOT NULL ' +
+    'UNION SELECT subject_id FROM user_subjects WHERE user_id = ? AND subject_id IS NOT NULL ' +
+    // 兼容历史数据：主学科 users.subject_id 兜底
+    'UNION SELECT subject_id FROM users WHERE id = ? AND subject_id IS NOT NULL' +
+    ')', userId, 'TEACHER', userId, userId)
   return rows.map(r => r.subject_id)
 }
 
@@ -763,6 +769,23 @@ app.use('*', async (c, next) => {
       try { await D1.prepare("ALTER TABLE pages ADD COLUMN recommendation TEXT DEFAULT ''").run() } catch {}
       // ===== v4.4.24 学科榜按学科贡献排名：exp_logs 补 subject_id 列（记录经验来源学科）=====
       try { await D1.prepare("ALTER TABLE exp_logs ADD COLUMN subject_id INTEGER").run() } catch {}
+      // ===== v4.5.0 智能题库：题目表/卷表补列（幂等自愈）=====
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN analysis TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN difficulty INTEGER DEFAULT 3").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN textbook_version TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN region TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN chapter TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN status TEXT DEFAULT 'active'").run() } catch {}
+      try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN kind TEXT DEFAULT 'exam'").run() } catch {}
+      try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN template TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN export_config TEXT DEFAULT '{}'").run() } catch {}
+      // v4.5.0 智能题库新表（幂等自愈，避免漏跑迁移文件）
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS knowledge_points (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL, parent_id INTEGER DEFAULT NULL, name TEXT NOT NULL, description TEXT DEFAULT '', sort INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','+8 hours')), FOREIGN KEY(subject_id) REFERENCES subjects(id))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS question_knowledge (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, knowledge_point_id INTEGER NOT NULL, UNIQUE(question_id, knowledge_point_id), FOREIGN KEY(question_id) REFERENCES subject_questions(id) ON DELETE CASCADE, FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS question_folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, parent_id INTEGER DEFAULT NULL, sort INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','+8 hours')))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS question_favorites (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL, folder_id INTEGER DEFAULT NULL, note TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now','+8 hours')), UNIQUE(user_id, question_id))`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS question_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL, content TEXT NOT NULL, status TEXT DEFAULT 'open', created_at TEXT DEFAULT (datetime('now','+8 hours')), resolved_by INTEGER DEFAULT NULL, resolved_at TEXT DEFAULT NULL)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS user_subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, subject_id INTEGER NOT NULL, assigned_by INTEGER DEFAULT NULL, UNIQUE(user_id, subject_id))`).run()
     } catch {}
   }
   await next()
@@ -1472,6 +1495,39 @@ app.patch('/api/users/:id/exp', auth, requireRole('SUPER_ADMIN'), async (c) => {
   if (level !== undefined) await run('UPDATE users SET level=? WHERE id=?', level, id)
   return c.json({ ok: true })
 })
+
+// ==============================================================================
+// ============ 【v4.5.0】多学科教师指派（user_subjects 多对多）============
+// ==============================================================================
+app.post('/api/admin/users/:id/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const uid = Number(c.req.param('id'))
+  const b = await c.req.json()
+  const sid = Number(b.subject_id)
+  if (!sid) return c.json({ message: '学科不能为空' }, 400)
+  try {
+    const r = await run('INSERT INTO user_subjects (user_id, subject_id, assigned_by) VALUES (?,?,?)', uid, sid, c.get('user').id)
+    return c.json({ ok: true, id: Number(r.lastInsertRowid) })
+  } catch {
+    return c.json({ ok: true, message: '已存在' }) // UNIQUE(user_id, subject_id)
+  }
+})
+
+app.delete('/api/admin/users/:id/subjects/:sid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  await run('DELETE FROM user_subjects WHERE user_id=? AND subject_id=?', Number(c.req.param('id')), Number(c.req.param('sid')))
+  return c.json({ ok: true })
+})
+
+app.get('/api/admin/users/:id/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const rows = await all<any>('SELECT subject_id FROM user_subjects WHERE user_id=?', Number(c.req.param('id')))
+  return c.json(rows.map(r => r.subject_id))
+})
+
+// 批量拉取全部 用户-学科 指派（用于后台用户列表一次性展示多学科）
+app.get('/api/admin/user-subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+  const rows = await all<any>('SELECT user_id, subject_id FROM user_subjects')
+  return c.json(rows)
+})
+
 
 app.patch('/api/profile', auth, async (c) => {
   const id = c.get('user').id
@@ -3273,15 +3329,40 @@ app.get('/api/quizzes/:id/report', auth, requireStaff, async (c) => {
 //   - subject_questions 表当前没有 status 字段（D1 schema 还没加），全表已激活的题目都对外可见
 //   - 后续若给题目加 status 字段，再把 SQL 改为 `AND (status='active' OR 本学科教师 OR 超管)`
 app.get('/api/subjects/:id/questions', auth, async (c) => {
-  const rows = await all<any>('SELECT * FROM subject_questions WHERE subject_id=? ORDER BY sort,id DESC', c.req.param('id'))
-  return c.json(rows.map(q => ({ ...q, options: j(q.options), attachments: j(q.attachments) })))
+  const sid = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const isStaff = u.role === 'SUPER_ADMIN' || (u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))
+  // 【v4.5.0】智能选题多维度筛选
+  const q = c.req.query()
+  const where: string[] = ['sq.subject_id=?']
+  const args: any[] = [sid]
+  if (!isStaff) where.push("sq.status='active'")           // 学生只看到已激活题目
+  if (q.knowledge_point_id) {
+    where.push('sq.id IN (SELECT question_id FROM question_knowledge WHERE knowledge_point_id=?)')
+    args.push(Number(q.knowledge_point_id))
+  }
+  if (q.qtype) { where.push('sq.qtype=?'); args.push(q.qtype) }
+  if (q.difficulty) { where.push('sq.difficulty=?'); args.push(Number(q.difficulty)) }
+  if (q.textbook_version) { where.push('sq.textbook_version=?'); args.push(q.textbook_version) }
+  if (q.region) { where.push('sq.region=?'); args.push(q.region) }
+  if (q.chapter) { where.push('sq.chapter LIKE ?'); args.push('%' + q.chapter + '%') }
+  if (q.keyword) { where.push('(sq.content LIKE ? OR sq.answer LIKE ?)'); args.push('%' + q.keyword + '%', '%' + q.keyword + '%') }
+  const rows = await all<any>(`SELECT sq.* FROM subject_questions sq WHERE ${where.join(' AND ')} ORDER BY sq.sort, sq.id DESC`, ...args)
+  const ids = rows.map(r => r.id)
+  const kpMap: Record<number, any[]> = {}
+  if (ids.length) {
+    const kps = await all<any>(`SELECT qk.question_id, kp.id, kp.name, kp.parent_id FROM question_knowledge qk JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id WHERE qk.question_id IN (${ids.map(() => '?').join(',')})`, ...ids)
+    for (const k of kps) (kpMap[k.question_id] ||= []).push({ id: k.id, name: k.name, parent_id: k.parent_id })
+  }
+  return c.json(rows.map(r => ({ ...r, options: j(r.options), attachments: j(r.attachments), knowledge_points: kpMap[r.id] || [] })))
 })
 
 app.get('/api/subject-questions/:id', auth, async (c) => {
   const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', c.req.param('id'))
   if (!q) return c.json({ message: '题目不存在' }, 404)
   const subj = await get<any>('SELECT id, name, slug, icon FROM subjects WHERE id=?', q.subject_id)
-  return c.json({ ...q, options: j(q.options), attachments: j(q.attachments), subject: subj })
+  const kps = await all<any>('SELECT kp.id, kp.name, kp.parent_id FROM question_knowledge qk JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id WHERE qk.question_id=?', q.id)
+  return c.json({ ...q, options: j(q.options), attachments: j(q.attachments), subject: subj, knowledge_points: kps })
 })
 
 // ==============================================================================
@@ -3541,16 +3622,30 @@ app.get('/api/admin/audit/forum-posts/:id', auth, async (c) => {
 
 // 论坛评论 = 直接复用 /api/pages/:id/comments
 
+// 【v4.5.0】题目 ↔ 知识点关联写入（幂等替换）
+async function linkKnowledge(questionId: number, ids: any) {
+  await run('DELETE FROM question_knowledge WHERE question_id=?', questionId)
+  const arr = Array.isArray(ids) ? ids.map(Number).filter(Boolean) : []
+  for (const kp of arr) {
+    try { await run('INSERT OR IGNORE INTO question_knowledge (question_id, knowledge_point_id) VALUES (?,?)', questionId, kp) } catch {}
+  }
+}
+
 // 【v4 Bug9】单题训练 - 教师必须任教该学科才能加题
 app.post('/api/subjects/:id/questions', auth, requireSubjectStaff('params', 'id'), async (c) => {
   const sid = Number(c.req.param('id'))
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', c.get('user').id)
   const b = await c.req.json()
   const r = await run(
-    `INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,score,attachments,sort,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
-    sid, c.get('user').id, me?.real_name || '', b.qtype || 'single', b.content || '', JSON.stringify(b.options || []), b.answer || '', b.score || 5, JSON.stringify(b.attachments || []), b.sort || 0
+    `INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,analysis,score,attachments,sort,difficulty,textbook_version,region,chapter,status,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`,
+    sid, c.get('user').id, me?.real_name || '', b.qtype || 'single', b.content || '', JSON.stringify(b.options || []),
+    b.answer || '', b.analysis || '', b.score || 5, JSON.stringify(b.attachments || []), b.sort || 0,
+    b.difficulty || 3, b.textbook_version || '', b.region || '', b.chapter || '', b.status || 'active'
   )
-  return c.json({ id: Number(r.lastInsertRowid) })
+  const qid = Number(r.lastInsertRowid)
+  await linkKnowledge(qid, b.knowledge_point_ids)
+  return c.json({ id: qid })
 })
 
 // 【v4 Bug9】删除单题 - 教师必须任教该题的学科；超管可删任意
@@ -3567,6 +3662,176 @@ app.delete('/api/subject-questions/:id', auth, requireStaff, async (c) => {
   }
   await run('DELETE FROM practice_submissions WHERE question_id=?', id)
   await run('DELETE FROM subject_questions WHERE id=?', id)
+  return c.json({ ok: true })
+})
+
+// ==============================================================================
+// ============ 【v4.5.0】题目二次编辑（创建者 / 本学科教师 / 超管）============
+// ==============================================================================
+app.patch('/api/subject-questions/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', id)
+  if (!q) return c.json({ message: '题目不存在' }, 404)
+  const isSuper = u.role === 'SUPER_ADMIN'
+  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, q.subject_id)
+  if (!isSuper && !isStaff && q.creator_id !== u.id) return c.json({ message: '无权编辑该题（仅创建者、本学科教师或超管可编辑）' }, 403)
+  const b = await c.req.json()
+  await run(`UPDATE subject_questions SET
+    qtype=COALESCE(?,qtype), content=COALESCE(?,content), options=COALESCE(?,options),
+    answer=COALESCE(?,answer), analysis=COALESCE(?,analysis), score=COALESCE(?,score),
+    difficulty=COALESCE(?,difficulty), textbook_version=COALESCE(?,textbook_version),
+    region=COALESCE(?,region), chapter=COALESCE(?,chapter), status=COALESCE(?,status), sort=COALESCE(?,sort)
+    WHERE id=?`,
+    b.qtype || null, b.content ?? null, b.options ? JSON.stringify(b.options) : null,
+    b.answer ?? null, b.analysis ?? null, b.score ?? null, b.difficulty ?? null,
+    b.textbook_version ?? null, b.region ?? null, b.chapter ?? null, b.status ?? null, b.sort ?? null, id)
+  if (b.knowledge_point_ids !== undefined) await linkKnowledge(id, b.knowledge_point_ids)
+  clearAllCache()
+  return c.json({ ok: true })
+})
+
+// ==============================================================================
+// ============ 【v4.5.0】知识点（支持层级树）============
+// ==============================================================================
+app.get('/api/subjects/:id/knowledge-points', auth, async (c) => {
+  const sid = Number(c.req.param('id'))
+  const list = await all<any>('SELECT * FROM knowledge_points WHERE subject_id=? ORDER BY sort, id ASC', sid)
+  return c.json(list)
+})
+
+app.post('/api/subjects/:id/knowledge-points', auth, async (c) => {
+  const sid = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+    return c.json({ message: '只有超管和本学科教师可以管理知识点' }, 403)
+  }
+  const b = await c.req.json()
+  if (!b.name?.trim()) return c.json({ message: '知识点名称不能为空' }, 400)
+  const r = await run(`INSERT INTO knowledge_points (subject_id,parent_id,name,description,sort,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
+    sid, b.parent_id ? Number(b.parent_id) : null, b.name.trim().slice(0, 80), b.description || '', b.sort || 0)
+  return c.json({ id: Number(r.lastInsertRowid) })
+})
+
+app.patch('/api/knowledge-points/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const kp = await get<any>('SELECT * FROM knowledge_points WHERE id=?', id)
+  if (!kp) return c.json({ message: '知识点不存在' }, 404)
+  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
+    return c.json({ message: '只有超管和本学科教师可以编辑知识点' }, 403)
+  }
+  const b = await c.req.json()
+  await run('UPDATE knowledge_points SET name=COALESCE(?,name), description=COALESCE(?,description), parent_id=COALESCE(?,parent_id), sort=COALESCE(?,sort) WHERE id=?',
+    b.name?.trim() || null, b.description ?? null, b.parent_id !== undefined ? (b.parent_id ? Number(b.parent_id) : null) : null, b.sort ?? null, id)
+  clearAllCache()
+  return c.json({ ok: true })
+})
+
+app.delete('/api/knowledge-points/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const kp = await get<any>('SELECT * FROM knowledge_points WHERE id=?', id)
+  if (!kp) return c.json({ message: '知识点不存在' }, 404)
+  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
+    return c.json({ message: '只有超管和本学科教师可以删除知识点' }, 403)
+  }
+  await run('DELETE FROM question_knowledge WHERE knowledge_point_id=?', id)
+  await run('UPDATE knowledge_points SET parent_id=NULL WHERE parent_id=?', id)
+  await run('DELETE FROM knowledge_points WHERE id=?', id)
+  clearAllCache()
+  return c.json({ ok: true })
+})
+
+// ==============================================================================
+// ============ 【v4.5.0】题目纠错反馈通道 ============
+// ==============================================================================
+app.post('/api/subject-questions/:id/feedback', auth, async (c) => {
+  const qid = Number(c.req.param('id'))
+  const uid = c.get('user').id
+  const b = await c.req.json()
+  if (!b.content?.trim()) return c.json({ message: '反馈内容不能为空' }, 400)
+  const r = await run('INSERT INTO question_feedback (user_id,question_id,content,created_at) VALUES (?,?,?,datetime(\'now\',\'+8 hours\'))', uid, qid, b.content.trim().slice(0, 500))
+  return c.json({ id: Number(r.lastInsertRowid) })
+})
+
+app.get('/api/subjects/:id/question-feedback', auth, async (c) => {
+  const sid = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+    return c.json({ message: '只有超管和本学科教师可以查看纠错反馈' }, 403)
+  }
+  const list = await all<any>('SELECT f.*, u.real_name, sq.content AS qcontent FROM question_feedback f LEFT JOIN users u ON u.id=f.user_id LEFT JOIN subject_questions sq ON sq.id=f.question_id WHERE sq.subject_id=? ORDER BY f.id DESC', sid)
+  return c.json(list)
+})
+
+app.patch('/api/question-feedback/:id', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = await c.req.json()
+  await run("UPDATE question_feedback SET status=?, resolved_by=?, resolved_at=datetime('now','+8 hours') WHERE id=?", b.status || 'resolved', c.get('user').id, id)
+  return c.json({ ok: true })
+})
+
+// ==============================================================================
+// ============ 【v4.5.0】个人题库：文件夹 + 收藏 ============
+// ==============================================================================
+app.get('/api/users/me/question-folders', auth, async (c) => {
+  const list = await all<any>('SELECT * FROM question_folders WHERE user_id=? ORDER BY sort, id ASC', c.get('user').id)
+  return c.json(list)
+})
+
+app.post('/api/users/me/question-folders', auth, async (c) => {
+  const b = await c.req.json()
+  if (!b.name?.trim()) return c.json({ message: '文件夹名不能为空' }, 400)
+  const r = await run('INSERT INTO question_folders (user_id,name,parent_id,sort,created_at) VALUES (?,?,?,?,datetime(\'now\',\'+8 hours\'))',
+    c.get('user').id, b.name.trim().slice(0, 40), b.parent_id ? Number(b.parent_id) : null, b.sort || 0)
+  return c.json({ id: Number(r.lastInsertRowid) })
+})
+
+app.patch('/api/question-folders/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const f = await get<any>('SELECT * FROM question_folders WHERE id=?', id)
+  if (!f || f.user_id !== c.get('user').id) return c.json({ message: '无权' }, 403)
+  const b = await c.req.json()
+  await run('UPDATE question_folders SET name=COALESCE(?,name), parent_id=COALESCE(?,parent_id), sort=COALESCE(?,sort) WHERE id=?',
+    b.name?.trim() || null, b.parent_id !== undefined ? (b.parent_id ? Number(b.parent_id) : null) : null, b.sort ?? null, id)
+  return c.json({ ok: true })
+})
+
+app.delete('/api/question-folders/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const f = await get<any>('SELECT * FROM question_folders WHERE id=?', id)
+  if (!f || f.user_id !== c.get('user').id) return c.json({ message: '无权' }, 403)
+  await run('UPDATE question_favorites SET folder_id=NULL WHERE folder_id=?', id)
+  await run('DELETE FROM question_folders WHERE id=?', id)
+  return c.json({ ok: true })
+})
+
+app.post('/api/subject-questions/:id/favorite', auth, async (c) => {
+  const qid = Number(c.req.param('id'))
+  const uid = c.get('user').id
+  const b = await c.req.json().catch(() => ({}))
+  try {
+    const r = await run('INSERT INTO question_favorites (user_id,question_id,folder_id,note,created_at) VALUES (?,?,?,?,datetime(\'now\',\'+8 hours\'))',
+      uid, qid, b.folder_id ? Number(b.folder_id) : null, (b.note || '').slice(0, 200))
+    return c.json({ id: Number(r.lastInsertRowid) })
+  } catch {
+    return c.json({ message: '已收藏' }, 400) // UNIQUE(user_id, question_id)
+  }
+})
+
+app.get('/api/users/me/favorites', auth, async (c) => {
+  const rows = await all<any>(`SELECT f.*, sq.id AS q_id, sq.subject_id, sq.qtype, sq.content, sq.options, sq.answer, sq.analysis, sq.score, sq.difficulty, sq.textbook_version, sq.region, sq.chapter, s.name AS subject_name
+    FROM question_favorites f JOIN subject_questions sq ON sq.id=f.question_id LEFT JOIN subjects s ON s.id=sq.subject_id
+    WHERE f.user_id=? ORDER BY f.id DESC`, c.get('user').id)
+  return c.json(rows.map(r => ({ ...r, options: j(r.options) })))
+})
+
+app.delete('/api/favorites/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const f = await get<any>('SELECT * FROM question_favorites WHERE id=?', id)
+  if (!f || f.user_id !== c.get('user').id) return c.json({ message: '无权' }, 403)
+  await run('DELETE FROM question_favorites WHERE id=?', id)
   return c.json({ ok: true })
 })
 

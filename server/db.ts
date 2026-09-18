@@ -258,6 +258,49 @@ export async function initDB() {
       file_hash TEXT, uploader_id INTEGER, created_at INTEGER, updated_at INTEGER
     )`) } catch {}
 
+  // ===== 【v4.5.0 智能题库】subject_questions / quizzes 补列 =====
+  for (const col of ['analysis TEXT DEFAULT \'\'', 'difficulty INTEGER DEFAULT 3', 'textbook_version TEXT', 'region TEXT', 'chapter TEXT', 'status TEXT DEFAULT \'active\'']) {
+    try { await db.execute(`ALTER TABLE subject_questions ADD COLUMN ${col}`) } catch {}
+  }
+  for (const col of ['kind TEXT DEFAULT \'exam\'', 'template TEXT DEFAULT \'\'', 'export_config TEXT DEFAULT \'{}']) {
+    try { await db.execute(`ALTER TABLE quizzes ADD COLUMN ${col}`) } catch {}
+  }
+  // ===== 【v4.5.0 智能题库】新表（幂等自愈）=====
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_points (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL,
+      parent_id INTEGER DEFAULT NULL, name TEXT NOT NULL, description TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime'))
+    )`) } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_kp_subject ON knowledge_points(subject_id)') } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS question_knowledge (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, knowledge_point_id INTEGER NOT NULL,
+      UNIQUE(question_id, knowledge_point_id)
+    )`) } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS question_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL,
+      parent_id INTEGER DEFAULT NULL, sort INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime'))
+    )`) } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS question_favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL,
+      folder_id INTEGER DEFAULT NULL, note TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(user_id, question_id)
+    )`) } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS question_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL,
+      content TEXT NOT NULL, status TEXT DEFAULT 'open', resolved_by INTEGER DEFAULT NULL,
+      resolved_at TEXT DEFAULT NULL, created_at TEXT DEFAULT (datetime('now','localtime'))
+    )`) } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_subjects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, subject_id INTEGER NOT NULL,
+      assigned_by INTEGER DEFAULT NULL, UNIQUE(user_id, subject_id)
+    )`) } catch {}
+
   await seed()
 }
 

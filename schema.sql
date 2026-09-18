@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS quizzes (
   duration INTEGER DEFAULT 0,
   valid_until TEXT,
   status TEXT DEFAULT 'published',
+  -- 【v4.5.0 智能组卷】复用 quizzes 表存档组卷：kind='paper' 表示智能组卷存档
+  kind TEXT DEFAULT 'exam',          -- 'exam' 考试 / 'paper' 智能组卷存档
+  template TEXT DEFAULT '',         -- 三套模板：formal(正式考试)/test(日常测验)/homework(课后作业)
+  export_config TEXT DEFAULT '{}',  -- 导出配置：标题/装订线/分栏/字号/含答案等（JSON）
   created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
 
@@ -174,12 +178,92 @@ CREATE TABLE IF NOT EXISTS subject_questions (
   qtype TEXT NOT NULL,
   content TEXT NOT NULL,
   options TEXT DEFAULT '[]',
-  answer TEXT DEFAULT '',
+  answer TEXT DEFAULT '',           -- 参考答案（简版）
+  analysis TEXT DEFAULT '',         -- 【v4.5.0】详细解析/参考答案详解（独立于 answer）
   score INTEGER DEFAULT 5,
   attachments TEXT DEFAULT '[]',
   sort INTEGER DEFAULT 0,
+  -- 【v4.5.0 智能题库】精细化标签体系
+  difficulty INTEGER DEFAULT 3,     -- 难度 1-5
+  textbook_version TEXT DEFAULT '', -- 教材版本：人教/北师大/苏教…
+  region TEXT DEFAULT '',           -- 适用地区
+  chapter TEXT DEFAULT '',          -- 章节（章节选题）
+  status TEXT DEFAULT 'active',     -- active / imported_needs_review（Word 导入待人工微调）
   created_at TEXT DEFAULT (datetime('now','+8 hours'))
 );
+
+-- 【v4.5.0】知识点主表（支持层级树：parent_id 自引）
+CREATE TABLE IF NOT EXISTS knowledge_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id INTEGER NOT NULL,
+  parent_id INTEGER DEFAULT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  sort INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  FOREIGN KEY(subject_id) REFERENCES subjects(id)
+);
+CREATE INDEX IF NOT EXISTS idx_kp_subject ON knowledge_points(subject_id);
+CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id);
+
+-- 【v4.5.0】题目 ↔ 知识点 多对多关联
+CREATE TABLE IF NOT EXISTS question_knowledge (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  question_id INTEGER NOT NULL,
+  knowledge_point_id INTEGER NOT NULL,
+  UNIQUE(question_id, knowledge_point_id),
+  FOREIGN KEY(question_id) REFERENCES subject_questions(id) ON DELETE CASCADE,
+  FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_qk_q ON question_knowledge(question_id);
+CREATE INDEX IF NOT EXISTS idx_qk_kp ON question_knowledge(knowledge_point_id);
+
+-- 【v4.5.0】个人题库：文件夹（用户自定义分类）
+CREATE TABLE IF NOT EXISTS question_folders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  parent_id INTEGER DEFAULT NULL,
+  sort INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now','+8 hours'))
+);
+CREATE INDEX IF NOT EXISTS idx_qf_user ON question_folders(user_id);
+
+-- 【v4.5.0】个人题库：收藏
+CREATE TABLE IF NOT EXISTS question_favorites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  question_id INTEGER NOT NULL,
+  folder_id INTEGER DEFAULT NULL,
+  note TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  UNIQUE(user_id, question_id)
+);
+CREATE INDEX IF NOT EXISTS idx_qfav_user ON question_favorites(user_id);
+
+-- 【v4.5.0】题目纠错反馈通道
+CREATE TABLE IF NOT EXISTS question_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  question_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT DEFAULT 'open',       -- open / resolved
+  created_at TEXT DEFAULT (datetime('now','+8 hours')),
+  resolved_by INTEGER DEFAULT NULL,
+  resolved_at TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qfb_q ON question_feedback(question_id);
+
+-- 【v4.5.0】多学科教师指派（干净的多对多模型，与 class_members 并存）
+CREATE TABLE IF NOT EXISTS user_subjects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  subject_id INTEGER NOT NULL,
+  assigned_by INTEGER DEFAULT NULL,
+  UNIQUE(user_id, subject_id)
+);
+CREATE INDEX IF NOT EXISTS idx_us_user ON user_subjects(user_id);
+CREATE INDEX IF NOT EXISTS idx_us_subject ON user_subjects(subject_id);
 
 -- 单题训练提交记录
 CREATE TABLE IF NOT EXISTS practice_submissions (

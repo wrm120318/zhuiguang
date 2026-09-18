@@ -36,7 +36,7 @@ ZHUIGUANG PLATFORM · AI MAINTAINER PROMPT
 === 第二部分：项目基本情况 ===
 
 项目名称：追光 · 学科共享平台（zhuiguang）  
-当前版本：v4.4.7（4 BUG 全修：资料下载次数 + 美文发布 500 + 图片不显示 + 编辑器 supabase 错）
+当前版本：v4.5.0（智能题库/在线组卷平台：知识点体系 + 题目二次编辑 + 一人多学科教师 + Word 导入导出 + 纠错反馈）
 项目类型：中学校园师生学科学习共享站
 
 用户访问域名：<https://xkzg.de5.net>  
@@ -50,7 +50,7 @@ GitHub 仓库：<https://github.com/wrm120318/zhuiguang>
 
 - 前端（Vue 3 SPA）部署到 Cloudflare Pages → <https://xkzg.de5.net>
 - 后端（Hono 框架，147+ 路由）部署到 Cloudflare Workers → <https://api.xkzg.de5.net>
-- 数据库：Cloudflare D1（SQLite 兼容，24 张表，含 v4.1.0 新增 forum_topics）
+- 数据库：Cloudflare D1（SQLite 兼容，30 张表，含 v4.1.0 forum_topics 及 v4.5.0 knowledge_points / question_knowledge / question_folders / question_favorites / question_feedback / user_subjects）
 - 文件存储：Supabase Storage（Bucket: zhuiguang，Public）
 - 前后端同源模式：前端访问 /api/xxx，由 Cloudflare 路由到 Workers
 
@@ -321,7 +321,7 @@ How：验收标准是什么？我作为用户怎么做，才能证明你改好�
 - D1 查询命令：npx wrangler d1 execute zhuiguang-db --remote --command="SQL"
 - Workers 实时日志：cd /workspace && npx wrangler tail
 - 凭证文件：/workspace/.env（被 .gitignore 排除，不入库）
-- 当前版本：v4.4.7（4 BUG 全修：资料下载次数 + 美文发布 500 + 图片不显示 + 编辑器 supabase 错）
+- 当前版本：v4.5.0（智能题库/在线组卷平台：知识点体系 + 题目二次编辑 + 一人多学科教师 + Word 导入导出 + 纠错反馈）
 
 ================================================================================  
 === 第十一部分：现在，请先做这个 ===

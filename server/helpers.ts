@@ -50,8 +50,22 @@ export async function userClassIds(userId: number): Promise<number[]> {
 
 // 用户任教的 subject ids（教师）
 export async function teachingSubjects(userId: number): Promise<number[]> {
-  const rows = await all<{ subject_id: number }>('SELECT DISTINCT subject_id FROM class_members WHERE user_id = ? AND role_in_class = ? AND subject_id IS NOT NULL', userId, 'TEACHER')
+  const rows = await all<{ subject_id: number }>(
+    'SELECT DISTINCT subject_id FROM (' +
+    'SELECT subject_id FROM class_members WHERE user_id = ? AND role_in_class = ? AND subject_id IS NOT NULL ' +
+    'UNION SELECT subject_id FROM user_subjects WHERE user_id = ? AND subject_id IS NOT NULL ' +
+    'UNION SELECT subject_id FROM users WHERE id = ? AND subject_id IS NOT NULL' +
+    ')', userId, 'TEACHER', userId, userId)
   return rows.map(r => r.subject_id)
+}
+
+// 【v4.5.0】题目 ↔ 知识点关联写入（幂等替换）
+export async function linkKnowledge(questionId: number, ids: any): Promise<void> {
+  await run('DELETE FROM question_knowledge WHERE question_id=?', questionId)
+  const arr = Array.isArray(ids) ? ids.map(Number).filter(Boolean) : []
+  for (const kp of arr) {
+    try { await run('INSERT OR IGNORE INTO question_knowledge (question_id, knowledge_point_id) VALUES (?,?)', questionId, kp) } catch {}
+  }
 }
 
 // 功能开关缓存

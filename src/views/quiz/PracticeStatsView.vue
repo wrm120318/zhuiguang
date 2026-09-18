@@ -111,7 +111,7 @@ onMounted(load)
       <!-- 正确答案（教师可见） -->
       <div v-if="isTeacher && question.qtype !== 'subjective'" class="q-answer-reveal">
         <div class="q-label"><ZgGlyph emoji="✅" /> 正确答案</div>
-        <div class="q-answer-text">{{ question.answer }}</div>
+        <div class="q-answer-text markdown-body" v-html="md(question.answer)"></div>
       </div>
       <div v-if="question.attachments?.length" class="q-atts">
         <a v-for="(a, i) in question.attachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
@@ -131,7 +131,7 @@ onMounted(load)
         <span class="pc-ans-content">{{ sub.answer || '（无作答）' }}</span>
       </div>
       <div class="pc-actions">
-        <el-button size="small" type="primary" @click="router.push(`/practice/${questionId}?grade=${sub.id}`)">去批改</el-button>
+        <el-button size="small" type="primary" @click="router.push(`/practice/grade/${sub.id}`)">去批改</el-button>
         <el-button size="small" type="danger" :loading="deletingId === sub.id" @click="deleteSub(sub.id)">删除记录</el-button>
       </div>
     </div>

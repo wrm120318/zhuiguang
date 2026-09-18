@@ -316,7 +316,7 @@ export const api = {
   quizMyReport: (id: number) => http.get(`/api/quizzes/${id}/my_report`),
   quizReport: (id: number) => http.get(`/api/quizzes/${id}/report`),
   // 学科题目池（单题训练）
-  subjectQuestions: (subjectId: number) => http.get(`/api/subjects/${subjectId}/questions`),
+  subjectQuestions: (subjectId: number, params?: any) => http.get(`/api/subjects/${subjectId}/questions`, { params }),
   subjectQuestion: (id: number) => http.get(`/api/subject-questions/${id}`),
   addSubjectQuestion: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/questions`, data),
   deleteSubjectQuestion: (id: number) => http.delete(`/api/subject-questions/${id}`),
@@ -328,6 +328,33 @@ export const api = {
   deletePracticeRecord: (id: number) => http.delete(`/api/practice/record/${id}`),
   practiceSubmission: (id: number) => http.get(`/api/practice/submission/${id}`),
   practiceStats: (questionId: number) => http.get(`/api/practice/stats/${questionId}`),
+  // ===== 【v4.5.0】智能题库：题目二次编辑 =====
+  updateSubjectQuestion: (id: number, data: any) => http.patch(`/api/subject-questions/${id}`, data),
+  // ===== 【v4.5.0】知识点 =====
+  knowledgePoints: (subjectId: number) => http.get(`/api/subjects/${subjectId}/knowledge-points`),
+  createKnowledgePoint: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/knowledge-points`, data),
+  updateKnowledgePoint: (id: number, data: any) => http.patch(`/api/knowledge-points/${id}`, data),
+  deleteKnowledgePoint: (id: number) => http.delete(`/api/knowledge-points/${id}`),
+  // ===== 【v4.5.0】题目纠错 =====
+  createQuestionFeedback: (qid: number, content: string) => http.post(`/api/subject-questions/${qid}/feedback`, { content }),
+  questionFeedbacks: (subjectId: number) => http.get(`/api/subjects/${subjectId}/question-feedback`),
+  resolveFeedback: (id: number, status?: string) => http.patch(`/api/question-feedback/${id}`, { status: status || 'resolved' }),
+  // ===== 【v4.5.0】个人题库：文件夹 + 收藏 =====
+  questionFolders: () => http.get('/api/users/me/question-folders'),
+  createQuestionFolder: (data: { name: string; parent_id?: number }) => http.post('/api/users/me/question-folders', data),
+  updateQuestionFolder: (id: number, data: any) => http.patch(`/api/question-folders/${id}`, data),
+  deleteQuestionFolder: (id: number) => http.delete(`/api/question-folders/${id}`),
+  favoriteQuestion: (qid: number, data?: any) => http.post(`/api/subject-questions/${qid}/favorite`, data || {}),
+  myFavorites: () => http.get('/api/users/me/favorites'),
+  deleteFavorite: (id: number) => http.delete(`/api/favorites/${id}`),
+  // ===== 【v4.5.0】多学科教师指派（后台）=====
+  assignUserSubject: (userId: number, subjectId: number) => http.post(`/api/admin/users/${userId}/subjects`, { subject_id: subjectId }),
+  unassignUserSubject: (userId: number, subjectId: number) => http.delete(`/api/admin/users/${userId}/subjects/${subjectId}`),
+  userSubjects: (userId: number) => http.get<number[]>(`/api/admin/users/${userId}/subjects`),
+  allUserSubjects: () => http.get<any[]>('/api/admin/user-subjects'),
+  // ===== 【v4.5.0】智能组卷存档（复用 quizzes kind='paper'）=====
+  createPaper: (data: any) => http.post('/api/quizzes', { ...data, kind: 'paper' }),
+  updatePaper: (id: number, data: any) => http.patch(`/api/quizzes/${id}`, { ...data, kind: 'paper' }),
   // ===== 通用页面：网站说明 / 博客 / 公告 =====
   guide: () => http.get('/api/pages/guide'),
   saveGuide: (data: { title: string; content: string; images?: string[]; attachments?: any[] }) => http.put('/api/pages/guide', data),

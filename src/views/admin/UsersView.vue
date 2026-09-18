@@ -9,6 +9,8 @@ const data = useDataStore()
 
 const users = ref<any[]>([])
 const search = ref('')
+// 【v4.5.0】多学科教师：userId -> subjectId[] 映射，用于列表一次性展示
+const userSubjectMap = ref<Record<number, number[]>>({})
 
 const filtered = computed(() => {
   const q = search.value.trim()
@@ -20,12 +22,28 @@ async function load() {
   if (!data.classes.length) await data.fetchClasses()
   if (!data.subjects.length) await data.fetchSubjects()
   users.value = (await api.users()) as any
+  try {
+    const rows = (await api.allUserSubjects()) as any
+    const map: Record<number, number[]> = {}
+    for (const r of rows) {
+      ;(map[r.user_id] ||= []).push(r.subject_id)
+    }
+    userSubjectMap.value = map
+  } catch { /* 不影响主列表 */ }
 }
 
 function subjectName(id: number | null) {
   if (!id) return '-'
   const s = data.subjects.find((x: any) => x.id === id)
   return s ? `${s.icon} ${s.name}` : '-'
+}
+
+// 【v4.5.0】合并 legacy subject_id 与 user_subjects，返回该用户担任的全部学科名
+function userSubjectNames(u: any): string {
+  const ids = new Set<number>(userSubjectMap.value[u.id] || [])
+  if (u.subject_id) ids.add(u.subject_id)
+  if (!ids.size) return '-'
+  return [...ids].map(id => subjectName(id)).join('、')
 }
 onMounted(load)
 
@@ -63,7 +81,7 @@ async function deleteUser(u: any) {
 }
 
 const addVisible = ref(false)
-const form = ref({ realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null as number | null })
+const form = ref({ realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null as number | null, subjectIds: [] as number[] })
 
 async function openAdd() {
   // 始终拉取最新班级/学科，避免在「班级管理」里改动后此处仍显示旧数据
@@ -77,38 +95,50 @@ async function openAdd() {
 
 async function addUser() {
   if (!form.value.realName || !form.value.username) { ElMessage.warning('请填写姓名与用户名'); return }
-  if (form.value.role === 'TEACHER' && !form.value.subjectId) { ElMessage.warning('请为教师选择绑定学科'); return }
+  if (form.value.role === 'TEACHER' && !form.value.subjectIds.length) { ElMessage.warning('请为教师至少选择一个学科'); return }
   try {
-    await api.createUser({
+    // 兼容旧字段：取首个学科作为 legacy subject_id
+    const legacyId = form.value.subjectIds[0] ?? null
+    const created = (await api.createUser({
       realName: form.value.realName,
       username: form.value.username,
       role: form.value.role,
       email: form.value.email || `${form.value.username}@zguang.edu`,
       classId: form.value.classId,
       password: form.value.password || '123456',
-      subjectId: form.value.subjectId,
-    })
+      subjectId: legacyId,
+    })) as any
+    // 【v4.5.0】多学科：写入 user_subjects（教师角色才需要）
+    const newId = created?.id ?? created?.data?.id
+    if (form.value.role === 'TEACHER' && newId && form.value.subjectIds.length) {
+      for (const sid of form.value.subjectIds) {
+        try { await api.assignUserSubject(newId, sid) } catch { /* 已存在则忽略 */ }
+      }
+    }
     ElMessage.success('用户已创建')
     addVisible.value = false
-    form.value = { realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null }
+    form.value = { realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null, subjectIds: [] }
     await load()
   } catch { /* */ }
 }
 
 // ===== 编辑用户 =====
 const editVisible = ref(false)
-const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, email: '', classId: null as number | null })
+const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, subjectIds: [] as number[], email: '', classId: null as number | null })
 const editLoading = ref(false)
 
 async function openEdit(u: any) {
   // 拉取最新班级和学科列表
   await Promise.all([data.fetchClasses(), data.fetchSubjects()])
+  let subjectIds: number[] = []
+  try { subjectIds = (await api.userSubjects(u.id)) as any } catch { subjectIds = [] }
   editForm.value = {
     id: u.id,
     realName: u.real_name || '',
     username: u.username || '',
     role: u.role || 'STUDENT',
     subjectId: u.subject_id ?? null,
+    subjectIds,
     email: u.email || '',
     classId: u.class_id ?? null as number | null,
   }
@@ -117,19 +147,30 @@ async function openEdit(u: any) {
 
 async function saveEdit() {
   if (!editForm.value.realName || !editForm.value.username) { ElMessage.warning('请填写姓名与用户名'); return }
-  if (editForm.value.role === 'TEACHER' && !editForm.value.subjectId) { ElMessage.warning('请为教师选择绑定学科'); return }
+  if (editForm.value.role === 'TEACHER' && !editForm.value.subjectIds.length) { ElMessage.warning('请为教师至少选择一个学科'); return }
   editLoading.value = true
   try {
+    // 兼容旧字段：取首个学科作为 legacy subject_id
+    const legacyId = editForm.value.subjectIds[0] ?? null
     await api.updateUser(editForm.value.id, {
       realName: editForm.value.realName,
       username: editForm.value.username,
       role: editForm.value.role,
-      subjectId: editForm.value.subjectId,
+      subjectId: legacyId,
       email: editForm.value.email,
       // 关键：el-select 清空后 classId 为 undefined，JSON.stringify 会丢弃该键，
       // 导致后端收不到 classId、跳过删除逻辑。规整为 null 确保"清除班级"生效。
       classId: editForm.value.classId ?? null,
     })
+    // 【v4.5.0】多学科：按差量同步 user_subjects
+    const current = new Set<number>(userSubjectMap.value[editForm.value.id] || [])
+    const target = new Set<number>(editForm.value.subjectIds)
+    for (const sid of target) {
+      if (!current.has(sid)) { try { await api.assignUserSubject(editForm.value.id, sid) } catch { /* 已存在 */ } }
+    }
+    for (const sid of current) {
+      if (!target.has(sid)) { try { await api.unassignUserSubject(editForm.value.id, sid) } catch { /* */ } }
+    }
     ElMessage.success('用户信息已更新')
     editVisible.value = false
     await load()
@@ -468,8 +509,8 @@ function openImport() {
         <el-table-column label="角色" width="100">
           <template #default="{ row }"><el-tag size="small" :type="row.role==='SUPER_ADMIN'?'danger':row.role==='TEACHER'?'warning':'info'">{{ roleLabel(row.role) }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="学科" width="120" v-if="filtered.some((u:any) => u.role === 'TEACHER')">
-          <template #default="{ row }"><span v-if="row.role === 'TEACHER'" class="subj-cell">{{ subjectName(row.subject_id) }}</span><span v-else>-</span></template>
+        <el-table-column label="学科" width="180" v-if="filtered.some((u:any) => u.role === 'TEACHER')">
+          <template #default="{ row }"><span v-if="row.role === 'TEACHER'" class="subj-cell">{{ userSubjectNames(row) }}</span><span v-else>-</span></template>
         </el-table-column>
         <el-table-column prop="email" label="邮箱" min-width="180" />
         <el-table-column label="班级" width="120">
@@ -505,7 +546,7 @@ function openImport() {
           </el-select>
         </el-form-item>
         <el-form-item label="绑定学科" v-if="form.role === 'TEACHER'">
-          <el-select v-model="form.subjectId" placeholder="请选择教师管理的学科" style="width:100%">
+          <el-select v-model="form.subjectIds" multiple collapse-tags collapse-tags-tooltip placeholder="可多选：一位教师可任多学科" style="width:100%">
             <el-option v-for="s in data.subjects" :key="s.id" :label="s.icon + ' ' + s.name" :value="s.id" />
           </el-select>
         </el-form-item>
@@ -530,7 +571,7 @@ function openImport() {
           </el-select>
         </el-form-item>
         <el-form-item label="绑定学科" v-if="editForm.role === 'TEACHER'">
-          <el-select v-model="editForm.subjectId" placeholder="请选择教师管理的学科" style="width:100%">
+          <el-select v-model="editForm.subjectIds" multiple collapse-tags collapse-tags-tooltip placeholder="可多选：一位教师可任多学科" style="width:100%">
             <el-option v-for="s in data.subjects" :key="s.id" :label="s.icon + ' ' + s.name" :value="s.id" />
           </el-select>
         </el-form-item>

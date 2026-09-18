@@ -21,8 +21,6 @@ const subjectQueries = ref<any[]>([])
 const subjectQuizzes = ref<any[]>([])
 const subjectQuestions = ref<any[]>([])
 const contributors = ref<any[]>([])
-const addQuestionVisible = ref(false)
-const qForm = ref({ qtype: 'single', content: '', options: ['', '', '', ''], answer: '', score: 5, attachments: [] as any[] })
 
 async function load() {
   const slug = route.params.slug as string
@@ -114,44 +112,9 @@ async function goQuizNew() {
   }
 }
 
-// 题目池：教师添加题目
-function openAddQuestion() {
-  qForm.value = { qtype: 'single', content: '', options: ['', '', '', ''], answer: '', score: 5, attachments: [] }
-  addQuestionVisible.value = true
-}
-function onQTypeChange() {
-  if (qForm.value.qtype === 'judge') qForm.value.options = ['对', '错']
-  else if (qForm.value.qtype === 'subjective') qForm.value.options = []
-  else if (qForm.value.options.length < 2) qForm.value.options = ['', '', '', '']
-}
-async function handleQAttach(req: any) {
-  try {
-    const r: any = await api.uploadFile(req.file as File)
-    qForm.value.attachments.push({ url: r.url, name: r.fileName, size: r.fileSize, type: r.fileType })
-    ElMessage.success('附件已上传')
-  } catch (e: any) {
-    console.error('[附件上传失败]', e)
-    ElMessage.error(e?.message || '附件上传失败')
-  }
-}
-function removeQAttach(idx: number) { qForm.value.attachments.splice(idx, 1) }
-async function submitQuestion() {
-  if (!qForm.value.content) { ElMessage.warning('请输入题干'); return }
-  if (!subject.value) return
-  try {
-    await api.addSubjectQuestion(subject.value.id, {
-      qtype: qForm.value.qtype,
-      content: qForm.value.content,
-      options: qForm.value.qtype === 'subjective' ? [] : qForm.value.options.filter(o => o !== ''),
-      answer: qForm.value.answer,
-      score: qForm.value.score,
-      attachments: qForm.value.attachments,
-    })
-    ElMessage.success('题目已添加')
-    addQuestionVisible.value = false
-    await reloadQuestions()
-  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '添加失败') }
-}
+// 题目池：教师添加题目（跳转智能题库新界面，不再用弹窗）
+function goBank() { if (subject.value) router.push(`/subject/${subject.value.slug}/bank`) }
+function goAddQuestion() { if (subject.value) router.push(`/subject/${subject.value.slug}/bank/add`) }
 async function deleteQuestion(id: number) {
   try {
     await ElMessageBox.confirm('确定删除该题目？相关训练记录也会删除', '提示', { type: 'warning' })
@@ -455,7 +418,8 @@ async function submitResource() {
         <div class="section-title"><ZgGlyph emoji="🏋️" /> 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
         <div class="panel-head-actions">
           <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')"><ZgGlyph emoji="📝" /> 我的训练记录</el-button>
-          <el-button v-if="user.isStaff" type="primary" round size="small" @click="openAddQuestion">+ 添加题目</el-button>
+          <el-button v-if="user.isStaff" type="primary" round size="small" @click="goAddQuestion">+ 添加题目</el-button>
+          <el-button v-if="user.isStaff" size="small" round @click="goBank"><ZgGlyph emoji="🧠" /> 智能题库</el-button>
         </div>
       </div>
       <div class="practice-list">
@@ -504,49 +468,6 @@ async function submitResource() {
       </div>
       <el-empty v-if="!subjectQuizzes.length" description="本学科暂无考试" />
     </section>
-
-    <!-- 添加题目弹窗 -->
-    <el-dialog v-model="addQuestionVisible" title="添加训练题目" width="640px">
-      <el-form label-width="70px">
-        <el-form-item label="题型">
-          <el-select v-model="qForm.qtype" @change="onQTypeChange" style="width:200px">
-            <el-option label="单选题" value="single" />
-            <el-option label="多选题" value="multiple" />
-            <el-option label="判断题" value="judge" />
-            <el-option label="主观题" value="subjective" />
-          </el-select>
-          <el-input-number v-model="qForm.score" :min="1" :max="100" style="margin-left:12px" /> 分
-        </el-form-item>
-        <el-form-item label="题干">
-          <el-input v-model="qForm.content" type="textarea" :rows="3" placeholder="支持 Markdown：## 标题、**加粗**、![图片](url)、[链接](url)" />
-        </el-form-item>
-        <el-form-item label="选项" v-if="qForm.qtype !== 'subjective'">
-          <div class="q-opt-edit">
-            <div v-for="(opt, idx) in qForm.options" :key="idx" class="qoe-row">
-              <el-input v-model="qForm.options[idx]" :placeholder="`选项 ${String.fromCharCode(65 + idx)}`" size="small" />
-              <el-button v-if="qForm.qtype !== 'judge'" text type="danger" size="small" @click="qForm.options.splice(idx, 1)">×</el-button>
-            </div>
-            <el-button v-if="qForm.qtype !== 'judge'" text size="small" @click="qForm.options.push('')">+ 添加选项</el-button>
-          </div>
-        </el-form-item>
-        <el-form-item label="答案">
-          <el-input v-model="qForm.answer" :placeholder="qForm.qtype === 'judge' ? '对 或 错' : qForm.qtype === 'multiple' ? '多个用英文逗号，如 A,B' : qForm.qtype === 'subjective' ? '参考答案 / 评分要点（仅教师可见）' : '如 A'" />
-        </el-form-item>
-        <el-form-item label="附件">
-          <el-upload :http-request="handleQAttach" :show-file-list="false" multiple>
-            <el-button size="small"><ZgGlyph emoji="📎" /> 添加附件（图片/文件）</el-button>
-          </el-upload>
-          <div v-for="(a, idx) in qForm.attachments" :key="idx" class="qa-item-row">
-            <span><ZgGlyph emoji="📎" /> {{ a.name }}</span>
-            <el-button text type="danger" size="small" @click="removeQAttach(idx)">×</el-button>
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="addQuestionVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitQuestion">添加</el-button>
-      </template>
-    </el-dialog>
 
     <section v-if="activeTab === 'leaderboard'" class="tab-panel">
       <div class="section-title">{{ subject.name }} · 贡献榜</div>

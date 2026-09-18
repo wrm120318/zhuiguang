@@ -5,6 +5,48 @@
 
 ---
 
+## [v4.5.0] - 2026-09-18
+
+> **全新「智能题库（在线组卷平台）」上线：在原有学科题库/单题自测基础上，升级为围绕智能选题、自主组卷、格式导出、在线测评四大能力的一站式组卷平台；同时补齐知识点体系、题目二次编辑、多学科教师、纠错反馈、个人题库等能力。零成本、铁律6/7/11。**
+
+### ✨ 新增：知识点体系（树状，全能）
+- 新增 `knowledge_points`（支持 `parent_id` 层级树）、`question_knowledge`（题↔点 多对多）两张表。
+- 后端：`GET/POST /api/subjects/:id/knowledge-points`、`PATCH/DELETE /api/knowledge-points/:id`，以及题目列表/详情接口现随题返回 `knowledge_points` 数组。
+- 前端：`QuestionBankView` 内置知识点管理器（增删改 + 树状多选）。
+
+### ✨ 新增：题目二次编辑（创建者 / 本学科教师 / 超管 均可）
+- 新增 `PATCH /api/subject-questions/:id`（权限 = 创建者 OR 本学科教师 OR 超管），可改题干、选项、答案、解析、难度、教材版本、地区、章节、状态、知识点。
+- 前端：独立新页面 `/subject/:slug/bank/:qid/edit`（非弹窗），与「添加题目」共用 `QuestionForm` 富文本表单。
+
+### ✨ 新增：一人可任多学科教师（user_subjects 多对多）
+- 新增 `user_subjects` 表；`teachingSubjects()` 现聚合 `class_members` + 历史 `users.subject_id` 兜底 + `user_subjects`，历史单学科教师权限**不丢失**。
+- 后台 `UsersView` 教师「绑定学科」改为多选；新增 `POST/DELETE/GET /api/admin/users/:id/subjects`、`GET /api/admin/user-subjects` 批量拉取。
+
+### ✨ 新增：智能组卷（在线组卷平台）
+- 试题篮 Pinia store（`src/stores/basket.ts`）：跨页收集、排序、设分、清空、localStorage 持久化。
+- `QuestionBankView`：多维度筛选（关键词/题型/难度/教材版本/地区/章节/知识点）+ 入篮 + 收藏 + 个人文件夹（`question_folders`/`question_favorites`）。
+- 导出：纯前端 `DocxExportPanel`（docx + file-saver）支持 3 套模板（正式卷/答题卷/作业卷）+ 可选答案卷 + 答题卡。
+- 导入：`WordImportPanel` 纯前端 mammoth 解析 .docx → 按序号自动拆分题目 → 预览 → 入库（标记 `imported_needs_review` 待人工复核）。
+
+### ✨ 新增：题目纠错反馈通道
+- 新增 `question_feedback` 表；`POST /api/subject-questions/:id/feedback`、`GET /api/subjects/:id/question-feedback`、`PATCH /api/question-feedback/:id`（教师/超管处理）。
+
+### 🐞 Bug 修复：参考答案未渲染 Markdown
+- 5 处直接 `{{ q.answer }}` 插值改为 `v-html="renderMarkdown(...)"`：`QuizSubmissionsView`、`QuizReportView`（2 处）、`PracticeStatsView`、`PracticeTakeView`。
+
+### 🎯 交互升级：添加/批改题目不再用弹窗，直接开新页面
+- 学科站「题库自测」tab 的「+ 添加题目」改为跳转 `/subject/:slug/bank/add`，并新增「🧠 智能题库」入口；原 `SubjectView` 内联添加弹窗删除。
+- 教师批改主观题改用独立新页面 `/practice/grade/:id`（左学生作答 / 右参考答案+解析+知识点，参考答案已 Markdown 渲染），原 `PracticeTakeView` 内联批改模式保留但不再被主动触发。
+
+### 🗄️ 数据迁移（幂等自愈）
+- 运行时 ALTER/建表自愈 + 迁移文件 `migrations/0003_smart_bank.sql`：`knowledge_points`、`question_knowledge`、`question_folders`、`question_favorites`、`question_feedback`、`user_subjects` 六张新表；`subject_questions` 补 `analysis/difficulty/textbook_version/region/chapter/status`；`quizzes` 补 `kind/template/export_config`。
+
+### 🧪 部署与验证
+- 前端 `git push origin main` → Pages 自动构建；后端 `wrangler deploy`；DB 执行 `migrations/0003_smart_bank.sql`。
+- `npm run build`（vue-tsc + vite）通过；三角色（超管/教师/学生）路径已自检。
+
+---
+
 ## [v4.4.30e] - 2026-09-15
 
 > **继续优化移动端流畅度：不牺牲任何视觉（毛玻璃保留），从「固定玻璃层每帧重采样」这个顽固卡顿源下手。零成本、铁律6/7/11。**

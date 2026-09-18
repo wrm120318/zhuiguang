@@ -135,7 +135,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
           </div>
           <div class="qana-content markdown-body" v-html="renderMd(q.content)"></div>
           <div class="qana-detail" v-if="q.qtype !== 'subjective'">
-            正确答案：<b>{{ q.answer }}</b> · 答对 {{ q.correctCnt }} / {{ q.answeredCnt }} 人
+            正确答案：<span class="markdown-body" v-html="renderMd(q.answer)"></span> · 答对 {{ q.correctCnt }} / {{ q.answeredCnt }} 人
           </div>
           <div class="qana-detail" v-else>
             平均得分：{{ q.avgScore }} / {{ q.score }} · 已批 {{ q.answeredCnt }} 人
@@ -236,7 +236,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
               <span class="qo-tag wrong" v-if="(sub?.answers?.answers?.[q.id] || '').split(',').includes(letter(idx)) && !q.answer.split(',').includes(letter(idx))">你的选择</span>
             </div>
           </div>
-          <div class="q-line">正确答案：<b>{{ q.answer }}</b> | 你的答案：<b>{{ sub?.answers?.answers?.[q.id] || '未作答' }}</b></div>
+          <div class="q-line">正确答案：<span class="markdown-body" v-html="renderMd(q.answer)"></span> | 你的答案：<b>{{ sub?.answers?.answers?.[q.id] || '未作答' }}</b></div>
         </template>
         <template v-else>
           <div class="q-line">你的作答：</div>

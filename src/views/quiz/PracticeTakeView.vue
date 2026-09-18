@@ -225,7 +225,7 @@ async function deleteSubmission() {
       <div class="rb-answer markdown-body" v-html="md(result.answer || '未作答')"></div>
 
       <template v-if="q.qtype !== 'subjective'">
-        <div class="rb-line">正确答案：<b>{{ q.answer }}</b></div>
+        <div class="rb-line">正确答案：<span class="markdown-body" v-html="md(q.answer)"></span></div>
       </template>
       <template v-else>
         <div class="rb-line" v-if="result.comment">教师评语：{{ result.comment }}</div>
