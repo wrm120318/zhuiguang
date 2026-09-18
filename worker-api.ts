@@ -3853,6 +3853,21 @@ app.delete('/api/favorites/:id', auth, async (c) => {
   return c.json({ ok: true })
 })
 
+// 学生错题本：返回当前用户答错（correct=0）的去重题目，可附 subject_id 过滤（对标智学网错题卡）
+app.get('/api/users/me/wrong-questions', auth, async (c) => {
+  const uid = c.get('user').id
+  const sid = c.req.query('subject_id')
+  const rows = await all<any>(`SELECT DISTINCT sq.*, s.name AS subject_name, ps.submitted_at
+    FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id LEFT JOIN subjects s ON s.id=sq.subject_id
+    WHERE ps.user_id=? AND ps.correct=0 ${sid ? 'AND sq.subject_id=?' : ''}
+    ORDER BY ps.submitted_at DESC`, sid ? [uid, Number(sid)] : [uid])
+  const out = await Promise.all(rows.map(async (r: any) => {
+    const kp = await all<any>('SELECT kp.id, kp.name FROM question_knowledge qk JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id WHERE qk.question_id=?', r.id)
+    return { ...r, options: j(r.options), knowledge_points: kp }
+  }))
+  return c.json(out)
+})
+
 // 学生提交单题训练答案
 app.post('/api/subject-questions/:id/submit', auth, async (c) => {
   const uid = c.get('user').id

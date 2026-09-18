@@ -9,6 +9,7 @@ import { renderMarkdown } from '@/utils/markdown'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
 import WordImportPanel from '@/components/WordImportPanel.vue'
+import CardsPanel from '@/components/CardsPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +25,7 @@ const showKpManager = ref(false)
 const showBasket = ref(false)
 const showExport = ref(false)
 const showImport = ref(false)
+const showCards = ref(false)
 
 const filters = reactive({
   keyword: '', qtype: '', difficulty: '', textbook_version: '', region: '', chapter: '', knowledge_point_id: '',
@@ -94,6 +96,37 @@ async function deleteKp(id: number) {
 }
 
 const qtypeLabels: Record<string, string> = { single: '单选', multiple: '多选', judge: '判断', fill: '填空', subjective: '主观' }
+
+// ===== 智能组卷（按条件自动抽题） =====
+const showSmart = ref(false)
+const smart = reactive({
+  difficulty: '',
+  knowledge_point_id: '',
+  rules: [
+    { key: 'single', label: '单选题', count: 0, score: 5 },
+    { key: 'multiple', label: '多选题', count: 0, score: 5 },
+    { key: 'judge', label: '判断题', count: 0, score: 3 },
+    { key: 'fill', label: '填空题', count: 0, score: 5 },
+    { key: 'subjective', label: '主观题', count: 0, score: 10 },
+  ],
+})
+function shuffle<T>(a: T[]): T[] { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] } return a }
+async function smartAssemble() {
+  const active = smart.rules.filter(r => r.count > 0)
+  if (!active.length) { ElMessage.warning('请至少设置一种题型的题量'); return }
+  let total = 0
+  for (const r of active) {
+    const params: any = { qtype: r.key }
+    if (smart.difficulty) params.difficulty = smart.difficulty
+    if (smart.knowledge_point_id) params.knowledge_point_id = smart.knowledge_point_id
+    const list = (await api.subjectQuestions(subject.value.id, params)) as any as any[]
+    const picked = shuffle([...list]).slice(0, r.count)
+    picked.forEach((q: any) => basket.add({ ...q, score: r.score }, subject.value.id))
+    total += picked.length
+  }
+  if (total) { ElMessage.success(`已智能抽取 ${total} 题入篮`); showSmart.value = false; showBasket.value = true }
+  else ElMessage.warning('未找到满足条件的题目，请调整筛选或先添加题目')
+}
 </script>
 
 <template>
@@ -103,6 +136,8 @@ const qtypeLabels: Record<string, string> = { single: '单选', multiple: '多�
       <h2>{{ subject?.name }} · 智能题库</h2>
       <div class="head-actions">
         <el-button v-if="isStaff" type="primary" @click="router.push(`/subject/${slug}/bank/add`)" icon="Plus">添加题目</el-button>
+        <el-button type="success" @click="showSmart = true" icon="MagicStick">智能组卷</el-button>
+        <el-button @click="showCards = true" icon="Postcard">制卡</el-button>
         <el-button v-if="isStaff" @click="showImport = true" icon="Upload">Word 导入</el-button>
         <el-badge :value="basket.count()" :hidden="basket.count() === 0">
           <el-button @click="showBasket = true" icon="Files">试题篮</el-button>
@@ -206,6 +241,36 @@ const qtypeLabels: Record<string, string> = { single: '单选', multiple: '多�
     <el-dialog v-model="showImport" title="Word 试卷导入（自动拆分）" width="720px" append-to-body>
       <WordImportPanel v-if="subject" :subject-id="subject.id" @imported="() => { showImport=false; loadQuestions(); loadKp() }" />
     </el-dialog>
+
+    <!-- 制卡 -->
+    <el-dialog v-model="showCards" title="制卡（试题卡 / 错题卡 / 知识点卡）" width="760px" append-to-body>
+      <CardsPanel v-if="subject" :subject-id="subject.id" :questions="questions" />
+    </el-dialog>
+
+    <!-- 智能组卷 -->
+    <el-dialog v-model="showSmart" title="智能组卷（按条件自动抽题）" width="560px" append-to-body>
+      <div class="smart">
+        <div class="smart-filters">
+          <el-select v-model="smart.difficulty" placeholder="难度（不限）" clearable style="width:160px">
+            <el-option v-for="d in [1,2,3,4,5]" :key="d" :label="`${d}星`" :value="d" />
+          </el-select>
+          <el-select v-model="smart.knowledge_point_id" placeholder="知识点（不限）" clearable filterable style="width:200px">
+            <el-option v-for="k in kpList" :key="k.id" :label="k.name" :value="k.id" />
+          </el-select>
+        </div>
+        <div class="smart-rule" v-for="r in smart.rules" :key="r.key">
+          <span class="sr-label">{{ r.label }}</span>
+          <el-input-number v-model="r.count" :min="0" :max="200" size="small" /> <span class="sr-unit">题</span>
+          <span class="sr-score">每题</span>
+          <el-input-number v-model="r.score" :min="1" :max="100" size="small" /> <span class="sr-unit">分</span>
+        </div>
+        <el-alert type="info" :closable="false" title="说明" description="系统按题型/难度/知识点从本题库随机抽取并加入试题篮，可继续手动增减后导出 Word。" />
+      </div>
+      <template #footer>
+        <el-button @click="showSmart = false">取消</el-button>
+        <el-button type="primary" @click="smartAssemble" icon="MagicStick">自动抽题入篮</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -234,4 +299,10 @@ const qtypeLabels: Record<string, string> = { single: '单选', multiple: '多�
 .bi-content { flex: 1; line-height: 1.5; max-height: 60px; overflow: hidden; }
 .bi-idx { font-weight: 700; color: #F59E0B; margin-right: 4px; }
 .empty { padding: 30px; text-align: center; color: #999; }
+.smart { padding: 4px; }
+.smart-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.smart-rule { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed rgba(0,0,0,0.08); }
+.sr-label { width: 80px; font-weight: 600; }
+.sr-score { margin-left: 12px; color: #888; font-size: 13px; }
+.sr-unit { color: #888; font-size: 13px; }
 </style>

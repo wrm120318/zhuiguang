@@ -346,6 +346,7 @@ export const api = {
   deleteQuestionFolder: (id: number) => http.delete(`/api/question-folders/${id}`),
   favoriteQuestion: (qid: number, data?: any) => http.post(`/api/subject-questions/${qid}/favorite`, data || {}),
   myFavorites: () => http.get('/api/users/me/favorites'),
+  myWrongQuestions: (subjectId?: number) => http.get<any[]>(`/api/users/me/wrong-questions${subjectId ? `?subject_id=${subjectId}` : ''}`),
   deleteFavorite: (id: number) => http.delete(`/api/favorites/${id}`),
   // ===== 【v4.5.0】多学科教师指派（后台）=====
   assignUserSubject: (userId: number, subjectId: number) => http.post(`/api/admin/users/${userId}/subjects`, { subject_id: subjectId }),
