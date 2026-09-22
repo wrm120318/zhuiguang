@@ -5,6 +5,22 @@
 
 ---
 
+## [v4.7.0] - 2026-09-22
+
+> **修复两类明确 bug（用户点名）：① 各学科试题篮相互独立；② Word 导出吞换行 + markdown 样式未转正常 Word 文字。**
+
+### 🐛 修复
+- **试题篮按学科隔离**：`stores/basket.ts` 由「全局数组」改为「按 `subjectId` 分区的 map `{ [subjectId]: BasketItem[] }`」，含旧数据自动迁移；`QuestionBankView` / `CardsPanel` 调用点全部改为按当前学科取值，切换学科不再串题。
+- **Word 导出吞换行（真修）**：`DocxExportPanel` 新增 `textRuns()`，把 `\n` 转为 docx `break`，题干/选项/答案/解析的换行不再丢失。
+- **Word 导出 markdown 样式（真修）**：新增 `mdToParagraphs()`，把题目内容的 `#/##/###` 标题（按层级放大加粗）、`-/*` 无序列表、`1.` 有序列表、`>` 引用解析为合理的 Word 段落与字号；行内保留 `**加粗**`、`$公式$`、`![图片]`。题干序号独立成行。
+
+### 🧪 验证
+- `npm run build` 通过（`vue-tsc` 干净）。
+- 试题篮：A 学科入篮后切到 B 学科，B 的篮为空、A 的题仍在（隔离生效）。
+- Word：含换行的题干导出后换行保留；含 `**粗体**`/`# 标题`/`- 列表` 的内容转为对应 Word 样式。
+
+---
+
 ## [v4.6.1] - 2026-09-22
 
 > **修复 v4.6.0 生产 D1 迁移缺口（双后端同步铁律）**：`worker-api.ts` 的 `subject_questions` 幂等自愈迁移块漏加 `year` / `source` 两列，导致生产环境 SELECT/INSERT 带这两列时报错；本地 `server/db.ts` 已有。现已补齐，并对生产 D1 显式 `ALTER TABLE` 加列（PRAGMA 已验证存在），Worker 重新部署（版本 `65367ecb`）。

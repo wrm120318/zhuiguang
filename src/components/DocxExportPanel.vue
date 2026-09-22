@@ -313,6 +313,16 @@ function cleanText(s: string): string {
     return name ? `[附件:${name}]` : ''
   })
 }
+// 【v4.7.0 真修】把一段纯文本按 \n 拆成 TextRun，换行用 break 保留（修复「导出 Word 自动吞没换行」）
+function textRuns(s: string, size: number): any[] {
+  const parts = s.split('\n')
+  const out: any[] = []
+  parts.forEach((p, i) => {
+    if (i > 0) out.push(new TextRun({ text: '', break: 1 }))
+    if (p) out.push(new TextRun({ text: p, size }))
+  })
+  return out
+}
 async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<any[]> {
   const runs: any[] = []
   // 【v4.5.3】boldPrefix：句首加粗标签（如「【答案】」），避免事后对 TextRun 做内省（docx v9 无公开 text 属性）
@@ -323,7 +333,7 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
   let last = 0, m: RegExpExecArray | null
   INLINE_RE.lastIndex = 0
   while ((m = INLINE_RE.exec(text))) {
-    if (m.index > last) { const seg = cleanText(text.slice(last, m.index)); if (seg) runs.push(new TextRun({ text: seg, size })) }
+    if (m.index > last) { runs.push(...textRuns(cleanText(text.slice(last, m.index)), size)) }
     const t = m[0]
     if (t.startsWith('$') && t.length > 2) {
       const tex = t.replace(/^\$\$?|\$\$?$/g, '').trim()
@@ -349,8 +359,52 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
     }
     last = INLINE_RE.lastIndex
   }
-  if (last < text.length) { const seg = cleanText(text.slice(last)); if (seg) runs.push(new TextRun({ text: seg, size })) }
+  if (last < text.length) { runs.push(...textRuns(cleanText(text.slice(last)), size)) }
   return runs.length ? runs : [new TextRun({ text: cleanText(text), size })]
+}
+
+/**
+ * 【v4.7.0 真修】Markdown → Word 段落（修复「markdown 样式未变为正常 Word 文字大小样式」）
+ * 支持：#/##/### 标题（按层级放大加粗）、-/* 无序列表、1. 有序列表、> 引用、普通段落；
+ * 行内保留 **加粗** / $公式$ / ![图片] / 链接；换行用 break 保留。
+ */
+async function mdToParagraphs(md: string, size: number, opts: { indent?: number; spacingAfter?: number } = {}): Promise<any[]> {
+  const lines = (md || '').split('\n')
+  const out: any[] = []
+  const baseIndent = opts.indent || 0
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!line.trim()) { i++; continue }
+    const h = line.match(/^(#{1,3})\s+(.*)$/)
+    if (h) {
+      const hs = size + (4 - h[1].length) * 2
+      out.push(new Paragraph({ children: await inlineRuns(h[2], hs), spacing: { before: 100, after: 40 }, ...(baseIndent ? { indent: { left: baseIndent } } : {}) }))
+      i++; continue
+    }
+    const bullet = line.match(/^[-*]\s+(.*)$/)
+    if (bullet) {
+      const items: string[] = []
+      while (i < lines.length) { const mm = lines[i].match(/^[-*]\s+(.*)$/); if (!mm) break; items.push(mm[1]); i++ }
+      for (const it of items) out.push(new Paragraph({ children: [new TextRun({ text: '•  ', size }), ...(await inlineRuns(it, size))], indent: { left: baseIndent + 260, hanging: 240 }, spacing: { after: 24 } }))
+      continue
+    }
+    const num = line.match(/^(\d+)\.\s+(.*)$/)
+    if (num) {
+      const items: { n: string; t: string }[] = []
+      while (i < lines.length) { const mm = lines[i].match(/^(\d+)\.\s+(.*)$/); if (!mm) break; items.push({ n: mm[1], t: mm[2] }); i++ }
+      for (const it of items) out.push(new Paragraph({ children: [new TextRun({ text: it.n + '. ', size, bold: true }), ...(await inlineRuns(it.t, size))], indent: { left: baseIndent + 260, hanging: 240 }, spacing: { after: 24 } }))
+      continue
+    }
+    const q = line.match(/^>\s?(.*)$/)
+    if (q) {
+      out.push(new Paragraph({ children: await inlineRuns(q[1], size), indent: { left: baseIndent + 260 }, spacing: { after: 24 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'CCCCCC', space: 6 } } }))
+      i++; continue
+    }
+    out.push(new Paragraph({ children: await inlineRuns(line, size), spacing: { after: opts.spacingAfter ?? 30 }, ...(baseIndent ? { indent: { left: baseIndent } } : {}) }))
+    i++
+  }
+  return out.length ? out : [new Paragraph({ children: await inlineRuns(md || '', size) })]
 }
 function mdPlain(md: string): string {
   return (md || '')
@@ -411,14 +465,12 @@ async function buildQuestions(withAnswers: boolean): Promise<Paragraph[]> {
     out.push(P(`${grp.short}（每题 ${scoreOf(list[0])} 分，共 ${list.length} 题）`, size + 1, { bold: true, spacing: { before: 160, after: 80 } }))
     for (const it of list) {
       idx++
-      // 【v4.5.3】题干改为 inlineRuns：保留 KaTeX 公式（转图片）与行内图片，不再粗暴降级为纯文本
-      out.push(new Paragraph({
-        children: [new TextRun({ text: `${idx}.（${grp.label}）`, bold: true, size }), ...(await inlineRuns(` ${it.content}（${scoreOf(it)}分）`, size))],
-        spacing: { before: 80, after: 30 },
-      }))
+      // 【v4.7.0】题干序号单独成行（加粗），题干内容用 mdToParagraphs 解析 markdown（标题/列表/换行→合理 Word 字号样式）
+      out.push(new Paragraph({ children: [new TextRun({ text: `${idx}.（${grp.label}）(${scoreOf(it)}分)`, bold: true, size })], spacing: { before: 80, after: 20 } }))
+      out.push(...await mdToParagraphs(it.content || '', size, { indent: 360, spacingAfter: 30 }))
       for (const o of (it.options || [])) out.push(new Paragraph({ children: await inlineRuns(`${optLetter((it.options || []).indexOf(o))}. ${o}`, size), indent: { left: 360 }, spacing: { after: 14 } }))
       if (withAnswers) {
-        // 【v4.5.3】答案/解析改用 inlineRuns：保留 KaTeX 公式（转图片）与行内图片（原为 mdPlain 纯文本，公式会被丢弃）
+        // 【v4.5.3】答案/解析改用 inlineRuns：保留 KaTeX 公式（转图片）与行内图片；【v4.7.0】inlineRuns 已保留换行
         out.push(new Paragraph({ children: await inlineRuns(`【答案】${it.answer || '（未填写）'}`, size, '【答案】'), indent: { left: 360 }, spacing: { before: 20, after: 14 } }))
         if (it.analysis) out.push(new Paragraph({ children: await inlineRuns(`【解析】${it.analysis}`, size, '【解析】'), indent: { left: 360 }, spacing: { after: 14 } }))
       }

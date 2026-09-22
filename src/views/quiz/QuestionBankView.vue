@@ -201,7 +201,7 @@ async function smartAssemble() {
         <el-button type="success" @click="showSmart = true" icon="MagicStick">智能组卷</el-button>
         <el-button @click="showCards = true" icon="Postcard">制卡</el-button>
         <el-button v-if="isStaff" @click="showImport = true" icon="Upload">Word 导入</el-button>
-        <el-badge :value="basket.count()" :hidden="basket.count() === 0">
+        <el-badge :value="basket.count(subject.id)" :hidden="basket.count(subject.id) === 0">
           <el-button @click="showBasket = true" icon="Files">试题篮</el-button>
         </el-badge>
       </div>
@@ -312,28 +312,28 @@ async function smartAssemble() {
     <!-- 试题篮抽屉 -->
     <el-drawer v-model="showBasket" title="试题篮 · 组卷" size="46%" :append-to-body="true">
       <div class="basket">
-        <div v-for="(it, idx) in basket.items" :key="it.id" class="basket-item">
+        <div v-for="(it, idx) in basket.items(subject.id)" :key="it.id" class="basket-item">
           <div class="bi-order">
-            <el-button size="small" text :disabled="idx===0" @click="basket.reorder(idx, idx-1)" icon="Top" />
-            <el-button size="small" text :disabled="idx===basket.items.length-1" @click="basket.reorder(idx, idx+1)" icon="Bottom" />
+            <el-button size="small" text :disabled="idx===0" @click="basket.reorder(idx, idx-1, subject.id)" icon="Top" />
+            <el-button size="small" text :disabled="idx===basket.items(subject.id).length-1" @click="basket.reorder(idx, idx+1, subject.id)" icon="Bottom" />
           </div>
           <div class="bi-content"><span class="bi-idx">{{ idx+1 }}.</span> <span v-html="renderMarkdown(it.content)" /></div>
-          <el-input-number v-model="it.basketScore" :min="1" :max="100" size="small" @change="(v:number)=>basket.setScore(it.id, v)" />
-          <el-button size="small" text type="danger" @click="basket.remove(it.id)" icon="Delete" />
+          <el-input-number v-model="it.basketScore" :min="1" :max="100" size="small" @change="(v:number)=>basket.setScore(it.id, v, subject.id)" />
+          <el-button size="small" text type="danger" @click="basket.remove(it.id, subject.id)" icon="Delete" />
         </div>
-        <div v-if="!basket.items.length" class="empty">试题篮为空，去题目列表点「入篮」</div>
+        <div v-if="!basket.items(subject.id).length" class="empty">试题篮为空，去题目列表点「入篮」</div>
       </div>
       <template #footer>
-        <span>总分：<b>{{ basket.totalScore() }}</b> 分 / {{ basket.count() }} 题</span>
+        <span>总分：<b>{{ basket.totalScore(subject.id) }}</b> 分 / {{ basket.count(subject.id) }} 题</span>
         <div style="margin-top:8px">
-          <el-button @click="basket.clear">清空</el-button>
-          <el-button type="primary" :disabled="!basket.items.length" @click="showExport = true">导出 Word / 答题卡</el-button>
+          <el-button @click="basket.clear(subject.id)">清空</el-button>
+          <el-button type="primary" :disabled="!basket.items(subject.id).length" @click="showExport = true">导出 Word / 答题卡</el-button>
         </div>
       </template>
     </el-drawer>
 
     <el-dialog v-model="showExport" title="导出设置" width="560px" append-to-body>
-      <DocxExportPanel v-if="subject" :subject-name="subject.name" :items="basket.items" @done="showExport=false" />
+      <DocxExportPanel v-if="subject" :subject-name="subject.name" :items="basket.items(subject.id)" @done="showExport=false" />
     </el-dialog>
 
     <el-dialog v-model="showImport" title="Word 试卷导入（自动拆分）" width="720px" append-to-body>

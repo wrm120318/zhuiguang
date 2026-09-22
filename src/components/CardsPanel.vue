@@ -20,7 +20,7 @@ async function loadWrong() {
 }
 onMounted(() => { if (active.value === 'wrong') loadWrong() })
 
-const examCards = computed(() => (basket.items.length ? basket.items : props.questions))
+const examCards = computed(() => (basket.items(props.subjectId).length ? basket.items(props.subjectId) : props.questions))
 const kpGroups = computed(() => {
   const map = new Map<number, { id: number; name: string; items: any[] }>()
   for (const q of props.questions) {
