@@ -5,6 +5,21 @@
 
 ---
 
+## [v4.6.1] - 2026-09-22
+
+> **修复 v4.6.0 生产 D1 迁移缺口（双后端同步铁律）**：`worker-api.ts` 的 `subject_questions` 幂等自愈迁移块漏加 `year` / `source` 两列，导致生产环境 SELECT/INSERT 带这两列时报错；本地 `server/db.ts` 已有。现已补齐，并对生产 D1 显式 `ALTER TABLE` 加列（PRAGMA 已验证存在），Worker 重新部署（版本 `65367ecb`）。
+
+### 🐛 修复
+- `worker-api.ts` 迁移块补齐 `ALTER TABLE subject_questions ADD COLUMN year/source`，与 `server/db.ts` 逐字对齐。
+- 生产 D1 `subject_questions` 显式执行 `ALTER` 加 `year` / `source` 列（已用 `PRAGMA table_info` 验证）。
+- 重新部署 Worker（版本 `65367ecb-380c-49df-9822-eb07d62baf64`）。
+
+### 🧪 验证
+- `npx wrangler deployments list` 确认最新生产版本为 `65367ecb`（2026-09-22T05:30）。
+- 生产 D1 `PRAGMA table_info(subject_questions)` 末两列确为 `year` / `source`。
+
+---
+
 ## [v4.6.0] - 2026-09-22
 
 > **智能题库高端化（第 2 批，对标组卷网 / 智学网）：题库界面重构 + Word 导出图片真修 + 智能组卷 / 学情分析 / 错题本三模块上线。**
