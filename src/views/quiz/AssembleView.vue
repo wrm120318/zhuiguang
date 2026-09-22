@@ -206,16 +206,88 @@ async function savePaper() {
   if (!paper.value.length) { ElMessage.warning('试卷为空'); return }
   saving.value = true
   try {
-    const cfg = { title: meta.title, grade: meta.grade, term: meta.term, duration: meta.duration, template: meta.template, maxScore: maxScore.value }
+    const cfg = { title: meta.title, grade: meta.grade, term: meta.term, duration: meta.duration, template: meta.template, maxScore: maxScore.value, password: savePassword.value || '' }
     const r: any = await api.createPaper({
       subjectId: subject.value.id, title: meta.title || `${subject.value.name}组卷`, kind: 'paper',
       template: meta.template, export_config: cfg,
       questionIds: paper.value.map(p => p.qid),
     })
-    ElMessage.success(`已存档为试卷（ID ${r.id}）`)
+    ElMessage.success(`已存档为试卷（ID ${r.id}）${savePassword.value ? '· 已设访问密码' : ''}`)
+    savedPaperId.value = r.id
     showSave.value = false
   } catch (e: any) { ElMessage.error(e?.response?.data?.message || '存档失败') }
   finally { saving.value = false }
+}
+
+// ===== 【v4.8.0】平行组卷 A/B：同考点、同难度，换一套题目 =====
+const snapshotA = ref<PaperItem[] | null>(null)
+const activeAB = ref<'A' | 'B'>('A')
+const savedPaperId = ref<number | null>(null)
+function buildBFrom(base: PaperItem[]): PaperItem[] {
+  return base.map((it) => {
+    const wantIds = descendants(it.kpId)
+    const cands = allQuestions.value.filter((q: any) =>
+      q.id !== it.qid && q.qtype === it.qtype &&
+      (q.knowledge_points || []).some((kp: any) => wantIds.includes(kp.id)))
+    if (!cands.length) return { ...it }
+    shuffle(cands)
+    const c = cands[0]
+    return { key: keySeq++, qid: c.id, qtype: c.qtype, content: c.content, options: c.options || [], answer: c.answer || '', analysis: c.analysis || '', score: it.score, kpId: qKpId(c), difficulty: c.difficulty || 3 }
+  })
+}
+function generateParallel() {
+  if (!paper.value.length) { ElMessage.warning('请先组卷，再生成平行卷'); return }
+  if (!snapshotA.value) snapshotA.value = paper.value.map((p) => ({ ...p }))
+  paper.value = buildBFrom(snapshotA.value)
+  activeAB.value = 'B'
+  ElMessage.success('已生成平行卷 B（同考点·同难度·换一套题）')
+}
+function toggleAB() {
+  if (!snapshotA.value) return
+  if (activeAB.value === 'A') { paper.value = buildBFrom(snapshotA.value); activeAB.value = 'B' }
+  else { paper.value = snapshotA.value.map((p) => ({ ...p })); activeAB.value = 'A' }
+}
+
+// ===== 【v4.8.0】分享 / 预览 / 幻灯播放 =====
+const showSlideshow = ref(false)
+const slideIdx = ref(0)
+const slideTotal = computed(() => paper.value.length)
+function slideNext() { if (slideIdx.value < slideTotal.value - 1) slideIdx.value++ }
+function slidePrev() { if (slideIdx.value > 0) slideIdx.value-- }
+async function ensureSaved(): Promise<number | null> {
+  if (savedPaperId.value) return savedPaperId.value
+  if (!paper.value.length) { ElMessage.warning('试卷为空'); return null }
+  saving.value = true
+  try {
+    const cfg = { title: meta.title, grade: meta.grade, term: meta.term, duration: meta.duration, template: meta.template, maxScore: maxScore.value, password: savePassword.value || '' }
+    const r: any = await api.createPaper({
+      subjectId: subject.value.id, title: meta.title || `${subject.value.name}组卷`, kind: 'paper',
+      template: meta.template, export_config: cfg, questionIds: paper.value.map((p) => p.qid),
+    })
+    savedPaperId.value = r.id
+    return r.id
+  } finally { saving.value = false }
+}
+async function sharePaper() {
+  const id = await ensureSaved()
+  if (!id) return
+  const url = `${location.origin}/quiz/${id}`
+  try { await navigator.clipboard.writeText(url); ElMessage.success('分享链接已复制：' + url) }
+  catch { ElMessage.info('分享链接：' + url) }
+}
+async function previewPaper() {
+  const id = await ensureSaved()
+  if (!id) return
+  window.open(`/quiz/${id}`, '_blank')
+}
+
+const savePassword = ref('')
+function clearPaper() {
+  paper.value = []
+  snapshotA.value = null
+  activeAB.value = 'A'
+  savedPaperId.value = null
+  savePassword.value = ''
 }
 
 onMounted(async () => {
@@ -328,10 +400,16 @@ onMounted(async () => {
           <template #header>
             <b>试卷结构</b>
             <span class="muted">共 {{ paper.length }} 题 · 满分 {{ maxScore }} 分</span>
+            <el-tag v-if="snapshotA" size="small" :type="activeAB==='A'?'primary':'success'" effect="dark" style="margin-left:8px">当前：卷 {{ activeAB }}</el-tag>
             <span style="float:right">
+              <el-button size="small" :icon="'CopyDocument'" @click="generateParallel" :disabled="!paper.length">平行卷 B</el-button>
+              <el-button v-if="snapshotA" size="small" :icon="'Switch'" @click="toggleAB">切换 A/B</el-button>
+              <el-button size="small" :icon="'View'" @click="previewPaper" :disabled="!paper.length">预览</el-button>
+              <el-button size="small" :icon="'Share'" @click="sharePaper" :disabled="!paper.length">分享</el-button>
+              <el-button size="small" :icon="'Picture'" @click="showSlideshow = true; slideIdx = 0" :disabled="!paper.length">幻灯</el-button>
               <el-button size="small" :icon="'Document'" @click="showExport = true" :disabled="!paper.length">导出 Word</el-button>
               <el-button size="small" type="success" :icon="'Collection'" @click="showSave = true" :disabled="!paper.length">存档</el-button>
-              <el-button size="small" text type="danger" @click="paper = []" :disabled="!paper.length">清空</el-button>
+              <el-button size="small" text type="danger" @click="clearPaper" :disabled="!paper.length">清空</el-button>
             </span>
           </template>
 
@@ -369,10 +447,26 @@ onMounted(async () => {
 
     <el-dialog v-model="showSave" title="存档为试卷" width="420px" append-to-body>
       <p>将当前 {{ paper.length }} 题（满分 {{ maxScore }} 分）存档，便于下次调阅或再编辑。</p>
-      <el-input v-model="meta.title" placeholder="试卷标题" />
+      <el-input v-model="meta.title" placeholder="试卷标题" style="margin-bottom:10px" />
+      <el-input v-model="savePassword" placeholder="存档密码（选填，调阅时需输入）" show-password maxlength="20" />
       <template #footer>
         <el-button @click="showSave = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="savePaper">确认存档</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 幻灯播放 -->
+    <el-dialog v-model="showSlideshow" title="幻灯播放" width="720px" append-to-body @open="slideIdx = 0">
+      <div v-if="paper.length" class="slideshow">
+        <div class="slide-meta">第 {{ slideIdx + 1 }} / {{ slideTotal }} 题 · {{ QLABEL[paper[slideIdx].qtype] }} · {{ paper[slideIdx].score }} 分</div>
+        <div class="slide-body" v-html="renderMarkdown(paper[slideIdx].content)" />
+        <div v-if="paper[slideIdx].options?.length" class="slide-opts">
+          <div v-for="(o, oi) in paper[slideIdx].options" :key="oi" class="so"><b>{{ String.fromCharCode(65 + oi) }}.</b> {{ o }}</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button :icon="'ArrowLeft'" :disabled="slideIdx === 0" @click="slidePrev">上一题</el-button>
+        <el-button type="primary" :icon="'ArrowRight'" :disabled="slideIdx >= slideTotal - 1" @click="slideNext">下一题</el-button>
       </template>
     </el-dialog>
   </div>
@@ -413,4 +507,9 @@ table.matrix .total-row td { background: #fbf3e3; font-weight: 700; }
 .pacts { display: flex; flex-direction: column; gap: 2px; }
 .muted { color: #999; font-size: 12px; }
 .center { text-align: center; }
+.slideshow { min-height: 220px; }
+.slide-meta { color: #b06a00; font-size: 13px; margin-bottom: 10px; }
+.slide-body { font-size: 17px; line-height: 1.8; }
+.slide-opts { margin-top: 12px; line-height: 2; font-size: 15px; }
+.so { padding: 2px 0; }
 </style>

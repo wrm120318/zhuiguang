@@ -60,6 +60,8 @@ const routes: RouteRecordRaw[] = [
   // 【v4.6.0】错题本（对标智学网·学生端）
   { path: '/subject/:slug/wrong-book', name: 'wrong-book', component: () => import('@/views/quiz/WrongBookView.vue') },
   { path: '/wrong-book', name: 'wrong-book-global', component: () => import('@/views/quiz/WrongBookView.vue') },
+  // 【v4.8.0】考试管理（对标智学网·考试管理）
+  { path: '/subject/:slug/exams', name: 'exam-manage', component: () => import('@/views/quiz/ExamManageView.vue') },
 
   // 【v4.5.0】教师批改新界面（侧显参考答案）
   { path: '/practice/grade/:id', name: 'practice-grade', component: () => import('@/views/quiz/PracticeGradeView.vue') },

@@ -802,6 +802,10 @@ app.use('*', async (c, next) => {
       await D1.prepare(`CREATE TABLE IF NOT EXISTS question_favorites (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL, folder_id INTEGER DEFAULT NULL, note TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now','+8 hours')), UNIQUE(user_id, question_id))`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS question_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, question_id INTEGER NOT NULL, content TEXT NOT NULL, status TEXT DEFAULT 'open', created_at TEXT DEFAULT (datetime('now','+8 hours')), resolved_by INTEGER DEFAULT NULL, resolved_at TEXT DEFAULT NULL)`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS user_subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, subject_id INTEGER NOT NULL, assigned_by INTEGER DEFAULT NULL, UNIQUE(user_id, subject_id))`).run()
+      // 【v4.8.0 考试管理】与 server/db.ts 逐字对齐（双后端同步铁律）
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL, title TEXT NOT NULL, type TEXT DEFAULT 'exam', level TEXT DEFAULT '', exam_date TEXT DEFAULT '', created_by INTEGER, created_at TEXT DEFAULT (datetime('now','+8 hours')), status TEXT DEFAULT 'draft', release_password TEXT DEFAULT '', questions TEXT DEFAULT '[]', total_score INTEGER DEFAULT 0)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_exams_subject ON exams(subject_id)`).run()
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS exam_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER NOT NULL, student_id INTEGER NOT NULL, scores TEXT DEFAULT '{}', total INTEGER DEFAULT 0, scan_url TEXT DEFAULT '', comment TEXT DEFAULT '', graded_by INTEGER, graded_at TEXT, created_at TEXT DEFAULT (datetime('now','+8 hours')), UNIQUE(exam_id, student_id))`).run()
     } catch {}
   }
   await next()
@@ -3488,6 +3492,123 @@ app.get('/api/subjects/:id/analytics', auth, async (c) => {
     wrongRate: w.tries ? +((Number(w.wrongs) / Number(w.tries)) * 100).toFixed(1) : 0,
   }))
   return c.json(result)
+})
+
+// ==============================================================================
+// ============ 【v4.8.0】考试管理：创建 / 列表 / 详情 / 网阅 / 成绩发布 =============
+// 免费实现：创建考试、答题卡模板（前端渲染）、教师上传扫描件+在线打分、成绩发布密码门
+// ==============================================================================
+app.post('/api/subjects/:id/exams', auth, requireSubjectStaff('params', 'id'), async (c) => {
+  const sid = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const b = await c.req.json()
+  if (!b.title?.trim()) return c.json({ message: '考试标题不能为空' }, 400)
+  if (!Array.isArray(b.questions) || !b.questions.length) return c.json({ message: '请至少选择一道题' }, 400)
+  const total = b.questions.reduce((a: number, q: any) => a + (Number(q.score) || 0), 0)
+  const r = await run(`INSERT INTO exams (subject_id,title,type,level,exam_date,created_by,status,release_password,questions,total_score)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    sid, b.title.trim().slice(0, 80), b.type || 'exam', b.level || '', b.exam_date || '', u.id, 'draft', b.release_password || '', JSON.stringify(b.questions), total)
+  return c.json({ id: Number(r.lastInsertRowid) })
+})
+
+app.get('/api/subjects/:id/exams', auth, async (c) => {
+  const sid = Number(c.req.param('id'))
+  const rows = await all<any>('SELECT e.*, u.real_name AS creator_name FROM exams e LEFT JOIN users u ON e.created_by=u.id WHERE e.subject_id=? ORDER BY e.id DESC', sid)
+  return c.json(rows.map((e: any) => ({ ...e, questions: j(e.questions) || [], total_score: Number(e.total_score) || 0 })))
+})
+
+app.get('/api/exams/:id', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const e = await get<any>('SELECT * FROM exams WHERE id=?', id)
+  if (!e) return c.json({ message: '考试不存在' }, 404)
+  const qs: any[] = j(e.questions) || []
+  let full: any[] = []
+  if (qs.length) {
+    const ids = qs.map((q) => q.id)
+    const ph = ids.map(() => '?').join(',')
+    const recs = await all<any>(`SELECT * FROM subject_questions WHERE id IN (${ph})`, ...ids)
+    const byId: Record<number, any> = {}
+    for (const r of recs) byId[r.id] = r
+    full = qs.map((q) => {
+      const r = byId[q.id]
+      return r ? { ...r, options: j(r.options), attachments: j(r.attachments), score: Number(q.score) || Number(r.score) || 0 } : null
+    }).filter(Boolean)
+  }
+  return c.json({ ...e, questions: full, total_score: Number(e.total_score) || 0 })
+})
+
+app.patch('/api/exams/:id', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = await c.req.json()
+  await run(`UPDATE exams SET title=COALESCE(?,title), type=COALESCE(?,type), level=COALESCE(?,level), exam_date=COALESCE(?,exam_date),
+    status=COALESCE(?,status), release_password=COALESCE(?,release_password) WHERE id=?`,
+    b.title?.trim() || null, b.type || null, b.level ?? null, b.exam_date ?? null, b.status || null, b.release_password ?? null, id)
+  return c.json({ ok: true })
+})
+
+app.delete('/api/exams/:id', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  await run('DELETE FROM exam_responses WHERE exam_id=?', id)
+  await run('DELETE FROM exams WHERE id=?', id)
+  return c.json({ ok: true })
+})
+
+app.post('/api/exams/:id/responses', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const b = await c.req.json()
+  if (!b.student_id) return c.json({ message: '请指定学生' }, 400)
+  const scores = b.scores && typeof b.scores === 'object' ? b.scores : {}
+  const total = Object.values(scores).reduce((a: number, v: any) => a + (Number(v) || 0), 0)
+  const existing = await get<any>('SELECT id FROM exam_responses WHERE exam_id=? AND student_id=?', id, Number(b.student_id))
+  if (existing) {
+    await run('UPDATE exam_responses SET scores=?, total=?, scan_url=COALESCE(?,scan_url), comment=COALESCE(?,comment), graded_by=?, graded_at=datetime(\'now\',\'+8 hours\') WHERE id=?',
+      JSON.stringify(scores), total, b.scan_url ?? null, b.comment ?? null, u.id, existing.id)
+  } else {
+    await run('INSERT INTO exam_responses (exam_id,student_id,scores,total,scan_url,comment,graded_by,graded_at) VALUES (?,?,?,?,?,?,?,datetime(\'now\',\'+8 hours\'))',
+      id, Number(b.student_id), JSON.stringify(scores), total, b.scan_url || '', b.comment || '', u.id)
+  }
+  return c.json({ ok: true, total })
+})
+
+app.get('/api/exams/:id/responses', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  const rows = await all<any>(`SELECT r.*, u.real_name AS student_name, u.username AS student_no
+    FROM exam_responses r LEFT JOIN users u ON r.student_id=u.id WHERE r.exam_id=? ORDER BY r.total DESC`, id)
+  return c.json(rows.map((r: any) => ({ ...r, scores: j(r.scores) || {}, total: Number(r.total) || 0 })))
+})
+
+app.get('/api/exams/:id/my', auth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const u = c.get('user') as any
+  const e = await get<any>('SELECT * FROM exams WHERE id=?', id)
+  if (!e) return c.json({ message: '考试不存在' }, 404)
+  if (e.status !== 'published') return c.json({ message: '成绩尚未发布', released: false }, 403)
+  if (e.release_password && e.release_password !== (c.req.query('pwd') || '')) {
+    return c.json({ message: '请输入正确的成绩查询密码', needPwd: true, released: false }, 403)
+  }
+  const r = await get<any>('SELECT * FROM exam_responses WHERE exam_id=? AND student_id=?', id, u.id)
+  return c.json({ released: true, total_score: e.total_score, response: r ? { ...r, scores: j(r.scores) || {}, total: Number(r.total) || 0 } : null })
+})
+
+// 学科学生名册（供教师网阅打分选择学生）
+app.get('/api/subjects/:id/students', auth, async (c) => {
+  const rows = await all<any>('SELECT id, real_name, username FROM users WHERE role=? ORDER BY real_name', 'STUDENT')
+  return c.json(rows)
+})
+
+// 历次考试纵向对比（平均分 / 人数随时间）
+app.get('/api/subjects/:id/exam-trend', auth, async (c) => {
+  const sid = Number(c.req.param('id'))
+  const exams = await all<any>('SELECT id, title, exam_date, status, total_score FROM exams WHERE subject_id=? ORDER BY id ASC', sid)
+  const out: any[] = []
+  for (const e of exams) {
+    const subs = await all<any>('SELECT total FROM exam_responses WHERE exam_id=?', e.id)
+    const vals = subs.map((s: any) => Number(s.total) || 0)
+    const avg = vals.length ? +(vals.reduce((a: number, b: number) => a + b, 0) / vals.length).toFixed(1) : 0
+    out.push({ id: e.id, title: e.title, date: e.exam_date, status: e.status, total: Number(e.total_score) || 0, avg, count: vals.length })
+  }
+  return c.json(out)
 })
 
 // ============ 【v4.1.0】学科论坛：话题标签 + 帖子 + 评论 =============

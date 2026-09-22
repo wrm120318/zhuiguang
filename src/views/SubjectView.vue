@@ -422,6 +422,7 @@ async function submitResource() {
           <el-button v-if="user.isStaff" size="small" round @click="goBank"><ZgGlyph emoji="🧠" /> 智能题库</el-button>
           <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/assemble`)"><ZgGlyph emoji="🧩" /> 智能组卷</el-button>
           <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/analytics`)"><ZgGlyph emoji="📊" /> 学情分析</el-button>
+          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/exams`)"><ZgGlyph emoji="📝" /> 考试管理</el-button>
           <el-button v-if="user.isLogin" size="small" round @click="router.push(`/subject/${subject.value.slug}/wrong-book`)"><ZgGlyph emoji="📕" /> 错题本</el-button>
         </div>
       </div>

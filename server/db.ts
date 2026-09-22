@@ -305,6 +305,38 @@ export async function initDB() {
       assigned_by INTEGER DEFAULT NULL, UNIQUE(user_id, subject_id)
     )`) } catch {}
 
+  // ===== 【v4.8.0 考试管理】考试 + 作答/网阅成绩 =====
+  try { await db.execute(`
+      CREATE TABLE IF NOT EXISTS exams (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      type TEXT DEFAULT 'exam',
+      level TEXT DEFAULT '',
+      exam_date TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      status TEXT DEFAULT 'draft',
+      release_password TEXT DEFAULT '',
+      questions TEXT DEFAULT '[]',
+      total_score INTEGER DEFAULT 0
+    )`) } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_exams_subject ON exams(subject_id)') } catch {}
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS exam_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      exam_id INTEGER NOT NULL,
+      student_id INTEGER NOT NULL,
+      scores TEXT DEFAULT '{}',
+      total INTEGER DEFAULT 0,
+      scan_url TEXT DEFAULT '',
+      comment TEXT DEFAULT '',
+      graded_by INTEGER,
+      graded_at TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(exam_id, student_id)
+    )`) } catch {}
+
   await seed()
 }
 

@@ -17,6 +17,9 @@ const loading = ref(false)
 
 const histChart = ref<HTMLElement>()
 const masteryChart = ref<HTMLElement>()
+const radarChart = ref<HTMLElement>()
+const trendChart = ref<HTMLElement>()
+const trend = ref<any[]>([])
 
 const TIERS = [
   { key: 'excellent', label: '尖子层', cls: 't-excellent', desc: '正确率≥85%' },
@@ -59,6 +62,34 @@ function renderCharts() {
         }],
       })
     }
+    // ⑥ 知识点掌握雷达（取正确率非空的前 8 个知识点）
+    if (radarChart.value) {
+      const m = (data.value.kpMastery || []).filter((x: any) => x.rate != null).slice(0, 8)
+      const c = echarts.init(radarChart.value)
+      c.setOption({
+        tooltip: {},
+        radar: {
+          indicator: m.map((x: any) => ({ name: x.kpName, max: 100 })),
+          radius: '65%',
+        },
+        series: [{ type: 'radar', data: [{ value: m.map((x: any) => x.rate), name: '正确率%', areaStyle: { opacity: 0.25 }, lineStyle: { color: '#b06a00' }, itemStyle: { color: '#b06a00' } }] }],
+      })
+    }
+    // ⑦ 历次考试纵向对比（平均分随时间）
+    if (trendChart.value && trend.value.length) {
+      const c = echarts.init(trendChart.value)
+      c.setOption({
+        grid: { left: 44, right: 20, top: 28, bottom: 40 },
+        tooltip: { trigger: 'axis' },
+        legend: { data: ['平均分', '满分'], top: 0 },
+        xAxis: { type: 'category', data: trend.value.map((t: any) => t.title), axisLabel: { interval: 0, rotate: 20 } },
+        yAxis: { type: 'value', name: '分数' },
+        series: [
+          { name: '平均分', type: 'line', smooth: true, data: trend.value.map((t: any) => t.avg), itemStyle: { color: '#b06a00' }, label: { show: true } },
+          { name: '满分', type: 'line', smooth: true, data: trend.value.map((t: any) => t.total), lineStyle: { type: 'dashed', color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } },
+        ],
+      })
+    }
   })
 }
 
@@ -67,6 +98,7 @@ onMounted(async () => {
   try {
     subject.value = await api.subject(slug)
     data.value = await api.subjectAnalytics(subject.value.id)
+    const tr: any = await api.examTrend(subject.value.id); trend.value = tr?.data || tr || []
   } catch (e: any) { ElMessage.error(e?.response?.data?.message || '加载学情失败') }
   finally { loading.value = false }
   // 【v4.6.0 修复】必须在 loading=false 且 DOM 渲染出图表容器后再初始化 echarts，
@@ -157,6 +189,24 @@ onMounted(async () => {
           </el-col>
         </el-row>
       </el-card>
+
+      <!-- ⑥ 知识点掌握雷达 + ⑦ 历次考试纵向对比 -->
+      <el-row :gutter="16">
+        <el-col :md="11" :sm="24">
+          <el-card shadow="never" class="blk">
+            <template #header><b>⑥ 知识点掌握雷达</b></template>
+            <div ref="radarChart" class="chart tall" v-if="(data.kpMastery||[]).some((m:any)=>m.rate!=null)"></div>
+            <el-empty v-else description="完成练习后展示知识点掌握雷达" :image-size="80" />
+          </el-card>
+        </el-col>
+        <el-col :md="13" :sm="24">
+          <el-card shadow="never" class="blk">
+            <template #header><b>⑦ 历次考试纵向对比</b><span class="muted">（平均分 / 满分随考试变化）</span></template>
+            <div ref="trendChart" class="chart tall" v-if="trend.length"></div>
+            <el-empty v-else description="创建并发布考试、录入成绩后展示趋势" :image-size="80" />
+          </el-card>
+        </el-col>
+      </el-row>
     </template>
     <el-empty v-else description="暂无数据" />
   </div>

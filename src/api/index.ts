@@ -350,6 +350,17 @@ export const api = {
   myWrongQuestions: (subjectId?: number) => http.get(`/api/users/me/wrong-questions${subjectId ? `?subject_id=${subjectId}` : ''}`),
   // 【v4.6.0】学情分析聚合（班级成绩 / 学生分层 / 知识点掌握度 / 高频错题）
   subjectAnalytics: (subjectId: number) => http.get<any>(`/api/subjects/${subjectId}/analytics`),
+  // ===== 【v4.8.0】考试管理：创建 / 列表 / 详情 / 网阅 / 成绩发布 =====
+  createExam: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/exams`, data),
+  subjectExams: (subjectId: number) => http.get(`/api/subjects/${subjectId}/exams`),
+  examDetail: (id: number) => http.get(`/api/exams/${id}`),
+  updateExam: (id: number, data: any) => http.patch(`/api/exams/${id}`, data),
+  deleteExam: (id: number) => http.delete(`/api/exams/${id}`),
+  saveExamResponse: (id: number, data: any) => http.post(`/api/exams/${id}/responses`, data),
+  examResponses: (id: number) => http.get(`/api/exams/${id}/responses`),
+  examMyResult: (id: number, pwd?: string) => http.get(`/api/exams/${id}/my${pwd ? `?pwd=${encodeURIComponent(pwd)}` : ''}`),
+  subjectStudents: (subjectId: number) => http.get(`/api/subjects/${subjectId}/students`),
+  examTrend: (subjectId: number) => http.get(`/api/subjects/${subjectId}/exam-trend`),
   deleteFavorite: (id: number) => http.delete(`/api/favorites/${id}`),
   // ===== 【v4.5.0】多学科教师指派（后台）=====
   assignUserSubject: (userId: number, subjectId: number) => http.post(`/api/admin/users/${userId}/subjects`, { subject_id: subjectId }),

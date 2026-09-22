@@ -21,6 +21,34 @@
 
 ---
 
+## [v4.8.0] - 2026-09-23
+
+> **对标组卷网 / 智学网 · 考试管理与组卷增强（全免费、零付费依赖）**
+
+### ✨ 新增
+- **考试管理模块（对标智学网·考试管理）**：`/subject/:slug/exams` 新建 `ExamManageView`
+  - 创建考试（标题 / 类型 / 日期 / 查询密码 + 题库点选组题并逐题设分）
+  - 答题卡模板：一键生成可打印 A4 答题卡（客观题选项气泡 / 主观题横线，含姓名班级学号栏）
+  - 网阅打分：教师上传扫描件图片 + 逐题在线打分（免费实现，不含 OCR 自动识别）
+  - 成绩发布：草稿 → 阅卷中 → 已发布；发布可设**查询密码门**（学生查分需输入）
+  - 学生端「我的成绩」：受发布状态 + 密码门控制
+- **学情分析增强**：新增「⑥ 知识点掌握雷达图」与「⑦ 历次考试纵向对比折线」（平均分 / 满分随考试变化）
+- **智能组卷增强**：
+  - **平行组卷 A/B**：一键生成同考点·同难度的另一套题，A/B 卷切换
+  - **试卷存档密码**：存档时可设访问密码（写入 `export_config`）
+  - **分享 / 预览 / 幻灯播放**：存档后复制分享链接（跳转到 `/quiz/:id` 预览）、幻灯逐题播放
+- **分层作业**：考试新增 `level` 列（基础 / 提升 / 拓展），创建作业时可分层
+
+### 🐛 修复
+- 全站功能体检（56 路由审计）：**未发现空壳视图、未发现生产端死功能**；定位到 `server/index.ts` 与 `worker-api.ts` 双后端不同步（博客 / 文件直链 / forum-config 在 worker 有、server 缺，仅影响本地开发端，生产 Worker 正常）。本轮把考试管理相关的新增端点两端逐字同步。
+
+### 🔧 后端（双端同步）
+- 新表 `exams` / `exam_responses`（server/db.ts + worker 迁移块一致）
+- 端点（两端一致）：`POST /api/subjects/:id/exams`、`GET .../exams`、`GET /api/exams/:id`、`PATCH/DELETE /api/exams/:id`、`POST/GET /api/exams/:id/responses`、`GET /api/exams/:id/my`（密码门）、`GET /api/subjects/:id/students`（教师名册）、`GET /api/subjects/:id/exam-trend`（纵向对比聚合）
+- `exams` 补 `level` 列
+
+---
+
 ## [v4.6.1] - 2026-09-22
 
 > **修复 v4.6.0 生产 D1 迁移缺口（双后端同步铁律）**：`worker-api.ts` 的 `subject_questions` 幂等自愈迁移块漏加 `year` / `source` 两列，导致生产环境 SELECT/INSERT 带这两列时报错；本地 `server/db.ts` 已有。现已补齐，并对生产 D1 显式 `ALTER TABLE` 加列（PRAGMA 已验证存在），Worker 重新部署（版本 `65367ecb`）。
