@@ -789,6 +789,9 @@ app.use('*', async (c, next) => {
       try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN region TEXT DEFAULT ''").run() } catch {}
       try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN chapter TEXT DEFAULT ''").run() } catch {}
       try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN status TEXT DEFAULT 'active'").run() } catch {}
+      // 【v4.6.0】年份 / 题源维度：与 server/db.ts 幂等自愈迁移逐字对齐（双后端同步铁律）
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN year TEXT DEFAULT ''").run() } catch {}
+      try { await D1.prepare("ALTER TABLE subject_questions ADD COLUMN source TEXT DEFAULT ''").run() } catch {}
       try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN kind TEXT DEFAULT 'exam'").run() } catch {}
       try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN template TEXT DEFAULT ''").run() } catch {}
       try { await D1.prepare("ALTER TABLE quizzes ADD COLUMN export_config TEXT DEFAULT '{}'").run() } catch {}
