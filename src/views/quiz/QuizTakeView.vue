@@ -16,12 +16,21 @@ const loading = ref(true)
 // 提交结果状态
 const submitted = ref(false)
 const result = ref<any>(null)
+// 试卷存档密码门
+const locked = ref(false)
+const pwdInput = ref('')
+const paperTitle = ref('')
+
+async function loadQuiz(pwd?: string) {
+  const r: any = await api.quiz(Number(route.params.id), pwd)
+  quiz.value = r
+  questions.value = r.questions || []
+}
 
 onMounted(async () => {
+  loading.value = true
   try {
-    const r: any = await api.quiz(Number(route.params.id))
-    quiz.value = r
-    questions.value = r.questions || []
+    await loadQuiz()
     // 已提交过的，直接跳到报告
     try {
       await api.quizMyReport(Number(route.params.id))
@@ -30,10 +39,32 @@ onMounted(async () => {
       return
     } catch { /* 未提交 */ }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '加载失败')
-    router.back()
+    if (e?.response?.status === 403 && e?.response?.data?.needPwd) {
+      locked.value = true
+      paperTitle.value = e?.response?.data?.title || '该试卷'
+    } else {
+      ElMessage.error(e?.response?.data?.message || '加载失败')
+      router.back()
+    }
   } finally { loading.value = false }
 })
+
+async function unlock() {
+  if (!pwdInput.value) { ElMessage.warning('请输入访问密码'); return }
+  loading.value = true
+  try {
+    await loadQuiz(pwdInput.value)
+    locked.value = false
+    ElMessage.success('验证成功，已解锁')
+  } catch (e: any) {
+    if (e?.response?.status === 403 && e?.response?.data?.needPwd) {
+      ElMessage.error('密码错误，请重试')
+      pwdInput.value = ''
+    } else {
+      ElMessage.error(e?.response?.data?.message || '加载失败')
+    }
+  } finally { loading.value = false }
+}
 
 function setAnswer(qId: number, val: any) { answers.value[qId] = val }
 function toggleMulti(qId: number, opt: string) {
@@ -72,6 +103,16 @@ async function submit() {
 
 <template>
   <div class="page zg-container" v-loading="loading">
+    <!-- 试卷存档密码门 -->
+    <div v-if="locked" class="glass-strong pwd-gate">
+      <div class="pg-icon"><ZgGlyph emoji="🔒" /></div>
+      <h1 class="pg-title">{{ paperTitle }} · 已加密</h1>
+      <p class="pg-sub">该试卷设置了访问密码，请输入密码后查看</p>
+      <el-input v-model="pwdInput" type="password" show-password placeholder="请输入访问密码" class="pg-input" @keyup.enter="unlock" />
+      <el-button type="primary" round size="large" @click="unlock"><ZgGlyph emoji="🔑" /> 解锁查看</el-button>
+    </div>
+
+    <template v-else>
     <!-- 提交结果页 -->
     <div v-if="submitted && result" class="glass-strong result-card">
       <div class="rs-icon"><ZgGlyph v-if="result.status === 'graded'" emoji="🎉" /><ZgGlyph v-else emoji="⏳" /></div>
@@ -184,6 +225,7 @@ async function submit() {
       <el-button type="primary" round size="large" :loading="submitting" @click="submit">提交作答</el-button>
     </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -211,6 +253,12 @@ async function submit() {
 .rs-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 
 .back { display: inline-block; margin: 16px 0 0; color: var(--zg-text-dim); cursor: pointer; }
+.pwd-gate { padding: 48px 32px; text-align: center; margin-top: 16px; max-width: 460px; margin-left: auto; margin-right: auto; }
+.pg-icon { font-size: 56px; margin-bottom: 12px; }
+.pg-title { font-size: 22px; font-weight: 800; }
+.pg-sub { color: var(--zg-text-dim); font-size: 14px; margin: 8px 0 24px; }
+.pg-input { margin-bottom: 18px; }
+.pg-input :deep(.el-input__inner) { text-align: center; letter-spacing: 2px; }
 .q-head { padding: 24px; margin-top: 16px; }
 .qh-title { font-size: 22px; font-weight: 800; }
 .qh-desc { color: var(--zg-text-dim); margin: 6px 0; }

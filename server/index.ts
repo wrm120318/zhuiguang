@@ -1957,6 +1957,17 @@ app.get('/api/quizzes', auth, async (req, res) => {
 app.get('/api/quizzes/:id', auth, async (req, res) => {
   const q = await get<any>('SELECT * FROM quizzes WHERE id=?', req.params.id)
   if (!q) return res.status(404).json({ message: '不存在' })
+  // v4.8.1 试卷存档密码：非本学科管理者（教师/超管）访问需输入密码
+  const cfg = j(q.export_config || '{}')
+  const pwd = cfg?.password
+  const u = (req as any).user
+  const canManage = await canManageSubject(u, q.subject_id, u.id)
+  if (pwd && !canManage) {
+    const input = String(req.query.pwd || '')
+    if (input !== pwd) {
+      return res.status(403).json({ locked: true, needPwd: true, title: q.title })
+    }
+  }
   const questions = await all<any>('SELECT * FROM quiz_questions WHERE quiz_id=? ORDER BY sort,id', req.params.id)
   res.json({
     ...q,

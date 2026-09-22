@@ -306,7 +306,7 @@ export const api = {
   saveSiteConfig: (config: any) => http.put('/api/settings/site_config', config),
   // ===== 题库自测 =====
   quizzes: (params?: any) => http.get('/api/quizzes', { params }),
-  quiz: (id: number) => http.get(`/api/quizzes/${id}`),
+  quiz: (id: number, pwd?: string) => http.get(`/api/quizzes/${id}`, pwd ? { params: { pwd } } : undefined),
   createQuiz: (data: any) => http.post('/api/quizzes', data),
   updateQuiz: (id: number, data: any) => http.patch(`/api/quizzes/${id}`, data),
   deleteQuiz: (id: number) => http.delete(`/api/quizzes/${id}`),
