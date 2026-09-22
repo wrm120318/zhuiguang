@@ -53,6 +53,14 @@ const routes: RouteRecordRaw[] = [
   { path: '/subject/:slug/bank', name: 'question-bank', component: () => import('@/views/quiz/QuestionBankView.vue') },
   { path: '/subject/:slug/bank/add', name: 'question-add', component: () => import('@/views/quiz/QuestionEditView.vue') },
   { path: '/subject/:slug/bank/:qid/edit', name: 'question-edit', component: () => import('@/views/quiz/QuestionEditView.vue') },
+  // 【v4.6.0】智能组卷专业版（对标组卷网）
+  { path: '/subject/:slug/assemble', name: 'assemble', component: () => import('@/views/quiz/AssembleView.vue') },
+  // 【v4.6.0】学情分析中心（对标智学网）
+  { path: '/subject/:slug/analytics', name: 'analytics', component: () => import('@/views/quiz/AnalyticsView.vue') },
+  // 【v4.6.0】错题本（对标智学网·学生端）
+  { path: '/subject/:slug/wrong-book', name: 'wrong-book', component: () => import('@/views/quiz/WrongBookView.vue') },
+  { path: '/wrong-book', name: 'wrong-book-global', component: () => import('@/views/quiz/WrongBookView.vue') },
+
   // 【v4.5.0】教师批改新界面（侧显参考答案）
   { path: '/practice/grade/:id', name: 'practice-grade', component: () => import('@/views/quiz/PracticeGradeView.vue') },
   // 品牌 404（B5 / B10）：未匹配路由统一落地

@@ -345,8 +345,11 @@ export const api = {
   updateQuestionFolder: (id: number, data: any) => http.patch(`/api/question-folders/${id}`, data),
   deleteQuestionFolder: (id: number) => http.delete(`/api/question-folders/${id}`),
   favoriteQuestion: (qid: number, data?: any) => http.post(`/api/subject-questions/${qid}/favorite`, data || {}),
+  questionFeedback: (qid: number, content: string) => http.post(`/api/subject-questions/${qid}/feedback`, { content }),
   myFavorites: () => http.get('/api/users/me/favorites'),
-  myWrongQuestions: (subjectId?: number) => http.get<any[]>(`/api/users/me/wrong-questions${subjectId ? `?subject_id=${subjectId}` : ''}`),
+  myWrongQuestions: (subjectId?: number) => http.get(`/api/users/me/wrong-questions${subjectId ? `?subject_id=${subjectId}` : ''}`),
+  // 【v4.6.0】学情分析聚合（班级成绩 / 学生分层 / 知识点掌握度 / 高频错题）
+  subjectAnalytics: (subjectId: number) => http.get<any>(`/api/subjects/${subjectId}/analytics`),
   deleteFavorite: (id: number) => http.delete(`/api/favorites/${id}`),
   // ===== 【v4.5.0】多学科教师指派（后台）=====
   assignUserSubject: (userId: number, subjectId: number) => http.post(`/api/admin/users/${userId}/subjects`, { subject_id: subjectId }),

@@ -42,6 +42,46 @@ const QTYPES = [
   { key: 'subjective', label: '主观题', short: '五、主观题' },
 ]
 
+// ===== 富文本 → docx 行内内容（尽力保留 公式/图片/加粗） =====
+// 【v4.6.0 真修】题目中的图片导不出来，根因有两点：
+//   ① 题库图片存为 /api/file/{id}（私有附件），fetchImage 之前不带 token 直取 → 后端 401，
+//      被 catch 静默吞掉 → 图片整张丢失。现改为「先免 token 试取，失败再带 token 重试」。
+//   ② ImageRun 的 transformation.height 被写成 'auto'（非法值）→ 图片高度 0，Word 不渲染。
+//      现改为：拉到图片后用 canvas 归一化为 PNG，并取真实像素尺寸，按比例限制最大宽度。
+async function fetchImage(url: string): Promise<{ data: ArrayBuffer; width: number; height: number } | null> {
+  try {
+    const clean = String(url).replace(/\s+/g, '')
+    const abs = clean.startsWith('http') || clean.startsWith('//')
+      ? clean.startsWith('//') ? 'https:' + clean : clean
+      : API_BASE + clean
+    const token = (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
+    const tryFetch = async (withToken: boolean) => {
+      let u = abs
+      if (withToken && abs.includes('/api/file/')) u = abs + (abs.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+      return fetch(u)
+    }
+    let r = await tryFetch(false)
+    if (!r.ok && token) r = await tryFetch(true)
+    if (!r.ok) return null
+    const buf = await r.arrayBuffer()
+    const objUrl = URL.createObjectURL(new Blob([buf]))
+    const img = new Image()
+    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img load fail')); img.src = objUrl })
+    const nw = img.naturalWidth || 360, nh = img.naturalHeight || 240
+    const scale = Math.min(1, 480 / nw) // 限制最大宽度 480，避免超宽图撑破版心
+    const cw = Math.max(40, Math.round(nw * scale)), ch = Math.max(30, Math.round(nh * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = cw; canvas.height = ch
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { URL.revokeObjectURL(objUrl); return null }
+    ctx.drawImage(img, 0, 0, cw, ch)
+    URL.revokeObjectURL(objUrl)
+    const png = await new Promise<Blob | null>(x => canvas.toBlob(x, 'image/png'))
+    if (!png) return null
+    return { data: await png.arrayBuffer(), width: cw, height: ch }
+  } catch { return null }
+}
+
 // ===== 工具 =====
 function cellBorder() {
   return { top: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, bottom: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, left: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, right: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' } }
@@ -55,18 +95,6 @@ function P(text: string, size = cfg.fontSize, extra: any = {}): Paragraph {
 }
 const scoreOf = (it: any) => Number(it.basketScore) || Number(it.score) || 5
 const optLetter = (i: number) => 'ABCDEFGH'[i] || '?'
-
-// ===== 富文本 → docx 行内内容（尽力保留 公式/图片/加粗） =====
-async function fetchImage(url: string): Promise<{ data: ArrayBuffer; type: 'png' | 'jpg' } | null> {
-  try {
-    const abs = url.startsWith('http') ? url : API_BASE + url
-    const r = await fetch(abs)
-    if (!r.ok) return null
-    const buf = await r.arrayBuffer()
-    const ext = (url.split('?')[0].split('.').pop() || 'png').toLowerCase()
-    return { data: buf, type: ext === 'jpg' || ext === 'jpeg' ? 'jpg' : 'png' }
-  } catch { return null }
-}
 
 /**
  * 【v4.5.3 真修】把 KaTeX 渲染出的 DOM 的**计算样式内联**到每个节点。
@@ -278,6 +306,13 @@ async function katexToImage(tex: string): Promise<{ data: ArrayBuffer; type: 'pn
 }
 
 const INLINE_RE = /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\!\[[^\]]*\]\([^)]*\))|(\*\*[^*]+\*\*)/g
+// 清理 file:// 附件裸引用（网页端是蓝色链接，Word 里应转成可读性文本，避免导出出一堆 file://xxx）
+function cleanText(s: string): string {
+  return s.replace(/file:\/\/\S+/g, (m) => {
+    const name = m.replace(/^file:\/\//, '')
+    return name ? `[附件:${name}]` : ''
+  })
+}
 async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<any[]> {
   const runs: any[] = []
   // 【v4.5.3】boldPrefix：句首加粗标签（如「【答案】」），避免事后对 TextRun 做内省（docx v9 无公开 text 属性）
@@ -288,7 +323,7 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
   let last = 0, m: RegExpExecArray | null
   INLINE_RE.lastIndex = 0
   while ((m = INLINE_RE.exec(text))) {
-    if (m.index > last) runs.push(new TextRun({ text: text.slice(last, m.index), size }))
+    if (m.index > last) { const seg = cleanText(text.slice(last, m.index)); if (seg) runs.push(new TextRun({ text: seg, size })) }
     const t = m[0]
     if (t.startsWith('$') && t.length > 2) {
       const tex = t.replace(/^\$\$?|\$\$?$/g, '').trim()
@@ -304,14 +339,18 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
       }
     } else if (t.startsWith('![')) {
       const url = (t.match(/\(([^)]+)\)/) || [])[1]
-      if (url) { const img = await fetchImage(url); if (img) runs.push(new ImageRun({ data: img.data, type: img.type, transformation: { width: 360, height: 'auto' as any } })) }
+      if (url) {
+        const img = await fetchImage(url)
+        if (img) runs.push(new ImageRun({ data: img.data, type: 'png', transformation: { width: img.width, height: img.height } }))
+        else runs.push(new TextRun({ text: ' [图片] ', size }))
+      }
     } else if (t.startsWith('**')) {
       runs.push(new TextRun({ text: t.slice(2, -2), size, bold: true }))
     }
     last = INLINE_RE.lastIndex
   }
-  if (last < text.length) runs.push(new TextRun({ text: text.slice(last), size }))
-  return runs.length ? runs : [new TextRun({ text, size })]
+  if (last < text.length) { const seg = cleanText(text.slice(last)); if (seg) runs.push(new TextRun({ text: seg, size })) }
+  return runs.length ? runs : [new TextRun({ text: cleanText(text), size })]
 }
 function mdPlain(md: string): string {
   return (md || '')

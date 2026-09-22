@@ -17,6 +17,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const app = express()
 
+// 【v4.6.0】本地库向后兼容迁移：quizzes 增加 kind/template/export_config（与 worker 端 ALTER 一致）
+for (const col of ['kind TEXT DEFAULT \'exam\'', 'template TEXT DEFAULT \'\'', 'export_config TEXT DEFAULT \'{}']) {
+  try { await run(`ALTER TABLE quizzes ADD COLUMN ${col}`) } catch { /* 已存在则忽略 */ }
+}
+
 // ==============================================================================
 // 🔴【全局变量，必须放最最最开头！】
 //   SELF_REPAIR_LOCK：/api/admin/self-repair 和 /__zg_fix 共用的10分钟互斥锁
@@ -273,7 +278,11 @@ initDB().catch(e => {
   process.exit(1)
 })
 
+// 本地开发：前端（Vite :5173）按 .env.local 的 VITE_API_BASE_URL 直连 :3001 跨域，
+// 而 axios 带凭据(withCredentials)，故必须回显 Origin 并允许凭据——与 production worker 一致。
 app.use(cors({
+  origin: true,
+  credentials: true,
   exposedHeaders: ['Content-Disposition', 'Content-Type'],
 }))
 app.use(express.json({ limit: '50mb' }))
@@ -1961,11 +1970,26 @@ app.post('/api/quizzes', auth, requireSubjectStaff('body', 'subjectId'), async (
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
   const b = req.body
   const r = await run(
-    `INSERT INTO quizzes (subject_id,class_id,creator_id,creator_name,title,description,duration,valid_until,status) VALUES (?,?,?,?,?,?,?,?,?)`,
-    b.subjectId, b.classId, uid, me?.real_name || '', b.title, b.description || '', b.duration || 0, b.validUntil || '', b.status || 'published'
+    `INSERT INTO quizzes (subject_id,class_id,creator_id,creator_name,title,description,duration,valid_until,status,kind,template,export_config) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    b.subjectId, b.classId, uid, me?.real_name || '', b.title, b.description || '', b.duration || 0, b.validUntil || '', b.status || 'published', b.kind || 'exam', b.template || '', JSON.stringify(b.export_config || {})
   )
   const qid = Number(r.lastInsertRowid)
   let sort = 0
+  // 兼容模式：b.questions 内联 或 b.questionIds 从学科题库选题（与 worker-api.ts 对齐）
+  const pickedIds: number[] = Array.isArray(b.questionIds) ? b.questionIds.map((n: any) => Number(n)).filter(Boolean) : []
+  if (pickedIds.length) {
+    const ph = pickedIds.map(() => '?').join(',')
+    const picked = await all<any>(`SELECT id, qtype, content, options, answer, score, attachments FROM subject_questions WHERE id IN (${ph}) AND subject_id=?`, ...pickedIds, b.subjectId)
+    if (picked.length !== pickedIds.length) return res.status(400).json({ message: '所选题库中有题目不属于该学科或已被删除' })
+    const orderMap = new Map(pickedIds.map((id, i) => [id, i]))
+    picked.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0))
+    for (const qq of picked) {
+      await run(
+        `INSERT INTO quiz_questions (quiz_id,qtype,content,options,answer,score,attachments,sort) VALUES (?,?,?,?,?,?,?,?)`,
+        qid, qq.qtype, qq.content, typeof qq.options === 'string' ? qq.options : JSON.stringify(qq.options || []), qq.answer || '', qq.score ?? 5, typeof qq.attachments === 'string' ? qq.attachments : JSON.stringify(qq.attachments || []), sort++
+      )
+    }
+  }
   for (const qq of (b.questions || [])) {
     await run(
       `INSERT INTO quiz_questions (quiz_id,qtype,content,options,answer,score,attachments,sort) VALUES (?,?,?,?,?,?,?,?)`,
@@ -1993,6 +2017,9 @@ app.patch('/api/quizzes/:id', auth, async (req, res) => {
   if (b.duration !== undefined) await run('UPDATE quizzes SET duration=? WHERE id=?', b.duration, req.params.id)
   if (b.validUntil !== undefined) await run('UPDATE quizzes SET valid_until=? WHERE id=?', b.validUntil, req.params.id)
   if (b.status !== undefined) await run('UPDATE quizzes SET status=? WHERE id=?', b.status, req.params.id)
+  if (b.kind !== undefined) await run('UPDATE quizzes SET kind=? WHERE id=?', b.kind, req.params.id)
+  if (b.template !== undefined) await run('UPDATE quizzes SET template=? WHERE id=?', b.template, req.params.id)
+  if (b.export_config !== undefined) await run('UPDATE quizzes SET export_config=? WHERE id=?', JSON.stringify(b.export_config || {}), req.params.id)
   res.json({ ok: true })
 })
 
@@ -2226,6 +2253,8 @@ app.get('/api/subjects/:id/questions', auth, async (req, res) => {
   if (q.textbook_version) { where.push('sq.textbook_version=?'); args.push(q.textbook_version) }
   if (q.region) { where.push('sq.region=?'); args.push(q.region) }
   if (q.chapter) { where.push('sq.chapter LIKE ?'); args.push('%' + q.chapter + '%') }
+  if (q.year) { where.push('sq.year=?'); args.push(q.year) }
+  if (q.source) { where.push('sq.source=?'); args.push(q.source) }
   if (q.keyword) { where.push('(sq.content LIKE ? OR sq.answer LIKE ?)'); args.push('%' + q.keyword + '%', '%' + q.keyword + '%') }
   const rows = await all<any>(`SELECT sq.* FROM subject_questions sq WHERE ${where.join(' AND ')} ORDER BY sq.sort, sq.id DESC`, ...args)
   const ids = rows.map(r => r.id)
@@ -2247,6 +2276,106 @@ app.get('/api/subject-questions/:id', auth, async (req, res) => {
 })
 
 // ==============================================================================
+// ============ 【v4.6.0】学情分析聚合：班级成绩 / 学生分层 / 知识点掌握度 / 高频错题 =============
+// 数据来源：quiz_submissions（考试与测验成绩）→ 班级成绩概览 + 学生分层 + 成绩分布
+//          practice_submissions（单题练习）→ 知识点掌握度 + 高频错题
+app.get('/api/subjects/:id/analytics', auth, async (req, res) => {
+  const sid = Number(req.params.id)
+  const quizzes = await all<any>('SELECT id,title,kind FROM quizzes WHERE subject_id=? AND kind<>? ORDER BY id DESC LIMIT 100', sid, 'paper')
+  const quizIds = quizzes.map((q: any) => q.id)
+  const result: any = {
+    examStats: { quizCount: 0, subCount: 0, avgScore: 0, maxScore: 0, minScore: 0, excellentRate: 0, passRate: 0, difficulty: 0, discrimination: 0 },
+    tiers: { excellent: [], good: [], medium: [], weak: [] },
+    kpMastery: [], kpCoverage: [], topWrong: [], scoreHistogram: [],
+  }
+  if (quizIds.length) {
+    const ph = quizIds.map(() => '?').join(',')
+    const subs = await all<any>(`SELECT s.*, u.real_name FROM quiz_submissions s LEFT JOIN users u ON s.user_id=u.id WHERE s.quiz_id IN (${ph})`, ...quizIds)
+    const graded = subs.filter((s: any) => s.total_score != null)
+    if (graded.length) {
+      const scores = graded.map((s: any) => Number(s.total_score) || 0)
+      const maxs = graded.map((s: any) => Number(s.max_score) || 0)
+      const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+      const maxPossible = Math.max(...maxs, 1)
+      const excellent = scores.filter((s: number) => s / maxPossible >= 0.85).length
+      const pass = scores.filter((s: number) => s / maxPossible >= 0.6).length
+      const sorted = [...scores].sort((a: number, b: number) => a - b)
+      const cut = Math.max(1, Math.floor(sorted.length * 0.27))
+      const mean = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
+      const discrimination = (mean(sorted.slice(sorted.length - cut)) - mean(sorted.slice(0, cut))) / maxPossible
+      result.examStats = {
+        quizCount: quizzes.length, subCount: graded.length,
+        avgScore: +avg.toFixed(1), maxScore: Math.max(...scores), minScore: Math.min(...scores),
+        excellentRate: +((excellent / scores.length) * 100).toFixed(1),
+        passRate: +((pass / scores.length) * 100).toFixed(1),
+        difficulty: +(avg / maxPossible).toFixed(3), discrimination: +discrimination.toFixed(3),
+      }
+      const byUser: Record<number, { name: string; scores: number[]; max: number[] }> = {}
+      for (const s of graded) {
+        const uid = s.user_id; (byUser[uid] ||= { name: s.real_name || ('用户' + uid), scores: [], max: [] })
+        byUser[uid].scores.push(Number(s.total_score) || 0); byUser[uid].max.push(Number(s.max_score) || maxPossible)
+      }
+      const users = Object.entries(byUser).map(([uid, v]) => {
+        const avgU = v.scores.reduce((a, b) => a + b, 0) / v.scores.length
+        const rate = avgU / Math.max(...v.max, 1)
+        return { uid: Number(uid), name: v.name, avg: +avgU.toFixed(1), rate: +rate.toFixed(3) }
+      })
+      for (const u of [...users].sort((a, b) => b.avg - a.avg)) {
+        if (u.rate >= 0.85) result.tiers.excellent.push(u)
+        else if (u.rate >= 0.7) result.tiers.good.push(u)
+        else if (u.rate >= 0.6) result.tiers.medium.push(u)
+        else result.tiers.weak.push(u)
+      }
+      const hist: Record<number, number> = {}
+      for (const s of scores) { const b = Math.floor(s / 10) * 10; hist[b] = (hist[b] || 0) + 1 }
+      result.scoreHistogram = Object.entries(hist).map(([k, v]) => ({ range: Number(k), count: v })).sort((a, b) => a.range - b.range)
+    }
+  }
+  const mastery = await all<any>(`
+    SELECT kp.id AS kpId, kp.name AS kpName, kp.parent_id,
+      COUNT(DISTINCT ps.id) AS tries, SUM(CASE WHEN ps.correct=1 THEN 1 ELSE 0 END) AS correct
+    FROM subject_questions sq
+    JOIN question_knowledge qk ON qk.question_id=sq.id
+    JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id
+    LEFT JOIN practice_submissions ps ON ps.question_id=sq.id
+    WHERE sq.subject_id=?
+    GROUP BY kp.id, kp.name, kp.parent_id
+    ORDER BY correct*1.0/NULLIF(COUNT(DISTINCT ps.id),0) ASC
+  `, sid)
+  result.kpMastery = mastery.map((m: any) => ({
+    kpId: m.kpId, kpName: m.kpName, parentId: m.parent_id,
+    tries: Number(m.tries) || 0, correct: Number(m.correct) || 0,
+    rate: m.tries ? +((Number(m.correct) / Number(m.tries)) * 100).toFixed(1) : null,
+  }))
+  const cov = await all<any>(`
+    SELECT kp.id AS kpId, kp.name AS kpName, kp.parent_id, COUNT(sq.id) AS count
+    FROM knowledge_points kp
+    LEFT JOIN question_knowledge qk ON qk.knowledge_point_id=kp.id
+    LEFT JOIN subject_questions sq ON sq.id=qk.question_id AND sq.subject_id=?
+    WHERE kp.subject_id=?
+    GROUP BY kp.id, kp.name, kp.parent_id
+  `, sid, sid)
+  result.kpCoverage = cov.map((c: any) => ({ kpId: c.kpId, kpName: c.kpName, parentId: c.parent_id, count: Number(c.count) || 0 }))
+  const wrong = await all<any>(`
+    SELECT sq.id, sq.content, sq.qtype, sq.difficulty, kp.name AS kpName,
+      COUNT(ps.id) AS tries, SUM(CASE WHEN ps.correct=0 THEN 1 ELSE 0 END) AS wrongs
+    FROM practice_submissions ps
+    JOIN subject_questions sq ON sq.id=ps.question_id
+    LEFT JOIN question_knowledge qk ON qk.question_id=sq.id
+    LEFT JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id
+    WHERE sq.subject_id=?
+    GROUP BY sq.id, sq.content, sq.qtype, sq.difficulty, kp.name
+    HAVING wrongs > 0
+    ORDER BY wrongs DESC, tries DESC LIMIT 10
+  `, sid)
+  result.topWrong = wrong.map((w: any) => ({
+    id: w.id, content: w.content, qtype: w.qtype, difficulty: w.difficulty, kpName: w.kpName,
+    tries: Number(w.tries) || 0, wrongs: Number(w.wrongs) || 0,
+    wrongRate: w.tries ? +((Number(w.wrongs) / Number(w.tries)) * 100).toFixed(1) : 0,
+  }))
+  res.json(result)
+})
+
 // ============ 【v4.1.0】学科论坛：话题标签 + 帖子 + 评论 =============
 // ==============================================================================
 
@@ -2460,11 +2589,11 @@ app.post('/api/subjects/:id/questions', auth, requireSubjectStaff('params', 'id'
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', u.id)
   const b = req.body
   const r = await run(
-    `INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,analysis,score,attachments,sort,difficulty,textbook_version,region,chapter,status,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))`,
+    `INSERT INTO subject_questions (subject_id,creator_id,creator_name,qtype,content,options,answer,analysis,score,attachments,sort,difficulty,textbook_version,region,chapter,year,source,status,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))`,
     sid, u.id, me?.real_name || '', b.qtype || 'single', b.content || '', JSON.stringify(b.options || []),
     b.answer || '', b.analysis || '', b.score || 5, JSON.stringify(b.attachments || []), b.sort || 0,
-    b.difficulty || 3, b.textbook_version || '', b.region || '', b.chapter || '', b.status || 'active'
+    b.difficulty || 3, b.textbook_version || '', b.region || '', b.chapter || '', b.year || '', b.source || '', b.status || 'active'
   )
   const qid = Number(r.lastInsertRowid)
   await linkKnowledge(qid, b.knowledge_point_ids)
@@ -2506,11 +2635,12 @@ app.patch('/api/subject-questions/:id', auth, async (req, res) => {
     qtype=COALESCE(?,qtype), content=COALESCE(?,content), options=COALESCE(?,options),
     answer=COALESCE(?,answer), analysis=COALESCE(?,analysis), score=COALESCE(?,score),
     difficulty=COALESCE(?,difficulty), textbook_version=COALESCE(?,textbook_version),
-    region=COALESCE(?,region), chapter=COALESCE(?,chapter), status=COALESCE(?,status), sort=COALESCE(?,sort)
+    region=COALESCE(?,region), chapter=COALESCE(?,chapter), year=COALESCE(?,year),
+    source=COALESCE(?,source), status=COALESCE(?,status), sort=COALESCE(?,sort)
     WHERE id=?`,
     b.qtype || null, b.content ?? null, b.options ? JSON.stringify(b.options) : null,
     b.answer ?? null, b.analysis ?? null, b.score ?? null, b.difficulty ?? null,
-    b.textbook_version ?? null, b.region ?? null, b.chapter ?? null, b.status ?? null, b.sort ?? null, id)
+    b.textbook_version ?? null, b.region ?? null, b.chapter ?? null, b.year ?? null, b.source ?? null, b.status ?? null, b.sort ?? null, id)
   if (b.knowledge_point_ids !== undefined) await linkKnowledge(id, b.knowledge_point_ids)
   clearAllCache()
   res.json({ ok: true })

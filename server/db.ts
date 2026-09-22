@@ -109,6 +109,7 @@ export async function initDB() {
     CREATE TABLE IF NOT EXISTS notices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL, title TEXT, content TEXT, type TEXT,
+      target_url TEXT,
       read INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS themes (
@@ -128,6 +129,9 @@ export async function initDB() {
       duration INTEGER DEFAULT 0,
       valid_until TEXT,
       status TEXT DEFAULT 'published',
+      kind TEXT DEFAULT 'exam',
+      template TEXT DEFAULT '',
+      export_config TEXT DEFAULT '{}',
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS quiz_questions (
@@ -259,7 +263,7 @@ export async function initDB() {
     )`) } catch {}
 
   // ===== 【v4.5.0 智能题库】subject_questions / quizzes 补列 =====
-  for (const col of ['analysis TEXT DEFAULT \'\'', 'difficulty INTEGER DEFAULT 3', 'textbook_version TEXT', 'region TEXT', 'chapter TEXT', 'status TEXT DEFAULT \'active\'']) {
+  for (const col of ['analysis TEXT DEFAULT \'\'', 'difficulty INTEGER DEFAULT 3', 'textbook_version TEXT', 'region TEXT', 'chapter TEXT', 'status TEXT DEFAULT \'active\'', 'year TEXT', 'source TEXT']) {
     try { await db.execute(`ALTER TABLE subject_questions ADD COLUMN ${col}`) } catch {}
   }
   for (const col of ['kind TEXT DEFAULT \'exam\'', 'template TEXT DEFAULT \'\'', 'export_config TEXT DEFAULT \'{}']) {

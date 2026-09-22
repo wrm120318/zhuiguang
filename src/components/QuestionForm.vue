@@ -36,6 +36,8 @@ const form = reactive({
   textbook_version: '',
   region: '',
   chapter: '',
+  year: '',
+  source: '',
   status: 'active',
   knowledge_point_ids: [] as number[],
   options: [] as string[],
@@ -71,6 +73,8 @@ function syncFromInitial() {
   form.textbook_version = q.textbook_version || ''
   form.region = q.region || ''
   form.chapter = q.chapter || ''
+  form.year = q.year || ''
+  form.source = q.source || ''
   form.status = q.status || 'active'
   form.knowledge_point_ids = (q.knowledge_points || []).map((k: any) => k.id)
   form.options = Array.isArray(q.options) ? q.options.map((o: any) => (typeof o === 'string' ? o : (o.text ?? ''))) : []
@@ -101,6 +105,8 @@ function buildPayload() {
     textbook_version: form.textbook_version,
     region: form.region,
     chapter: form.chapter,
+    year: form.year,
+    source: form.source,
     status: form.status,
     knowledge_point_ids: form.knowledge_point_ids,
     options: isChoice ? form.options.map(s => s) : [],
@@ -173,6 +179,22 @@ function onSubmit() {
         <el-col :xs="24" :sm="12">
           <el-form-item label="章节">
             <el-input v-model="form.chapter" placeholder="如：第一章 集合" />
+          </el-form-item>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <el-form-item label="年份">
+            <el-input v-model="form.year" placeholder="如：2024" />
+          </el-form-item>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <el-form-item label="题源">
+            <el-select v-model="form.source" clearable placeholder="如：真题" style="width:100%">
+              <el-option label="真题" value="真题" />
+              <el-option label="模拟" value="模拟" />
+              <el-option label="同步" value="同步" />
+              <el-option label="专题" value="专题" />
+              <el-option label="原创" value="原创" />
+            </el-select>
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="12">
