@@ -124,6 +124,7 @@ async function deleteQuestion(id: number) {
   } catch { /* */ }
 }
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
+function qTypeIcon(t: string) { return t === 'single' ? '🔵' : t === 'multiple' ? '🟣' : t === 'judge' ? '✅' : '✍️' }
 
 // 正在下载中的资源 id 集合，防止重复点击
 const downloadingIds = ref<Set<number>>(new Set())
@@ -412,23 +413,40 @@ async function submitResource() {
       <el-empty v-if="!subjectQueries.length" description="暂无查询任务" />
     </section>
 
-    <section v-if="activeTab === 'quiz'" class="tab-panel">
+    <section v-if="activeTab === 'quiz'" class="tab-panel quiz-zone">
+      <!-- 题库自测 概览头：管理者/学习者入口聚合 -->
+      <div class="quiz-hero glass-strong">
+        <div class="qh-icon"><ZgGlyph emoji="🎯" /></div>
+        <div class="qh-body">
+          <h2 class="qh-title">题库自测</h2>
+          <p class="qh-sub">单题训练 · 智能组卷 · 学情分析 · 错题巩固，一站式学习闭环</p>
+          <div class="qh-stats">
+            <span class="qh-stat"><b>{{ subjectQuestions.length }}</b> 题在池</span>
+            <span class="qh-stat"><b>{{ subjectQuizzes.length }}</b> 场考试</span>
+            <span v-if="user.isStudent" class="qh-stat qh-stat-my" @click="router.push('/practice/my-records')"><ZgGlyph emoji="📈" /> 我的训练记录</span>
+          </div>
+        </div>
+        <div class="qh-actions">
+          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.slug}/assemble`)"><ZgGlyph emoji="🧩" /> 智能组卷</el-button>
+          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.slug}/analytics`)"><ZgGlyph emoji="📊" /> 学情分析</el-button>
+          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.slug}/exams`)"><ZgGlyph emoji="🗂️" /> 考试管理</el-button>
+          <el-button v-if="user.isLogin" size="small" round @click="router.push(`/subject/${subject.slug}/wrong-book`)"><ZgGlyph emoji="📕" /> 错题本</el-button>
+        </div>
+      </div>
+
       <!-- 单题训练题目池 -->
-      <div class="panel-head">
-        <div class="section-title"><ZgGlyph emoji="🏋️" /> 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
+      <div class="panel-head" style="margin-top:24px">
+        <div class="section-title"><ZgGlyph emoji="🎯" /> 单题训练 · 题目池（{{ subjectQuestions.length }} 题）</div>
         <div class="panel-head-actions">
-          <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')"><ZgGlyph emoji="📝" /> 我的训练记录</el-button>
+          <el-button v-if="user.isStudent" size="small" round @click="router.push('/practice/my-records')"><ZgGlyph emoji="📈" /> 我的训练记录</el-button>
           <el-button v-if="user.isStaff" type="primary" round size="small" @click="goAddQuestion">+ 添加题目</el-button>
           <el-button v-if="user.isStaff" size="small" round @click="goBank"><ZgGlyph emoji="🧠" /> 智能题库</el-button>
-          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/assemble`)"><ZgGlyph emoji="🧩" /> 智能组卷</el-button>
-          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/analytics`)"><ZgGlyph emoji="📊" /> 学情分析</el-button>
-          <el-button v-if="user.isStaff" size="small" round @click="router.push(`/subject/${subject.value.slug}/exams`)"><ZgGlyph emoji="📝" /> 考试管理</el-button>
-          <el-button v-if="user.isLogin" size="small" round @click="router.push(`/subject/${subject.value.slug}/wrong-book`)"><ZgGlyph emoji="📕" /> 错题本</el-button>
         </div>
       </div>
       <div class="practice-list">
-        <div v-for="(q, i) in subjectQuestions" :key="q.id" class="practice-card glass">
+        <div v-for="(q, i) in subjectQuestions" :key="q.id" class="practice-card glass" :class="'pc-' + q.qtype">
           <div class="pc-head">
+            <span class="pc-type-ico"><ZgGlyph :emoji="qTypeIcon(q.qtype)" /></span>
             <span class="pc-no">第 {{ i + 1 }} 题</span>
             <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
             <span class="pc-score">{{ q.score }} 分</span>
@@ -443,11 +461,11 @@ async function submitResource() {
           </div>
         </div>
       </div>
-      <el-empty v-if="!subjectQuestions.length" description="本学科暂无训练题目" />
+      <el-empty v-if="!subjectQuestions.length" description="本学科暂无训练题目，教师可点击「+ 添加题目」建设题库" />
 
       <!-- 考试列表 -->
       <div class="panel-head" style="margin-top:32px">
-        <div class="section-title"><ZgGlyph emoji="📝" /> 考试列表（{{ subjectQuizzes.length }} 场）</div>
+        <div class="section-title"><ZgGlyph emoji="📋" /> 考试列表（{{ subjectQuizzes.length }} 场）</div>
         <el-button v-if="user.isStaff" type="primary" round size="small" @click="goQuizNew">+ 组织考试</el-button>
       </div>
       <div class="quiz-grid">
@@ -456,7 +474,7 @@ async function submitResource() {
             <el-tag size="small" :type="q.status === 'published' ? 'success' : q.status === 'closed' ? 'info' : 'warning'">{{ quizStatusLabel(q.status) }}</el-tag>
             <span class="qz-time">{{ q.created_at?.slice(0, 16) }}</span>
           </div>
-          <div class="qz-title">{{ q.title }}</div>
+          <div class="qz-title"><ZgGlyph emoji="📋" class="qz-title-ico" /> {{ q.title }}</div>
           <div class="qz-desc">{{ q.description || '暂无描述' }}</div>
           <div class="qz-meta">
             <span v-if="q.duration"><ZgGlyph emoji="⏱" /> {{ q.duration }} 分钟</span>
@@ -632,6 +650,38 @@ async function submitResource() {
   .rank-list { padding: 16px; }
   .rank-item { padding: 14px 18px; gap: 16px; }
   .rank-avatar { width: 40px; height: 40px; }
+}
+
+/* ===== v4.8.2 题库自测栏目视觉打磨 ===== */
+.quiz-hero { display:flex; align-items:center; gap:18px; padding:20px 24px; flex-wrap:wrap; }
+.quiz-hero .qh-icon { width:56px; height:56px; border-radius:16px; display:flex; align-items:center; justify-content:center; font-size:30px; flex-shrink:0; background:linear-gradient(135deg, rgba(var(--zg-primary-rgb),.18), rgba(var(--zg-primary-rgb),.06)); }
+.quiz-hero .qh-body { flex:1; min-width:200px; }
+.qh-title { font-size:24px; font-weight:800; margin:0; }
+.qh-sub { font-size:13px; color:var(--zg-text-dim); margin:4px 0 0; line-height:1.6; }
+.qh-stats { display:flex; gap:18px; margin-top:10px; flex-wrap:wrap; font-size:13px; color:var(--zg-text-dim); }
+.qh-stat b { color:var(--zg-text); font-size:17px; margin-right:2px; }
+.qh-stat-my { color:var(--zg-accent); cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:opacity .15s; }
+.qh-stat-my:hover { opacity:.7; }
+.qh-actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+/* 题目卡：按题型左侧色条 + 悬浮抬升 */
+.practice-card { border-left:4px solid rgba(var(--zg-primary-rgb),.25); transition:transform .18s, box-shadow .18s; }
+.practice-card.pc-single { border-left-color:#3b82f6; }
+.practice-card.pc-multiple { border-left-color:#8b5cf6; }
+.practice-card.pc-judge { border-left-color:#10b981; }
+.practice-card.pc-subjective { border-left-color:#f59e0b; }
+.practice-card:hover { transform:translateY(-4px); box-shadow:0 14px 32px rgba(var(--zg-primary-rgb),.14); }
+.pc-type-ico { font-size:14px; }
+.quiz-card { transition:transform .18s, box-shadow .18s; }
+.quiz-card:hover { transform:translateY(-4px); box-shadow:0 14px 32px rgba(var(--zg-primary-rgb),.14); }
+.qz-title-ico { margin-right:4px; opacity:.8; }
+
+@media (max-width:640px){
+  .quiz-hero { padding:16px; gap:12px; }
+  .qh-icon { width:46px; height:46px; font-size:24px; border-radius:13px; }
+  .qh-title { font-size:20px; }
+  .qh-actions { width:100%; }
+  .qh-actions .el-button { flex:1; }
 }
 
 /* v4.4.29 长列表离屏渲染优化：列表项超出视口时跳过渲染，降低首屏与滚动开销，视觉不变 */

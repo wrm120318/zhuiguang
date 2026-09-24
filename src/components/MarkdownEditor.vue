@@ -393,7 +393,7 @@ const tools = computed(() => [
       <div class="zg-tools">
         <template v-for="(t, i) in tools" :key="i">
           <span v-if="t.group" class="zg-tool-group">{{ t.group }}</span>
-          <button v-else class="zg-tool" :title="t.tip" @click="t.action" v-html="t.name"></button>
+          <button v-else type="button" class="zg-tool" :title="t.tip" @click="t.action" v-html="t.name"></button>
         </template>
       </div>
       <div class="zg-viewmode">
@@ -402,7 +402,7 @@ const tools = computed(() => [
           <el-radio-button label="split">分屏</el-radio-button>
           <el-radio-button label="preview">预览</el-radio-button>
         </el-radio-group>
-        <button class="zg-tool" @click="toggleFullscreen" :title="fullscreen ? '退出全屏' : '全屏'">
+        <button type="button" class="zg-tool" @click="toggleFullscreen" :title="fullscreen ? '退出全屏' : '全屏'">
           {{ fullscreen ? '⤓' : '⤢' }}
         </button>
       </div>
