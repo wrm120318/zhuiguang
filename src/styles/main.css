@@ -528,16 +528,19 @@ img { -webkit-user-drag: none; }
     max-width: 92vw !important;
   }
   .el-drawer { width: 88% !important; }
-  /* 移动端弹窗：顶部对齐 + 安全区留白，杜绝沉到底部；超高内容 body 滚动、footer 固定全宽可触达 */
-  .el-overlay,
+  /* 移动端弹窗：顶部对齐 + 安全区留白，杜绝沉到底部；超高内容 body 滚动、footer 固定全宽可触达。
+     ⚠️⚠️ 铁律：绝不可给 .el-overlay 本体加 display:flex !important —— Element Plus 用【内联 display:none】
+     隐藏已关闭的遮罩；!important 会击穿内联样式，导致所有「已关闭」的弹窗/抽屉遮罩在移动端常驻，
+     一个全屏死遮罩压住整页、点哪都没反应（= v4.8.7「移动端整个不能用」事故根因）。
+     只在 EP 的定位子层 .el-overlay-dialog / .el-overlay-message-box 上做定位，父层可见性交给 EP。 */
   .el-overlay-dialog,
   .el-overlay-message-box {
     display: flex !important;
     align-items: flex-start !important;
     justify-content: center !important;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+    width: 100% !important;
   }
-  .el-overlay { padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 12px) !important; }
-  .el-overlay-dialog { width: 100% !important; padding: 0 !important; }
   .el-dialog {
     width: 100% !important;
     max-width: 92vw !important;
