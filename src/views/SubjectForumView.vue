@@ -271,10 +271,12 @@ async function delTopic(t: any) {
   try {
     await ElMessageBox.confirm(`确认删除话题「${t.name}」？帖子会保留但失去该话题标签。`, '删除话题', { type: 'warning' })
   } catch { return }
-  await api.deleteForumTopic(subject.value.id, t.id)
-  ElMessage.success('已删除')
-  if (activeTopicId.value === t.id) activeTopicId.value = null
-  await loadTopics()
+  try {
+    await api.deleteForumTopic(subject.value.id, t.id)
+    ElMessage.success('已删除')
+    if (activeTopicId.value === t.id) activeTopicId.value = null
+    await loadTopics()
+  } catch (e: any) { ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 // ---- 帖子：跳独立页 ----
@@ -291,9 +293,11 @@ async function delPost(p: any) {
   try {
     await ElMessageBox.confirm('确认删除该帖子及其全部评论？', '删除帖子', { type: 'warning' })
   } catch { return }
-  await api.deleteForumPost(subject.value.id, p.id)
-  ElMessage.success('已删除')
-  await loadPosts()
+  try {
+    await api.deleteForumPost(subject.value.id, p.id)
+    ElMessage.success('已删除')
+    await loadPosts()
+  } catch (e: any) { ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 function canEditOrDel(p: any) {

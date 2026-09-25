@@ -84,7 +84,7 @@ async function deleteSubject(s: any) {
     await api.deleteSubject(s.id)
     ElMessage.success('学科已删除')
     await load()
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 const iconPresets = ['📚', '📖', '📐', '🌍', '🔬', '⚗️', '🧬', '🏛️', '💻', '🎨', '🎭', '📊', '📝', '🔢', '💡', '🎯']

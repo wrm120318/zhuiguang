@@ -176,7 +176,7 @@ async function deleteForumPostItem(sid: number, id: number) {
     await api.deleteForumPost(sid, id)
     forumPosts.value = forumPosts.value.filter(p => p.id !== id)
     ElMessage.success('已删除')
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 async function batchApprove() {

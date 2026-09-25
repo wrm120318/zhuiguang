@@ -136,7 +136,7 @@ async function deleteTask(t: any) {
     await api.deleteQueryTask(t.id)
     existing.value = existing.value.filter(x => x.id !== t.id)
     ElMessage.success('已删除')
-  } catch {}
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 </script>
 

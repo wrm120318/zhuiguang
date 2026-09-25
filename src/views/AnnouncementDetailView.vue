@@ -31,7 +31,7 @@ async function del() {
     await api.deletePage(ann.value.id)
     ElMessage.success('已删除')
     router.push('/announcements')
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 function fmtSize(n: number) { return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + 'MB' : Math.round(n / 1024) + 'KB' }
 </script>

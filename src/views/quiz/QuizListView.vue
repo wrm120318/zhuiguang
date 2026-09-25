@@ -45,7 +45,7 @@ async function del(q: any) {
     await api.deleteQuiz(q.id)
     ElMessage.success('已删除')
     await load()
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 // 打开单题训练批改弹窗

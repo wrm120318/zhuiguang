@@ -115,9 +115,11 @@ async function delPost(p: any) {
   try {
     await ElMessageBox.confirm('确认删除该博客？', '删除', { type: 'warning' })
   } catch { return }
-  await api.deletePage(p.id)
-  ElMessage.success('已删除')
-  await load()
+  try {
+    await api.deletePage(p.id)
+    ElMessage.success('已删除')
+    await load()
+  } catch (e: any) { ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 </script>
 

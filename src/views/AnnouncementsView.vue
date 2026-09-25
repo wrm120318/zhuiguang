@@ -61,7 +61,7 @@ async function deleteAnn(a: any, e: Event) {
     await api.deletePage(a.id)
     list.value = list.value.filter(x => x.id !== a.id)
     ElMessage.success('已删除')
-  } catch {}
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 </script>
 

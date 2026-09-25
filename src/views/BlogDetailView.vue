@@ -98,7 +98,7 @@ async function del() {
     await api.deletePage(blog.value.id)
     ElMessage.success('已删除')
     router.push('/blog')
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 
 // 【v4.0.1 Bug12】编辑博客：跳到编辑页（路由 :id 是博客 ID）

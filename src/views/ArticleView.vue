@@ -79,7 +79,7 @@ async function deleteArticleItem() {
     await api.deleteArticle(article.value.id)
     ElMessage.success('美文已删除')
     router.back()
-  } catch { /* */ }
+  } catch (e: any) { if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试')) }
 }
 </script>
 
