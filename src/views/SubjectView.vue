@@ -115,13 +115,21 @@ async function goQuizNew() {
 // 题目池：教师添加题目（跳转智能题库新界面，不再用弹窗）
 function goBank() { if (subject.value) router.push(`/subject/${subject.value.slug}/bank`) }
 function goAddQuestion() { if (subject.value) router.push(`/subject/${subject.value.slug}/bank/add`) }
+const deletingId = ref<number | null>(null)
 async function deleteQuestion(id: number) {
+  if (deletingId.value) return
   try {
     await ElMessageBox.confirm('确定删除该题目？相关训练记录也会删除', '提示', { type: 'warning' })
+    deletingId.value = id
     await api.deleteSubjectQuestion(id)
     ElMessage.success('已删除')
     await reloadQuestions()
-  } catch { /* */ }
+  } catch (e: any) {
+    // 取消操作（ElMessageBox 取消会 reject 'cancel'）不报错；其余视为删除失败并提示
+    if (e !== 'cancel' && e?.message !== 'cancel') {
+      ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试'))
+    }
+  } finally { deletingId.value = null }
 }
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
 function qTypeIcon(t: string) { return t === 'single' ? '🔵' : t === 'multiple' ? '🟣' : t === 'judge' ? '✅' : '✍️' }

@@ -16,10 +16,39 @@ const defaults = reactive({ score: 5, difficulty: 3 })
 
 const optRe = /^\s*([A-Ha-h])[.、)）]/
 
-function splitQuestions(text: string): string[] {
-  const re = /(?=^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）]))/gm
-  const parts = text.split(re).map(s => s.trim()).filter(Boolean)
-  return parts.length ? parts : [text.trim()].filter(Boolean)
+// HTML → 纯文本（保留块级换行，便于按行识别题型/选项/答案）
+function htmlToText(html: string): string {
+  return html
+    .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/ /g, ' ')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+}
+
+// 将 Word 转换出的 HTML 按"题号"切分为若干题目块（每块含题干/选项/图片/表格，区块不破断）
+function splitHtmlToQuestions(html: string): string[] {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const blocks = Array.from(doc.body.childNodes).filter(n => n.nodeType === 1) as Element[]
+  const marker = /^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）])/
+  const out: string[] = []
+  let cur: string[] = []
+  let started = false
+  const flush = () => { if (cur.length) { out.push(cur.join('')); cur = [] } }
+  for (const el of blocks) {
+    const isMarker = marker.test(el.textContent?.trim() || '')
+    if (isMarker) {
+      // 首个题号之前的内容（如卷首标题）并入第一题，不单独成题
+      if (started && cur.length) flush()
+      cur.push((el as HTMLElement).outerHTML)
+      started = true
+    } else {
+      cur.push((el as HTMLElement).outerHTML)
+    }
+  }
+  flush()
+  return out
 }
 
 const JUDGE_WORDS = ['对', '错', '正确', '错误', '√', '×', 'T', 'F', 'true', 'false']
@@ -27,8 +56,10 @@ function isJudge(opts: string[]): boolean {
   return opts.length >= 2 && opts.every(o => JUDGE_WORDS.some(w => o.includes(w)))
 }
 
-function parseBlock(block: string) {
-  const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+// raw 可为 Word 导出的 HTML（含图片/表格）或纯文本；结构识别用 htmlToText，题面内容保留原 HTML
+function parseBlock(raw: string) {
+  const text = htmlToText(raw)
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return null
   let first = lines[0].replace(/^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）])\s*/, '')
   const opts: string[] = []
@@ -39,8 +70,8 @@ function parseBlock(block: string) {
     const ln = lines[i]
     if (optRe.test(ln)) { hitOptions = true; opts.push(ln.replace(optRe, '').trim()); continue }
     if (/答案|参考答案|解答|答[:：]/.test(ln)) { answer = ln.replace(/^.*?(答案|参考答案|解答|答)[:：]?\s*/, ''); continue }
-    if (hitOptions) opts.push(ln)
-    else rest.push(ln)
+    // 选项仅取匹配 optRe 的行；选项之后的表格/图片说明等归入 context，不污染选项
+    rest.push(ln)
   }
   const content = [first, ...rest].join('\n').trim()
 
@@ -52,7 +83,7 @@ function parseBlock(block: string) {
     else qtype = 'single'
   }
   return {
-    qtype, content,
+    qtype, content: raw,
     options: (qtype === 'single' || qtype === 'multiple' || qtype === 'judge') ? opts : [],
     answer: answer.trim(),
     analysis: '',
@@ -62,17 +93,43 @@ function parseBlock(block: string) {
   }
 }
 
+// 图片内联上限（base64 字符数），避免单张图过大导致 D1 行超限、导入失败
+const IMG_B64_CAP = 1200000
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
   const f = input.files?.[0]
   if (!f) return
   file.value = f
   const buf = await f.arrayBuffer()
-  const mammoth = (await import('mammoth/mammoth.browser')).default
-  const { value } = await mammoth.extractRawText({ arrayBuffer: buf })
-  const blocks = splitQuestions(value)
-  preview.value = blocks.map(parseBlock).filter(Boolean) as any[]
-  ElMessage.info(`已识别 ${preview.value.length} 道题，请核对后导入`)
+  try {
+    const mammothMod: any = (await import('mammoth/mammoth.browser')).default
+    // 图片内联为 base64（题面直接渲染）；超大图降级为占位提示，避免撑爆单行
+    const convertImage = mammothMod.images.imgElement(async (image: any) => {
+      const b64 = await image.read('base64')
+      if (b64.length > IMG_B64_CAP) {
+        const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='220' height='36'><text x='6' y='24' font-size='14' fill='%23999'>图片过大已略过</text></svg>`
+        return { src: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` }
+      }
+      return { src: `data:${image.contentType};base64,${b64}` }
+    })
+    const { value: html } = await mammothMod.convertToHtml({ arrayBuffer: buf, convertImage })
+    const blocks = splitHtmlToQuestions(html)
+    preview.value = blocks.map(parseBlock).filter(Boolean) as any[]
+    ElMessage.info(`已识别 ${preview.value.length} 道题（图片/表格已一并解析，请核对后导入）`)
+  } catch {
+    // 兜底：纯文本导入（图片/表格可能丢失）
+    const mammothMod: any = (await import('mammoth/mammoth.browser')).default
+    const { value } = await mammothMod.extractRawText({ arrayBuffer: buf })
+    const blocks = value.split(/(?=^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）]))/gm).map((s: string) => s.trim()).filter(Boolean)
+    preview.value = blocks.map(parseBlock).filter(Boolean) as any[]
+    ElMessage.warning('Word 解析降级为纯文本（图片/表格可能丢失），请核对后导入')
+  }
+}
+
+// 预览卡片显示纯文本（题面可能是 HTML）
+function plainPreview(html: string): string {
+  const t = htmlToText(html).replace(/\s+/g, ' ').trim()
+  return t.length > 120 ? t.slice(0, 120) + '…' : t
 }
 
 async function onConfirm() {
@@ -91,7 +148,7 @@ async function onConfirm() {
 <template>
   <div class="word-import">
     <el-alert type="warning" :closable="false" title="尽力拆分，需人工校对">
-      系统按题号规则自动切分 Word 试卷，公式/图片尽力保留为文本标记。导入后题目标记为「待校对」，请在各题富文本编辑器里微调。
+      系统按题号规则自动切分 Word 试卷，<b>图片与表格会一并解析</b>（图片内联为可显示图片，表格转为可渲染表格），公式尽力保留。导入后题目标记为「待校对」，请在各题富文本编辑器里微调。
     </el-alert>
     <div class="defaults">
       <span>默认分值</span>
@@ -106,7 +163,7 @@ async function onConfirm() {
     <div v-if="preview.length" class="prev-list">
       <div v-for="(p, i) in preview" :key="i" class="prev-item">
         <div class="pi-head"><b>#{{ i + 1 }}</b> <el-tag size="small">{{ p.qtype === 'judge' ? '判断' : p.qtype === 'multiple' ? '多选' : p.qtype === 'single' ? '单选' : '主观' }}</el-tag> <span class="pi-meta">{{ p.score }}分/难度{{ p.difficulty }}</span></div>
-        <div class="pi-content">{{ p.content.slice(0, 120) }}{{ p.content.length > 120 ? '…' : '' }}</div>
+        <div class="pi-content">{{ plainPreview(p.content) }}</div>
         <div v-if="p.options.length" class="pi-opts">{{ p.options.join(' / ') }}</div>
         <div v-if="p.answer" class="pi-ans">答案：{{ p.answer }}</div>
       </div>
