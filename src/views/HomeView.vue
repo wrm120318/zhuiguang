@@ -672,7 +672,9 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-tag { font-size: 12px; padding: 5px 12px; }
   .hero-time { display: none; }
   /* hero-cta 仅墨金渲染（v-if isInkgold），下列样式天然不影响经典档 */
-  .hero-cta { display: flex; margin: 16px 0 2px; gap: 10px; }
+  /* v4.8.13：下边距 2px→14px。原值让 CTA 按钮与下方统计卡几乎粘连，
+     视觉上像"融为一体"，破坏了 hero 内部的呼吸节奏。 */
+  .hero-cta { display: flex; margin: 16px 0 14px; gap: 10px; }
   .cta { flex: 1; min-height: 44px; padding: 10px 16px; font-size: 14px; border-radius: 12px; }
   .hero-title { font-size: clamp(22px, 6.5vw, 27px); letter-spacing: -0.5px; line-height: 1.3; margin-bottom: 10px; }
   .zg-inkgold .hero-title { font-size: clamp(21px, 6.3vw, 26px); letter-spacing: .01em; line-height: 1.32; }
