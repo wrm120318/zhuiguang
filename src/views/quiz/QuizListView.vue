@@ -155,7 +155,7 @@ async function submitGrade() {
     </template>
 
     <!-- 单题训练批改弹窗 -->
-    <el-dialog v-model="gradeVisible" width="640px">
+    <el-dialog v-model="gradeVisible" width="640px" append-to-body>
       <template #header><span style="font-weight:700">批改单题训练</span></template>
       <template v-if="gradeItem">
         <div class="gd-stu"><ZgGlyph emoji="👤" /> {{ gradeItem.real_name }} · {{ gradeItem.subject_name }}</div>

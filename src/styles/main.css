@@ -518,50 +518,116 @@ img { -webkit-user-drag: none; }
   /* 底部安全区（Home 指示条）：页面底部留白，避免内容被横条遮挡 */
   .page { padding: 14px 0 calc(90px + env(safe-area-inset-bottom)); }
   .section-title { font-size: var(--zg-fs-md); margin-bottom: 12px; }
-  /* 移动端弹窗：宽度收窄，居中由全局 .el-overlay-dialog flex 统一处理 */
-  .el-dialog {
-    width: 92% !important;
-    max-width: 92vw !important;
-  }
-  .el-message-box {
-    width: 88% !important;
-    max-width: 92vw !important;
-  }
+  /* 移动端弹窗宽度/定位统一由下方「底部 Sheet」规则接管（此处不再设宽度，避免覆盖） */
   .el-drawer { width: 88% !important; }
-  /* 移动端弹窗：顶部对齐 + 安全区留白，杜绝沉到底部；超高内容 body 滚动、footer 固定全宽可触达。
-     ⚠️⚠️ 铁律：绝不可给 .el-overlay 本体加 display:flex !important —— Element Plus 用【内联 display:none】
-     隐藏已关闭的遮罩；!important 会击穿内联样式，导致所有「已关闭」的弹窗/抽屉遮罩在移动端常驻，
-     一个全屏死遮罩压住整页、点哪都没反应（= v4.8.7「移动端整个不能用」事故根因）。
-     只在 EP 的定位子层 .el-overlay-dialog / .el-overlay-message-box 上做定位，父层可见性交给 EP。 */
+  /* ===== 移动端弹窗 = 底部卡片式 Sheet（通栏、大圆角、安全区、粘性页脚）=====
+     ⚠️ 前提（关键，v4.8.8 修复）：所有 <el-dialog> 必须带 append-to-body，
+        让 overlay 挂到 <body> 下、相对视口定位。
+        否则 overlay 会渲染在页面内容里（如 .page 内），被文档流带偏 72px、
+        高度还跟着超长文档走 → 弹窗跑到屏幕外、按钮点不到（“反人类操作”根因）。
+     ⚠️ 铁律：绝不可给 .el-overlay 本体加 display !important —— EP 用【内联 display:none】
+        隐藏已关闭的遮罩，!important 会击穿它，导致遮罩常驻、整页点不动（v4.8.7 事故根因）。 */
+  .el-overlay {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    /* overlay 基础样式带 backdrop-filter；它会成为其后代 fixed 元素的「包含块」，
+       让弹窗不再相对视口定位。移动端改为纯半透明遮罩（观感几乎无差、合成更省电）。 */
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(40, 30, 15, .42) !important;
+  }
+  /* 子层：撑满并收掉内边距，定位交给弹窗本体（不写 display，避开上面铁律） */
   .el-overlay-dialog,
   .el-overlay-message-box {
-    display: flex !important;
-    align-items: flex-start !important;
-    justify-content: center !important;
-    padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+    padding: 0 !important;
     width: 100% !important;
+    height: 100% !important;
   }
   .el-dialog {
+    /* 通栏底部 sheet：贴左右边、底部对齐安全区、内容区滚动、页脚粘底 */
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
     width: 100% !important;
-    max-width: 92vw !important;
-    margin: 0 auto !important;
-    max-height: calc(100vh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 22px 22px 0 0 !important;
+    /* 上限：顶部留安全区与余量，超出由 body 内部滚动消化，保证页脚永远在屏内可点 */
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px) !important;
     display: flex !important;
     flex-direction: column;
+    overflow: hidden !important;
+    /* 动画只用 fade：若带位移并保留 fill，transform 会永久残留，
+       使元素成为自身包含块而破坏绝对定位。 */
+    animation: zgSheetFade .28s var(--zg-ease) both;
+    z-index: 2100 !important;   /* 必须高于手机底栏 Dock(z:200)，否则底栏会盖住页脚按钮 */
   }
-  .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; }
+  @keyframes zgSheetFade { from { opacity: 0; } to { opacity: 1; } }
+  /* 顶部“拖拽把手”，强化 sheet 认知 */
+  .el-dialog__header { position: relative; padding: 24px 20px 14px !important; flex-shrink: 0 !important; }
+  .el-dialog__header::before {
+    content: ''; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 4px; background: rgba(var(--zg-primary-rgb), .28);
+  }
+  .el-dialog__title { font-size: 19px !important; font-weight: 700 !important; }
+  /* 关闭按钮 40px 触控，避开把手与标题 */
+  .el-dialog__headerbtn { top: 16px !important; right: 12px !important; width: 40px !important; height: 40px !important; }
+  .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; padding: 8px 20px 18px !important; }
+  /* 粘性页脚：内容滚动时按钮始终可见可点 */
   .el-dialog__footer {
-    flex-shrink: 0;
+    flex-shrink: 0 !important;
     display: flex !important;
-    flex-direction: column;
+    flex-direction: column-reverse;   /* 主操作(保存)在下、更靠近拇指 */
     gap: 10px;
-    padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    border-top: 1px solid rgba(var(--zg-primary-rgb), .12) !important;
+    background: linear-gradient(0deg, rgba(255,251,235,.96) 0%, rgba(255,251,235,.82) 100%) !important;
+    box-shadow: 0 -6px 20px -12px rgba(120,90,30,.18);
   }
-  .el-dialog__footer .el-button { width: 100% !important; margin: 0 !important; min-height: 44px; }
-  /* 弹窗内表单 label 顶对齐，窄屏省空间、更大气 */
-  .el-dialog .el-form-item { display: block; margin-bottom: 16px; }
-  .el-dialog .el-form-item__label { display: block; text-align: left !important; margin-bottom: 6px; line-height: 1.4; padding: 0 !important; }
+  .el-dialog__footer .el-button {
+    width: 100% !important; margin: 0 !important;
+    min-height: 48px; font-size: 16px !important; border-radius: 14px !important;
+  }
+  /* 弹窗打开时隐藏手机底栏 Dock：它固定在底部，会压住 sheet 页脚的「保存」等按钮 */
+  body:has(.el-overlay-dialog .el-dialog) .tabbar,
+  body:has(.el-overlay-message-box .el-message-box) .tabbar { display: none !important; }
+  /* 弹窗内表单：label 顶对齐占满整行，输入框加大，行距舒展 */
+  .el-dialog .el-form-item { display: block; margin-bottom: 18px; }
+  .el-dialog .el-form-item__label {
+    display: block; text-align: left !important; margin-bottom: 8px;
+    line-height: 1.4; padding: 0 !important; font-size: 14px !important;
+  }
   .el-dialog .el-form-item__content { margin-left: 0 !important; }
+  .el-dialog .el-divider--horizontal { margin: 22px 0 18px !important; }
+  /* 弹窗内输入控件：≥48px 触控高，圆角舒展，手机上不再“挤成一条” */
+  .el-dialog .el-input__inner { height: 48px !important; font-size: 16px !important; }
+  /* 移动端 MessageBox 同样做底部 Sheet，按钮整行大触控 */
+  .el-message-box {
+    position: fixed !important; left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
+    width: 100% !important; max-width: 100% !important; margin: 0 !important;
+    border-radius: 22px 22px 0 0 !important;
+    display: flex !important; flex-direction: column;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 40px) !important;
+    /* 同 .el-dialog：动画不得保留 transform（否则 fixed 定位失效） */
+    animation: zgSheetFade .3s var(--zg-ease) both;
+    transform: none !important;
+    z-index: 2100 !important;
+  }
+  .el-message-box__content { flex: 1 1 auto; overflow-y: auto; padding: 20px !important; }
+  .el-message-box__btns {
+    flex-shrink: 0; flex-direction: column-reverse; gap: 10px;
+    padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .el-message-box__btns .el-button { width: 100% !important; margin: 0 !important; min-height: 48px; font-size: 16px !important; }
   /* 移动端表单优化：输入框/按钮触控 ≥44px */
   .el-form-item__label { font-size: var(--zg-fs-sm) !important; }
   .el-input__inner { height: 44px !important; }

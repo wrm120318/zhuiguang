@@ -309,7 +309,7 @@ function stopNoticePolling() {
   </el-drawer>
 
   <!-- 搜索弹窗 -->
-  <el-dialog v-model="searchVisible" width="600px" class="search-dialog">
+  <el-dialog v-model="searchVisible" width="600px" class="search-dialog" append-to-body>
     <template #title><span class="sd-title"><el-icon><Search /></el-icon> 搜索</span></template>
     <div class="search-bar">
       <el-input v-model="searchQuery" placeholder="搜索美文、资料…" size="large" @keyup.enter="goSearch">

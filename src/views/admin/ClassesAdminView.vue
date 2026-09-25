@@ -79,7 +79,7 @@ async function deleteClass(c: any) {
       <el-empty v-if="!classes.length && !loading" description="暂无班级，点击右上角新建" />
     </div>
 
-    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑班级' : '新建班级'" width="440px">
+    <el-dialog v-model="editVisible" :title="editForm.id ? '编辑班级' : '新建班级'" width="440px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="班级名称"><el-input v-model="editForm.name" placeholder="如：高二（1）班" /></el-form-item>
         <el-form-item label="年级"><el-input v-model="editForm.grade" placeholder="如：高二" /></el-form-item>

@@ -187,7 +187,7 @@ async function downloadTaskExcel() {
   <ZgState v-else type="404" title="查询任务不存在" desc="该查询任务可能已被删除或链接有误。" style="margin-top:80px" />
 
   <!-- 编辑查询任务对话框（仅超管 / 创建者） -->
-  <el-dialog v-model="editVisible" title="编辑查询任务" width="520px" :close-on-click-modal="false">
+  <el-dialog v-model="editVisible" title="编辑查询任务" width="520px" :close-on-click-modal="false" append-to-body>
     <el-form label-width="80px">
       <el-form-item label="标题">
         <el-input v-model="editForm.title" placeholder="查询任务标题" />

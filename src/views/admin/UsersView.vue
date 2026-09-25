@@ -535,7 +535,7 @@ function openImport() {
     </div>
 
     <!-- 新建用户 -->
-    <el-dialog v-model="addVisible" title="新建用户" width="440px">
+    <el-dialog v-model="addVisible" title="新建用户" width="440px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
         <el-form-item label="用户名"><el-input v-model="form.username" /></el-form-item>
@@ -561,7 +561,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 编辑用户 -->
-    <el-dialog v-model="editVisible" title="编辑用户" width="440px">
+    <el-dialog v-model="editVisible" title="编辑用户" width="440px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="姓名"><el-input v-model="editForm.realName" /></el-form-item>
         <el-form-item label="用户名"><el-input v-model="editForm.username" /></el-form-item>
@@ -586,7 +586,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 经验值调整 -->
-    <el-dialog v-model="expDialogVisible" title="调整经验值" width="440px">
+    <el-dialog v-model="expDialogVisible" title="调整经验值" width="440px" append-to-body>
       <el-form label-width="100px">
         <el-form-item label="当前经验">
           <el-input-number v-model="expForm.exp" :min="0" controls-position="right" />
@@ -609,7 +609,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 查看经验记录 -->
-    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="1200px" top="5vh">
+    <el-dialog v-model="expLogsVisible" :title="`经验记录 - ${expLogsUser?.real_name || ''}（共 ${expLogsData.length} 条）`" width="1200px" top="5vh" append-to-body>
       <div v-loading="expLogsLoading" style="min-height:200px">
         <!-- 顶部筛选 + 操作栏 -->
         <div class="exp-log-toolbar">
@@ -676,7 +676,7 @@ function openImport() {
     </el-dialog>
 
     <!-- 批量导入用户 -->
-    <el-dialog v-model="importVisible" title="批量导入用户" width="720px" :close-on-click-modal="false">
+    <el-dialog v-model="importVisible" title="批量导入用户" width="720px" :close-on-click-modal="false" append-to-body>
       <div v-if="!importResult">
         <div class="import-steps">
           <div class="import-step"><span class="s-no">1</span><div><div class="s-title">下载模板</div><div class="s-desc">含表头与示例数据</div></div></div>

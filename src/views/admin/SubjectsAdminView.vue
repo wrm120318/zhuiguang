@@ -135,7 +135,7 @@ const moduleDefs = [
     </div>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" width="720px">
+    <el-dialog v-model="editVisible" width="720px" append-to-body>
       <template #header>
         <div class="dlg-head"><span class="dlg-bar"></span><ZgGlyph emoji="📚" /><span>{{ editForm.id ? '编辑学科' : '新建学科' }}</span></div>
       </template>

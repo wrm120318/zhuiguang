@@ -1203,7 +1203,7 @@ onBeforeUnmount(() => {
       top="5vh"
       :close-on-click-modal="false"
       :before-close="handleClosePreview"
-    >
+     append-to-body>
       <div v-loading="previewLoading" class="preview-container">
         <!-- 图片预览 -->
         <div v-if="previewFile && isImage(previewFile.name)" class="preview-image-wrap">

@@ -523,7 +523,7 @@ async function submitResource() {
     </section>
 
     <!-- 资料上传弹窗 -->
-    <el-dialog v-model="resUploadVisible" title="上传资料" width="520px">
+    <el-dialog v-model="resUploadVisible" title="上传资料" width="520px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="文件">
           <el-upload

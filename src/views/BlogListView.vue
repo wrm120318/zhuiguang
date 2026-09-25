@@ -297,7 +297,7 @@ async function delPost(p: any) {
     </div>
 
     <!-- 超管：新建 / 编辑话题 -->
-    <el-dialog v-model="topicDlgVisible" :title="editingTopic ? '编辑话题' : '新建话题'" width="420px">
+    <el-dialog v-model="topicDlgVisible" :title="editingTopic ? '编辑话题' : '新建话题'" width="420px" append-to-body>
       <el-form :model="topicForm" label-width="60px">
         <el-form-item label="名称">
           <el-input v-model="topicForm.name" maxlength="20" placeholder="如：考点速记、经验分享" />

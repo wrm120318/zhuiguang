@@ -48,7 +48,7 @@
     </div>
 
     <!-- 创建考试 -->
-    <el-dialog v-model="showCreate" title="创建考试" width="760px" top="5vh" @open="resetCreate">
+    <el-dialog v-model="showCreate" title="创建考试" width="760px" top="5vh" @open="resetCreate" append-to-body>
       <el-form label-width="92px">
         <el-form-item label="考试标题" required>
           <el-input v-model="form.title" placeholder="如：2026 秋第一次月考" maxlength="80" />
@@ -137,7 +137,7 @@
     </el-drawer>
 
     <!-- 网阅打分 -->
-    <el-dialog v-model="showGrade" :title="'网阅打分 · ' + (curExam?.title || '')" width="880px" top="4vh" @open="loadResponses">
+    <el-dialog v-model="showGrade" :title="'网阅打分 · ' + (curExam?.title || '')" width="880px" top="4vh" @open="loadResponses" append-to-body>
       <div class="grade-wrap" v-loading="gradeLoading">
         <div class="grade-pick">
           <el-select v-model="gradeStudent" filterable placeholder="选择学生" style="width:220px" @change="onStudentChange">
@@ -174,7 +174,7 @@
     </el-dialog>
 
     <!-- 学生查分 -->
-    <el-dialog v-model="showMy" title="我的成绩" width="460px">
+    <el-dialog v-model="showMy" title="我的成绩" width="460px" append-to-body>
       <div v-if="myResult === null" v-loading="myLoading" />
       <template v-else-if="myResult?.released">
         <template v-if="myResult.response">

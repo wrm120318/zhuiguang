@@ -256,7 +256,7 @@ async function submit() {
     </div>
 
     <!-- 【v4.0.1 Bug10 兼容模式】从学科题库选题 dialog -->
-    <el-dialog v-model="pickVisible" width="780px" :close-on-click-modal="false">
+    <el-dialog v-model="pickVisible" width="780px" :close-on-click-modal="false" append-to-body>
       <template #header><span style="font-weight:700">从学科题库选题</span></template>
       <div v-loading="pickLoading" class="pick-wrap">
         <div v-if="!pickPool.length" class="pick-empty">

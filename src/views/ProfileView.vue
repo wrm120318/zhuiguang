@@ -260,7 +260,7 @@ const expLeftToNext = computed(() => {
     </div>
 
     <!-- 编辑弹窗（仅自己） -->
-    <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="480px" class="profile-edit-dialog" @closed="resetPwdForm">
+    <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="480px" class="profile-edit-dialog" append-to-body @closed="resetPwdForm">
       <el-form label-width="80px">
         <el-form-item label="头像URL"><el-input v-model="form.avatar" placeholder="粘贴图片链接" /></el-form-item>
         <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
