@@ -45,7 +45,7 @@
 - 内容滚动到底时，粘性页脚仍在屏内可点。
 
 ### 📦 上线
-`git push`（`待填`）+ `wrangler pages deploy` → 生产 `https://xkzg.de5.net`。
+`git push`（`df857a6`）+ `wrangler pages deploy` → 生产 `https://xkzg.de5.net` 返回 200，线上构建 `index-D_DGBgjo.js` / `style-CEKee2T-.css` 与本地一致；CSS 已确认含底部 sheet 与底栏隐藏规则。
 
 ## [v4.8.8] - 2026-09-25
 ### 🔴 严重事故修复：移动端整页不可用（弹窗遮罩常驻拦截全部点击）
