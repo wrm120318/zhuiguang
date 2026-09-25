@@ -3054,18 +3054,17 @@ a.zg-file-link {
 @media (max-width: 768px) {
   /* --------------------------------------------------------------------------
      ① 底部 Dock 避让（修复"内容被底栏压住/遮住"）
-     Dock 实际占位 = 72px(dock) + 16px(padding) + safe-area ≈ 88px。
-     此前仅 .app-main 设了 padding-bottom，但 .page 内部内容仍会伸到 Dock 之下
-     （实测首页最后一个 section bottom=777 > dock top=764，被压 13px）。
-     这里对「所有页面内容容器」统一补足底部留白，并让最后一行元素自然呼吸。
+     v4.8.12 生产实测：tabbar 本体高 88px（fixed bottom:0），原留白 104px →
+     余量仅 16px，在带安全区的真机（env(safe-area-inset-bottom)≈34px）上偏紧，
+     末行内容容易贴着 Dock 上沿。现提升到 128px + 安全区，给出充裕呼吸。
      -------------------------------------------------------------------------- */
   .app-main,
-  .app-main.has-tabbar { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important; }
+  .app-main.has-tabbar { padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px)) !important; }
   .app-main > .page,
-  .app-main .page.zg-container { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important; }
-  /* 兜底：页面最后一屏元素与 Dock 之间至少留 96px（含 Dock 本体 88px + 8px 呼吸） */
+  .app-main .page.zg-container { padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* 兜底：页面最后一屏元素与 Dock 之间至少留 128px（含 Dock 本体 88px + 呼吸） */
   .app-main > *:last-child,
-  .app-main .page > *:last-child { scroll-margin-bottom: 96px; }
+  .app-main .page > *:last-child { scroll-margin-bottom: 128px; }
 
   /* --------------------------------------------------------------------------
      ② 渲染流畅度：长列表开启 content-visibility，避免离屏元素参与排版/绘制
