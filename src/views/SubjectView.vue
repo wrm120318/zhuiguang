@@ -118,16 +118,26 @@ function goAddQuestion() { if (subject.value) router.push(`/subject/${subject.va
 const deletingId = ref<number | null>(null)
 async function deleteQuestion(id: number) {
   if (deletingId.value) return
+  const qid = Number(id)
   try {
     await ElMessageBox.confirm('确定删除该题目？相关训练记录也会删除', '提示', { type: 'warning' })
-    deletingId.value = id
-    await api.deleteSubjectQuestion(id)
+    deletingId.value = qid
+    await api.deleteSubjectQuestion(qid)
     ElMessage.success('已删除')
+    // 乐观移除：即便随后整表刷新因题目 content 过大而失败/卡住，也不留"幽灵卡片"
+    subjectQuestions.value = subjectQuestions.value.filter(q => Number(q.id) !== qid)
     await reloadQuestions()
   } catch (e: any) {
-    // 取消操作（ElMessageBox 取消会 reject 'cancel'）不报错；其余视为删除失败并提示
-    if (e !== 'cancel' && e?.message !== 'cancel') {
-      ElMessage.error('删除失败：' + (e?.response?.data?.message || e?.message || '请稍后重试'))
+    // 取消操作（ElMessageBox 取消会 reject 'cancel'）不报错
+    if (e === 'cancel' || e?.message === 'cancel') return
+    const msg = e?.response?.data?.message || e?.message || ''
+    // 题目已不存在（可能已在别处删除 / 列表刷新后该行已消失）：从列表移除并温和提示，避免"点不到/点不删"的困惑
+    if (e?.response?.status === 404 || msg.includes('题目不存在')) {
+      subjectQuestions.value = subjectQuestions.value.filter(q => Number(q.id) !== qid)
+      ElMessage.info('该题已不存在，已从列表移除')
+      await reloadQuestions()
+    } else {
+      ElMessage.error('删除失败：' + msg)
     }
   } finally { deletingId.value = null }
 }

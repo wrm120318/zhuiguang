@@ -93,8 +93,19 @@ function parseBlock(raw: string) {
   }
 }
 
-// 图片内联上限（base64 字符数），避免单张图过大导致 D1 行超限、导入失败
-const IMG_B64_CAP = 1200000
+// 图片处理策略：≤0.9MB 直接内联 base64（零成本、无需外部存储）；>0.9MB 上传到文件存储并引用 URL，不再丢弃
+const IMG_INLINE_BYTE_CAP = 0.9 * 1024 * 1024
+const IMG_PLACEHOLDER = `data:image/svg+xml;utf8,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='240' height='36'><text x='6' y='24' font-size='14' fill='%23999'>图片上传失败</text></svg>")}`
+
+// 把 mammoth 读出的 base64 转成浏览器 File，供 uploadImage 走文件存储
+function b64ToImageFile(b64: string, contentType: string): File {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  const ext = (contentType.split('/')[1] || 'png').replace('+xml', '')
+  return new File([bytes], `word-img-${Date.now()}.${ext}`, { type: contentType })
+}
+
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
   const f = input.files?.[0]
@@ -103,12 +114,17 @@ async function onFile(e: Event) {
   const buf = await f.arrayBuffer()
   try {
     const mammothMod: any = (await import('mammoth/mammoth.browser')).default
-    // 图片内联为 base64（题面直接渲染）；超大图降级为占位提示，避免撑爆单行
+    // 图片内联为 base64（题面直接渲染）；超大图走文件存储（uploadImage 返回可访问 URL），避免撑爆题面 base64
     const convertImage = mammothMod.images.imgElement(async (image: any) => {
       const b64 = await image.read('base64')
-      if (b64.length > IMG_B64_CAP) {
-        const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='220' height='36'><text x='6' y='24' font-size='14' fill='%23999'>图片过大已略过</text></svg>`
-        return { src: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` }
+      const byteLen = Math.floor(b64.length * 3 / 4)
+      if (byteLen > IMG_INLINE_BYTE_CAP) {
+        try {
+          const r: any = await api.uploadImage(b64ToImageFile(b64, image.contentType))
+          return { src: r.url }
+        } catch {
+          return { src: IMG_PLACEHOLDER }
+        }
       }
       return { src: `data:${image.contentType};base64,${b64}` }
     })
