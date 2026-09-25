@@ -1571,6 +1571,20 @@ app.patch('/api/profile', auth, async (c) => {
   return c.json({ user: pub(u) })
 })
 
+// 【v4.8.6】个人中心自助改密：必须校验原密码，避免他人越权改密
+app.post('/api/profile/password', auth, async (c) => {
+  const id = c.get('user').id
+  const b = await c.req.json().catch(() => ({}))
+  const oldPassword = b.oldPassword, newPassword = b.newPassword
+  if (!oldPassword || !newPassword) return c.json({ message: '请填写原密码和新密码' }, 400)
+  if (String(newPassword).length < 4) return c.json({ message: '新密码至少 4 位' }, 400)
+  const u = await get<any>('SELECT * FROM users WHERE id=?', id)
+  if (!u) return c.json({ message: '用户不存在' }, 404)
+  if (!bcrypt.compareSync(String(oldPassword), u.password_hash)) return c.json({ message: '原密码错误' }, 400)
+  await run('UPDATE users SET password_hash=? WHERE id=?', bcrypt.hashSync(String(newPassword), 8), id)
+  return c.json({ ok: true })
+})
+
 // ============ v4.4.0 头像上传：统一经 Worker 存储层（废除 Supabase 直传） ============
 app.post('/api/upload/avatar', auth, async (c) => {
   const body = await c.req.parseBody()

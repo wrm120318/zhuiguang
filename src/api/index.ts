@@ -133,6 +133,7 @@ export const api = {
   adjustUserExp: (id: number, data: { exp?: number; level?: number }) => http.patch(`/api/users/${id}/exp`, data),
   grantExp: (data: { userId: number; change: number; actionType: string; description: string }) => http.post('/api/exp/logs', data),
   updateProfile: (data: any) => http.patch('/api/profile', data),
+  changePassword: (oldPassword: string, newPassword: string) => http.post('/api/profile/password', { oldPassword, newPassword }),
   uploadAvatar: async (file: File) => {
     // 统一经 Worker 代理上传（/api/upload/image），成功后用返回的 url 更新头像
     const result = await directUpload(file, 'image')

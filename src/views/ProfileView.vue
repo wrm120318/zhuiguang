@@ -15,6 +15,9 @@ const myResources = ref<any[]>([])
 const pendingStudentArticles = ref<any[]>([])  // 需求3：待我（学生）确认的代发美文
 const editing = ref(false)
 const form = ref({ realName: '', email: '', phone: '', avatar: '' })
+// 密码修改（可选，留空则不修改）
+const pwdForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+function resetPwdForm() { pwdForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' } }
 
 // ===== @提及跳转：URL 带 ?uid=xxx 时进入「他人主页」只读模式 =====
 // profileUser 是当前正在展示的用户（自己 或 ?uid 指定的他 人）
@@ -80,9 +83,20 @@ watch(() => route.query.uid, async () => {
 async function saveProfile() {
   try {
     await user.updateProfile(form.value)
-    ElMessage.success('保存成功')
+    // 密码修改（可选）：仅当填写了新密码才触发，且必须新旧一致、原密码正确
+    const { oldPassword, newPassword, confirmPassword } = pwdForm.value
+    if (newPassword || oldPassword) {
+      if (!oldPassword) { ElMessage.warning('请输入原密码'); return }
+      if (newPassword.length < 4) { ElMessage.warning('新密码至少 4 位'); return }
+      if (newPassword !== confirmPassword) { ElMessage.warning('两次输入的新密码不一致'); return }
+      await api.changePassword(oldPassword, newPassword)
+      resetPwdForm()
+      ElMessage.success('资料与密码已更新')
+    } else {
+      ElMessage.success('保存成功')
+    }
     editing.value = false
-  } catch (e: any) { ElMessage.error('保存失败') }
+  } catch (e: any) { ElMessage.error(e?.response?.data?.message || e?.message || '保存失败') }
 }
 
 // 需求3：学生同意/拒绝代发美文
@@ -167,9 +181,12 @@ const expLeftToNext = computed(() => {
 
     <!-- 经验日志（仅自己可见） -->
     <div v-if="!isOthersProfile" class="section">
-      <div class="section-title">经验记录</div>
-      <div class="exp-list">
-        <div v-for="log in expLogs.slice(0, 10)" :key="log.id" class="exp-item glass">
+      <div class="section-title">
+        经验记录
+        <el-tag v-if="expLogs.length" size="small" type="info" effect="plain" style="margin-left:8px">{{ expLogs.length }} 条</el-tag>
+      </div>
+      <div class="exp-list exp-list-scroll">
+        <div v-for="log in expLogs" :key="log.id" class="exp-item glass">
           <div class="ei-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
           <div class="ei-body">
             <div class="ei-desc">{{ log.description }}</div>
@@ -243,14 +260,27 @@ const expLeftToNext = computed(() => {
     </div>
 
     <!-- 编辑弹窗（仅自己） -->
-    <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="440px">
+    <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="480px" class="profile-edit-dialog" @closed="resetPwdForm">
       <el-form label-width="80px">
-        <el-form-item label="头像URL"><el-input v-model="form.avatar" /></el-form-item>
+        <el-form-item label="头像URL"><el-input v-model="form.avatar" placeholder="粘贴图片链接" /></el-form-item>
         <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
         <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
         <el-form-item label="手机"><el-input v-model="form.phone" /></el-form-item>
+        <el-divider content-position="left">修改密码（可选，留空则不修改）</el-divider>
+        <el-form-item label="原密码">
+          <el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="至少 4 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwdForm.confirmPassword" type="password" show-password placeholder="再次输入新密码" />
+        </el-form-item>
       </el-form>
-      <template #footer><el-button @click="editing = false">取消</el-button><el-button type="primary" @click="saveProfile">保存</el-button></template>
+      <template #footer>
+        <el-button @click="editing = false">取消</el-button>
+        <el-button type="primary" @click="saveProfile">保存</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -281,6 +311,9 @@ const expLeftToNext = computed(() => {
 
 .section { margin-top: 28px; }
 .exp-list { display: flex; flex-direction: column; gap: 8px; }
+.exp-list-scroll { max-height: 420px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px; }
+.exp-list-scroll::-webkit-scrollbar { width: 6px; }
+.exp-list-scroll::-webkit-scrollbar-thumb { background: rgba(var(--zg-primary-rgb), .25); border-radius: 3px; }
 .exp-item { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
 .ei-icon { font-size: var(--zg-fs-sm); font-weight: 800; padding: 4px 10px; border-radius: 8px; min-width: 50px; text-align: center; }
 .ei-icon.pos { background: rgba(52,211,153,.15); color: #059669; }

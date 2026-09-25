@@ -528,6 +528,16 @@ img { -webkit-user-drag: none; }
     max-width: 92vw !important;
   }
   .el-drawer { width: 88% !important; }
+  /* 弹窗内部滚动：内容超高时 body 滚动、footer 固定可触达，杜绝“弹窗一坨” */
+  .el-dialog { display: flex; flex-direction: column; max-height: 92vh; }
+  .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; }
+  .el-dialog__footer { padding: 14px 16px 18px !important; }
+  .el-dialog__footer .el-button { width: 100%; margin: 0 0 10px !important; min-height: 44px; }
+  .el-dialog__footer .el-button:last-child { margin-bottom: 0 !important; }
+  /* 弹窗内表单 label 顶对齐，窄屏省空间、更大气 */
+  .el-dialog .el-form-item { display: block; margin-bottom: 16px; }
+  .el-dialog .el-form-item__label { display: block; text-align: left !important; margin-bottom: 6px; line-height: 1.4; padding: 0 !important; }
+  .el-dialog .el-form-item__content { margin-left: 0 !important; }
   /* 移动端表单优化：输入框/按钮触控 ≥44px */
   .el-form-item__label { font-size: var(--zg-fs-sm) !important; }
   .el-input__inner { height: 44px !important; }

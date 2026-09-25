@@ -635,6 +635,19 @@ app.patch('/api/profile', auth, async (req, res) => {
   res.json({ user: pub(u) })
 })
 
+// 【v4.8.6】个人中心自助改密：必须校验原密码，避免他人越权改密
+app.post('/api/profile/password', auth, async (req, res) => {
+  const id = (req as any).user.id
+  const { oldPassword, newPassword } = req.body || {}
+  if (!oldPassword || !newPassword) return res.status(400).json({ message: '请填写原密码和新密码' })
+  if (String(newPassword).length < 4) return res.status(400).json({ message: '新密码至少 4 位' })
+  const u = await get<any>('SELECT * FROM users WHERE id=?', id)
+  if (!u) return res.status(404).json({ message: '用户不存在' })
+  if (!bcrypt.compareSync(String(oldPassword), u.password_hash)) return res.status(400).json({ message: '原密码错误' })
+  await run('UPDATE users SET password_hash=? WHERE id=?', bcrypt.hashSync(String(newPassword), 8), id)
+  res.json({ ok: true })
+})
+
 app.post('/api/upload/avatar', auth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: '无文件' })
   if (!STORAGE_ENABLED) return res.status(500).json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' })
