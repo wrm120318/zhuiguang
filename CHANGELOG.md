@@ -25,7 +25,7 @@
 ### 移动端弹窗与经验记录再修复（回应用户实测反馈）
 - **经验记录取消内部滚动框（修复“变扁”）**：v4.8.6 给经验列表加了 `max-height:420px` 内部滚动容器，56 条被压成一条扁框。改为全部铺开、随页面自然滚动；保留条数标签。
 - **移动端弹窗改为顶部对齐 + 安全区留白（修复“沉到下面”）**：v4.8.6 仅做 `flex column + max-height:92vh` 居中，实测弹窗在 flex 容器内被推到屏幕下方。v4.8.7 改为移动端 `.el-overlay`/`.el-overlay-dialog` `align-items:flex-start`（顶部对齐），`padding` 让出 `env(safe-area-inset-top/bottom)`（刘海/Home 条）；弹窗超高时 `body` 内部滚动、`footer` `flex-shrink:0` 固定，按钮全宽竖排 ≥44px 触控。
-- **验证**：`npm run build` 通过；代码已 commit 并 push 至 `main`（`efd2127`）。前端 Pages 部署因沙箱缺 `CLOUDFLARE_API_TOKEN` 且受 CF 来源 IP 白名单限制无法在沙箱执行（项目既定模式，见工作日志 2026-08-30 记录），需用户在本地 `source .env && npx wrangler pages deploy dist --project-name zhuiguang-web` 完成上线。
+- **验证**：`npm run build` 通过；代码已 commit 并 push 至 `main`（`42c6cbd`）。前端 Pages 已用提供的 `CLOUDFLARE_API_TOKEN` 部署上线，生产域名 `https://xkzg.de5.net`（构建 `index-DHJ2ka27.js` 已生效），预览 `https://98223ee5.zhuiguang-web.pages.dev`。
 
 ## [v4.8.6] - 2026-09-25
 ### 个人中心自助改密 + 经验记录显示全部 + 移动端弹窗深度适配
