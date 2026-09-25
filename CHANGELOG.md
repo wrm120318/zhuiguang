@@ -21,6 +21,10 @@
 
 ---
 
+## [v4.8.5] - 2026-09-25
+- **Word 导入大图改走文件存储（修复"图片 >0.9MB 被丢弃"）**：原 >0.9MB 图片降级为"图片过大已略过"占位直接丢弃；改为 >0.9MB 经 `api.uploadImage` 上传到文件存储并引用返回 URL（与 MarkdownEditor 内联图片同一套存储），≤0.9MB 仍内联 base64（零成本）；题面 content 体积大幅下降。
+- **删除题目"题目不存在"健壮化**：经 curl 实证生产 `DELETE /api/subject-questions/:id` 正常（建/删/查均 ok），删不到是因前端发出的 id 在库里不存在——根因为 v4.8.3 内联大图使题目 content 达数 MB，题库列表返回整表全文，删除成功后 `reloadQuestions` 拉超大响应易失败/卡住导致已删卡片变"幽灵"，再点命中已删行报"题目不存在"。`deleteQuestion` 改为：防御性 `Number(id)`、成功后乐观移除该项、命中 404 时从列表移除并温和提示；配合上条 content 缩小提升刷新可靠性。
+
 ## [v4.8.4] - 2026-09-25
 ### 修复
 - **删除功能偶发失灵（系统性修复）**：大量删除入口用空 `catch` 或完全未包 `try/catch`，后端偶发报错（瞬时网络抖动 / 403 / 外键约束）时被静默吞掉，用户点删除后既无成功提示也无错误、列表不更新，表现为"偶发失灵不生效"。为以下入口统一补充失败提示（取消操作仍不报错，仅真实失败提示原因）：`SubjectView.deleteQuestion`（题目）、公告/博客/美文（`AnnouncementsView`/`BlogDetailView`/`AnnouncementDetailView`/`ArticleView`/`BlogListView.delPost`）、试卷（`QuizListView`）、学科论坛（`SubjectForumView.delTopic/delPost`）、后台用户/班级/学科/查询任务/帖子（`UsersView`/`ClassesAdminView`/`SubjectsAdminView`/`QueryCreateView`/`AuditView`）。其中 `BlogListView.delPost` 与 `SubjectForumView` 两处原完全无 `try/catch`，失败会变成未捕获异常，已补包裹。
