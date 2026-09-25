@@ -21,6 +21,17 @@
 
 ---
 
+## [v4.8.8] - 2026-09-25
+### 🔴 严重事故修复：移动端整页不可用（弹窗遮罩常驻拦截全部点击）
+> **用户反馈**：「移动端整个直接不能用！！！」
+
+- **根因定位**：v4.8.7 在 `@media (max-width:768px)` 中写了 `.el-overlay { display: flex !important; }`。Element Plus 用**内联 `display:none`** 隐藏已关闭的弹窗/抽屉遮罩，而 `!important` 会**击穿内联样式** → 所有「已关闭」的遮罩（尤其常驻 DOM 的「通知中心」抽屉 `.el-overlay.is-drawer`）在移动端**强制显示**。结果：一个全屏死遮罩常驻压住整页，`pointer-events` 拦截所有点击（连汉堡菜单都点不动）=「整个不能用」。桌面端无此覆写，故仅移动端崩。
+- **修复**：从 `.el-overlay` 本体**移除 `display` 覆写**，只在 EP 定位子层 `.el-overlay-dialog` / `.el-overlay-message-box` 上保留 `display:flex !important` + `align-items:flex-start`（顶部对齐）+ 安全区 padding，父层可见性交还 EP。并加醒目铁律注释防止复犯。
+- **验证（关键升级）**：本次首次使用 **Playwright + Chromium 本地无头渲染 + 390×844 手机视口 + `/api/**` 假数据拦截 + localStorage 注入登录态** 做真实截图验收（沙箱可加载 localhost，绕开外网限制）。
+  - 修复前截图：首页/题库/登录页**全部被「通知中心」死遮罩盖死**，控制台明确报 `<span class="el-drawer__title">通知中心</span> … subtree **intercepts pointer events**`，汉堡菜单点击超时。
+  - 修复后截图：首页正常（顶栏+问候卡+快捷入口+底部 Dock）、汉堡抽屉可开、个人中心经验记录完整铺开、编辑弹窗**顶部对齐**且含密码区、**关闭弹窗后无残留遮罩**。
+- **上线**：`git push`（`5606bd3`）+ `wrangler pages deploy` → 生产 `https://xkzg.de5.net` 返回 200，线上构建 `index-DHJ2ka27.js` 与本地一致。
+
 ## [v4.8.7] - 2026-09-25
 ### 移动端弹窗与经验记录再修复（回应用户实测反馈）
 - **经验记录取消内部滚动框（修复“变扁”）**：v4.8.6 给经验列表加了 `max-height:420px` 内部滚动容器，56 条被压成一条扁框。改为全部铺开、随页面自然滚动；保留条数标签。
