@@ -3204,49 +3204,61 @@ a.zg-file-link {
 }
 
 /* ============================================================================
-   v4.8.10 ⑧ 吸顶导航「顶部缝隙漏字」修复
+   v4.8.12 吸顶导航「缝隙漏字 + 矩形垫块」修复（重写 v4.8.10 ⑧ 的错误做法）
    ----------------------------------------------------------------------------
-   实测问题：导航是悬浮胶囊（margin-top:8px + sticky top:8px），滚动时页面内容会
-   从导航【上方那 8px 缝隙】以及胶囊两侧的圆弧外沿透出来（截图可见
-   「晚上好，管理员」和 Lv.5 徽标残影），观感破碎。
-   处理：给导航容器加一层与页面底色过渡一致的"遮罩垫"，覆盖胶囊上方的缝隙区域，
-         形成干净的分层（内容永远从导航下方滑过），保留悬浮胶囊造型。
+   问题回顾（截图实测）：
+     · 原方案用 `.nav::after` 铺同色遮罩垫 + `box-shadow: 0 0 0 8px var(--zg-bg-from)`
+       去盖「胶囊上方 8px 缝隙」，但 box-shadow 是一个【不透明实心矩形】，
+       铺在 22px 圆角胶囊外面 → 四角/上下露出方角边界，看起来像"贴了个白方块"。
+       ❌ 直接违反设计铁律「禁止静态面板用发丝金边（矩形框根因）」。
+   正确做法（本版）：
+     导航移动端已改为近不透明背景（rgba .95/.96），透字问题在源头就不再存在，
+     因此【完全不需要任何垫片】。只需让 sticky 导航吸附到顶、抹平缝隙即可：
+       · 去掉 ::after 遮罩垫
+       · 去掉 0 0 0 8px 实心 box-shadow，只保留向下的柔和投影
+       · margin-top/top 归零，导航紧贴视口顶部 → 缝隙消失，漏字消失
+     这样既解决透字，又不在任何地方留下矩形色块。
+   ⚠️ 特异性注意事项：L2059 的 `.zg-inkgold .nav`(0,2,0) 高于 `.nav`(0,1,0)，
+      所以 top/margin-top 的归零必须带主题前缀，否则 !important 也会被压。
    ============================================================================ */
 @media (max-width: 768px) {
-  /* 用伪元素在导航上方铺一块同色遮罩垫，盖住 8px 缝隙与两侧圆弧外沿 */
-  /* 遮罩垫：铺满「胶囊外沿」一整圈，包括左右圆角外的透光弧区。
-     z-index:3 保证盖住页面内容；因为只向外扩 8px、不侵入胶囊内部，
-     所以不会遮住导航自身的图标与文字（它们位于 .nav-inner, z-index:2 之上仍需可点，
-     故这里用 pointer-events:none 放行点击）。 */
+  /* 移除 v4.8.10 遗留的遮罩垫（若仍有其它来源定义，一并禁掉） */
   .nav::after {
-    content: '';
-    position: absolute;
-    top: -8px;
-    bottom: -8px;
-    left: calc(-1 * (100vw - 100%) / 2 - 8px);
-    right: calc(-1 * (100vw - 100%) / 2 - 8px);
-    background: var(--zg-bg-from, #FFFBEB);
-    /* ⚠️ 圆角必须与移动端 .nav 的 border-radius 完全一致(22px)，
-       否则遮罩垫自身圆角更大，会在四角露出细缝 → 内容残影透出。 */
-    border-radius: 22px;
-    pointer-events: none;
-    z-index: 1;   /* 低于 .nav-inner(z:2)，只填圆角外的透光区，不遮图标文字 */
+    content: none !important;
+    background: none !important;
+    box-shadow: none !important;
   }
-  /* 四角兜底：用与页面底色一致的实心阴影把圆角弧线外的区域也盖住。
-     box-shadow 不受父级 border-radius 裁剪，能精确填掉那 4 个弧外小三角。 */
+  /* 只保留柔和向下投影，去掉 8px 实心外扩阴影（矩形框根因） */
   .nav {
-    box-shadow: 0 0 0 8px var(--zg-bg-from, #FFFBEB),
-                0 6px 20px -10px rgba(120, 90, 30, .30) !important;
+    box-shadow: 0 6px 20px -10px rgba(120, 90, 30, .30) !important;
   }
-  /* 深档：用深色档的页面底色，保证遮罩垫不突兀 */
-  .zg-inkgold-dark .nav::after { background: var(--zg-bg-from, #1B1710); }
-  /* sticky 吸附时紧贴顶部，缝隙彻底消失。
-     ⚠️ 必须带主题前缀：L2059 的 `.zg-inkgold .nav`(0,2,0) 特异性高于 `.nav`(0,1,0)，
-        单写 `.nav` 即使 !important 也压不住它（优先级 > 源码顺序）。 */
+  /* sticky 吸附到顶 → 上方缝隙彻底消失，无需任何遮罩 */
   .zg-inkgold .nav,
   .zg-inkgold-dark .nav,
-  html:not(.zg-inkgold) .nav { margin-top: 0 !important; top: 0 !important; }
-  /* 经典主题下 .nav 无主题前缀，单独兜底 */
-  html:not(.zg-inkgold) > body .nav,
+  html:not(.zg-inkgold) .nav,
   .nav { margin-top: 0 !important; top: 0 !important; }
+}
+
+/* ============================================================================
+   v4.8.12 移动端 Hero 装饰清理
+   ----------------------------------------------------------------------------
+   生产实测（393×852）：
+     · `.hero-aside`（瓷纹光盘 SVG 装饰，aria-hidden="true"）在移动端仍是
+       display:flex + 335×67 且可见，把一个本该隐藏的纯装饰块撑出一片空白，
+       观感上像"卡片里只有一个突兀的小图标"。
+     · `.hero-glaze` 实测 400×400 > 视口 393px，是横向溢出的实际来源
+       （此前被误判为"overflow-hidden 内无害"）。
+   处理：移动端彻底移除这两个纯装饰层（它们不承载任何信息，aria-hidden 已声明），
+         顺带给 Hero 让出垂直空间，首屏更紧凑。
+   ============================================================================ */
+@media (max-width: 768px) {
+  .hero-aside,
+  .hero-glaze {
+    display: none !important;
+  }
+  /* 遮罩层移除后 hero 不再需要为其预留的 padding/最小高度 */
+  .hero {
+    min-height: auto !important;
+    overflow: hidden !important;
+  }
 }
