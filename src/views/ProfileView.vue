@@ -185,7 +185,7 @@ const expLeftToNext = computed(() => {
         经验记录
         <el-tag v-if="expLogs.length" size="small" type="info" effect="plain" style="margin-left:8px">{{ expLogs.length }} 条</el-tag>
       </div>
-      <div class="exp-list exp-list-scroll">
+      <div class="exp-list">
         <div v-for="log in expLogs" :key="log.id" class="exp-item glass">
           <div class="ei-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
           <div class="ei-body">
@@ -311,9 +311,6 @@ const expLeftToNext = computed(() => {
 
 .section { margin-top: 28px; }
 .exp-list { display: flex; flex-direction: column; gap: 8px; }
-.exp-list-scroll { max-height: 420px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px; }
-.exp-list-scroll::-webkit-scrollbar { width: 6px; }
-.exp-list-scroll::-webkit-scrollbar-thumb { background: rgba(var(--zg-primary-rgb), .25); border-radius: 3px; }
 .exp-item { display: flex; align-items: center; gap: 14px; padding: 14px 18px; }
 .ei-icon { font-size: var(--zg-fs-sm); font-weight: 800; padding: 4px 10px; border-radius: 8px; min-width: 50px; text-align: center; }
 .ei-icon.pos { background: rgba(52,211,153,.15); color: #059669; }

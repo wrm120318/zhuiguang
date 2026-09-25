@@ -528,12 +528,33 @@ img { -webkit-user-drag: none; }
     max-width: 92vw !important;
   }
   .el-drawer { width: 88% !important; }
-  /* 弹窗内部滚动：内容超高时 body 滚动、footer 固定可触达，杜绝“弹窗一坨” */
-  .el-dialog { display: flex; flex-direction: column; max-height: 92vh; }
+  /* 移动端弹窗：顶部对齐 + 安全区留白，杜绝沉到底部；超高内容 body 滚动、footer 固定全宽可触达 */
+  .el-overlay,
+  .el-overlay-dialog,
+  .el-overlay-message-box {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+  }
+  .el-overlay { padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 12px) !important; }
+  .el-overlay-dialog { width: 100% !important; padding: 0 !important; }
+  .el-dialog {
+    width: 100% !important;
+    max-width: 92vw !important;
+    margin: 0 auto !important;
+    max-height: calc(100vh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+    display: flex !important;
+    flex-direction: column;
+  }
   .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; }
-  .el-dialog__footer { padding: 14px 16px 18px !important; }
-  .el-dialog__footer .el-button { width: 100%; margin: 0 0 10px !important; min-height: 44px; }
-  .el-dialog__footer .el-button:last-child { margin-bottom: 0 !important; }
+  .el-dialog__footer {
+    flex-shrink: 0;
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .el-dialog__footer .el-button { width: 100% !important; margin: 0 !important; min-height: 44px; }
   /* 弹窗内表单 label 顶对齐，窄屏省空间、更大气 */
   .el-dialog .el-form-item { display: block; margin-bottom: 16px; }
   .el-dialog .el-form-item__label { display: block; text-align: left !important; margin-bottom: 6px; line-height: 1.4; padding: 0 !important; }
