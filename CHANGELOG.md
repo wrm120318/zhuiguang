@@ -21,6 +21,10 @@
 
 ---
 
+## [v4.8.4] - 2026-09-25
+### 修复
+- **删除功能偶发失灵（系统性修复）**：大量删除入口用空 `catch` 或完全未包 `try/catch`，后端偶发报错（瞬时网络抖动 / 403 / 外键约束）时被静默吞掉，用户点删除后既无成功提示也无错误、列表不更新，表现为"偶发失灵不生效"。为以下入口统一补充失败提示（取消操作仍不报错，仅真实失败提示原因）：`SubjectView.deleteQuestion`（题目）、公告/博客/美文（`AnnouncementsView`/`BlogDetailView`/`AnnouncementDetailView`/`ArticleView`/`BlogListView.delPost`）、试卷（`QuizListView`）、学科论坛（`SubjectForumView.delTopic/delPost`）、后台用户/班级/学科/查询任务/帖子（`UsersView`/`ClassesAdminView`/`SubjectsAdminView`/`QueryCreateView`/`AuditView`）。其中 `BlogListView.delPost` 与 `SubjectForumView` 两处原完全无 `try/catch`，失败会变成未捕获异常，已补包裹。
+
 ## [v4.8.3] - 2026-09-25
 ### 修复 / 优化
 - **Word 导入识别图片与表格**：`WordImportPanel.vue` 由 `mammoth.extractRawText`（仅纯文本，图片/表格被丢弃）改为 `mammoth.convertToHtml` + `images.imgElement` 内联图片为 base64；题目按题号切块时保留含图片/表格的 HTML，题面经 `renderExtendedMarkdown` 渲染出图片与表格；选项仅取 `A./B.` 等匹配行，表格文字不再污染选项；超大图降级为占位提示以防 D1 单行超限；convertToHtml 失败时回退纯文本导入。
