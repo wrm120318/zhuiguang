@@ -21,6 +21,73 @@
 
 ---
 
+## [v4.8.11] - 2026-09-25
+### 🔴 严重回归修复 + 全站移动端深度适配（回应「一开弹窗底栏就没了，关掉也回不来」）
+
+> **用户反馈**：「一点弹窗就把我的移动端底栏弄没了！关了弹窗之后底栏还是没有」「继续深度适配全站移动端，要求高端大气美观、流畅、按钮大小合适」
+
+#### 🔴 P0 回归：底栏 Dock 打开弹窗后永久消失（v4.8.9 引入）
+
+**根因（`body:has()` 只看 DOM 结构，不看可见性）**
+
+v4.8.9 为让弹窗页脚不被底栏压住，加了：
+
+```css
+body:has(.el-overlay-dialog .el-dialog) .tabbar { display: none !important; }
+```
+
+但 Element Plus 关闭对话框时**只把 `.el-overlay` 置为内联 `display:none`，并不销毁 `.el-dialog` 节点**。于是弹窗关闭后该选择器**依然匹配**，底栏 `display:none` 常驻、再也回不来。
+
+实测证据（关弹窗后）：
+
+| 阶段 | 底栏 display | 可见弹窗 | `:has` 匹配数 |
+|---|---|---|---|
+| 打开前 | `block` | 0 | 0 |
+| 打开中 | `none` ✅ | 1 | 1 |
+| **关闭后** | **`none` ❌** | **0** | **1** ← 节点仍在 DOM |
+
+**修复**：把判定条件收紧到「**可见的**遮罩」，弹窗一关即刻失配：
+
+```css
+body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-dialog) .tabbar,
+body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-message-box) .tabbar {
+  display: none !important;
+}
+```
+
+（EP 的内联样式实际写作 `"z-index: 2007; display: none;"`，冒号后带空格，故两种写法都覆盖。）
+
+**验证**：连续开关 3 轮 → `开=none / 关=block` 全部正确；`ElMessageBox` 确认框（美文页「删除」）→ 打开 `none`、取消后 `block`。
+
+#### 🧹 清理：移除两份冲突的「墨金弹窗居中」旧规则
+
+`main.css` 中残留两处 `.zg-inkgold .el-overlay{display:flex;align-items:center}` + `.el-dialog{position:relative;bottom:auto}`，与 v4.8.9 的底部 Sheet（`position:absolute;bottom:0`）**直接冲突**：两者特异性同为 (0,3,0) 且都用 `!important`，胜负只取决于书写顺序 → 弹窗时而贴底时而居中。现统一为**底部 Sheet 单一事实来源**（L521 区块，全主题共用）。
+
+#### 📱 全站移动端适配（本轮实测驱动）
+
+| 问题 | 实测数据 | 处理 |
+|---|---|---|
+| 底栏遮挡内容 | 首页末个 section `bottom=777` > Dock `top=764`，被压 13px | `.app-main` / `.page` 统一 `padding-bottom: 104px + safe-area` |
+| 美文筛选条挤成一坨 | `.bl-chip` 宽仅 **44px**、文案折行错位 | 改横向滚动胶囊，宽 **92/114px**、高 40px |
+| 美文封面占满屏 | `.bl-cover-wrap` 无高度约束，约 **350px** 空白 | 限高 **172px**（16:9） |
+| 美文删除与日期碰撞 | 同行右侧挤压 | `.bl-actions` 允许换行，操作按钮独立右对齐 |
+| 触控目标过小 | 美文页 **61** 个可点元素 < 40px | 全站 `.el-button` ≥44px、圆形按钮 ≥44px、输入框 ≥46px；美文页降至 **0** |
+| 吸顶导航透字 | 滚动时 hero 大标题从导航玻璃（alpha .55~.66）后透出 | 移动端导航填充提到 .93~.96 + 圆角遮罩垫（`::after`）+ `box-shadow` 铺底，胶囊紧贴 `top:0` |
+| 输入时页面被放大（iOS） | `font-size < 16px` 触发自动缩放 | 移动端输入类元素统一 `font-size:16px` |
+
+**流畅度**：长列表（`.exp-item` / `.bl-card` / `.qr-item` / `.art-card`）移动端启用 `content-visibility: auto`，离屏元素不参与排版绘制。
+
+#### 🧪 验证
+- `npm run build` 通过（`vue-tsc` 干净）。
+- **三角色 × 8 页 = 24 组**全通过：底栏均 `block`、`docW === vw === 393`（无横向溢出）、小目标 `0`。
+- 弹窗开关循环 ×3 + MessageBox 开关 ×1：底栏均正确隐藏/恢复。
+- 滚动到页底：首页/个人中心/测验中心/美文 遮挡元素数均为 **0**。
+
+#### 📦 上线
+待部署。
+
+---
+
 ## [v4.8.9] - 2026-09-25
 ### 移动端弹窗深度重构：底部卡片式 Sheet（回应「弹窗丑陋/反人类」）
 > **用户反馈**：「移动端弹窗依然丑陋，无法合理使用，反人类操作……深度适配移动端，要求高端大气美观、流畅、按钮大小合适」

@@ -597,9 +597,17 @@ img { -webkit-user-drag: none; }
     width: 100% !important; margin: 0 !important;
     min-height: 48px; font-size: 16px !important; border-radius: 14px !important;
   }
-  /* 弹窗打开时隐藏手机底栏 Dock：它固定在底部，会压住 sheet 页脚的「保存」等按钮 */
-  body:has(.el-overlay-dialog .el-dialog) .tabbar,
-  body:has(.el-overlay-message-box .el-message-box) .tabbar { display: none !important; }
+  /* ===== 弹窗打开时隐藏手机底栏 Dock（它固定在底部，会压住 sheet 页脚的「保存」按钮）=====
+     🔴 v4.8.11 修复「关掉弹窗底栏就永久消失」：
+     Element Plus 关闭对话框时只把 .el-overlay 置为内联 display:none，
+     【不会销毁 .el-dialog 节点】，所以
+         body:has(.el-overlay-dialog .el-dialog)
+     在弹窗关闭后依然匹配（:has 只看 DOM 结构，不看可见性），
+     导致底栏 display:none 常驻、再也回不来。
+     解决：把判定条件收紧到【可见的遮罩】——用 :has() 里再嵌 :not([style*="display: none"])
+     匹配「内联 display 不是 none」的 overlay，弹窗一关即刻失配，底栏立即恢复。 */
+  body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-dialog) .tabbar,
+  body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-message-box) .tabbar { display: none !important; }
   /* 弹窗内表单：label 顶对齐占满整行，输入框加大，行距舒展 */
   .el-dialog .el-form-item { display: block; margin-bottom: 18px; }
   .el-dialog .el-form-item__label {
@@ -2070,53 +2078,18 @@ html.zg-inkgold-dark {
     padding: 0 12px !important;
   }
 
-  /* 弹窗：移动端居中显示（非底部sheet），边距16px */
-  .zg-inkgold .el-overlay,
-  .zg-inkgold-dark .el-overlay {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-  }
-  .zg-inkgold .el-dialog,
-  .zg-inkgold-dark .el-dialog,
-  .zg-inkgold .el-message-box,
-  .zg-inkgold-dark .el-message-box {
-    width: calc(100% - 32px) !important;
-    max-width: calc(100% - 32px) !important;
-    margin: 0 !important;
-    border-radius: 18px !important;
-    position: relative !important;
-    top: auto !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    transform: none !important;
-    animation: zgModalEnterMobile .35s var(--zg-spring) forwards !important;
-  }
-  @keyframes zgModalEnterMobile {
-    from { transform: scale(0.94) translateY(12px); opacity: 0; }
-    to { transform: scale(1) translateY(0); opacity: 1; }
-  }
-  /* 弹窗内边距减小 */
-  .zg-inkgold .el-dialog__header,
-  .zg-inkgold-dark .el-dialog__header,
-  .zg-inkgold .el-message-box__header,
-  .zg-inkgold-dark .el-message-box__header {
-    padding: 18px 20px 12px !important;
-  }
-  .zg-inkgold .el-dialog__body,
-  .zg-inkgold-dark .el-dialog__body,
-  .zg-inkgold .el-message-box__content,
-  .zg-inkgold-dark .el-message-box__content {
-    padding: 14px 20px !important;
-  }
-  .zg-inkgold .el-dialog__footer,
-  .zg-inkgold-dark .el-dialog__footer,
-  .zg-inkgold .el-message-box__btns,
-  .zg-inkgold-dark .el-message-box__btns {
-    padding: 12px 20px 16px !important;
-  }
+  /* ============================================================
+     ⚠️【v4.8.10 移除】原先此处有一组「墨金弹窗居中」规则，已删除：
+       .zg-inkgold .el-overlay { display:flex; align-items:center }
+       .zg-inkgold .el-dialog  { position:relative; bottom:auto; animation: scale-in }
+     它与上方（约 L521）的 v4.8.9「底部卡片 Sheet」方案【直接冲突】：
+       - 一个要 bottom:0 + position:absolute（贴底）
+       - 一个要 bottom:auto + position:relative（居中）
+     两者都用 !important、特异性同为 (0,3,0)，胜负只取决于书写顺序，
+     导致弹窗一会儿贴底一会儿居中、观感「丑陋且无法预期」。
+     现统一为：移动端弹窗 = 底部 Sheet，唯一事实来源在 L521 那个
+     @media (max-width: 768px) 块中，全站（含墨金）共用，不再按主题分叉。
+     ============================================================ */
 
   /* 抽屉：移动端四个圆角+悬浮（最终样式在后面的全面适配块中，这里只做基础设置） */
   .zg-inkgold .el-drawer,
@@ -2575,61 +2548,13 @@ html, body { overflow-x: clip; }
   .zg-inkgold .hero-sub,
   .zg-inkgold-dark .hero-sub { font-size: 14px !important; line-height: 1.6; }
 
-  /* 弹窗移动端：居中弹窗，margin:16px */
-  .zg-inkgold .el-overlay,
-  .zg-inkgold-dark .el-overlay {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-  .zg-inkgold .el-dialog,
-  .zg-inkgold-dark .el-dialog,
-  .zg-inkgold .el-message-box,
-  .zg-inkgold-dark .el-message-box {
-    width: calc(100% - 32px) !important;
-    max-width: calc(100% - 32px) !important;
-    margin: 16px !important;
-    border-radius: 20px !important;
-    max-height: calc(100vh - 32px);
-    overflow-y: auto;
-    position: relative !important;
-    top: auto !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    transform: none !important;
-    animation: zgMobileModalIn .3s cubic-bezier(.22,1,.36,1) forwards !important;
-  }
-  @keyframes zgMobileModalIn {
-    from { opacity: 0; transform: scale(0.95) translateY(10px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
-  }
-  .zg-inkgold .el-dialog__header,
-  .zg-inkgold-dark .el-dialog__header,
-  .zg-inkgold .el-message-box__header,
-  .zg-inkgold-dark .el-message-box__header {
-    padding: 18px 18px 12px !important;
-  }
-  .zg-inkgold .el-dialog__body,
-  .zg-inkgold-dark .el-dialog__body,
-  .zg-inkgold .el-message-box__content,
-  .zg-inkgold-dark .el-message-box__content {
-    padding: 14px 18px !important;
-    font-size: 14px;
-  }
-  .zg-inkgold .el-dialog__footer,
-  .zg-inkgold-dark .el-dialog__footer,
-  .zg-inkgold .el-message-box__btns,
-  .zg-inkgold-dark .el-message-box__btns {
-    padding: 12px 18px 16px !important;
-  }
-  .zg-inkgold .el-dialog__title,
-  .zg-inkgold-dark .el-dialog__title,
-  .zg-inkgold .el-message-box__title,
-  .zg-inkgold-dark .el-message-box__title {
-    font-size: 17px !important;
-  }
+  /* ============================================================
+     ⚠️【v4.8.10 移除】此处的「墨金弹窗居中」第二份副本已删除
+     （.zg-inkgold .el-overlay{display:flex;align-items:center} +
+       .el-dialog{position:relative;bottom:auto;margin:16px}）。
+     与前述 L2073 段落是同一份冲突规则的历史拷贝，一并清除。
+     移动端弹窗样式现统一由 L521 的「底部卡片 Sheet」块负责（全主题共用）。
+     ============================================================ */
 
   /* 抽屉移动端：四个圆角+悬浮卡片式不贴边（四周12px边距）
      注意：不覆盖transform/position，保留Element Plus原生侧滑动画 */
@@ -3118,3 +3043,210 @@ a.zg-file-link {
   .markdown-body .zg-video, .markdown-body .zg-pdf-iframe { max-height: 320px; }
 }
 
+
+/* ============================================================================
+   v4.8.10 移动端深度适配（追加式 · 置于文件末尾以赢得级联；桌面/经典不受影响）
+   ----------------------------------------------------------------------------
+   设计目标：高端、大气、美观、流畅，触控目标尺寸合适。
+   铁律遵守：不动经典 :root；墨金规则仍限制在 .zg-inkgold* 作用域；
+             仅作用于 @media (max-width: 768px)，桌面像素级不变。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* --------------------------------------------------------------------------
+     ① 底部 Dock 避让（修复"内容被底栏压住/遮住"）
+     Dock 实际占位 = 72px(dock) + 16px(padding) + safe-area ≈ 88px。
+     此前仅 .app-main 设了 padding-bottom，但 .page 内部内容仍会伸到 Dock 之下
+     （实测首页最后一个 section bottom=777 > dock top=764，被压 13px）。
+     这里对「所有页面内容容器」统一补足底部留白，并让最后一行元素自然呼吸。
+     -------------------------------------------------------------------------- */
+  .app-main,
+  .app-main.has-tabbar { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important; }
+  .app-main > .page,
+  .app-main .page.zg-container { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* 兜底：页面最后一屏元素与 Dock 之间至少留 96px（含 Dock 本体 88px + 8px 呼吸） */
+  .app-main > *:last-child,
+  .app-main .page > *:last-child { scroll-margin-bottom: 96px; }
+
+  /* --------------------------------------------------------------------------
+     ② 渲染流畅度：长列表开启 content-visibility，避免离屏元素参与排版/绘制
+     （仅移动端；桌面保持原样，不影响视觉）
+     -------------------------------------------------------------------------- */
+  .exp-list > .exp-item,
+  .bl-card,
+  .bl-list .bl-row,
+  .art-card,
+  .qr-item { content-visibility: auto; contain-intrinsic-size: auto 96px; }
+
+  /* --------------------------------------------------------------------------
+     ③ 触控目标基线：主操作不小于 44px，次级按钮不小于 40px
+     （WCAG 2.5.5 目标尺寸增强 / iOS HIG 44pt）
+     -------------------------------------------------------------------------- */
+  .el-button { min-height: 44px !important; padding-left: 18px !important; padding-right: 18px !important; }
+  .el-button--small { min-height: 36px !important; }
+  .el-button.is-circle { min-width: 44px !important; }
+  .el-select .el-input__inner,
+  .el-input .el-input__inner { min-height: 46px !important; }
+  .el-textarea__inner { min-height: 96px !important; font-size: 16px !important; }
+  /* 16px 起跳可避免 iOS Safari 聚焦时自动放大页面 */
+  .el-input__inner, .el-select__input, input, textarea { font-size: 16px !important; }
+
+  /* --------------------------------------------------------------------------
+     ④ 圆角与阴影统一：整站移动端卡片维持一致的"高级感"语言
+     -------------------------------------------------------------------------- */
+  .zg-card, .glass, .glass-strong, .el-card, .section { border-radius: 18px; }
+  /* 悬浮感更轻，避免移动端大阴影发灰 */
+  .glass { box-shadow: 0 2px 14px -8px rgba(120, 90, 30, .28); }
+
+  /* --------------------------------------------------------------------------
+     ⑤ 分页器 / 表格：移动端收起冗余控件，避免挤压换行
+     -------------------------------------------------------------------------- */
+  .el-pagination { flex-wrap: wrap; justify-content: center; row-gap: 8px; }
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump { display: none !important; }
+  .el-table { border-radius: 14px; overflow: hidden; }
+
+  /* --------------------------------------------------------------------------
+     ⑥ 抽屉（通知中心 / 菜单）安全区：底部 Home 条不被遮
+     -------------------------------------------------------------------------- */
+  .el-drawer__body { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important; }
+}
+
+/* v4.8.10 ⑤ 美文列表（BlogListView）移动端专用修复
+   实测问题（393×852）：
+     1) .bl-topics 内 .bl-chip 被 flex-wrap 挤成 44px 窄条、文案换行错位；
+     2) .bl-card 的 .bl-cover-wrap 无高度约束，占位约 350px，一屏看不到正文；
+     3) .bl-actions 内 .bl-stat 与右侧视图切换/写博客按钮互相挤压；
+     4) 全页 61 个可点元素高度 < 40px（.vs-btn 仅 24px 左右）。
+   思路：筛选条改横向滚动胶囊；封面限高；操作区允许换行并撑足触控高度。 */
+@media (max-width: 768px) {
+  /* —— 筛选区：容器改为可横向滚动，胶囊不再折行挤压 —— */
+  .bl-page .bl-topics {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 12px !important;
+  }
+  .bl-page .bl-topics-left {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px !important;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    /* 溢出时贴边滑动，避免首尾胶囊被裁切 */
+    margin: 0 -12px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+  .bl-page .bl-topics-left::-webkit-scrollbar { display: none; }
+  .bl-page .bl-chip {
+    flex: 0 0 auto !important;
+    min-height: 40px !important;
+    padding: 9px 16px !important;
+    font-size: 14px !important;
+    white-space: nowrap !important;
+    line-height: 1.2 !important;
+  }
+  .bl-page .bl-topics-right { width: 100%; justify-content: flex-end; }
+
+  /* —— 操作区：计数与按钮分行，避免相互挤压 —— */
+  .bl-page .bl-actions {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    margin: 14px 2px 10px !important;
+  }
+  .bl-page .bl-act-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  /* 视图切换按钮：24px → 40px 触控 */
+  .bl-page .vs-btn { min-width: 40px !important; min-height: 40px !important; font-size: 16px !important; }
+
+  /* —— 卡片封面：限高，杜绝"一张空图占满一屏" —— */
+  .bl-page .bl-cover-wrap { max-height: 172px; overflow: hidden; }
+  .bl-page .bl-card .bl-cover { height: 172px !important; min-height: 0 !important; }
+  .bl-page .bl-card .bl-cover img { width: 100%; height: 100%; object-fit: cover; }
+  /* 横条视图在手机上一律回落为纵向卡片，避免 240px 固定宽度把正文挤没 */
+  .bl-page .bl-card.list { flex-direction: column !important; }
+  .bl-page .bl-card.list .bl-cover-wrap { flex: none !important; width: 100%; padding: 0 !important; }
+  .bl-page .bl-card.list .bl-cover { height: 172px !important; }
+  .bl-page .bl-card.list .bl-body { padding: 12px 16px 14px !important; }
+
+  /* —— 卡片内可点元素保证 40px —— */
+  .bl-page .bl-card { cursor: pointer; }
+  .bl-page .bl-card-tag { min-height: 26px; display: inline-flex; align-items: center; }
+  /* 标题偏大列表页略收，提升一屏信息量 */
+  .bl-page .bl-card-title { font-size: 16px !important; }
+  .bl-page .bl-card-excerpt { font-size: 13px !important; }
+}
+
+/* ============================================================================
+   v4.8.10 ⑦ 移动端吸顶导航可读性修复
+   ----------------------------------------------------------------------------
+   实测问题：滚动页面时，hero 大标题「晚上好，XX」会从吸顶导航栏背后透出来
+   （导航玻璃填充仅 rgba(255,255,255,.55~.66) + blur 12px），文字仍清晰可辨，
+   看起来像"导航栏花了/内容糊在一起"，非常廉价。
+   处理：移动端把吸顶导航的玻璃填充提到接近不透明，保留磨砂与高光质感，
+         使滚动时呈现"干净的悬浮胶囊"，同时不改变桌面与经典主题。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* 墨金·浅档 */
+  .zg-inkgold:not(.zg-inkgold-dark) .nav {
+    background: linear-gradient(155deg, rgba(255, 253, 248, .96), rgba(255, 250, 240, .93)) !important;
+  }
+  /* 墨金·深档 */
+  .zg-inkgold-dark .nav {
+    background: linear-gradient(155deg, rgba(30, 25, 16, .95), rgba(24, 20, 13, .93)) !important;
+  }
+  /* 经典暖橘（默认主题）：同样避免透字，保持原本暖白胶囊观感 */
+  html:not(.zg-inkgold) .nav {
+    background: linear-gradient(155deg, rgba(255, 253, 248, .96), rgba(255, 248, 238, .93)) !important;
+  }
+  /* 吸顶时加一层柔和的向下投影，强化"浮在内容之上"的层次，避免与卡片糊在一起 */
+  .nav { box-shadow: 0 6px 20px -10px rgba(120, 90, 30, .30) !important; }
+}
+
+/* ============================================================================
+   v4.8.10 ⑧ 吸顶导航「顶部缝隙漏字」修复
+   ----------------------------------------------------------------------------
+   实测问题：导航是悬浮胶囊（margin-top:8px + sticky top:8px），滚动时页面内容会
+   从导航【上方那 8px 缝隙】以及胶囊两侧的圆弧外沿透出来（截图可见
+   「晚上好，管理员」和 Lv.5 徽标残影），观感破碎。
+   处理：给导航容器加一层与页面底色过渡一致的"遮罩垫"，覆盖胶囊上方的缝隙区域，
+         形成干净的分层（内容永远从导航下方滑过），保留悬浮胶囊造型。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* 用伪元素在导航上方铺一块同色遮罩垫，盖住 8px 缝隙与两侧圆弧外沿 */
+  /* 遮罩垫：铺满「胶囊外沿」一整圈，包括左右圆角外的透光弧区。
+     z-index:3 保证盖住页面内容；因为只向外扩 8px、不侵入胶囊内部，
+     所以不会遮住导航自身的图标与文字（它们位于 .nav-inner, z-index:2 之上仍需可点，
+     故这里用 pointer-events:none 放行点击）。 */
+  .nav::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    left: calc(-1 * (100vw - 100%) / 2 - 8px);
+    right: calc(-1 * (100vw - 100%) / 2 - 8px);
+    background: var(--zg-bg-from, #FFFBEB);
+    /* ⚠️ 圆角必须与移动端 .nav 的 border-radius 完全一致(22px)，
+       否则遮罩垫自身圆角更大，会在四角露出细缝 → 内容残影透出。 */
+    border-radius: 22px;
+    pointer-events: none;
+    z-index: 1;   /* 低于 .nav-inner(z:2)，只填圆角外的透光区，不遮图标文字 */
+  }
+  /* 四角兜底：用与页面底色一致的实心阴影把圆角弧线外的区域也盖住。
+     box-shadow 不受父级 border-radius 裁剪，能精确填掉那 4 个弧外小三角。 */
+  .nav {
+    box-shadow: 0 0 0 8px var(--zg-bg-from, #FFFBEB),
+                0 6px 20px -10px rgba(120, 90, 30, .30) !important;
+  }
+  /* 深档：用深色档的页面底色，保证遮罩垫不突兀 */
+  .zg-inkgold-dark .nav::after { background: var(--zg-bg-from, #1B1710); }
+  /* sticky 吸附时紧贴顶部，缝隙彻底消失。
+     ⚠️ 必须带主题前缀：L2059 的 `.zg-inkgold .nav`(0,2,0) 特异性高于 `.nav`(0,1,0)，
+        单写 `.nav` 即使 !important 也压不住它（优先级 > 源码顺序）。 */
+  .zg-inkgold .nav,
+  .zg-inkgold-dark .nav,
+  html:not(.zg-inkgold) .nav { margin-top: 0 !important; top: 0 !important; }
+  /* 经典主题下 .nav 无主题前缀，单独兜底 */
+  html:not(.zg-inkgold) > body .nav,
+  .nav { margin-top: 0 !important; top: 0 !important; }
+}
