@@ -302,14 +302,14 @@ watch(() => route.params.id, load)
 .sfp-side-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; display: flex; align-items: center; gap: 6px; }
 .sfp-author-block { display: flex; gap: 12px; align-items: center; }
 .sfp-author-name { font-weight: 700; font-size: 14px; }
-.sfp-author-meta { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.sfp-author-meta { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
 
 .sfp-related { display: flex; flex-direction: column; gap: 10px; }
 .sfp-related-item { cursor: pointer; padding: 6px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.25); }
 .sfp-related-item:last-child { border-bottom: none; }
 .sfp-related-item:hover .t { color: var(--zg-primary); }
 .sfp-related-item .t { font-size: 13px; font-weight: 600; line-height: 1.5; }
-.sfp-related-item .m { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.sfp-related-item .m { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
 .sfp-side-stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
 .sfp-side-stat-row .lab { color: var(--zg-text-sub); }
 .sfp-side-stat-row .val { font-weight: 700; }

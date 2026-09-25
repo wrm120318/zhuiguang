@@ -249,13 +249,13 @@ function timeShort(s: string) { return s?.slice(0, 16) || '' }
 .bd-author { display: flex; gap: 12px; align-items: center; }
 .avatar.lg { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #f0f0f0; }
 .bd-author-name { font-weight: 700; font-size: 14px; }
-.bd-author-meta { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.bd-author-meta { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
 .bd-related { display: flex; flex-direction: column; gap: 10px; }
 .bd-related-item { cursor: pointer; padding: 6px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.25); }
 .bd-related-item:last-child { border-bottom: none; }
 .bd-related-item:hover .t { color: var(--zg-primary); }
 .bd-related-item .t { font-size: 13px; font-weight: 600; line-height: 1.5; }
-.bd-related-item .m { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; }
+.bd-related-item .m { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; }
 .bd-stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; }
 .bd-stat-row .lab { color: var(--zg-text-sub); }
 .bd-stat-row .val { font-weight: 700; }

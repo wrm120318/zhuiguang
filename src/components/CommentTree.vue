@@ -283,7 +283,7 @@ function warnLogin() { ElMessage.warning('请先登录') }
 .ct-body { flex: 1; min-width: 0; }
 .ct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ct-name { font-weight: 600; font-size: 14px; color: var(--zg-text, #1e293b); }
-.ct-time { font-size: 11px; color: var(--zg-text-dim, #94a3b8); }
+.ct-time { font-size: 12px; color: var(--zg-text-dim, #94a3b8); }
 .ct-del { margin-left: auto; }
 .ct-text { font-size: 14px; line-height: 1.65; color: var(--zg-text, #1e293b); margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
 .ct-text-user { color: var(--zg-primary, #6366f1); font-weight: 600; }
@@ -296,6 +296,6 @@ function warnLogin() { ElMessage.warning('请先登录') }
 .ct-reply-tip { font-size: 12px; color: var(--zg-text-dim, #94a3b8); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
 .ct-reply-cancel { color: var(--zg-primary, #6366f1); cursor: pointer; }
 .ct-reply-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
-.ct-reply-hint { font-size: 11px; color: var(--zg-text-dim, #94a3b8); }
+.ct-reply-hint { font-size: 12px; color: var(--zg-text-dim, #94a3b8); }
 .ct-empty { text-align: center; padding: 32px 20px; color: var(--zg-text-dim, #94a3b8); font-size: 14px; }
 </style>

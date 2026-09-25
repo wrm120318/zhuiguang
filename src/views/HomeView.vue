@@ -442,7 +442,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
 }
-.zg-inkgold .hs-label { font-size: 11px; letter-spacing: .08em; color: var(--zg-text-dim); opacity: .80; }
+.zg-inkgold .hs-label { font-size: 12px; letter-spacing: .08em; color: var(--zg-text-dim); opacity: .80; }
 /* CTA按钮 - 金色渐变 */
 .zg-inkgold .cta-primary {
   background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)) !important;
@@ -556,7 +556,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 .ha-facts { display: flex; align-items: stretch; gap: 0; width: 100%; max-width: 260px; }
 .hf { flex: 1; text-align: center; padding: 0 6px; position: relative; }
 .hf + .hf::before { content: ''; position: absolute; left: 0; top: 12%; bottom: 12%; width: 1px; background: rgba(var(--zg-primary-rgb), .16); }
-.hf-k { display: block; font-size: 11px; letter-spacing: .18em; color: var(--zg-text-dim); opacity: .85; }
+.hf-k { display: block; font-size: 12px; letter-spacing: .18em; color: var(--zg-text-dim); opacity: .85; }
 .hf-v { display: block; margin-top: 4px; font-size: 21px; font-weight: 600; color: var(--zg-text); font-variant-numeric: tabular-nums; }
 
 /* 公告 */
@@ -649,8 +649,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   /* 学科瓷片网格：5 列（1360 宽下每片 ~250px） */
   .zg-inkgold .subj-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
   .zg-inkgold .subj-chip { border-radius: 18px; padding: 13px 16px; }
-  /* 快捷入口瓷纹条：等分铺满一行 */
-  .zg-inkgold .quick-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; overflow: visible; }
+  /* 快捷入口瓷纹条：等分铺满一行（移动端 2 列规则见下方 v4.8.13 区块，已覆盖此处） */
   .zg-inkgold .qr-item { border-radius: 18px; padding: 14px 18px; justify-content: flex-start; }
   .zg-inkgold .art-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
   /* 墨金标题桌面尺寸 */
@@ -669,8 +668,8 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .home-page { overflow-x: hidden; }
   .hero { margin: 24px 0 14px; padding: 18px 16px 16px; border-radius: 20px; min-height: auto; }
   .hero-meta { margin-bottom: 12px; }
-  .hero-kicker { font-size: 11px; letter-spacing: .04em; }
-  .hero-tag { font-size: 11px; padding: 5px 12px; }
+  .hero-kicker { font-size: 12px; letter-spacing: .04em; }
+  .hero-tag { font-size: 12px; padding: 5px 12px; }
   .hero-time { display: none; }
   /* hero-cta 仅墨金渲染（v-if isInkgold），下列样式天然不影响经典档 */
   .hero-cta { display: flex; margin: 16px 0 2px; gap: 10px; }
@@ -680,26 +679,40 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .hero-name { font-weight: 900; }
   .hero-slogan { font-size: 13px; line-height: 1.7; margin-bottom: 20px; color: var(--zg-text-dim); }
   .zg-inkgold .hero-slogan { font-size: 13px; }
-  /* 移动端 stats：单行横向滑动条，省垂直空间（不再两行占位） */
-  .hero-stats { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 16px; padding: 12px 14px; border-radius: 16px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  /* 移动端 stats：v4.8.13 由「横滑条」改为「等分网格」
+     原因：数值很短（340 / 6 / 3 / 4 / 0），5 项在 393px 上完全铺得开；
+     横滑会导致"最后一项被切一半"的观感（实测 lastRight 395 > vw 393），
+     用户会误以为页面坏了。改成等分后一屏看全，信息获取率更高。
+     用 `minmax(0,1fr)` 保证长文案（如"资料"）不会把列撑歪。 */
+  .hero-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    overflow: visible; gap: 6px; padding: 14px 8px; border-radius: 16px;
+  }
   .hero-stats::-webkit-scrollbar { display: none; }
-  .hs-item { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 4px; min-width: 50px; }
+  .hs-item { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 2px; min-width: 0; }
   .hs-divider { display: none; }
   .hs-num { font-size: 19px; line-height: 1.1; }
-  .hs-label { font-size: 10px; letter-spacing: .08em; white-space: nowrap; }
+  .hs-label { font-size: 12px; letter-spacing: .02em; white-space: nowrap; }
   .announce-bar { padding: 13px 16px; margin-bottom: 22px; border-radius: 16px; }
   .zg-inkgold .announce-bar { border-radius: 0 12px 12px 0; padding: 12px 14px; }
   .ab-text { font-size: 13px; line-height: 1.6; }
 
-  /* 快捷入口：经典维持现有横滑胶囊；下方墨金升级为 2 列瓷纹磁贴（高级网格感） */
-  .quick-row { margin-bottom: 28px; gap: 8px; }
-  .qr-item { padding: 11px 14px; gap: 9px; min-height: 46px; }
+  /* 快捷入口：v4.8.13 经典/墨金统一为 2 列网格
+     原经典版是横滑胶囊（4×122px=488px > 容器 365px），"个人中心"被切一半；
+     现与墨金版对齐为 2 列自适应网格，一屏看全且更具"磁贴"高级感。 */
+  .quick-row {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px; overflow: visible;
+    margin-bottom: 28px;
+  }
+  .qr-item { padding: 11px 13px; gap: 9px; min-height: 46px; min-width: 0; }
   .qr-icon { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
-  .qr-text { font-size: 13px; }
+  .qr-text { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .section { margin: 28px 0; }
   .section-title { font-size: 19px; letter-spacing: .01em; }
-  .section-meta { font-size: 11px; letter-spacing: .04em; }
+  /* v4.8.13：11px 在移动端低于可读下限，抬至 12px（与全站辅助字号统一） */
+  .section-meta { font-size: 12px; letter-spacing: .04em; }
 
   .subj-chip { padding: 9px 15px; min-height: 44px; }
   .sc-icon { width: 28px; height: 28px; font-size: 15px; border-radius: 9px; }
@@ -720,14 +733,14 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
   .zg-inkgold .hero-stats::-webkit-scrollbar { display: none; }
   .zg-inkgold .hs-item { flex: none; padding: 2px 6px; border-radius: 14px; min-width: 52px; }
   .zg-inkgold .hs-num { font-size: 19px; }
-  .zg-inkgold .hs-label { font-size: 10px; letter-spacing: .04em; white-space: nowrap; }
+  .zg-inkgold .hs-label { font-size: 12px; letter-spacing: .04em; white-space: nowrap; }
   /* 资产区收为顶部细光带（瓷盘不占高），并进一步弱化 */
   .zg-inkgold .hero-grid { display: contents; }
   .zg-inkgold .hero-aside { display: flex; flex-direction: row; align-items: center; gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(var(--zg-primary-rgb), .10); }
   .zg-inkgold .ha-disc { width: 52px; max-width: 52px; flex: none; }
   .zg-inkgold .ha-facts { max-width: none; }
   .zg-inkgold .hf-v { font-size: 16px; }
-  .zg-inkgold .hf-k { font-size: 9px; letter-spacing: .12em; }
+  .zg-inkgold .hf-k { font-size: 12px; letter-spacing: .12em; }
 
   /* 墨金快捷入口：2 列瓷纹磁贴（与首页瓷材质统一） */
   .zg-inkgold .quick-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; overflow: visible; }

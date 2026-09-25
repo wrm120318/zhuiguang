@@ -331,7 +331,7 @@ async function delPost(p: any) {
 .bl-chip.on { background: var(--chip, #F59E0B); color: #fff; font-weight: 700; }
 .bl-chip.on .dot { background: rgba(255,255,255,0.7) !important; }
 .bl-chip.on .bl-chip-n { color: #fff; }
-.bl-chip-n { font-size: 11px; color: var(--zg-text-sub); }
+.bl-chip-n { font-size: 12px; color: var(--zg-text-sub); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
 .bl-actions { display: flex; justify-content: space-between; align-items: center; margin: 16px 4px 10px; gap: 12px; flex-wrap: wrap; }
@@ -375,7 +375,7 @@ async function delPost(p: any) {
 .bl-pin { color: var(--zg-primary); font-size: 12px; margin-right: 4px; }
 .bl-card-excerpt { font-size: 13px; color: var(--zg-text-sub); line-height: 1.6; margin: 0 16px 12px; }
 .bl-card-tags { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 16px; }
-.bl-card-tag { padding: 2px 8px; color: #fff; font-size: 11px; border-radius: 6px; font-weight: 600; }
+.bl-card-tag { padding: 2px 8px; color: #fff; font-size: 12px; border-radius: 6px; font-weight: 600; }
 
 /* ===== 横条视图：封面左、内容右 ===== */
 .bl-card.list { flex-direction: row; align-items: stretch; }
@@ -396,8 +396,8 @@ async function delPost(p: any) {
 .bl-side-hot-item:last-child { border-bottom: none; }
 .bl-side-hot-item:hover .t { color: var(--zg-primary); }
 .bl-side-hot-item .t { font-size: 13px; font-weight: 600; line-height: 1.5; display: flex; align-items: center; gap: 6px; }
-.bl-side-hot-item .m { font-size: 11px; color: var(--zg-text-sub); margin-top: 2px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.hot-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-weight: 800; color: #fff; flex: none; }
+.bl-side-hot-item .m { font-size: 12px; color: var(--zg-text-sub); margin-top: 2px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.hot-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 12px; font-weight: 800; color: #fff; flex: none; }
 .hot-rank.rk1 { background: linear-gradient(135deg, #F59E0B, #D97706); box-shadow: 0 2px 6px rgba(217, 119, 6, 0.35); }
 .hot-rank.rk2 { background: linear-gradient(135deg, #94A3B8, #64748B); box-shadow: 0 2px 6px rgba(100, 116, 139, 0.3); }
 .hot-rank.rk3 { background: linear-gradient(135deg, #B45309, #92400E); box-shadow: 0 2px 6px rgba(180, 83, 9, 0.3); }
@@ -406,7 +406,7 @@ async function delPost(p: any) {
 .bl-side-topic:hover { background: rgba(var(--zg-primary-rgb), 0.06); }
 .bl-side-topic.on { background: rgba(var(--zg-primary-rgb), 0.12); font-weight: 600; }
 .bl-side-topic .name { flex: 1; font-size: 13px; }
-.bl-side-topic .count { font-size: 11px; color: var(--zg-text-sub); background: rgba(148, 163, 184, 0.2); padding: 1px 8px; border-radius: 999px; }
+.bl-side-topic .count { font-size: 12px; color: var(--zg-text-sub); background: rgba(148, 163, 184, 0.2); padding: 1px 8px; border-radius: 999px; }
 .tm-ops { display: inline-flex; gap: 6px; margin-left: 4px; }
 .tm-edit, .tm-del { cursor: pointer; font-size: 13px; opacity: .6; transition: opacity .15s, color .15s; }
 .tm-edit:hover { opacity: 1; color: var(--zg-primary); }

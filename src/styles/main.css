@@ -518,9 +518,10 @@ img { -webkit-user-drag: none; }
   /* 底部安全区（Home 指示条）：页面底部留白，避免内容被横条遮挡 */
   .page { padding: 14px 0 calc(90px + env(safe-area-inset-bottom)); }
   .section-title { font-size: var(--zg-fs-md); margin-bottom: 12px; }
-  /* 移动端弹窗宽度/定位统一由下方「底部 Sheet」规则接管（此处不再设宽度，避免覆盖） */
-  .el-drawer { width: 88% !important; }
-  /* ===== 移动端弹窗 = 底部卡片式 Sheet（通栏、大圆角、安全区、粘性页脚）=====
+  /* 移动端抽屉：收窄到 84% + 左侧圆角，形成「从右侧滑出的卡片」观感，
+     也比 v4.8.9 的 88% 留出更多背景可见度（用户关闭抽屉时主页面上下文更清晰） */
+  .el-drawer { width: 84% !important; }
+  /* ===== 移动端弹窗 = 内容自适应高度居中（v4.8.13 重写）=====
      ⚠️ 前提（关键，v4.8.8 修复）：所有 <el-dialog> 必须带 append-to-body，
         让 overlay 挂到 <body> 下、相对视口定位。
         否则 overlay 会渲染在页面内容里（如 .page 内），被文档流带偏 72px、
@@ -543,61 +544,100 @@ img { -webkit-user-drag: none; }
     -webkit-backdrop-filter: none !important;
     background: rgba(40, 30, 15, .42) !important;
   }
-  /* 子层：撑满并收掉内边距，定位交给弹窗本体（不写 display，避开上面铁律） */
+  /* 子层：撑满视口，作为 flex 容器为弹窗提供「自适应居中」的舞台。
+     🔴 v4.8.13 关键改动：这里【必须】是 flex + padding（而非纯 padding:0），
+        定位策略从 v4.8.9 的「absolute 贴底」改为「flex 子项 + margin:auto」。
+        原因见下方 .el-dialog 注释。 */
   .el-overlay-dialog,
   .el-overlay-message-box {
-    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    /* ⚠️ align-items 必须是 center 而非 stretch：
+       stretch 会让子项宽度被拉满、并使 margin:auto 的垂直居中失效。 */
+    align-items: center !important;
+    justify-content: center !important;   /* 兜底居中（内容撑满时无影响） */
+    padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
     width: 100% !important;
     height: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
   }
+  /* ================= 移动端弹窗：内容自适应高度 + 自动定位 =================
+     v4.8.13 重写（用户反馈「弹窗太靠下不合适」）。
+     ---------------------------------------------------------------------------
+     ❌ v4.8.9 的问题：`.el-dialog{position:absolute;bottom:0}` 且 100% 通栏。
+        实测「新建话题」弹窗高 450px（占视口 52%）、宽仅 369px（非真通栏），
+        顶部空出 390px（45% 视口）——轻量弹窗被硬推到屏幕底部，
+        上半屏全空、视线来回跳跃，操作区离视线上方焦点太远。
+     ✅ 本版策略：不靠 CSS「判断」内容高矮（做不到），而是
+        ① 去掉 absolute/bottom，让 .el-dialog 成为 flex 子项；
+        ② 高度由内容自然决定（height:auto），只在超长时被 max-height 截断；
+        ③ `margin: auto` 让 flex 子项在剩余空间里自动居中 ——
+           矮弹窗（2 个表单项）→ 自然浮到视线焦点区；
+           高弹窗（长表单）→ 自然撑到接近满屏，仍是视觉居中的大卡片。
+        纯 CSS、零 JS 判定、零布局抖动，天然满足「智能自适应」。
+     --------------------------------------------------------------------------- */
   .el-dialog {
-    /* 通栏底部 sheet：贴左右边、底部对齐安全区、内容区滚动、页脚粘底 */
-    position: absolute !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
+    /* 参与 flex 流：去掉一切绝对定位，让 margin:auto 生效 */
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
     top: auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-    border-radius: 22px 22px 0 0 !important;
-    /* 上限：顶部留安全区与余量，超出由 body 内部滚动消化，保证页脚永远在屏内可点 */
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 24px) !important;
+    bottom: auto !important;
+    /* 关键：上下 margin:auto 在 flex 容器内实现「按内容高度自适应居中」 */
+    margin: auto !important;
+    /* 宽度：容器已有 12px 左右内边距，这里再收 4% 让卡片与屏幕边缘有呼吸，
+       实测 393px 视口下约 354px 宽，比 v4.8.9 的 369px 窄一点、观感更精致 */
+    width: 92% !important;
+    max-width: 92% !important;
+    /* 圆角四角统一（不再只是上圆角——不再是贴底 sheet） */
+    border-radius: 22px !important;
+    /* 高度交给内容；上限保证永远不超出视口、页脚永远可点 */
+    height: auto !important;
+    max-height: 100% !important;
     display: flex !important;
     flex-direction: column;
     overflow: hidden !important;
     /* 动画只用 fade：若带位移并保留 fill，transform 会永久残留，
-       使元素成为自身包含块而破坏绝对定位。 */
-    animation: zgSheetFade .28s var(--zg-ease) both;
+       使元素成为自身包含块而破坏定位。 */
+    animation: zgSheetFade .26s var(--zg-ease) both;
     z-index: 2100 !important;   /* 必须高于手机底栏 Dock(z:200)，否则底栏会盖住页脚按钮 */
   }
   @keyframes zgSheetFade { from { opacity: 0; } to { opacity: 1; } }
-  /* 顶部“拖拽把手”，强化 sheet 认知 */
-  .el-dialog__header { position: relative; padding: 24px 20px 14px !important; flex-shrink: 0 !important; }
-  .el-dialog__header::before {
-    content: ''; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
-    width: 40px; height: 4px; border-radius: 4px; background: rgba(var(--zg-primary-rgb), .28);
-  }
-  .el-dialog__title { font-size: 19px !important; font-weight: 700 !important; }
-  /* 关闭按钮 40px 触控，避开把手与标题 */
-  .el-dialog__headerbtn { top: 16px !important; right: 12px !important; width: 40px !important; height: 40px !important; }
-  .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; padding: 8px 20px 18px !important; }
-  /* 粘性页脚：内容滚动时按钮始终可见可点 */
+  /* 标题区：收紧上下留白（v4.8.9 的 24px 顶部是为了让出贴底把手，现居中后不再需要） */
+  .el-dialog__header { position: relative; padding: 18px 20px 10px !important; flex-shrink: 0 !important; }
+  .el-dialog__title { font-size: 18px !important; font-weight: 700 !important; }
+  /* 关闭按钮 44px 触控（人机工程最小推荐），避开标题 */
+  .el-dialog__headerbtn { top: 10px !important; right: 8px !important; width: 44px !important; height: 44px !important; }
+  .el-dialog__body { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1 1 auto; padding: 4px 20px 16px !important; }
+  /* ================= 页脚：横向并排 + 瘦身 =================
+     v4.8.13：v4.8.9 的 `flex-direction:column-reverse` 让「保存/取消」纵向堆叠，
+     实测页脚吃掉 127px（比内容区 230px 的一半还多），严重挤压表单可视空间。
+     改为横向并排：次要操作在左、主操作在右（符合中文阅读与右手拇指习惯），
+     高度从 127px 压到约 72px，把空间还给内容。 */
   .el-dialog__footer {
     flex-shrink: 0 !important;
     display: flex !important;
-    flex-direction: column-reverse;   /* 主操作(保存)在下、更靠近拇指 */
+    flex-direction: row !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
     gap: 10px;
-    padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
     border-top: 1px solid rgba(var(--zg-primary-rgb), .12) !important;
     background: linear-gradient(0deg, rgba(255,251,235,.96) 0%, rgba(255,251,235,.82) 100%) !important;
     box-shadow: 0 -6px 20px -12px rgba(120,90,30,.18);
   }
   .el-dialog__footer .el-button {
-    width: 100% !important; margin: 0 !important;
-    min-height: 48px; font-size: 16px !important; border-radius: 14px !important;
+    margin: 0 !important;
+    flex: 0 0 auto;
+    min-width: 96px;                /* 触控宽度达标（>=44px 高度已在下方统一保证） */
+    min-height: 44px;
+    font-size: 16px !important;
+    border-radius: 14px !important;
   }
-  /* ===== 弹窗打开时隐藏手机底栏 Dock（它固定在底部，会压住 sheet 页脚的「保存」按钮）=====
+  /* 仅一个按钮时不铺满，保持右侧对齐的克制观感 */
+  .el-dialog__footer .el-button:only-child { min-width: 120px; }
+  /* ===== 弹窗打开时隐藏手机底栏 Dock（它固定在底部，会压住弹窗页脚按钮）=====
      🔴 v4.8.11 修复「关掉弹窗底栏就永久消失」：
      Element Plus 关闭对话框时只把 .el-overlay 置为内联 display:none，
      【不会销毁 .el-dialog 节点】，所以
@@ -609,33 +649,40 @@ img { -webkit-user-drag: none; }
   body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-dialog) .tabbar,
   body:has(.el-overlay:not([style*="display:none"]):not([style*="display: none"]) .el-message-box) .tabbar { display: none !important; }
   /* 弹窗内表单：label 顶对齐占满整行，输入框加大，行距舒展 */
-  .el-dialog .el-form-item { display: block; margin-bottom: 18px; }
+  .el-dialog .el-form-item { display: block; margin-bottom: 16px; }
   .el-dialog .el-form-item__label {
     display: block; text-align: left !important; margin-bottom: 8px;
     line-height: 1.4; padding: 0 !important; font-size: 14px !important;
   }
   .el-dialog .el-form-item__content { margin-left: 0 !important; }
-  .el-dialog .el-divider--horizontal { margin: 22px 0 18px !important; }
+  .el-dialog .el-divider--horizontal { margin: 20px 0 16px !important; }
   /* 弹窗内输入控件：≥48px 触控高，圆角舒展，手机上不再“挤成一条” */
   .el-dialog .el-input__inner { height: 48px !important; font-size: 16px !important; }
-  /* 移动端 MessageBox 同样做底部 Sheet，按钮整行大触控 */
+  /* ================= MessageBox：同步改为自适应居中 =================
+     v4.8.13：79 处 ElMessageBox（确认/警示/输入）是移动端最高频弹窗，
+     同样从「贴底通栏」改为「按内容高度自适应居中」，操作区进入拇指舒适圈。 */
   .el-message-box {
-    position: fixed !important; left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
-    width: 100% !important; max-width: 100% !important; margin: 0 !important;
-    border-radius: 22px 22px 0 0 !important;
+    position: relative !important;
+    left: auto !important; right: auto !important; top: auto !important; bottom: auto !important;
+    margin: auto !important;
+    width: 92% !important; max-width: 92% !important;
+    height: auto !important; max-height: 100% !important;
+    border-radius: 22px !important;
     display: flex !important; flex-direction: column;
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 40px) !important;
-    /* 同 .el-dialog：动画不得保留 transform（否则 fixed 定位失效） */
-    animation: zgSheetFade .3s var(--zg-ease) both;
+    /* 同 .el-dialog：动画不得保留 transform（否则定位失效） */
+    animation: zgSheetFade .28s var(--zg-ease) both;
     transform: none !important;
     z-index: 2100 !important;
   }
-  .el-message-box__content { flex: 1 1 auto; overflow-y: auto; padding: 20px !important; }
+  .el-message-box__header { padding: 18px 20px 10px !important; }
+  .el-message-box__title { font-size: 18px !important; font-weight: 700 !important; }
+  .el-message-box__headerbtn { top: 10px !important; right: 8px !important; width: 44px !important; height: 44px !important; }
+  .el-message-box__content { flex: 1 1 auto; overflow-y: auto; padding: 4px 20px 16px !important; font-size: 15px !important; line-height: 1.65 !important; }
   .el-message-box__btns {
-    flex-shrink: 0; flex-direction: column-reverse; gap: 10px;
-    padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    flex-shrink: 0; flex-direction: row !important; justify-content: flex-end !important; align-items: center;
+    gap: 10px; padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
   }
-  .el-message-box__btns .el-button { width: 100% !important; margin: 0 !important; min-height: 48px; font-size: 16px !important; }
+  .el-message-box__btns .el-button { margin: 0 !important; min-width: 96px; min-height: 44px; font-size: 16px !important; }
   /* 移动端表单优化：输入框/按钮触控 ≥44px */
   .el-form-item__label { font-size: var(--zg-fs-sm) !important; }
   .el-input__inner { height: 44px !important; }
@@ -1191,8 +1238,17 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 /* ===== 菜单选中（侧栏 el-menu 若存在）===== */
 .zg-inkgold .el-menu-item.is-active { background: transparent !important; color: var(--zg-primary) !important; border-left: 3px solid var(--zg-primary); border-radius: 0 8px 8px 0; }
 
-/* ===== 焦点态 / 可达性（仅墨金，排除输入框/文本域/下拉——它们已有专属内陷柔光 focus 样式，outline 不跟随圆角会渲染成直角矩形框） ===== */
-.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* ===== 焦点态 / 可达性（仅墨金，排除输入框/文本域/下拉 + 弹窗容器）
+   ⚠️ v4.8.13 修复：原排除清单遗漏了【容器型元素】—— .el-dialog / .el-message-box /
+      .el-drawer / 遮罩层都不该有焦点外框：它们不是"可操作控件"，且带 tabindex="-1"
+      会被程序 focus，于是弹窗一打开就套上 2px 实心金框。
+   ⚠️ 致命点：outline **不跟随 border-radius 裁剪** → 24px 圆角卡片配直角金框，
+      四角露直角，正是项目手册点名的「矩形框根因」。
+   为什么必须在【这一条】上直接改，而不是另写规则去覆盖：
+      本选择器含 4 个 :not(类) → 特异性 (0,5,0) 且带 !important，
+      任何写在后面的低特异性规则（哪怕同样 !important）都压不过它（实测已验证）。
+      所以唯一干净的解法，就是把它的排除清单自己补全。 */
+.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold .el-button,
@@ -1341,14 +1397,26 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .zg-reveal { opacity: 0; transform: translateY(18px); transition: opacity .5s cubic-bezier(.22,1,.36,1), transform .5s cubic-bezier(.22,1,.36,1); }
 .zg-inkgold .zg-reveal-in { opacity: 1; transform: none; }
 
-/* 移动端导航+弹窗适配 */
+/* 移动端导航适配 */
 @media (max-width: 768px) {
   .zg-inkgold .nav { margin: 8px auto 0 !important; max-width: calc(100% - 16px) !important; border-radius: 22px !important; position: sticky !important; top: 8px !important; }
-  /* 弹窗移动端适配：四个圆角 */
-  .zg-inkgold .el-dialog { width: calc(100% - 24px) !important; margin: 12px auto !important; border-radius: 18px !important; overflow: hidden !important; }
+  /* ============================================================
+     ⚠️【v4.8.13 移除】原先此处有一组「墨金弹窗移动端」规则：
+       .zg-inkgold .el-dialog { width: calc(100% - 24px); margin: 12px auto; ... }
+     危害（v4.8.13 实测确认）：
+       ① 特异性 (0,2,0) 高于主动方案 `.el-dialog`(0,1,0)，
+          墨金主题下会强行覆盖宽度；
+       ② 更严重的是 `margin: 12px auto` 会【击穿垂直居中】——
+          主动方案靠 `margin: auto` 在 flex 容器里让弹窗按内容高度自适应居中，
+          被改成 `12px auto` 后垂直方向只剩 12px 外边距，
+          弹窗被顶到容器顶部（或随内容飘），正是「弹窗位置不合适」的根因之一。
+     现统一为：移动端弹窗定位/宽度 = 文件上方 @media(max-width:768px) 的
+     「内容自适应居中」块，全主题共用，唯一事实来源，不再按主题分叉。
+     ============================================================ */
+  /* 墨金主题下仅保留与定位无关的视觉细节（内边距微调） */
   .zg-inkgold .el-dialog__header { padding: 18px 18px 12px !important; }
   .zg-inkgold .el-dialog__body { padding: 16px 18px !important; }
-  .zg-inkgold .el-dialog__footer { padding: 12px 18px 16px !important; }
+  .zg-inkgold .el-dialog__footer { padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px)) !important; }
 }
 
 /* 微交互：通用可点元素平滑过渡（触感 + 主题切换更顺） */
@@ -1744,8 +1812,8 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 /* ===== 菜单选中（侧栏 el-menu 若存在）===== */
 .zg-inkgold-dark .el-menu-item.is-active { background: transparent !important; color: var(--zg-primary) !important; border-left: 3px solid var(--zg-primary); border-radius: 0 8px 8px 0; }
 
-/* ===== 焦点态 / 可达性（仅墨金深档，排除输入框/文本域/下拉——它们已有专属内陷柔光 focus 样式） ===== */
-.zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* ===== 焦点态 / 可达性（仅墨金深档，排除输入框/文本域/下拉 + 弹窗容器，理由同浅档） ===== */
+.zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold-dark .el-button,
@@ -3261,3 +3329,305 @@ a.zg-file-link {
     overflow: hidden !important;
   }
 }
+
+/* ============================================================================
+   v4.8.13 移动端全站设计统一（高端大气 / 人性化 / 高性能 三者兼顾）
+   ----------------------------------------------------------------------------
+   依据：本地 393×852 全站审计（/tmp/zaudit.py 实测 9 个页面）暴露的真实短板：
+     ① 超小字号 39 处（首页 10px×6、个人中心 11px×33）→ 手机上几乎读不清
+     ② 横向溢出 6 处（首页 hs-item right=395、qr-item right=525，均 > 视口 393）
+     ③ 圆角 6~10 种混用（2/3/6/8/9/10/12/16/18/20px）→ 视觉不统一的根源
+     ④ gap 混乱（1/4/6/8/9/10/12/14/16px）→ 节奏感缺失
+     ⑤ 小目标 10 个（zg-state-btn / zg-nf-back / el-select is-small）
+   设计原则：**"高端"的本质是统一与克制**，不是堆装饰。
+             故本块做的是「收敛」——把散落的值归入一套 4px 基准的设计令牌。
+   性能原则：全部为静态属性覆盖，不引入 JS 判定、不触发重排动画；
+             可点反馈只用 transform/opacity（合成层，不脏布局）。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* ---------------------------------------------------------------------------
+     ① 字号可读性底线：移动端辅助信息 ≥12px、正文 ≥13px
+     实测（个人中心 26 处 <12px）真实来源均为 CSS 类，**不是内联样式**，
+     故必须按类名精确抬升（内联属性选择器对它们完全无效 —— 已验证）。
+     涉及：ph-level-badge / ph-role / ph-exp-text / stat-label / ei-meta / el-tag--small
+     --------------------------------------------------------------------------- */
+  /* 【变量级根修】`--zg-fs-xs` 全局基数为 11px，所有 `var(--zg-fs-xs)` 的辅助文字
+     在移动端都只有 11px（实测：首页 .section-meta/.section-link、学科广场 .sp-desc）。
+     这里把 xs 档下限抬到 12px，同时保留 `--zg-fs-scale` 用户缩放能力（乘法关系不变）。
+     一处修复即覆盖 FavoritesView / SearchView / SubjectsView 等全部 xs 消费点。 */
+  :root { --zg-fs-xs: calc(12px * var(--zg-fs-scale)); }
+
+  .ph-level-badge, .ph-role, .ph-exp-text,
+  .stat-label, .ei-meta, .ei-time,
+  .bl-meta, .art-meta, .qr-meta,
+  .fc-meta, .rc-meta, .ph-username, .ph-contact, .ma-meta,
+  .sp-desc, .section-meta, .section-link, .section-meta span,
+  .el-tag--small, .el-tag--small .el-tag__content,
+  .section-title .el-tag, .section-title .el-tag__content {
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+  }
+  /* 页面级小标题/说明文字统一 13px，保证正文层级清晰 */
+  .stat-value, .hs-value, .ph-name, main small, .muted, .text-dim {
+    font-size: 13px !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ② 圆角：移动端卡片圆角已在 L3154 统一为 18px
+        （`.zg-card, .glass, .glass-strong, .el-card, .section`），无需重复声明。
+        审计中出现的 999/20/16/9/3/2px 来自徽标、头像、进度条等**本就该不同**的元素，
+        属正常设计层级，不强行统一（一刀切反而会破坏视觉语义）。
+        此处只做一件事：确保输入类控件圆角与卡片协调（12px）。
+     --------------------------------------------------------------------------- */
+  .el-input__inner, .el-textarea__inner,
+  .el-select__wrapper, .el-input__wrapper {
+    border-radius: 12px !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ③ 纵向节奏：只对「区块之间」下手，不动区块内部
+     ⚠️ 不要用 `.glass + .glass` 这类相邻兄弟选择器 —— 卡片多数在
+     grid/flex 容器内且本身带 gap，再加 margin-top 会造成"双倍间距"、破坏原有栅格。
+     --------------------------------------------------------------------------- */
+  main .section + .section { margin-top: 20px !important; }
+
+  /* ---------------------------------------------------------------------------
+     ④ 触控目标：所有可点元素 ≥44px（iOS HIG / Material 双标准）
+        实测漏网：.zg-state-btn、.zg-nf-back、el-select is-small
+     --------------------------------------------------------------------------- */
+  .zg-state-btn, .zg-nf-back,
+  .el-select--small .el-select__wrapper,
+  .el-select__wrapper.is-small {
+    min-height: 44px !important;
+  }
+  /* is-small 的 select 在移动端直接按常规尺寸呈现（手机上不需要"小号"） */
+  .el-select--small .el-select__wrapper { padding: 0 12px !important; }
+  .el-select--small .el-select__wrapper .el-select__placeholder,
+  .el-select--small .el-select__wrapper .el-select__selected-item { font-size: 14px !important; }
+
+  /* ---------------------------------------------------------------------------
+     ⑤ 横向溢出保护
+     【v4.8.13 更新】首页 `.hero-stats`（5 项统计）与 `.quick-row`（快捷入口）
+     原为横向滚动条，实测导致"最后一项被切一半"的观感（hs lastRight 395 > vw 393、
+     qr-item 4×122=488 > 容器 365），用户会误以为页面损坏。
+     已在 HomeView.vue 改为【等分/2 列网格】，不再横滑 —— 本区块相应移除这两者的
+     横滚条款，仅保留仍在使用横滑的 `.bl-topics-left`（美文话题筛选）。
+     页面级 `overflow-x: clip` 作为兜底保留（clip 比 hidden 省，不创建滚动容器）。
+     --------------------------------------------------------------------------- */
+  main { overflow-x: clip; }
+  .bl-topics-left {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .bl-topics-left::-webkit-scrollbar { display: none; }
+
+  /* ---------------------------------------------------------------------------
+     ⑥ 人性化微交互：全部走 transform/opacity（GPU 合成，零布局抖动）
+        按下即反馈，150ms 内响应 —— 这是"流畅感"的核心来源。
+     --------------------------------------------------------------------------- */
+  .glass, .card, .bl-card, .art-card, .qr-item, .exp-item, .quick-card,
+  .el-button, .tabbar a, .nav button {
+    transition: transform .16s cubic-bezier(.22,1,.36,1),
+                box-shadow .16s cubic-bezier(.22,1,.36,1),
+                background-color .16s ease !important;
+  }
+  /* 按下反馈：轻微内缩，触感明确但不浮夸 */
+  .el-button:active,
+  .tabbar a:active, .nav button:active,
+  .bl-chip:active { transform: scale(.96) !important; }
+  .glass:active, .card:active, .bl-card:active,
+  .qr-item:active, .quick-card:active { transform: scale(.985) !important; }
+  /* 尊重系统「减弱动态效果」偏好（无障碍：前庭障碍用户） */
+  @media (prefers-reduced-motion: reduce) {
+    .glass, .card, .bl-card, .art-card, .qr-item, .exp-item, .quick-card,
+    .el-button, .tabbar a, .nav button { transition: none !important; }
+    .el-button:active, .tabbar a:active, .nav button:active,
+    .glass:active, .card:active, .bl-card:active, .qr-item:active, .quick-card:active,
+    .bl-chip:active { transform: none !important; }
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑦ 性能：长列表容器开启内容可见性 + 滚动边界优化
+        · content-visibility 已在 v4.8.10 加过，这里补充「滚动容器」层
+        · overscroll-behavior 阻止滚动链（iOS 上"滚到底整页跟着弹"的体验杀手）
+     --------------------------------------------------------------------------- */
+  html, body { overscroll-behavior-y: none; }
+  main .el-scrollbar__wrap { overscroll-behavior: contain; }
+  /* 图片解码提示：让浏览器提前把解码放到合成线程，滚动时不掉帧 */
+  main img { decoding: async; }
+}
+
+/* ---------------------------------------------------------------------------
+   ⑧ 桌面端不受影响声明
+   以上全部限定在 @media (max-width: 768px) 内。
+   经典主题 :root 未动；墨金规则仍限定 .zg-inkgold*；无平台/架构变更。
+   --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   v4.8.13 补充：实测残留项精修
+   （上述审计复测后仍存在，逐项定位后补齐类名 —— 不做"广撒网"式属性选择器）
+   --------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* ① 首页 Hero 信息条：hero-kicker 11px / hs-label 10px —— 手机上是主视觉区，
+        却用了全站最小字号，与"高端大气"背道而驰。抬到可读尺寸。 */
+  .hero-kicker { font-size: 12px !important; letter-spacing: .02em; }
+  .hs-label { font-size: 12px !important; }
+  .hs-value { font-size: 20px !important; }   /* 数值是本区的视觉重点，给足权重 */
+
+  /* ② 站内信「筛选」区 el-select 的内层 input 只有 20px 高。
+        它本身不可点（点击事件在 .el-select__wrapper 上），故这里只保证
+        wrapper 达 44px 触控高，并把内层 input 撑满，避免出现"细缝"观感。 */
+  .el-select__wrapper.is-small,
+  .el-select__wrapper {
+    min-height: 44px !important;
+  }
+  .el-select__input.is-small,
+  .el-select__input {
+    height: auto !important;
+    min-height: 24px !important;
+    font-size: 14px !important;
+  }
+  /* 站内信操作栏的按钮：实测 64×36 → 补到 44px */
+  .admin-bar .el-button,
+  .ab-row .el-button {
+    min-height: 44px !important;
+  }
+}
+
+/* ============================================================================
+   v4.8.13 墨金主题弹窗可读性修复（截图实测发现）
+   ----------------------------------------------------------------------------
+   现象（inkgold/dark 截图）：弹窗背景严重透明 —— 背后的「网站博客」卡片、
+     遮罩层、底部按钮全部透进来，正文可读性被破坏；且整圈金色描边过重，
+     正是项目设计铁律点名禁止的「静态面板用发丝金边（矩形框根因）」。
+   根因：
+     · 深档 --zg-glass-e-bg: rgba(25,20,12,.55) 只有 55% 不透明，作为
+       "氛围玻璃"用于卡片尚可，但对【弹窗】这种必须清晰阅读的载体太低。
+     · 弹窗还叠了 --zg-glass-e-border 金边 + blur(28px)，在深底上形成金框。
+   原则：**弹窗是 L1 信息载体，"可读"优先于"通透"**。
+         玻璃只应作氛围，绝不能牺牲文字清晰度（项目手册 §四 已明确此界线）。
+   处理：在移动端把墨金弹窗/MessageBox 的填充提到「近实色」，并去掉金边描边，
+         改用极淡的亮边区分层次（保留玻璃质感但不做框）。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* 墨金 弹窗 / MessageBox：近实色背景，保证任何主题档下文字都可读 */
+  .zg-inkgold .el-dialog,
+  .zg-inkgold .el-message-box {
+    background: linear-gradient(160deg,
+                rgba(255, 255, 255, .97) 0%,
+                rgba(255, 253, 248, .95) 100%) !important;
+    backdrop-filter: blur(20px) saturate(150%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+    /* 去掉金边（矩形框根因），改用顶部细高光表达"玻璃上沿" */
+    border: none !important;
+    box-shadow:
+      0 18px 48px -12px rgba(90, 66, 20, .30),
+      0 4px 14px -6px rgba(90, 66, 20, .16),
+      inset 0 1px 0 rgba(255, 255, 255, .85) !important;
+  }
+  /* 深档：同样近实色，但用深色墨底，保持深色主题观感 */
+  html.zg-inkgold.zg-inkgold-dark .el-dialog,
+  html.zg-inkgold.zg-inkgold-dark .el-message-box {
+    background: linear-gradient(160deg,
+                rgba(38, 32, 22, .97) 0%,
+                rgba(28, 23, 16, .96) 100%) !important;
+    box-shadow:
+      0 18px 48px -12px rgba(0, 0, 0, .58),
+      0 4px 14px -6px rgba(0, 0, 0, .40),
+      inset 0 1px 0 rgba(255, 255, 255, .12) !important;
+  }
+  /* 弹窗标题在近实色底上需要明确的前景色权重 */
+  .zg-inkgold .el-dialog__title,
+  .zg-inkgold .el-message-box__title { color: var(--zg-text) !important; font-weight: 700 !important; }
+  html.zg-inkgold.zg-inkgold-dark .el-dialog__title,
+  html.zg-inkgold.zg-inkgold-dark .el-message-box__title { color: #F3E9D2 !important; }
+  /* 【v4.8.13 补】深档次要按钮（取消等）可读性：
+     症状 —— 截图实测「取消」按钮为【白底 + 浅米字】，几乎不可见。
+     根因 —— 深档只给 .el-button--primary 指定了背景与前景，
+             普通按钮沿用 EP 默认 `--el-button-bg-color:#fff`（纯白底），
+             而文字色随主题继承为浅色（--zg-text 系），白底浅字 → 对比度≈1:1。
+     修法 —— 深档下把非 primary 按钮改为「半透明墨底 + 浅字」的次级按钮形态，
+             与弹窗近实色背景形成明确层次，同时保持与整体墨金风格一致。 */
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-button:not(.el-button--primary):not(.is-text):not(.is-link),
+  html.zg-inkgold.zg-inkgold-dark .el-message-box .el-button:not(.el-button--primary):not(.is-text):not(.is-link) {
+    background: rgba(255, 255, 255, .10) !important;
+    border: 1px solid rgba(255, 255, 255, .18) !important;
+    color: #F3E9D2 !important;
+    font-weight: 600 !important;
+  }
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-button:not(.el-button--primary):not(.is-text):not(.is-link):hover,
+  html.zg-inkgold.zg-inkgold-dark .el-message-box .el-button:not(.el-button--primary):not(.is-text):not(.is-link):hover {
+    background: rgba(255, 255, 255, .16) !important;
+    border-color: rgba(212, 175, 55, .45) !important;
+    color: #FFF6E0 !important;
+  }
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-button:not(.el-button--primary):not(.is-text):not(.is-link):active,
+  html.zg-inkgold.zg-inkgold-dark .el-message-box .el-button:not(.el-button--primary):not(.is-text):not(.is-link):active {
+    background: rgba(255, 255, 255, .07) !important;
+  }
+  /* 深档下拉/输入在弹窗内的底与文字，避免继承浅色底 */
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-input__inner,
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-textarea__inner,
+  html.zg-inkgold.zg-inkgold-dark .el-message-box .el-input__inner {
+    color: #F3E9D2 !important;
+  }
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-input__inner::placeholder,
+  html.zg-inkgold.zg-inkgold-dark .el-dialog .el-textarea__inner::placeholder {
+    color: rgba(243, 233, 210, .42) !important;
+  }
+}
+
+/* ============================================================================
+   v4.8.13 弹窗「金色直角框」根治（截图 + 计算样式定位）
+   ----------------------------------------------------------------------------
+   症状：墨金主题弹窗四周有一圈 2px 金色直角框，观感像"贴了个方框"，
+         且【不跟随 24px 圆角】—— 四角露出直角。
+   定位（getComputedStyle 实测）：
+         outline: rgb(212,175,55) solid 2px;  outline-offset: 2px;
+         border:  0px none   ← 边框是干净的，真凶是 outline
+   根因（两条规则叠加）：
+     ① L215 全局 `:focus-visible { outline: 2px solid rgba(var(--zg-primary-rgb),.6) }`
+        —— `.el-dialog` 带 tabindex="-1"，EP 打开弹窗时会 focus() 它，
+        于是弹出瞬间即命中 :focus-visible（Chromium 对程序聚焦也判定为可见焦点）。
+     ② L1242 / L1807 墨金规则的 :not() 排除清单里只有输入类控件，
+        **没有排除 .el-dialog / .el-message-box / .el-drawer**，
+        所以墨金档下弹窗被套上 2px 实心金框。
+   为什么必须修：outline 不参与 border-radius 裁剪 → 圆角卡片配直角外框，
+     既违反「禁止静态面板矩形框」铁律，也是"丑陋"的直接来源。
+   修复原则：**可达性不能砍，只把"容器型聚焦目标"排除掉**。
+     键盘用户仍可通过 Tab 看到按钮/链接的清晰焦点环；容器本身无需外框提示
+     （它内部已有顶部高光条与阴影表达层次）。
+   ============================================================================ */
+@media (max-width: 768px) {
+  /* 容器型元素：弹窗/抽屉/消息框本体不做 outline（它们不是"可操作控件"） */
+  .el-dialog:focus,
+  .el-dialog:focus-visible,
+  .el-message-box:focus,
+  .el-message-box:focus-visible,
+  .el-drawer:focus,
+  .el-drawer:focus-visible,
+  .el-overlay:focus,
+  .el-overlay:focus-visible,
+  .el-overlay-dialog:focus,
+  .el-overlay-dialog:focus-visible,
+  .el-overlay-message-box:focus,
+  .el-overlay-message-box:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
+  }
+}
+/* ⚠️ 桌面端同样要修：这是全局可达性样式的副作用，与视口宽度无关 */
+.el-dialog:focus,
+.el-dialog:focus-visible,
+.el-message-box:focus,
+.el-message-box:focus-visible,
+.el-drawer:focus,
+.el-drawer:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+
+/* v4.8.13 注：此处曾尝试用高特异性规则覆盖墨金 outline，实测无效
+   （对方含 4 个 :not(类)，特异性 (0,5,0) 且带 !important，后写的规则压不过）。
+   已改为直接修 L1242 / L1816 两条规则自身的 :not() 排除清单，见那里的注释。 */

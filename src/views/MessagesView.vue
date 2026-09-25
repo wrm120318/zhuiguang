@@ -250,7 +250,7 @@ watch(() => route.params.peerId, async (pid) => {
 .msg-content :deep(p) { margin: 4px 0; }
 .msg-content :deep(b) { color: var(--zg-primary); }
 .msg-row.mine .msg-content :deep(b) { color: #fff8e1; }
-.msg-time { font-size: 11px; color: var(--zg-text-dim); margin-top: 4px; }
+.msg-time { font-size: 12px; color: var(--zg-text-dim); margin-top: 4px; }
 .msg-from { font-weight: 700; margin-right: 4px; }
 .chat-input { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid rgba(var(--zg-primary-rgb),.1); align-items: flex-end; }
 .chat-input .el-button { height: 40px; }

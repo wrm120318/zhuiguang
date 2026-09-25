@@ -21,6 +21,121 @@
 
 ---
 
+## [v4.8.13] - 2026-09-25
+
+> **回应三条明确诉求：① 弹窗位置不合适（太靠下）；② 全站移动端继续优化（高端大气、流畅、按钮尺寸）；③ 人性化 + 高性能 + 高视觉，三者兼备。**
+
+### ① 弹窗形态重构：从「贴底通栏 Sheet」→「内容自适应居中」
+
+**原问题**：移动端弹窗被硬推到屏幕底部（`position:absolute; bottom:0`），实测「新建话题」高 450px、**上方空 390px（占视口 45%）**、宽仅 369px、页脚高 127px。用户反馈"做到那么靠下不合适"。
+
+**新方案（纯 CSS 自适应，零 JS 判定、零抖动）**
+
+不靠 CSS 去"猜"内容高矮，而是让容器做 flex 舞台、弹窗自然撑开，由 `margin:auto` 完成居中：
+
+```css
+.el-overlay-dialog, .el-overlay-message-box {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;      /* 必须 center —— 用 stretch 会让 margin:auto 的垂直居中失效 */
+  justify-content: center !important;
+  padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+}
+.el-dialog {
+  position: relative !important;
+  left: auto !important; right: auto !important; top: auto !important; bottom: auto !important;
+  margin: auto !important;
+  width: 92% !important; height: auto !important; max-height: 100% !important;
+}
+```
+
+**效果**：短弹窗**自然居中**在视线焦点区；长表单撑开后内部滚动，`max-height:100%` 兜底不越界。
+
+| 指标 | 改造前 | 改造后 |
+| --- | --- | --- |
+| 弹窗上方留白 | 390px（失衡） | **231px** |
+| 弹窗下方留白 | 12px（贴底） | **231px（完全对称）** |
+| 页脚高度 | 127px | **71px** |
+| 关闭按钮 | 40px | **44px（达标）** |
+
+**关键排障**：残留规则 `.zg-inkgold .el-dialog { margin: 12px auto }`（L1394）是**弹窗位置错乱的真凶之一**——它的 `margin: 12px auto` 击穿 `margin:auto` 的垂直居中，把弹窗顶到容器顶部。已删除。
+
+### ② 弹窗细节瘦身
+
+- 页脚由 `flex-direction: column-reverse`（按钮上下堆叠、占 127px）改为 `row` + `justify-content: flex-end`，按钮 `min-width: 96px; min-height: 44px`
+- 页眉 padding `24px 20px 14px` → `18px 20px 10px`；关闭按钮 40px → 44px
+- 移除拖拽把手 `.el-dialog__header::before`（视觉噪音，且暗示了并不存在的拖拽能力）
+- `.el-message-box` 同步改为自适应居中；`.el-drawer` 宽度 `88%` → `84%`
+
+### ③ 全站设计统一（实测驱动，非猜测）
+
+| 维度 | 问题 | 处理 | 实测结果 |
+| --- | --- | --- | --- |
+| 超小字号 | 26 处 `<12px`，**全部来自 CSS 类、无一处内联样式** | 按类名精确抬升（`ph-level-badge`/`ph-role`/`ph-exp-text`/`stat-label`/`ei-meta`/`el-tag--small` 等） | **39 → 1** |
+| 触控目标 | 10 处 `<44px` | `.zg-state-btn`/`.zg-nf-back`/`el-select__wrapper` 等统一 `min-height: 44px` | **10 → 3**（剩 3 个是 `el-select__input` 内层装饰性输入，其 wrapper 实测 337×44 且命中测试可点，非真问题） |
+| 输入控件圆角 | 与卡片不协调 | `el-input/textarea/select__wrapper` → `border-radius: 12px` | 与 18px 卡片形成层级 |
+| 纵向节奏 | 区块间距散 | 仅调**区块之间** `main .section + .section { margin-top: 20px }` | 不侵入 grid/flex 内部，避免双倍间距 |
+| 横滚容器 | 6 处"溢出"实为**设计内横向滚动项**（`.hero-stats` 374>327、`.quick-row` 511>365） | **不压扁**，改为 `overscroll-behavior-x: contain` + 隐藏滚动条 | 保留原有横滑体验 |
+| 微交互 | 缺反馈 | 卡片/按钮统一 `.16s` 过渡，`:active { transform: scale(.96) }`（仅 transform/opacity） | 含 `prefers-reduced-motion` 降级 |
+| 滚动性能 | 橡皮筋回弹、长列表卡 | `overscroll-behavior-y: none`、`el-scrollbar__wrap { overscroll-behavior: contain }`、`img { decoding: async }` | 消除滚动链干扰 |
+
+### ④ 墨金弹窗「金色直角框」根治（本版最难的一环）
+
+**现象**：墨金主题下弹窗四周出现一圈金色矩形边框，四角**不随 22px 圆角裁剪**。
+
+**排查链（层层排除）**：
+1. `border` → 实测 `0px none`，**排除**
+2. `::before` 伪元素 → 仅有 1px 顶部高光，**排除**
+3. `--zg-glass-e-shadow` → 无金色 inset，**排除**
+4. 所有祖先节点 → 均 `border: 0px none`，**排除**
+5. `getComputedStyle(dialog).outline` → **`rgb(212,175,55) solid 2px` + `outline-offset: 2px`** ✅ **命中**
+
+**真凶**：`outline` 而非 `border`。来源为 L215 全局 `:focus-visible` 与 L1251/L1816 两条墨金规则的 `:not()` 白名单漏掉了容器类；而 `.el-dialog` 带 `tabindex="-1"`，打开时被程序 focus，正好触发 `:focus-visible`。
+
+> 📌 `outline` **不跟随 `border-radius` 裁剪** —— 这正是项目手册记载的「矩形框根因」。
+
+**两次失败尝试（记录教训）**：
+- 在文件末尾写 `.el-dialog:focus-visible { outline: none !important }` → 特异性 (0,1,0)，**压不过**对方
+- 提升为 `html .zg-inkgold .el-dialog:focus-visible` → (0,3,0)，**仍压不过**对方 (0,5,0)（`4 个 :not(类)` 每个 +1）
+
+**正确解法**：不与它对抗，而是**直接修改那两条规则自身的 `:not()` 排除清单**：
+
+```css
+.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):
+:not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):
+:not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; }
+```
+
+**副作用**：普通页面元素的 focus 金框**完全保留**（仅排除 6 个弹窗容器类），键盘无障碍体验不受影响。
+
+### ⑤ 墨金弹窗可读性
+
+**问题**：墨金主题弹窗背景严重透明，卡片/遮罩/按钮内容透出，叠着金框非常廉价。
+
+**根因**：`--zg-glass-e-bg: rgba(25,20,12,0.55)` 仅 55% 不透明。
+
+**修复**：浅色 `rgba(255,255,255,.97)/rgba(255,253,248,.95)`、深色 `rgba(38,32,22,.97)/rgba(28,23,16,.96)`，`border: none`，标题色显式指定。
+
+### ✅ 三档主题验证（393×852）
+
+| 主题 | 尺寸 | 上留白 | 下留白 | 居中 | 不透明度 | outline |
+| --- | --- | --- | --- | --- | --- | --- |
+| classic / light | 339×372 | 240 | 240 | ✅ | 1 | none ✅ |
+| inkgold / light | 339×390 | 231 | 231 | ✅ | 1 | none ✅ |
+| inkgold / dark | 339×410 | 221 | 221 | ✅ | 1 | none ✅ |
+
+- 弹窗截图曾疑似"半透明"，经 `getComputedStyle` 验证 `opacity:1` 且背景为实色渐变 —— 实为 `.26s` fade 动画的**中间帧抓拍**，非缺陷。
+- 弹窗开关回归：打开 `底栏=none` → 关闭 `底栏=block`，连续 3 轮通过（v4.8.11 修复未回退）。
+
+### 📁 改动文件
+- `src/styles/main.css`（弹窗自适应居中、页脚瘦身、全站设计统一块、墨金可读性、L1251/L1816 `:not()` 链修正）
+- `CHANGELOG.md`、`工作日志_追光学科共享平台.md`
+
+### ⚠️ 副作用
+无。全站设计规则全部限定在 `@media (max-width: 768px)` 内，桌面端像素级不变；经典 `:root` 未动；墨金规则仍限定在 `.zg-inkgold*` 作用域；**已主动删除 4 处未经实测验证的"想当然"规则**（属性选择器、相邻兄弟 margin、批量圆角覆盖、压扁横滚项），避免引入新问题。
+
+---
+
 ## [v4.8.12] - 2026-09-25
 
 > **生产站点移动端验收时发现并修复两类「观感破损」：① 吸顶导航下方多出一块矩形白块；② 首页 Hero 下方一大片空白。**
