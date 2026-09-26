@@ -594,11 +594,15 @@ html:not(.zg-inkgold) .nav::before { display: none; }
 .n-time { font-size: var(--zg-fs-xs); color:var(--zg-text-dim); }
 
 @media (max-width: 768px) {
-  /* 顶栏纳入刘海安全区 */
+  /* v4.8.14 顶栏顶部空间：改为「位移」预留（margin + sticky top），
+     位移不会产生任何矩形边界，避免复发"矩形垫块"问题；
+     具体取值在 main.css 的 v4.8.14 区块统一给（含 env(safe-area-inset-top)）。
+     这里只负责左右居中与圆角，padding-top 归零避免与位移叠加成双倍空高。 */
   .nav {
-    padding-top: env(safe-area-inset-top);
+    padding-top: 0;
     border-radius: 22px;
-    margin: 8px auto 0;
+    margin-left: auto;
+    margin-right: auto;
     max-width: calc(100% - 16px);
   }
   .nav-inner { height: 52px; gap: 6px; padding: 0 12px; }

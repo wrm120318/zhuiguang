@@ -111,18 +111,18 @@ const qtypeLabels: Record<string, string> = { single: '单选题', multiple: '�
 .grade-page { max-width: 1100px; margin: 0 auto; padding: 16px 0 60px; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .page-head h2 { margin: 0; font-size: 20px; }
-.loading { padding: 40px; text-align: center; color: #888; }
+.loading { padding: 40px; text-align: center; color: var(--zg-text-dim); }
 .grade-meta { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
 .grade-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 768px) { .grade-cols { grid-template-columns: 1fr; } }
-.col h3 { margin: 0 0 8px; font-size: 15px; color: #b06a00; }
+.col h3 { margin: 0 0 8px; font-size: 15px; color: var(--zg-primary); }
 .col h4 { margin: 14px 0 8px; font-size: 14px; }
 .card { padding: 14px; border-radius: 12px; margin-bottom: 8px; }
 .answer { background: rgba(245,158,11,0.06); }
 .student { background: rgba(64,158,255,0.06); }
-.sec { margin: 8px 0 4px; color: #888; font-size: 13px; }
+.sec { margin: 8px 0 4px; color: var(--zg-text-dim); font-size: 13px; }
 .q-content { line-height: 1.7; }
 .q-opts { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
-.stu-meta { margin-top: 8px; display: flex; gap: 16px; color: #888; font-size: 13px; }
+.stu-meta { margin-top: 8px; display: flex; gap: 16px; color: var(--zg-text-dim); font-size: 13px; }
 .grade-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 </style>

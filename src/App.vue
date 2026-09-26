@@ -20,10 +20,20 @@ const settings = useSettingsStore()
 const ready = ref(false)
 const isPublicPage = computed(() => route.meta.public === true)
 const isAdminRoute = computed(() => route.path.startsWith('/admin'))
+// 【v4.8.14】题库/测验路由统一标记：这些页面按钮密集（实测 109 处 size="small"，
+//   渲染为 36px 高），低于移动端 44px 触控标准。挂 body 类后由 main.css 统一抬升，
+//   避免逐个改 15 个页面、109 处模板（违反"不重构"铁律）。
+const isQuizRoute = computed(() =>
+  route.path.startsWith('/quiz') ||
+  route.path.startsWith('/practice') ||
+  route.path.startsWith('/wrong-book') ||
+  /\/subject\/[^/]+\/(bank|assemble|analytics|exams)/.test(route.path)
+)
 const designMode = computed(() => theme.activeTheme?.config?.designMode)
 
 watchEffect(() => {
   document.body.classList.toggle('is-admin-route', isAdminRoute.value)
+  document.body.classList.toggle('is-quiz-route', isQuizRoute.value)
 })
 
 let statusTimer: any = null

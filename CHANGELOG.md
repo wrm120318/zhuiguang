@@ -21,6 +21,73 @@
 
 ---
 
+## [v4.8.14] - 2026-09-25
+
+> **回应四条明确诉求：① 移动端导航栏太靠上；② 智能题库仍未适配移动端（加强）；③ 移动端按钮与字号仍不合理（加强）；④ 全站界面风格与视觉继续加强（高端、美观、大气、人性化、时代化）。**
+
+### ① 移动端导航栏位置修正
+
+**原问题**：v4.8.12 为消除"缝隙漏字"把 `.nav` 的 `margin-top/top` 全部归零，副作用是**导航紧贴屏幕顶边**，真机上会压住 iPhone 状态栏/灵动岛区域。
+
+**修复**（`src/styles/main.css`）：
+- `.nav` 改为 `margin-top / top = calc(env(safe-area-inset-top, 0px) + 10px)`，`padding-top: 0`。
+- 用**位移**预留顶部空间，而不是加 `padding` + 背景——位移不产生任何矩形边界，不会重现 v4.8.12 的"矩形框"问题。
+- 实测：移动端 `nav.top = 10px`（原 0px）；桌面端 `nav.top = 0`（`env()` 为 0，行为不变）。
+
+### ② 智能题库 15 页移动端深度适配
+
+原问题是"整体没适配"，逐页实测后归为 7 类系统性问题，全部修复：
+
+| # | 问题 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 内容紧贴屏幕边缘 | `QuestionEditView` 的 scoped `.q-edit-page{padding:20px 0 60px}`（特异性 0,2,0）压过 `.zg-container`（0,1,0） | `body.is-quiz-route .zg-container` 组合选择器抬特异性，左右各留 `max(16px, env(safe-area-inset-*))` |
+| 2 | 按钮 36px 不达触控标准 | EP `size="small"` 默认 36px | 题库路由下统一 `min-height:44px`；**卡片头/表格/细目表内的按钮改为"视觉 30px + `::after` 伪元素 44px 热区"**，避免撑破行高 |
+| 3 | 输入框高度不足 | 同上 | `.el-input__wrapper/.el-select__wrapper/.el-textarea__inner` → `min-height:44px`、圆角 12px |
+| 4 | 「填空」列被切掉 | 表格无横滚容器 | 给 `.matrix-wrap`（**上一版漏写，真实类名**）与 `.el-table__body-wrapper` 加 `overflow-x:auto` + 惯性滚动 |
+| 5 | 筛选器竖堆一屏 | `.el-row` 双列未塌陷 | 表单改用块级 label、栅格收成整行、筛选区两列网格 |
+| 6 | 「套用标准模板」压住「② 双向细目表」标题 | 猜错了类名（写的是 `.sec-head`，实际容器是 `.el-card__header`）；EP header 是 block 布局，`<b>` 与 link 按钮同为 inline | 改选 `.el-card__header` 为 flex 单行两端对齐 + 允许换行；卡片头内按钮保持 30px 紧凑 |
+| 7 | 「返回题库」与标题挤一行 | `.page-head` flex 未塌陷 | 移动端改竖排、左对齐 |
+
+**MarkdownEditor 专项修复**：
+- 原来 `overflow-x:auto` 加在 `.zg-editor-bar` **外层**，导致「撤销/重做」与右侧「编辑\|分屏\|预览」在同一滚动行互相挤压，"重做"被裁掉一半 → 改为**外层 `flex-wrap:wrap`（两行），只让内层 `.zg-tools` 横滑**。
+- 「分屏」在 393px 下两栏各只剩约 180px，纯属误导（CSS 已强制单栏但 UI 仍可选）→ **隐藏该选项**，并把组件默认 `viewMode` 在窄屏下改为 `'edit'`（`MarkdownEditor.vue`），保证"高亮项 = 实际布局"。
+- 模式切换按钮 32px → 44px。
+
+**双向细目表专项修复**（AssembleView）：
+- 首列「知识点」被压成 **30px 竖排单字柱**（只给了 `max-width` 没有确定宽度）→ 改为 `width/min-width/max-width:96px` + `sticky left`。
+- 单元格内 `el-input-number` 的加减按钮只有 **11px 高**（EP 用写死的 `top:1px/bottom:17px` 分配，与 48px 容器不匹配）→ 改为 `top:0/height:50%` 明确切分，`splitOK=true, coversFull=true`，按钮各 24px、容器全覆盖。
+- 表单里的「分值」输入框因 `width:auto` 塌成 `-5 +` → 恢复 140px。
+
+### ③ 全站视觉风格增强（设计系统化）
+
+在 `main.css` 末尾新增一层**设计令牌 + 微交互**体系：
+
+- **分层高度系统**：`--zg-el-1..4` 四级**双层阴影**（近距离柔和 + 远距离弥散，比单层更接近真实光照）；卡片默认 elevation-2，hover 升 elevation-3 + `translateY(-2px)`（原来是直接跳到 `shadow-lg` + `-4px`，像"弹跳"）。深档单独定义纯黑阴影，避免暖色阴影在暗底发灰。
+- **圆角阶梯**：`--zg-r-sm/md/lg/xl/2xl/pill`，按元素体量分配，不再"所有东西一个圆角"。
+- **间距节奏**：`--zg-sp-1..10`（4px 基准），移动端整体收一档。
+- **动效统一**：`--zg-dur-fast/base/slow` + 三条标准曲线；按钮 hover 上浮 1px、active 下沉 `scale(.98)`，主按钮带光晕。
+- **排版质感**：数字启用 `tabular-nums`（表格/统计数字列对齐）；标题 `letter-spacing:-0.02em`；正文 `+0.01em`。
+- **无障碍**：`:focus-visible` 用 `box-shadow` 环（贴合圆角，不产生矩形框）；完整支持 `prefers-reduced-motion`。
+- **滚动条**：桌面端改为细圆、主题同色系，不抢视线。
+
+### ④ 主题一致性（墨金深档专项）
+
+题库模块的 scoped 样式硬编码了 `#fbf3e3 / #fff8ec / #b06a00 / #8a5a00 / #f0e2c8 / #999` 等**浅色主题专用色**，在墨金深档下表现为白块割裂，其中**细目表首列白底白字直接不可见**。
+
+- 批量令牌化 **32 处颜色 + 13 处灰字**（`AnalyticsView / AssembleView / QuestionBankView / WrongBookView / ExamManageView / PracticeGradeView / QuestionForm / QuestionEditView`），只在 `<style>` 块内替换，不触碰 ECharts 的 JS 颜色。
+- `AnalyticsView` 的 4 处 ECharts 图表色改为**运行时读取 `--zg-primary`**（`themePrimary()`），图表随主题自动换色。
+- 深档下 `success` 按钮从翠绿（`#67C23A`）收敛为主题金；`warning` 收敛为主题橙。
+- 深档下 **默认按钮（无 type）** 的白块改为半透明玻璃底（「制卡 / Word 导入 / 试题篮」）；**禁用态**按钮压掉纯白；**text/link 按钮**文字色从近黑改为浅金（「全部 / 管理知识点 / 显示答案 / 删除」原本几乎不可见）。
+
+### 🧪 验证
+
+- `npm run build` 通过（`vue-tsc` 干净）。
+- **移动端 393×852 × 三套主题（经典 / 墨金浅档 / 墨金深档）× 9 个页面 = 27 页次全部 0 失败**（无整页横向溢出、无破版元素、无 <28px 可点按钮、无 <11px 文字）。
+- 桌面 1440×900 无溢出；桌面"小按钮"是**有意保留的鼠标密度**（44px 规则仅在移动端媒体查询内生效）。
+- 关键指标：导航 `top 0→10px`；题库按钮 `36→44px`；编辑器宽 `2004→361px`；细目表首列 `30→96px`；加减按钮 `11→24px`；卡片头重叠 `有→无`。
+
+---
+
 ## [v4.8.13] - 2026-09-25
 
 > **回应三条明确诉求：① 弹窗位置不合适（太靠下）；② 全站移动端继续优化（高端大气、流畅、按钮尺寸）；③ 人性化 + 高性能 + 高视觉，三者兼备。**

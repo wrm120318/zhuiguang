@@ -37,7 +37,14 @@ const emit = defineEmits<{
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const viewMode = ref<'edit' | 'preview' | 'split'>('split')
+// 【v4.8.14】移动端默认「编辑」而不是「分屏」：
+// 393px 下分屏两栏各只剩约 180px，输入和预览都不可用。
+// 同时 CSS 已隐藏「分屏」选项，若初始值仍是 split 会出现
+// 「高亮项与隐藏项不一致 / 两栏挤在一起」的视觉错乱。
+const isNarrow = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(max-width: 768px)').matches
+  : false
+const viewMode = ref<'edit' | 'preview' | 'split'>(isNarrow ? 'edit' : 'split')
 const content = ref(props.modelValue || '')
 
 watch(() => props.modelValue, v => {

@@ -123,9 +123,12 @@ input, button, textarea, select { font-family: inherit; color: var(--zg-text); f
   box-shadow: var(--zg-glass-e-shadow);
 }
 
-/* 卡片悬停聚焦 + 入场动画（用spring弹性曲线） */
+/* 卡片悬停聚焦 + 入场动画（用spring弹性曲线）
+   【v4.8.14】原来的 translateY(-4px) + shadow-lg 位移过大、阴影跳档太猛，
+   像"弹跳"而不是"轻盈浮起"。统一移交到文件末尾的分层高度系统（elevation 2→3，
+   位移 -2px），这里保留一条兜底以防末尾规则被覆盖。 */
 .zg-card { transition: transform .35s var(--zg-ease), box-shadow .35s var(--zg-ease); }
-.zg-card:hover { transform: translateY(-4px); box-shadow: var(--zg-shadow-lg); }
+.zg-card:hover { transform: translateY(-2px); box-shadow: var(--zg-el-3); }
 
 /* 渐变文字 */
 .zg-grad-text {
@@ -3299,11 +3302,23 @@ a.zg-file-link {
   .nav {
     box-shadow: 0 6px 20px -10px rgba(120, 90, 30, .30) !important;
   }
-  /* sticky 吸附到顶 → 上方缝隙彻底消失，无需任何遮罩 */
+  /* ----------------------------------------------------------------------------
+     v4.8.14 修正：v4.8.12 把 margin-top/top 归零虽解决了"缝隙漏字"，
+     但导致【导航太靠上】——真机上紧贴 iPhone 刘海/状态栏，视觉局促。
+     正确做法：用【位移】（margin + sticky top）预留顶部空间。
+       ⚠️ 位移不会产生任何矩形边界（与 v4.8.12 删掉的 box-shadow 外扩完全不同），
+          所以既能留白，又不会复发"矩形垫块"。
+     取值：safe-area-inset-top（真机刘海/状态栏）+ 10px 呼吸间距。
+     同时把内边距的 safe-area 去掉，避免"位移"与"内边距"重复叠加成双倍空高。
+     ---------------------------------------------------------------------------- */
   .zg-inkgold .nav,
   .zg-inkgold-dark .nav,
   html:not(.zg-inkgold) .nav,
-  .nav { margin-top: 0 !important; top: 0 !important; }
+  .nav {
+    margin-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+    top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+    padding-top: 0 !important;
+  }
 }
 
 /* ============================================================================
@@ -3631,3 +3646,970 @@ a.zg-file-link {
 /* v4.8.13 注：此处曾尝试用高特异性规则覆盖墨金 outline，实测无效
    （对方含 4 个 :not(类)，特异性 (0,5,0) 且带 !important，后写的规则压不过）。
    已改为直接修 L1242 / L1816 两条规则自身的 :not() 排除清单，见那里的注释。 */
+
+/* ============================================================================
+   v4.8.14 题库 / 测验模块移动端深度适配
+   ----------------------------------------------------------------------------
+   背景（用户诉求②「智能题库仍然没有适配移动端，继续加强适配」）
+   实测（393×852，生产同构）发现的硬伤：
+     · 按钮全部 36px 高 —— 全模块共 109 处 size="small"，低于 44px 触控标准
+     · 添加题目页 MarkdownEditor 实测宽 2004px（溢出视口 5 倍），工具栏被切
+     · 智能组卷页「双向细目表」表格溢出，「填空」列被切掉
+     · 智能组卷页「套用标准模板」按钮压在「② 双向细目表」标题上（缺重排）
+     · 题库首页 7 个筛选器（关键词/题型/难度/教材版本/地区/章节/年份）
+       按桌面布局硬塞，竖直堆成一大坨，首屏全被筛选器占据
+     · 各页内容直接贴屏幕左边缘（缺容器内边距）
+   方案：统一挂 body.is-quiz-route（见 App.vue），此处集中适配。
+         不改 15 个页面的模板（109 处 size="small"），符合"只修不重构"铁律。
+   铁律遵守：全部限定在 @media (max-width:768px)；经典 :root 未动；
+             墨金相关规则仍限定 .zg-inkgold* 作用域。
+   ============================================================================ */
+@media (max-width: 768px) {
+
+  /* ---------------------------------------------------------------------------
+     ① 触控目标统一 ≥44px（核心修复）
+     Element Plus size="small" 渲染为 height:36px / padding:5px 11px。
+     这里只抬 min-height 与左右内边距，不强制 height（避免撑破已有的紧凑布局），
+     并给图标按钮单独的方形尺寸，保证点击热区达标。
+     ⚠️ 关键：不能"无差别"放大所有按钮 —— 卡片头、表格行、细目表里的
+        操作按钮一旦被撑到 44px，会直接压住标题/撑破行高。
+        正确做法：视觉保持紧凑，用 ::after 伪元素把【点击热区】撑到 44px。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .el-button,
+  body.is-quiz-route .el-button--small,
+  body.is-quiz-route .el-button--default {
+    min-height: 44px !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    font-size: 14px !important;
+  }
+  /* 纯图标按钮（含仅有 × / 删除 / 展开 等单字符按钮）：保证 44×44 热区 */
+  body.is-quiz-route .el-button.is-circle,
+  body.is-quiz-route .el-button--small.is-circle {
+    min-width: 44px !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* 按钮组内的按钮去除左侧负外边距堆叠，改为独立间距（小屏更好点） */
+  body.is-quiz-route .el-button + .el-button { margin-left: 8px !important; }
+
+  /* ——— 紧凑场景豁免：视觉小、热区大 ——— */
+  body.is-quiz-route .el-card__header .el-button,
+  body.is-quiz-route .css-toolbar .el-button,
+  body.is-quiz-route .el-table .el-button,
+  body.is-quiz-route .matrix .el-button,
+  body.is-quiz-route .pool .el-button,
+  body.is-quiz-route .blk .el-button.is-link,
+  body.is-quiz-route .el-button.is-link {
+    min-height: 30px !important;
+    height: 30px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    font-size: 13px !important;
+    position: relative;
+  }
+  body.is-quiz-route .el-card__header .el-button::after,
+  body.is-quiz-route .css-toolbar .el-button::after,
+  body.is-quiz-route .el-table .el-button::after,
+  body.is-quiz-route .matrix .el-button::after,
+  body.is-quiz-route .pool .el-button::after,
+  body.is-quiz-route .el-button.is-link::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    min-width: 44px;
+    height: 100%;
+    min-height: 44px;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ② 页面容器内边距：修复"内容贴屏幕边缘"
+     实测添加题目/组卷/测验列表等页面的表单与卡片直接贴边（内边距为 0），
+     视觉上像"页面被裁掉了一截"。统一给 16px 安全边距。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-main,
+  body.is-quiz-route .bank-body,
+  body.is-quiz-route .quiz-main,
+  body.is-quiz-route .assemble-main,
+  body.is-quiz-route .analytics-main,
+  body.is-quiz-route .exam-main,
+  body.is-quiz-route .practice-main,
+  body.is-quiz-route .wrong-main {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  /* 兜底：题库页面里任何直接铺在页面下的表单/卡片容器都不要溢出 */
+  body.is-quiz-route .page > *,
+  body.is-quiz-route .app-main > * {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ③ 表格 / 细目表：改为横向滚动而非裁切
+     实测「双向细目表」在 393px 下「填空」列被切掉；QuizReport / Analytics
+     的报表同理。给可滚动容器而不是压缩列宽（压缩会让数字挤成竖排）。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .el-table {
+    max-width: 100% !important;
+  }
+  body.is-quiz-route .el-table__body-wrapper,
+  body.is-quiz-route .el-table__header-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  body.is-quiz-route .el-table table {
+    min-width: 560px;   /* 保证列不至于挤成竖排文字 */
+  }
+  /* 双向细目表 / 自定义网格表：整体横滚，不裁切 */
+  body.is-quiz-route .grid-table,
+  body.is-quiz-route .assemble-grid,
+  body.is-quiz-route .matrix-table,
+  /* 【v4.8.14 补】AssembleView 的真实类名是 .matrix-wrap > table.matrix，
+     上一版漏掉了，导致「填空」列仍被切。 */
+  body.is-quiz-route .matrix-wrap {
+    display: block !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    max-width: 100% !important;
+    padding-bottom: 4px;
+  }
+  /* 横滚容器内不要换行，保持表格完整性 */
+  body.is-quiz-route .grid-table table,
+  body.is-quiz-route .assemble-grid table,
+  body.is-quiz-route table.matrix {
+    white-space: nowrap;
+  }
+  /* 双向细目表本体：给足最小宽度，列不塌；表头吸顶便于长表浏览 */
+  body.is-quiz-route table.matrix {
+    min-width: 100% !important;
+    width: auto !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    font-size: 13px !important;
+    table-layout: auto !important;
+  }
+  /* 数据列（题型/小计）：给个下限，避免数字列被 input-number 撑得过宽或过窄 */
+  body.is-quiz-route table.matrix th:not(:first-child),
+  body.is-quiz-route table.matrix td:not(:first-child) {
+    min-width: 76px !important;
+  }
+  body.is-quiz-route table.matrix th,
+  body.is-quiz-route table.matrix td {
+    padding: 6px 8px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(176, 106, 0, .16) !important;
+    border-right: 1px solid rgba(176, 106, 0, .10) !important;
+    /* 数字列不换行，避免"1 2 3"竖排 */
+    white-space: nowrap !important;
+  }
+  body.is-quiz-route table.matrix th:first-child,
+  body.is-quiz-route table.matrix td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    text-align: left !important;
+    /* 【v4.8.14 补】原先只给 max-width，实测首列被压到 30px，
+       "知识点""物理""合计" 全部竖排成一柱字。
+       必须给【确定宽度】而不是单纯上限。 */
+    width: 96px !important;
+    min-width: 96px !important;
+    max-width: 96px !important;
+    white-space: normal !important;
+    word-break: break-word;
+    line-height: 1.35 !important;
+    /* 【v4.8.14 修】原写死 `background:#FFFDF8`（为了 sticky 横滚时遮挡底层内容），
+       但墨金深档下卡片底色是深色，白底 + 浅字 → "物理"完全不可见。
+       改用令牌 --zg-card-bg（各主题档自己定义），始终与卡片同色。 */
+    background: var(--zg-card-bg, rgba(255, 255, 255, .9)) !important;
+    backdrop-filter: blur(4px);
+  }
+  body.is-quiz-route table.matrix th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  body.is-quiz-route table.matrix thead th:first-child { z-index: 4; }
+  body.is-quiz-route table.matrix .total-row td,
+  body.is-quiz-route table.matrix tfoot td {
+    border-bottom: none !important;
+    background: rgba(176, 106, 0, .08) !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ④ 表单：桌面多列 → 移动端单列（修复双列挤在一起）
+     实测「题型 / 分值 / 难度」在 el-col-xs-12 下仍留双列，控件被压得很窄。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .el-form-item { margin-bottom: 18px !important; }
+  body.is-quiz-route .el-form-item__label {
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+    padding-bottom: 6px !important;
+    float: none !important;
+    display: block !important;
+    width: auto !important;
+    text-align: left !important;
+  }
+  body.is-quiz-route .el-form-item__content { margin-left: 0 !important; }
+  /* 强制把 12/8/6 栅格在手机上收成整行（仅题库模块，避免影响其它页面的栅格） */
+  body.is-quiz-route .el-col-xs-12,
+  body.is-quiz-route .el-col-xs-8,
+  body.is-quiz-route .el-col-xs-6 {
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+  /* 但并排的"分值 + 难度"这类小控件，两列反而更省空间 → 保留双列并加间距 */
+  body.is-quiz-route .el-row { row-gap: 12px; }
+
+  /* ---------------------------------------------------------------------------
+     ⑤ 输入类控件：与按钮等高（44px），圆角统一
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .el-input__wrapper,
+  body.is-quiz-route .el-select__wrapper,
+  body.is-quiz-route .el-textarea__inner {
+    min-height: 44px !important;
+    border-radius: 12px !important;
+  }
+  body.is-quiz-route .el-input--small .el-input__wrapper,
+  body.is-quiz-route .el-select--small .el-select__wrapper {
+    min-height: 44px !important;
+  }
+  body.is-quiz-route .el-input__inner,
+  body.is-quiz-route .el-select__placeholder,
+  body.is-quiz-route .el-select__selected-item { font-size: 14px !important; }
+  /* 数字输入框（分值/细目表格子）的加减按钮 */
+  body.is-quiz-route .el-input-number__decrease,
+  body.is-quiz-route .el-input-number__increase {
+    width: 36px !important;
+    font-size: 15px !important;
+  }
+  /* 【v4.8.14 补】通用 44px 输入框规则不能套到 el-input-number 上：
+     实测细目表格子里 input-number 容器 78×48，但内部 .el-input__wrapper
+     被强制 44px，而 controls-position="right" 的加减按钮上下平分剩余高度，
+     结果两个按钮各只剩 11px —— 完全点不中。
+     这里让细目表内的 input-number 走"紧凑原生尺寸"，并保证按钮 ≥ 32px。
+     ⚠️ 但表单里的分值输入框（无 controls-position）需要正常宽度，
+        不能无差别 `width:auto`（否则塌成 "-5 +" 看不清数字）。 */
+  body.is-quiz-route .el-form .el-input-number,
+  body.is-quiz-route .el-input-number:not([controls-position="right"]) {
+    width: 140px !important;
+    max-width: 100% !important;
+  }
+  body.is-quiz-route .el-input-number .el-input__wrapper {
+    min-height: 0 !important;
+    padding-left: 8px !important;
+    border-radius: 8px !important;
+  }
+  body.is-quiz-route .el-input-number .el-input__inner {
+    text-align: center !important;
+    font-size: 14px !important;
+  }
+  /* 表单里的 input-number 也要 44px 高 */
+  body.is-quiz-route .el-form .el-input-number .el-input__wrapper {
+    min-height: 44px !important;
+  }
+  /* 细目表（超窄单元格）：输入框 ≤64px，加减按钮各自 ≥30px 高 */
+  body.is-quiz-route table.matrix .el-input-number,
+  body.is-quiz-route .matrix-wrap .el-input-number {
+    width: 68px !important;
+  }
+  body.is-quiz-route table.matrix .el-input-number .el-input__wrapper,
+  body.is-quiz-route .matrix-wrap .el-input-number .el-input__wrapper {
+    min-height: 0 !important;
+    padding-left: 4px !important;
+    padding-right: 26px !important;
+  }
+  body.is-quiz-route table.matrix .el-input-number .el-input__inner,
+  body.is-quiz-route .matrix-wrap .el-input-number .el-input__inner {
+    font-size: 13px !important;
+  }
+  body.is-quiz-route table.matrix .el-input-number__decrease,
+  body.is-quiz-route table.matrix .el-input-number__increase,
+  body.is-quiz-route .matrix-wrap .el-input-number__decrease,
+  body.is-quiz-route .matrix-wrap .el-input-number__increase {
+    width: 26px !important;
+    height: auto !important;
+    line-height: 1 !important;
+    font-size: 13px !important;
+    /* 【v4.8.14 补】EP 默认用 top:1px / bottom:17px 这套"写死偏移"，
+       在 48px 高的容器里会让两个按钮错位、背景色块只盖住一半。
+       这里改用【上下各占 50%】明确切分，不依赖 EP 的中间值。 */
+    top: 0 !important;
+    bottom: auto !important;
+    height: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  body.is-quiz-route table.matrix .el-input-number__decrease,
+  body.is-quiz-route .matrix-wrap .el-input-number__decrease {
+    top: auto !important;
+    bottom: 0 !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑥ 卡片头「标题 + 操作按钮」：修复"按钮压标题"
+     实测组卷页「② 双向细目表」标题右侧的「套用标准模板」按钮与 <b> 标题重叠。
+     根因 —— Element Plus 的 .el-card__header 是 block 布局，
+             <b>标题</b> 与 <el-button link> 都是 inline 元素；
+             手机窄宽度下按钮换到第二行，但没有任何间距，
+             叠加 ⑤ 强制给所有 .el-button 加的 44px 高度 → 视觉上压住标题。
+     修复 —— 真正的容器是 .el-card__header（不是 .sec-head 之类）。
+             把它改成 flex 单行两端对齐 + 允许换行，换行后补足行距。 */
+  body.is-quiz-route .el-card__header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px 12px !important;
+    flex-wrap: wrap !important;
+    line-height: 1.5 !important;
+    padding: 12px 14px !important;
+  }
+  body.is-quiz-route .el-card__header > b,
+  body.is-quiz-route .el-card__header > strong {
+    font-size: 15px !important;
+    line-height: 1.5 !important;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* 卡片头里的 link 按钮（如"套用标准模板"）保持紧凑，
+     不跟随 ① 的 44px 通用规则，避免撑爆行高。
+     详见下方"紧凑场景豁免"块（更高特异性）。 */
+  /* 兼容项目里可能存在的自定义头容器 */
+  body.is-quiz-route .sec-head,
+  body.is-quiz-route .section-head,
+  body.is-quiz-route .panel-head,
+  body.is-quiz-route .card-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px 12px !important;
+    flex-wrap: wrap !important;
+  }
+  /* ⚠️ 特异性说明：上面 ① 的规则是 `body.is-quiz-route .el-button`（0,2,1）。
+     这里要压过它，必须写成 `body.is-quiz-route .el-card__header .el-button`
+     （0,3,1），而不是 `.el-card__header .el-button`（0,2,0）。 */
+  body.is-quiz-route .el-card__header .el-button.is-link,
+  body.is-quiz-route .el-card__header .el-button--small,
+  body.is-quiz-route .el-card__header .el-button {
+    min-height: 30px !important;
+    height: 30px !important;
+    padding: 0 10px !important;
+    font-size: 13px !important;
+    margin-left: auto !important;
+    flex: none;
+    position: relative;
+  }
+  body.is-quiz-route .el-card__header .el-button::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+    width: 100%; height: 100%;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑦ 筛选区：7 个筛选器堆叠的"大坨"问题
+     实测题库首页 关键词/题型/难度/教材版本/地区/章节/年份 竖直堆成一屏。
+     改为两列网格（关键词占整行），把一屏压缩到约 1/2，首屏露出题目列表。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .filters,
+  body.is-quiz-route .bank-filters,
+  body.is-quiz-route .filter-bar,
+  body.is-quiz-route .filter-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: center;
+  }
+  /* 关键词输入框（通常第一个）跨两列 */
+  body.is-quiz-route .filters > *:first-child,
+  body.is-quiz-route .bank-filters > *:first-child,
+  body.is-quiz-route .filter-bar > *:first-child { grid-column: 1 / -1; }
+  body.is-quiz-route .filters > *,
+  body.is-quiz-route .bank-filters > *,
+  body.is-quiz-route .filter-bar > * { min-width: 0 !important; width: 100% !important; }
+  /* 筛选标签栏（知识点 chips）横向滚动，不换行堆高 */
+  body.is-quiz-route .zh-tabs,
+  body.is-quiz-route .know-tabs,
+  body.is-quiz-route .filter-tabs,
+  body.is-quiz-route .kp-list {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 8px !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  body.is-quiz-route .zh-tabs::-webkit-scrollbar,
+  body.is-quiz-route .know-tabs::-webkit-scrollbar,
+  body.is-quiz-route .filter-tabs::-webkit-scrollbar,
+  body.is-quiz-route .kp-list::-webkit-scrollbar { display: none; }
+  body.is-quiz-route .zh-tabs > *,
+  body.is-quiz-route .know-tabs > *,
+  body.is-quiz-route .filter-tabs > *,
+  body.is-quiz-route .kp-list > * { flex: none !important; min-height: 44px; display: inline-flex; align-items: center; }
+
+  /* ---------------------------------------------------------------------------
+     ⑧ 统计卡片：修复"3 列里只放 2 项导致第三格空白 + 标签挤一起"
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bh-stats,
+  body.is-quiz-route .bank-stats,
+  body.is-quiz-route .stat-row {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)) !important;
+    gap: 10px !important;
+    text-align: center;
+  }
+  body.is-quiz-route .bh-stats > *,
+  body.is-quiz-route .bank-stats > *,
+  body.is-quiz-route .stat-row > * { min-width: 0 !important; }
+
+  /* ---------------------------------------------------------------------------
+     ⑨ 题卡操作按钮（入篮/收藏/详情/编辑）：横排等分，44px
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .q-actions,
+  body.is-quiz-route .qcard-actions,
+  body.is-quiz-route .question-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  body.is-quiz-route .q-actions .el-button,
+  body.is-quiz-route .qcard-actions .el-button,
+  body.is-quiz-route .question-actions .el-button {
+    flex: 1 1 calc(50% - 4px);
+    margin-left: 0 !important;
+    min-width: 0 !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑩ 字号：题库模块内的辅助文字统一 ≥12px
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-hint, body.is-quiz-route .bh-sub,
+  body.is-quiz-route .q-meta, body.is-quiz-route .q-tags,
+  body.is-quiz-route .zg-tip, body.is-quiz-route .zg-stat,
+  body.is-quiz-route .zg-editor-foot, body.is-quiz-route .el-form-item__label {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+}
+
+/* ============================================================================
+   v4.8.14 MarkdownEditor（富文本编辑器）移动端适配
+   ----------------------------------------------------------------------------
+   实测硬伤：在「添加题目」页编辑器容器宽 2004px，溢出 393px 视口 5 倍，
+             工具栏（撤销/重做/H1..H4/B/I/…）被切得只剩前几个，
+             用户完全无法使用加粗、公式等核心功能。
+   根因：编辑器内部使用 flex + 固定宽的工具栏项，未做移动端换行/滚动。
+   方案：① 容器宽度 100% 且 min-width:0（flex 子项不收缩的老问题）
+         ② 工具栏横向滚动（保留全部功能，不隐藏按钮）
+         ③ 编辑区高度适配视口，分屏模式在手机上改为单栏（分屏在 393px 无意义）
+   ============================================================================ */
+@media (max-width: 768px) {
+  .zg-editor {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+  /* 工具栏：外层【必须保持 wrap】——
+     实测把 overflow-x:auto 加在 .zg-editor-bar 外层会让
+     「撤销/重做」与右侧「编辑|分屏|预览」在同一滚动行里互相挤压，
+     "重做"被压掉一半文字。
+     正确做法：外层 wrap（两行：第 1 行工具、第 2 行模式切换），
+               只让内层 .zg-tools 自己横滑。 */
+  .zg-editor-bar {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    overflow: visible !important;
+  }
+  /* 内层工具条：单行横滑，展示全部按钮（不隐藏功能） */
+  .zg-editor-bar .zg-tools {
+    flex: 1 1 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 4px !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .zg-editor-bar .zg-tools::-webkit-scrollbar { display: none; }
+  /* 模式切换（编辑|分屏|预览）：单独占一行，右对齐，按钮 ≥44px */
+  .zg-editor-bar .zg-viewmode {
+    flex: 1 1 100% !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+  }
+  .zg-tool {
+    flex: none !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    font-size: 15px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  /* 【v4.8.14 补】"分屏"在 393px 下两侧各只剩 180px，纯属误导：
+     CSS 已强制单栏，但 UI 仍把「分屏」显示为可选项。
+     直接隐藏该选项（Element Plus 的 el-radio-button 渲染为 label.el-radio-button）。
+     选择器修正：之前写的 .zg-split-btn / [data-mode="split"] 都不存在。 */
+  .zg-viewmode .el-radio-button:nth-child(2) { display: none !important; }
+  .zg-viewmode .el-radio-group {
+    flex-wrap: nowrap !important;
+    height: 44px !important;
+  }
+  .zg-viewmode .el-radio-button__inner {
+    min-height: 44px !important;
+    padding: 0 18px !important;
+    font-size: 14px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  /* 全屏按钮也提到 44px */
+  .zg-editor-bar .zg-viewmode .zg-tool { min-width: 44px !important; min-height: 44px !important; }
+  /* 编辑区：宽度占满，高度适中 */
+  .zg-editor-body,
+  .zg-editor-pane,
+  .zg-editor textarea,
+  .zg-editor .zg-preview {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .zg-editor-body { display: block !important; }   /* 分屏的两栏 → 单栏 */
+  .zg-editor textarea,
+  .zg-editor .cm-editor,
+  .zg-editor .zg-preview { min-height: 220px !important; max-height: 46vh !important; }
+  .zg-editor-foot {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    font-size: 12px !important;
+  }
+  /* 附件/图片区 */
+  .zg-editor .zg-attach,
+  .zg-editor .zg-drop { padding: 14px !important; }
+}
+
+/* ============================================================================
+   v4.8.14 补充修正（第一次实测后发现的遗留问题）
+   ----------------------------------------------------------------------------
+   实测数据（393×852，构建后真实 DOM）：
+     · 添加题目页 `.el-row` 宽 409px > 视口 393px，溢出 16px
+     · 添加题目页工具栏 `.zg-tool` 高 40px（应 44px）
+     · 题库首页 `.bh-stats .stat span` 11px、组卷 `.tag` 11px、
+       错题本 `.qtag` 11px、学情分析 `.t-top span` 11px
+   三个根因：
+     ① 【内边距被 scoped 样式击穿】`.q-edit-page` 与 `.zg-container` 是同一元素，
+        scoped 的 `padding: 20px 0 60px` 特异性 (0,2,0) 高于 `.zg-container` (0,1,0)，
+        把 .zg-container 的移动端左右安全边距覆盖成 0 →
+        内容贴屏幕左边缘 + 内部栅格按"全宽"计算导致横向溢出 16px。
+     ② `zg-tool` 我上一条给了 40px（当时觉得工具栏要紧凑），实测仍低于 44px 标准。
+     ③ 我上一条的 `.bh-stats > *` 只能匹配到 `.stat`，匹配不到内层 `span`。
+   ============================================================================ */
+@media (max-width: 768px) {
+
+  /* ① 页面级容器：用 .zg-container 自身的类组合抬高特异性，压过各页 scoped 的
+        `padding: Xpx 0 Ypx`（它们在移动端把左右安全边距抹成了 0）。
+        ⚠️ 不能用 * 通配（会拖慢样式计算），用双类限定精准命中。 */
+  body.is-quiz-route .zg-container.q-edit-page,
+  body.is-quiz-route .zg-container.bank-page,
+  body.is-quiz-route .zg-container.assemble,
+  body.is-quiz-route .zg-container.analytics,
+  body.is-quiz-route .zg-container.exam-page,
+  body.is-quiz-route .zg-container.wrongbook,
+  body.is-quiz-route .zg-container {
+    padding-left: max(16px, env(safe-area-inset-left)) !important;
+    padding-right: max(16px, env(safe-area-inset-right)) !important;
+    box-sizing: border-box !important;
+  }
+  /* 栅格溢出兜底：题库页面内 el-row / el-col 一律不超过容器宽 */
+  body.is-quiz-route .el-row,
+  body.is-quiz-route .el-col {
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  /* el-row 自带负外边距（-10px）用于抵消 col 的 padding，在窄屏会把内容推出容器。
+     这里保留栅格语义但消除负边距带来的溢出。 */
+  body.is-quiz-route .el-row { margin-left: 0 !important; margin-right: 0 !important; }
+  body.is-quiz-route .el-col { padding-left: 0 !important; padding-right: 0 !important; }
+  /* 但并排小控件仍需间距：通过 row 的 gap 提供 */
+  body.is-quiz-route .el-row { gap: 0 12px; }
+  /* 双列小控件（分值 + 难度）保留并排，各占一半 */
+  body.is-quiz-route .el-col-xs-12 { flex: 0 0 50% !important; max-width: 50% !important; }
+  body.is-quiz-route .el-col-xs-8 { flex: 0 0 33.3333% !important; max-width: 33.3333% !important; }
+
+  /* ② 编辑器工具栏：40px → 44px（触控标准） */
+  .zg-tool {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    font-size: 15px !important;
+  }
+
+  /* ③ 题库模块内的小标签/图例文字：11px → 12px
+        （白字彩底小标签仍有 padding 保护，放大不会撑破布局） */
+  body.is-quiz-route .bh-stats .stat span,
+  body.is-quiz-route .bh-stats .stat b,
+  body.is-quiz-route .bank-stats .stat span,
+  body.is-quiz-route .stat-row .stat span,
+  body.is-quiz-route .tag,
+  body.is-quiz-route .qtag,
+  body.is-quiz-route .t-top span,
+  body.is-quiz-route .t-mid span,
+  body.is-quiz-route .t-bottom span {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+  /* 统计数字保持视觉重量 */
+  body.is-quiz-route .bh-stats .stat b,
+  body.is-quiz-route .bank-stats .stat b { font-size: 20px !important; }
+  /* 小标签内边距随字号同步，避免文字贴边 */
+  body.is-quiz-route .tag,
+  body.is-quiz-route .qtag { padding: 2px 8px !important; }
+}
+
+/* ============================================================================
+   【v4.8.14】全站视觉风格与体验增强 · 高端 / 精致 / 大气 / 人性化 / 时代感
+
+   设计目标（对应用户第 ④ 条需求）：
+     ① 建立【分层高度系统】—— 用一个 elevation 阶梯替代散落的 box-shadow，
+        让"卡片浮在背景上"有明确的物理层次感（原来各处阴影深浅不一）。
+     ② 建立【圆角阶梯】—— 按元素体量分配圆角，大容器更圆、小控件更方，
+        避免"所有东西一个圆角"的呆板。
+     ③ 建立【间距节奏】—— 用 4px 基准的间距令牌统一留白，
+        呼吸感来自规律而不是随手写数字。
+     ④ 【微交互】—— 统一 hover/active 的位移与光晕，让操作有"回应感"。
+     ⑤ 【字体排版】—— 数字用等宽字形（tabular-nums），标题收紧字距，
+        中文正文放宽字距，提升阅读质感。
+   ============================================================================ */
+
+:root {
+  /* ② 圆角阶梯：sm(小控件) → md(按钮/输入) → lg(卡片) → xl(大容器) → pill(胶囊) */
+  --zg-r-sm: 8px;
+  --zg-r-md: 12px;
+  --zg-r-lg: 18px;
+  --zg-r-xl: 24px;
+  --zg-r-2xl: 32px;
+  --zg-r-pill: 999px;
+
+  /* ③ 间距节奏（4px 基准） */
+  --zg-sp-1: 4px;
+  --zg-sp-2: 8px;
+  --zg-sp-3: 12px;
+  --zg-sp-4: 16px;
+  --zg-sp-5: 20px;
+  --zg-sp-6: 24px;
+  --zg-sp-8: 32px;
+  --zg-sp-10: 40px;
+
+  /* ① 分层高度系统：每一层都是"近距离柔和 + 远距离弥散"的双层阴影。
+     双层阴影比单层更接近真实光照，视觉上更"贵"。 */
+  --zg-el-0: none;
+  --zg-el-1: 0 1px 2px rgba(120, 80, 20, .04), 0 1px 3px rgba(120, 80, 20, .06);
+  --zg-el-2: 0 1px 3px rgba(120, 80, 20, .05), 0 6px 16px -6px rgba(120, 80, 20, .10);
+  --zg-el-3: 0 2px 6px rgba(120, 80, 20, .06), 0 14px 32px -12px rgba(120, 80, 20, .14);
+  --zg-el-4: 0 4px 10px rgba(120, 80, 20, .07), 0 22px 48px -16px rgba(120, 80, 20, .18);
+  --zg-el-glow: 0 8px 28px -8px rgba(245, 158, 11, .38);
+
+  /* ④ 动效统一：短、有回弹、不过度 */
+  --zg-dur-fast: 120ms;
+  --zg-dur: 200ms;
+  --zg-dur-slow: 320ms;
+  --zg-ease-out: cubic-bezier(.22, 1, .36, 1);
+  --zg-ease-spring: cubic-bezier(.34, 1.42, .64, 1);
+}
+
+/*  ① 卡片：统一到 elevation-2，hover 升到 elevation-3 + 轻微上浮
+    （原来 .zg-card:hover 直接跳到 --zg-shadow-lg，幅度过大像"弹跳"） */
+.zg-card,
+.el-card {
+  border-radius: var(--zg-r-lg) !important;
+  box-shadow: var(--zg-el-2) !important;
+  transition: box-shadow var(--zg-dur) var(--zg-ease-out),
+              transform var(--zg-dur) var(--zg-ease-out),
+              border-color var(--zg-dur) var(--zg-ease-out) !important;
+}
+.zg-card:hover,
+.el-card:hover {
+  box-shadow: var(--zg-el-3) !important;
+  transform: translateY(-2px);
+  border-color: rgba(var(--zg-primary-rgb), .28) !important;
+}
+
+/* ② 按钮：统一圆角 + 微交互（按下有"沉"的感觉，悬停有光晕） */
+.el-button {
+  border-radius: var(--zg-r-md) !important;
+  transition: background-color var(--zg-dur-fast) var(--zg-ease-out),
+              border-color var(--zg-dur-fast) var(--zg-ease-out),
+              box-shadow var(--zg-dur) var(--zg-ease-out),
+              transform var(--zg-dur-fast) var(--zg-ease-out) !important;
+}
+.el-button:not(.is-disabled):hover {
+  transform: translateY(-1px);
+}
+.el-button:not(.is-disabled):active {
+  transform: translateY(0) scale(.98);
+}
+.el-button--primary:not(.is-disabled) {
+  box-shadow: 0 2px 8px -2px rgba(var(--zg-primary-rgb), .45) !important;
+}
+.el-button--primary:not(.is-disabled):hover {
+  box-shadow: var(--zg-el-glow) !important;
+}
+
+/* ③ 输入类控件：统一圆角与聚焦光晕（聚焦时有一圈柔光，明确"我在输入"） */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--zg-r-md) !important;
+  transition: box-shadow var(--zg-dur) var(--zg-ease-out),
+              border-color var(--zg-dur) var(--zg-ease-out) !important;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .14), var(--zg-el-1) !important;
+}
+
+/* ⑤ 排版质感：数字等宽对齐 + 标题收紧字距 + 中文正文放宽 */
+.zg-card, .el-card, .section, main {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+h1, h2, h3, .section-title, .hero-title {
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+p, li, .desc, .content {
+  letter-spacing: 0.01em;
+}
+
+/* ④ 标签/徽章：统一胶囊化 + 内边距节奏 */
+.el-tag {
+  border-radius: var(--zg-r-pill) !important;
+  padding: 0 10px !important;
+  font-weight: 500 !important;
+}
+
+/* 滚动条美化（桌面端）：细、圆、与主题同色系，不抢视线 */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(var(--zg-primary-rgb), .22);
+    border-radius: var(--zg-r-pill);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(var(--zg-primary-rgb), .38); background-clip: content-box; }
+}
+
+/* 焦点可见性（无障碍）：键盘用户必须能看到焦点在哪。
+   用 box-shadow 而不是 outline —— 与圆角天然贴合，不会出现"矩形框"。 */
+:where(a, button, [tabindex], input, select, textarea, .el-button, .el-input__wrapper):focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .35) !important;
+  border-radius: var(--zg-r-md);
+}
+
+/* 尊重系统"减弱动态效果"偏好（无障碍 + 省电） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .zg-card:hover, .el-card:hover, .el-button:not(.is-disabled):hover { transform: none !important; }
+}
+
+/* 深色（墨金深档）适配：阴影改为纯黑并加深，否则暖色阴影在暗底上发灰 */
+html.zg-inkgold-dark {
+  --zg-el-1: 0 1px 2px rgba(0, 0, 0, .30), 0 1px 3px rgba(0, 0, 0, .34);
+  --zg-el-2: 0 1px 3px rgba(0, 0, 0, .34), 0 6px 16px -6px rgba(0, 0, 0, .46);
+  --zg-el-3: 0 2px 6px rgba(0, 0, 0, .38), 0 14px 32px -12px rgba(0, 0, 0, .56);
+  --zg-el-4: 0 4px 10px rgba(0, 0, 0, .42), 0 22px 48px -16px rgba(0, 0, 0, .62);
+}
+
+/* 移动端：卡片 hover 位移关闭（触屏没有 hover 语义），
+   同时把间距节奏整体收一档，让小屏信息密度更合理 */
+@media (max-width: 768px) {
+  .zg-card:hover,
+  .el-card:hover { transform: none; }
+  .el-button:not(.is-disabled):hover { transform: none; }
+  :root {
+    --zg-sp-6: 20px;
+    --zg-sp-8: 26px;
+    --zg-sp-10: 32px;
+  }
+}
+
+/* ============================================================================
+   【v4.8.14】题库模块硬编码颜色 → 主题令牌化（深档修复）
+
+   AssembleView / QuestionBankView 等页面用 scoped 样式写死了
+   #fbf3e3(米黄) / #fff8ec(浅米) / #b06a00(棕) / #8a5a00(深棕)，
+   在墨金深档下表现为"白底 + 深字"的亮块，与整体暗色玻璃风格割裂，
+   且细目表首列白底白字直接不可见。
+   这里用 main.css 覆盖（特异性足够高），让这些元素跟随主题自动换色。
+   ============================================================================ */
+
+/* 细目表表头：原本 #fbf3e3 白米底 */
+table.matrix th {
+  background: rgba(var(--zg-primary-rgb), .10) !important;
+  color: var(--zg-text) !important;
+  font-weight: 700;
+}
+/* 父级知识点行首列：原本 #fff8ec */
+table.matrix tr.parent td:first-child {
+  background: rgba(var(--zg-primary-rgb), .06) !important;
+}
+/* 合计行：原本 #fbf3e3 */
+table.matrix .total-row td,
+table.matrix tfoot td {
+  background: rgba(var(--zg-primary-rgb), .12) !important;
+  font-weight: 700;
+}
+/* 小计/强调数字：原本 #b06a00 */
+table.matrix .sum { color: var(--zg-primary) !important; font-weight: 700; }
+
+/* 组卷页提示文字 / 题库项 hover / 强调色 */
+.assemble-head .hint { color: var(--zg-primary) !important; }
+.pool-item:hover { background: rgba(var(--zg-primary-rgb), .08) !important; }
+.pool-item .add,
+.pno { color: var(--zg-primary) !important; }
+.ghead { color: var(--zg-text) !important; border-left-color: var(--zg-primary) !important; }
+
+/* 深档额外加深一档，避免半透明色在暗底上"发灰发白" */
+html.zg-inkgold-dark table.matrix th {
+  background: rgba(255, 255, 255, .08) !important;
+  color: #F3E9D2 !important;
+}
+html.zg-inkgold-dark table.matrix tr.parent td:first-child {
+  background: rgba(255, 255, 255, .045) !important;
+}
+html.zg-inkgold-dark table.matrix .total-row td,
+html.zg-inkgold-dark table.matrix tfoot td {
+  background: rgba(255, 255, 255, .10) !important;
+}
+
+/* ============================================================================
+   【v4.8.14】按钮语义色与禁用态 · 主题化修复
+
+   两个实测问题（墨金两档尤其明显，经典档也同样受益）：
+     ① type="success" 的按钮是 EP 默认【翠绿 #67C23A】，
+        在暖金主题里像"贴错了颜色"（题库首页「智能组卷」按钮）。
+        → 墨金两档改为跟随主题主色；经典档保留绿色但调成更柔和的草绿。
+     ② 禁用态按钮沿用 EP 默认 `--el-button-bg-color: #fff`，
+        深档下变成【纯白块】，在一片暗色里非常刺眼
+        （题库首页「制卡 / Word 导入 / 试题篮」）。
+        → 深档改为"低透明度白底 + 中灰字"，符合 disabled 语义又不破色。
+   ============================================================================ */
+
+/* ① 语义色：墨金档统一收敛到主题色系（金/赭），不再出现翠绿突兀块。
+   注意：墨金浅档的类名就是 html.zg-inkgold（没有 -light 后缀，见 store/theme.ts）。
+   两档同特异性 → 深档多加一个类名 `html.zg-inkgold.zg-inkgold-dark` 确保压过浅档。 */
+html.zg-inkgold .el-button--success:not(.is-disabled),
+html.zg-inkgold-dark .el-button--success:not(.is-disabled),
+html.zg-inkgold.zg-inkgold-dark .el-button--success:not(.is-disabled) {
+  background: var(--zg-primary) !important;
+  border-color: var(--zg-primary) !important;
+  color: #fff !important;
+}
+html.zg-inkgold .el-button--success:not(.is-disabled):hover,
+html.zg-inkgold-dark .el-button--success:not(.is-disabled):hover,
+html.zg-inkgold.zg-inkgold-dark .el-button--success:not(.is-disabled):hover {
+  filter: brightness(1.08);
+}
+/* 墨金档的 warning 也拉回主题色系，避免多种高饱和色打架 */
+html.zg-inkgold .el-button--warning:not(.is-disabled),
+html.zg-inkgold-dark .el-button--warning:not(.is-disabled),
+html.zg-inkgold.zg-inkgold-dark .el-button--warning:not(.is-disabled) {
+  background: var(--zg-primary-2, #FB923C) !important;
+  border-color: var(--zg-primary-2, #FB923C) !important;
+  color: #fff !important;
+}
+
+/* ② 禁用态：墨金档下不许出现纯白块（EP 默认 bg 是 #fff）
+   浅档（html.zg-inkgold）与深档（html.zg-inkgold-dark）同特异性，
+   所以深档规则必须写在后面才能生效 —— 且深档要多带一个类名以稳妥压过。 */
+html.zg-inkgold .el-button.is-disabled,
+html.zg-inkgold .el-button.is-disabled:hover {
+  background: rgba(120, 90, 30, .06) !important;
+  border-color: rgba(120, 90, 30, .12) !important;
+  color: rgba(120, 90, 30, .38) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+html.zg-inkgold-dark .el-button.is-disabled,
+html.zg-inkgold-dark .el-button.is-disabled:hover,
+html.zg-inkgold.zg-inkgold-dark .el-button.is-disabled,
+html.zg-inkgold.zg-inkgold-dark .el-button.is-disabled:hover {
+  background: rgba(255, 255, 255, .06) !important;
+  border-color: rgba(255, 255, 255, .12) !important;
+  color: rgba(243, 233, 210, .40) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   【v4.8.14 补】默认按钮（无 type）在墨金深档下是白块
+
+   实测题库首页「制卡 / Word 导入 / 试题篮」是 `<el-button>`（无 type），
+   Element Plus 默认 `--el-button-bg-color: #fff`，
+   在墨金深档里表现为一排【纯白方块】，与暗色玻璃卡片强烈冲突。
+   它们并非 is-disabled，所以上面的禁用态规则覆盖不到。
+   → 深档下把默认按钮改为"低透明度白底 + 浅色文字"，与卡片同色系。
+   --------------------------------------------------------------------------- */
+html.zg-inkgold.zg-inkgold-dark .el-button:not([class*="el-button--"]),
+html.zg-inkgold.zg-inkgold-dark .el-button.el-button--default {
+  background: rgba(255, 255, 255, .07) !important;
+  border-color: rgba(255, 255, 255, .14) !important;
+  color: #F3E9D2 !important;
+}
+html.zg-inkgold.zg-inkgold-dark .el-button:not([class*="el-button--"]):hover,
+html.zg-inkgold.zg-inkgold-dark .el-button.el-button--default:hover {
+  background: rgba(255, 255, 255, .12) !important;
+  border-color: rgba(255, 255, 255, .22) !important;
+  color: #FFF8E7 !important;
+}
+/* text 按钮（如「全部」）不参与上述底色，保持透明 */
+html.zg-inkgold.zg-inkgold-dark .el-button.is-text,
+html.zg-inkgold.zg-inkgold-dark .el-button.is-link {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* 【v4.8.14 补】墨金深档下 text/link 按钮文字色仍是 EP 默认的近黑色
+   （实测题库首页「全部」按钮 color=rgb(27,23,16)，在暗底上完全看不见） */
+html.zg-inkgold.zg-inkgold-dark .el-button.is-text,
+html.zg-inkgold.zg-inkgold-dark .el-button.is-link {
+  color: var(--zg-text, #F3E9D2) !important;
+}
+html.zg-inkgold.zg-inkgold-dark .el-button.is-text:hover,
+html.zg-inkgold.zg-inkgold-dark .el-button.is-link:hover {
+  color: var(--zg-primary) !important;
+  background: rgba(255, 255, 255, .06) !important;
+}
+/* 已选中的 text 按钮（type=primary）保持主题色 */
+html.zg-inkgold.zg-inkgold-dark .el-button.is-text.el-button--primary {
+  color: var(--zg-primary) !important;
+}

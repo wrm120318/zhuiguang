@@ -401,7 +401,7 @@ onMounted(async () => {
 .picker-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: 320px; }
 .pool, .picked { border: 1px solid #e5e7eb; border-radius: 8px; overflow-y: auto; padding: 6px; }
 .pool-item, .picked-item { display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 6px; cursor: pointer; }
-.pool-item:hover { background: #fef3c7; }
+.pool-item:hover { background: rgba(var(--zg-primary-rgb), .12); }
 .qtype-dot { font-size: 11px; color: #fff; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .pool-text, .picked-text { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picked-item .del { color: #ef4444; cursor: pointer; }

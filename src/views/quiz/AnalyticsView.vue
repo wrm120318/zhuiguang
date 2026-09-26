@@ -32,8 +32,22 @@ const stats = computed(() => data.value?.examStats || {})
 const hasExam = computed(() => (stats.value.subCount || 0) > 0)
 const hasPractice = computed(() => (data.value?.kpMastery || []).some((m: any) => (m.tries || 0) > 0))
 
+/**
+ * 【v4.8.14】ECharts 的 series 颜色只能吃"真实颜色字符串"，不能用 CSS 变量。
+ * 原来这里硬编码 `#b06a00`（经典档的棕色）：
+ *   · 经典档看着还行，但和主题主色 #F59E0B 并不是同一个色；
+ *   · 墨金两档下与整体配色完全不搭（深档更是亮棕色压在暗底上）。
+ * 改为运行时读取当前主题的 --zg-primary，图表颜色跟随主题自动切换。
+ */
+function themePrimary(): string {
+  if (typeof document === 'undefined') return '#F59E0B'
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--zg-primary').trim()
+  return v || '#F59E0B'
+}
+
 function renderCharts() {
   if (!data.value) return
+  const PRIMARY = themePrimary()
   nextTick(() => {
     if (histChart.value) {
       const h = data.value.scoreHistogram || []
@@ -43,7 +57,7 @@ function renderCharts() {
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'category', name: '分数', data: h.map((x: any) => `${x.range}-${x.range + 9}`) },
         yAxis: { type: 'value', name: '人数' },
-        series: [{ type: 'bar', data: h.map((x: any) => x.count), itemStyle: { color: '#b06a00' }, barWidth: '55%' }],
+        series: [{ type: 'bar', data: h.map((x: any) => x.count), itemStyle: { color: PRIMARY }, barWidth: '55%' }],
       })
     }
     if (masteryChart.value) {
@@ -72,7 +86,7 @@ function renderCharts() {
           indicator: m.map((x: any) => ({ name: x.kpName, max: 100 })),
           radius: '65%',
         },
-        series: [{ type: 'radar', data: [{ value: m.map((x: any) => x.rate), name: '正确率%', areaStyle: { opacity: 0.25 }, lineStyle: { color: '#b06a00' }, itemStyle: { color: '#b06a00' } }] }],
+        series: [{ type: 'radar', data: [{ value: m.map((x: any) => x.rate), name: '正确率%', areaStyle: { opacity: 0.25 }, lineStyle: { color: PRIMARY }, itemStyle: { color: PRIMARY } }] }],
       })
     }
     // ⑦ 历次考试纵向对比（平均分随时间）
@@ -85,7 +99,7 @@ function renderCharts() {
         xAxis: { type: 'category', data: trend.value.map((t: any) => t.title), axisLabel: { interval: 0, rotate: 20 } },
         yAxis: { type: 'value', name: '分数' },
         series: [
-          { name: '平均分', type: 'line', smooth: true, data: trend.value.map((t: any) => t.avg), itemStyle: { color: '#b06a00' }, label: { show: true } },
+          { name: '平均分', type: 'line', smooth: true, data: trend.value.map((t: any) => t.avg), itemStyle: { color: PRIMARY }, label: { show: true } },
           { name: '满分', type: 'line', smooth: true, data: trend.value.map((t: any) => t.total), lineStyle: { type: 'dashed', color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } },
         ],
       })
@@ -215,27 +229,27 @@ onMounted(async () => {
 <style scoped>
 .a-head { display: flex; align-items: baseline; gap: 12px; margin: 8px 0 16px; flex-wrap: wrap; }
 .a-head h2 { margin: 0; font-size: 20px; }
-.a-head .hint { color: #b06a00; font-size: 13px; }
+.a-head .hint { color: var(--zg-primary); font-size: 13px; }
 .blk { margin-bottom: 16px; }
-.muted { color: #999; font-size: 12px; }
+.muted { color: var(--zg-text-dim); font-size: 12px; }
 .center { text-align: center; }
 .stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
-.stat { background: #fff8ec; border-radius: 12px; padding: 12px; text-align: center; }
-.stat .num { font-size: 24px; font-weight: 700; color: #b06a00; }
+.stat { background: rgba(var(--zg-primary-rgb), .06); border-radius: 12px; padding: 12px; text-align: center; }
+.stat .num { font-size: 24px; font-weight: 700; color: var(--zg-primary); }
 .stat .lab { font-size: 12px; color: #8a6a3a; margin-top: 2px; }
 .chart { width: 100%; height: 240px; margin-top: 12px; }
 .chart.tall { height: 360px; }
 .cov-list { max-height: 360px; overflow-y: auto; }
 .cov { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .cov .nm { width: 96px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cov .bar { flex: 1; height: 8px; background: #f0e2c8; border-radius: 4px; overflow: hidden; }
-.cov .bar i { display: block; height: 100%; background: #b06a00; }
+.cov .bar { flex: 1; height: 8px; background: rgba(var(--zg-primary-rgb), .22); border-radius: 4px; overflow: hidden; }
+.cov .bar i { display: block; height: 100%; background: var(--zg-primary); }
 .cov .cnt { width: 48px; text-align: right; color: #8a6a3a; }
 .tier { border-radius: 12px; padding: 10px; height: 100%; }
 .tier.t-excellent { background: #eafaf0; } .tier.t-good { background: #f3faf0; }
 .tier.t-medium { background: #fff7e8; } .tier.t-weak { background: #fdecea; }
 .t-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.t-top b { color: #8a5a00; } .t-top span { font-size: 11px; color: #999; }
+.t-top b { color: var(--zg-text); } .t-top span { font-size: 11px; color: var(--zg-text-dim); }
 .t-body .u { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px dashed #eee; }
-.t-body .us { color: #b06a00; font-weight: 600; }
+.t-body .us { color: var(--zg-primary); font-weight: 600; }
 </style>

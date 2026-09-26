@@ -56,7 +56,7 @@ async function onSubmit(payload: any) {
   <div class="q-edit-page zg-container">
     <div class="page-head">
       <el-button @click="router.back()" icon="ArrowLeft">返回题库</el-button>
-      <h2>{{ isEdit ? '编辑题目' : '添加题目' }} · {{ subject?.name || '' }}</h2>
+      <h2>{{ isEdit ? '编辑题目' : '添加题目' }}<template v-if="subject?.name"> · {{ subject.name }}</template></h2>
     </div>
     <div v-if="loading" class="loading">加载中…</div>
     <QuestionForm
@@ -70,8 +70,25 @@ async function onSubmit(payload: any) {
 </template>
 
 <style scoped>
-.q-edit-page { max-width: 960px; margin: 0 auto; padding: 20px 0 60px; }
+.q-edit-page { max-width: 960px; margin: 0 auto; padding: 12px 0 60px; }
 .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
 .page-head h2 { font-size: 20px; margin: 0; }
-.loading { padding: 40px; text-align: center; color: #888; }
+.loading { padding: 40px; text-align: center; color: var(--zg-text-dim); }
+
+/* 【v4.8.14】移动端头部：返回按钮 + 标题竖排
+   实测 393px 下「返回题库」按钮（44px 高、约 140px 宽）与标题
+   「添加题目 · 物理」挤在同一行，标题的「·」被截断、视觉局促。
+   改为上下两行、左对齐，标题独占整行。 */
+@media (max-width: 768px) {
+  .q-edit-page { padding-top: 8px; }
+  .page-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .page-head h2 { font-size: 18px; line-height: 1.4; }
+  /* 返回按钮不要占满整行，保持"胶囊"感 */
+  .page-head .el-button { align-self: flex-start; }
+}
 </style>

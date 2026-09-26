@@ -86,14 +86,14 @@ onMounted(load)
 <style scoped>
 .wb-head { display: flex; align-items: baseline; gap: 12px; margin: 8px 0 16px; flex-wrap: wrap; }
 .wb-head h2 { margin: 0; font-size: 20px; }
-.wb-head .hint { color: #b06a00; font-size: 13px; }
+.wb-head .hint { color: var(--zg-primary); font-size: 13px; }
 .blk { margin-bottom: 14px; }
-.wq { border-bottom: 1px dashed #f0e2c8; padding: 8px 0; }
+.wq { border-bottom: 1px dashed rgba(var(--zg-primary-rgb), .22); padding: 8px 0; }
 .wq:last-child { border-bottom: none; }
 .wq-top { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.qtag { font-size: 11px; padding: 1px 6px; border-radius: 6px; color: #fff; background: #b06a00; flex: none; }
+.qtag { font-size: 11px; padding: 1px 6px; border-radius: 6px; color: #fff; background: var(--zg-primary); flex: none; }
 .qcontent { flex: 1; font-size: 14px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wq-detail { margin-top: 8px; padding: 10px; background: #fff8ec; border-radius: 10px; font-size: 14px; line-height: 1.7; }
+.wq-detail { margin-top: 8px; padding: 10px; background: rgba(var(--zg-primary-rgb), .06); border-radius: 10px; font-size: 14px; line-height: 1.7; }
 .wq-detail .row { margin-bottom: 6px; }
 .wq-detail :deep(p) { margin: 0; display: inline; }
 </style>
