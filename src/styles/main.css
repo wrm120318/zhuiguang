@@ -2940,7 +2940,17 @@ html, body { overflow-x: clip; }
   margin: 0.6em 0;
   display: block;
 }
-.markdown-body img.zg-img { /* 用户自定义尺寸 */ }
+/* 【v4.8.15】历史数据兜底：早期插入的大图没有尺寸标记，
+   inline 宽高会直接撑破题库卡片 / 试卷预览。这里统一加约束，
+   仅限制上限不强制拉伸，小图保持原尺寸。 */
+.markdown-body img.zg-img {
+  max-width: min(100%, 760px);
+  height: auto;
+  object-fit: contain;
+}
+.markdown-body img.zg-img[width] {
+  max-width: min(100%, 760px);
+}
 
 /* ==文本高亮== */
 .markdown-body mark.zg-highlight {
@@ -3023,7 +3033,7 @@ html, body { overflow-x: clip; }
 
 /* 扩展产物兜底：万一作者自定义容器没加 markdown-body，也能保留基本视觉
    （markdown-body 作用域样式优先级更高，自定义 .ad-content 等不会受影响） */
-img.zg-img { /* 用户自定义尺寸 */ }
+img.zg-img { max-width: 100%; height: auto; }
 mark.zg-highlight {
   background: linear-gradient(180deg, transparent 60%, rgba(250, 204, 21, 0.5) 60%);
   color: inherit; padding: 0 2px; font-weight: 600;
@@ -4612,4 +4622,534 @@ html.zg-inkgold.zg-inkgold-dark .el-button.is-link:hover {
 /* 已选中的 text 按钮（type=primary）保持主题色 */
 html.zg-inkgold.zg-inkgold-dark .el-button.is-text.el-button--primary {
   color: var(--zg-primary) !important;
+}
+
+/* ============================================================================
+   【v4.8.15】智能题库首页 · 移动端整体重排（单列化 + 统一控件规范）
+
+   用户反馈原话：「题库首页移动端显示依然十分诡异，模块大小极不统一，
+   根本不符合人类视觉习惯」。
+
+   实测诊断（393×852，Playwright 量测）——7 个硬伤：
+     ① .bank-head 高 290px，其中 .bh-stats 被挤成右侧 72px 窄柱、内部
+        1/1/1 竖排（题目/知识点/单选 各占一行），与左侧 233px 标题区完全失衡；
+     ② .filters 高 350px —— 9 个筛选器（关键词/题型/难度/教材版本/地区/
+        章节/年份/题源 + 筛选按钮）竖直堆成一屏半，且每个控件带内联
+        style="width:150/110/100/120/90px"，与网格列宽打架 → 宽度 132 vs 273
+        参差、高度 44 vs 48 混杂；
+     ③ .kp-aside 仅 157px 而 .filters 350px，模块高度差 2.2 倍，毫无节奏；
+     ④ 三层嵌套缩进：容器 x=16 → .bank-body 子项 x=32 → .filters x=48，
+        每层各加 16px，实际内容可用宽只剩 297px（视口 393px）；
+     ⑤ 底部 Dock 固定定位浮在筛选区中间，遮挡内容（页面未留底部安全空间）；
+     ⑥ 题卡操作按钮视觉权重混乱：4 个默认按钮 + 1 个红色文字"删除"
+        单独占一行，2×2 网格中第 5 个落单；
+     ⑦ .bh-stats 里 stats.byType 是动态 key（v-for），条目数不固定，
+        用 auto-fit 网格仍会因条目数变化导致整块高度跳动。
+
+   设计决策（用户选定「整体重排：单列化 + 统一控件规范」）：
+     · 单列化 —— 移动端不再保留「左栏知识点 + 右栏筛选」的双栏骨架，
+       知识点改为可折叠的顶部面板，主内容单列通栏；
+     · 统一控件规范 —— 所有可交互控件统一 44px 高、12px 圆角、
+       等宽网格排布，彻底去掉内联定宽造成的参差；
+     · 消除嵌套缩进 —— 移动端把 .bank-body / .filters 的横向 padding
+       归零，由页面容器统一提供 16px 安全边距，恢复 361px 内容宽；
+     · 底部安全区 —— 页面底部预留 Dock 高度，内容不再被遮挡。
+
+   实现要点：内联 style 无法被普通 CSS 覆盖，必须用 !important；
+   但内联 width 优先级等同 !important（内联优先），故对带内联 style 的
+   筛选控件用 width:100% !important + max-width + box-sizing 组合压制。
+   ============================================================================ */
+@media (max-width: 768px) {
+
+  /* ---------------------------------------------------------------------------
+     ① 页面底部安全区：预留底部 Dock 高度，修「筛选区/题卡被底栏压住」
+     Dock 实测高 56px + safe-area，这里给 84px 呼吸余量。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-page.zg-container {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ② 消除三层嵌套缩进（16 → 32 → 48）
+     移动端由 .zg-container 单独提供 16px 安全边距，
+     内层容器一律 0 横向 padding，内容宽从 297px 恢复到 361px（+21.5%）。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-body,
+  body.is-quiz-route .bank-body > *,
+  body.is-quiz-route .bank-main,
+  body.is-quiz-route .bank-main > * {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ③ 头部：单列三段式（标题 / 统计 / 操作），修「统计被挤成 72px 窄柱」
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-head {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+    padding: 16px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    box-sizing: border-box !important;
+  }
+  /* 标题行：返回键 + 标题块；返回圆形按钮固定 44×44 不参与拉伸 */
+  body.is-quiz-route .bank-head .bh-left {
+    display: flex !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+  }
+  body.is-quiz-route .bank-head .bh-left > .el-button {
+    flex: none !important;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.is-quiz-route .bank-head .bh-left > div {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  body.is-quiz-route .bank-head h2 {
+    font-size: 18px !important;
+    line-height: 1.4 !important;
+    margin: 0 0 4px !important;
+  }
+  /* 副标题在窄屏属于噪音，直接隐藏，把首屏空间让给统计与操作 */
+  body.is-quiz-route .bank-head .bh-sub {
+    display: none !important;
+  }
+
+  /* 统计：等宽网格。
+     ⚠️ 三版迭代的教训 —— auto-fit 会按可用宽算列数，实测正好落成 4 列，
+        5 项时排成 4+1，第 5 项「主观 1」孤零零占第二行左半格，右侧空一块；
+        这正是用户说的"模块大小极不统一"。
+     正确做法：按子项个数【显式指定列数】，
+       2 项 → 2 列（一行满）    3 项 → 3 列（一行满）
+       4 项 → 4 列（一行满）    5 项 → 3 列（3+2 两行，无空洞）
+       6 项 → 3 列（两行满）    7~8 项 → 4 列（4+3 / 4+4）
+     用 :has(> :nth-child(N):last-child) 精确命中「共 N 项」，
+     每一项都落在满行上，不再出现半行空洞。 */
+  body.is-quiz-route .bank-head .bh-stats {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    flex: none !important;
+    text-align: center !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(3):last-child) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(4):last-child) {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(5):last-child) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(6):last-child) {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(7):last-child),
+  body.is-quiz-route .bank-head .bh-stats:has(> :nth-child(8):last-child) {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats .stat {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    padding: 10px 6px !important;
+    min-width: 0 !important;
+    width: auto !important;
+    border-radius: var(--zg-r-md, 12px) !important;
+    background: rgba(var(--zg-primary-rgb), .07) !important;
+    border: 1px solid rgba(var(--zg-primary-rgb), .12) !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats .stat b {
+    font-size: 19px !important;
+    line-height: 1.15 !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+  body.is-quiz-route .bank-head .bh-stats .stat span {
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important;
+  }
+  /* 深档：统计格改用白色微透，避免暖色令牌在暗底发灰 */
+  html.zg-inkgold.zg-inkgold-dark body.is-quiz-route .bank-head .bh-stats .stat {
+    background: rgba(255, 255, 255, .06) !important;
+    border-color: rgba(255, 255, 255, .10) !important;
+  }
+
+  /* 操作区：两列等分网格，所有按钮同宽同高（修「按钮视觉权重不一」）
+     主操作（添加题目/智能组卷）各占半行，次级操作两两一行，
+     试题篮的 el-badge 也是网格项，需一并拉满宽度。 */
+  body.is-quiz-route .bank-head .bh-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    flex: none !important;
+    align-items: stretch !important;
+  }
+  body.is-quiz-route .bank-head .bh-actions > .el-button,
+  body.is-quiz-route .bank-head .bh-actions > .el-badge {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+  body.is-quiz-route .bank-head .bh-actions > .el-badge {
+    display: block !important;
+  }
+  body.is-quiz-route .bank-head .bh-actions > .el-badge .el-button {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+  body.is-quiz-route .bank-head .bh-actions .el-button {
+    height: 44px !important;
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 0 10px !important;
+    border-radius: var(--zg-r-md, 12px) !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ④ 主内容：单列骨架（放弃「左栏 + 右栏」双栏）
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-body {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  /* --- 知识点面板：折叠式顶部面板，不再是 157px 的矮条 --- */
+  body.is-quiz-route .bank-page .kp-aside {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+    padding: 12px 14px !important;
+    border-radius: var(--zg-r-lg, 18px) !important;
+    box-sizing: border-box !important;
+  }
+  body.is-quiz-route .bank-page .kp-aside-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    min-height: 44px !important;
+    padding: 0 !important;
+    margin: 0 0 4px !important;
+    font-size: 14px !important;
+  }
+  /* 知识点树：横向滚动单行（44px 热区），不再纵向堆成一坨 */
+  body.is-quiz-route .bank-page .kp-tree {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding: 2px 0 !important;
+    max-height: none !important;
+  }
+  body.is-quiz-route .bank-page .kp-tree::-webkit-scrollbar { display: none; }
+  body.is-quiz-route .bank-page .kp-node {
+    flex: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    min-height: 44px !important;
+    /* 层级缩进在横滑列表里没有意义（会白白吃掉热区宽度），统一归零 */
+    padding: 0 14px !important;
+    border-radius: var(--zg-r-pill, 999px) !important;
+    background: rgba(var(--zg-primary-rgb), .07) !important;
+    border: 1px solid rgba(var(--zg-primary-rgb), .14) !important;
+    font-size: 14px !important;
+    white-space: nowrap !important;
+  }
+  body.is-quiz-route .bank-page .kp-node.active {
+    background: var(--zg-primary) !important;
+    border-color: var(--zg-primary) !important;
+    color: #fff !important;
+  }
+  body.is-quiz-route .bank-page .kp-node.active .kp-count,
+  body.is-quiz-route .bank-page .kp-node.active .chev { color: #fff !important; }
+  body.is-quiz-route .bank-page .kp-node .chev { flex: none !important; }
+  body.is-quiz-route .bank-page .kp-mgr-btn {
+    width: 100% !important;
+    min-height: 44px !important;
+    margin-top: 8px !important;
+    justify-content: center !important;
+  }
+  html.zg-inkgold.zg-inkgold-dark body.is-quiz-route .bank-page .kp-node {
+    background: rgba(255, 255, 255, .06) !important;
+    border-color: rgba(255, 255, 255, .12) !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑤ 筛选区：统一控件规范（等宽网格 + 44px 高 + 12px 圆角）
+     根因：每个控件带内联 style="width:150/110/100/120/90px"，
+           与 2 列网格的列宽互相打架 → 宽度 132 vs 273 参差、高度 44/48 混杂。
+     对策：用 width:100% !important 压制内联定宽（同级，靠后声明胜出需配合
+           显式 width + box-sizing），并统一高度与圆角。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-page .filters {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    padding: 14px !important;
+    border-radius: var(--zg-r-lg, 18px) !important;
+    box-sizing: border-box !important;
+  }
+  /* 所有直接子项：占满网格列，清掉内联定宽与左右外边距 */
+  body.is-quiz-route .bank-page .filters > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    box-sizing: border-box !important;
+  }
+  /* 奇数个筛选器时末个控件会落单占半格、右边空一块 —— 很难看。
+     实测共 10 个子项（关键词 + 题型/难度 + 教材版本/地区 + 章节/年份 + 题源
+     + 筛选 + 显示答案），去掉跨 2 列的关键词后剩 9 项，是奇数 → 题源落单。
+     对策：让「题源」也跨两列，与关键词形成上下呼应的两条全宽行，
+           奇数问题消失，且视觉上更有"分组感"。
+     选择器用 :nth-child(8)（题源是第 8 个子项：1关键词 2题型 3难度
+     4教材版本 5地区 6章节 7年份 8题源 9筛选 10显示答案）。 */
+  body.is-quiz-route .bank-page .filters > *:nth-child(8):nth-last-child(3) {
+    grid-column: 1 / -1 !important;
+  }
+  /* 最后一个主按钮（「筛选」，type=primary）跨两列做视觉收口。
+     ⚠️ 不能用 :last-child —— filters 里最后一项其实是「显示答案」文字按钮，
+        它是次要操作，跨列反而喧宾夺主。 */
+  body.is-quiz-route .bank-page .filters > .el-button--primary {
+    grid-column: 1 / -1 !important;
+    justify-content: center !important;
+  }
+  /* 「显示答案」是次要操作，只占半格即可，与网格基线对齐；
+     另半格留白比强行拉伸更干净（也避免与「筛选」两个全宽按钮叠加）。 */
+  body.is-quiz-route .bank-page .filters > .el-button.is-text {
+    grid-column: auto !important;
+    justify-content: center !important;
+  }
+  /* 统一高度：输入框 / 下拉 / 按钮 全部 44px，圆角 12px */
+  body.is-quiz-route .bank-page .filters .el-input,
+  body.is-quiz-route .bank-page .filters .el-select,
+  body.is-quiz-route .bank-page .filters .el-input-number {
+    width: 100% !important;
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+  body.is-quiz-route .bank-page .filters .el-input__wrapper,
+  body.is-quiz-route .bank-page .filters .el-select__wrapper,
+  body.is-quiz-route .bank-page .filters .el-input__inner,
+  body.is-quiz-route .bank-page .filters .el-select__placeholder {
+    height: 44px !important;
+    min-height: 44px !important;
+    font-size: 14px !important;
+    border-radius: var(--zg-r-md, 12px) !important;
+    box-sizing: border-box !important;
+  }
+  body.is-quiz-route .bank-page .filters .el-input__wrapper,
+  body.is-quiz-route .bank-page .filters .el-select__wrapper {
+    padding: 0 12px !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+  body.is-quiz-route .bank-page .filters .el-button {
+    height: 44px !important;
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 0 12px !important;
+    border-radius: var(--zg-r-md, 12px) !important;
+    margin: 0 !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑥ 题目卡片：信息层级重整
+     原问题：左橙竖条 + 未选中圆圈 + 星级 + "难度 3" 重复表达同一信息；
+             4 个默认按钮 + 红色文字"删除"单独落单一行。
+     对策：题卡内边距收紧；操作区 2 列等分网格（第 5 个按钮跨列），
+           删除按钮不再孤立。
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-page .q-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  body.is-quiz-route .bank-page .q-card {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: 14px !important;
+    border-radius: var(--zg-r-lg, 18px) !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  /* 元信息行：标签横向排列但允许换行，等间距，不溢出。
+     ⚠️ 混排问题：这一行同时含 el-tag（题型）与自绘 .tag（满分/版本/地区/年份/题源），
+        两套标签的字号、内边距、行高、圆角各不相同（el-tag 是 22px 胶囊、
+        .tag 是 1px 8px 的方角小块），凑在一起就是"模块大小极不统一"的观感。
+        移动端统一成同一套规格：24px 高 / 12px 字 / 8px 圆角 / 胶囊形。 */
+  body.is-quiz-route .bank-page .q-card .q-meta {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-bottom: 8px !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-meta .el-tag,
+  body.is-quiz-route .bank-page .q-card .q-meta .tag,
+  body.is-quiz-route .bank-page .q-card .q-meta .diff-txt {
+    height: 24px !important;
+    min-height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 9px !important;
+    font-size: 12px !important;
+    line-height: 1 !important;
+    border-radius: var(--zg-r-pill, 999px) !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+  }
+  /* 难度：星级在窄屏已隐藏，这一格变成纯文本标签，给它同款底 */
+  body.is-quiz-route .bank-page .q-card .q-meta .diff-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0 !important;
+    height: 24px !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-meta .diff-txt {
+    background: rgba(var(--zg-primary-rgb), .10) !important;
+    color: var(--zg-primary) !important;
+  }
+  /* 知识点标签与元信息标签统一规格，避免"两行标签尺寸不一" */
+  body.is-quiz-route .bank-page .q-card .q-kp {
+    gap: 6px !important;
+    margin: 8px 0 0 !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-kp .el-tag {
+    height: 24px !important;
+    padding: 0 9px !important;
+    font-size: 12px !important;
+    border-radius: var(--zg-r-pill, 999px) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+  /* 深档：自绘 .tag 的暖色底在暗底上发灰，换白色微透 */
+  html.zg-inkgold.zg-inkgold-dark body.is-quiz-route .bank-page .q-card .q-meta .tag {
+    background: rgba(255, 255, 255, .09) !important;
+    color: #F3E9D2 !important;
+  }
+  html.zg-inkgold.zg-inkgold-dark body.is-quiz-route .bank-page .q-card .q-meta .diff-txt {
+    background: rgba(255, 255, 255, .09) !important;
+    color: var(--zg-primary) !important;
+  }
+  /* 难度：星级在窄屏占地大且与"难度 N"重复，只保留数字文本 */
+  body.is-quiz-route .bank-page .q-card .q-meta .el-rate {
+    display: none !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-meta .diff-txt {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+    white-space: nowrap !important;
+  }
+  /* 题干 / 选项：宽度受控，公式与图片不溢出 */
+  body.is-quiz-route .bank-page .q-card .q-content,
+  body.is-quiz-route .bank-page .q-card .q-options {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow-wrap: anywhere !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-content img,
+  body.is-quiz-route .bank-page .q-card .q-options img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  /* 操作区：2 列等分网格；奇数个末项跨列（修"删除孤立一行"） */
+  body.is-quiz-route .bank-page .q-card .q-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-top: 12px !important;
+    width: 100% !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-actions > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+  body.is-quiz-route .bank-page .q-card .q-actions .el-button {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    margin: 0 !important;
+    font-size: 14px !important;
+    border-radius: var(--zg-r-md, 12px) !important;
+  }
+  /* 操作按钮奇数个时，最后一项跨两列收口（不留半格空洞）。
+     实测 3 项（入篮/收藏/详情）与 5 项（+编辑/删除）都是这个规律：
+     奇数个 → 末项整行；偶数个 → 两两成行。
+     ⚠️ 不要试图把 3 项的末项留在半格 —— 右边会空出半格，比整行更难看。 */
+  body.is-quiz-route .bank-page .q-card .q-actions > *:last-child:nth-child(odd) {
+    grid-column: 1 / -1 !important;
+  }
+
+  /* ---------------------------------------------------------------------------
+     ⑦ 知识点管理面板 / 智能组卷弹窗内的定宽控件：窄屏一律占满
+     （内联 width:200px / 170px / 160px 在 393px 下会溢出或留大空洞）
+     --------------------------------------------------------------------------- */
+  body.is-quiz-route .bank-page .kp-manager .kp-add {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  body.is-quiz-route .bank-page .kp-manager .kp-add > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  body.is-quiz-route .bank-page .kp-manager .kp-add .el-button {
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+  body.is-quiz-route .bank-page .kp-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  body.is-quiz-route .bank-page .kp-list .kp-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    min-height: 44px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
 }

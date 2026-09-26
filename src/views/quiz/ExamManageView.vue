@@ -8,7 +8,7 @@
       </div>
       <div class="head-actions">
         <el-button v-if="isStaff" type="primary" icon="Plus" @click="showCreate = true">创建考试</el-button>
-        <el-button v-if="!isStaff" icon="Trophy" @click="showMy = true">我的成绩</el-button>
+        <el-button v-if="!isStaff" icon="Trophy" @click="showMy = true">我的学情报告</el-button>
       </div>
     </div>
 
@@ -123,7 +123,7 @@
     <el-drawer v-model="showDetail" :title="curExam?.title" size="60%" @open="loadDetail">
       <div v-if="detail" v-loading="detailLoading">
         <div class="detail-bar">
-          <el-button icon="Printer" @click="printSheet">生成答题卡模板</el-button>
+          <el-button icon="Postcard" @click="openSheet">答题卡制作</el-button>
           <el-tag type="info">共 {{ detail.questions.length }} 题 / 总分 {{ detail.total_score }}</el-tag>
         </div>
         <div v-for="(q, i) in detail.questions" :key="q.id" class="d-q">
@@ -136,8 +136,22 @@
       </div>
     </el-drawer>
 
-    <!-- 网阅打分 -->
-    <el-dialog v-model="showGrade" :title="'网阅打分 · ' + (curExam?.title || '')" width="880px" top="4vh" @open="loadResponses" append-to-body>
+    <!-- 答题卡制作（对标智学网制卡工具） -->
+    <el-dialog v-model="showSheet" :title="'答题卡制作 · ' + (curExam?.title || '')" width="880px" top="5vh" append-to-body>
+      <AnswerSheetPanel v-if="detail" :exam="detail" :subject-name="subject?.name" />
+    </el-dialog>
+
+    <!-- 网阅打分（三栏工作台，对标智学网网阅） -->
+    <el-dialog v-model="showGrade" :title="'在线阅卷 · ' + (curExam?.title || '')" width="94%" top="3vh" @open="loadResponses" append-to-body class="grade-dlg" destroy-on-close>
+      <GradingWorkbench
+        v-if="curExam"
+        :exam="{ ...curExam, questions: curExam.questions && curExam.questions.length ? curExam.questions : (detail?.questions || []) }"
+        :students="students"
+        @saved="loadResponses" />
+    </el-dialog>
+
+    <!-- 旧的单栏打分表单：已被三栏工作台替代，保留在代码里仅作降级参考，不再渲染 -->
+    <el-dialog v-if="false" v-model="showGradeLegacy" width="880px" append-to-body>
       <div class="grade-wrap" v-loading="gradeLoading">
         <div class="grade-pick">
           <el-select v-model="gradeStudent" filterable placeholder="选择学生" style="width:220px" @change="onStudentChange">
@@ -173,8 +187,13 @@
       </div>
     </el-dialog>
 
-    <!-- 学生查分 -->
-    <el-dialog v-model="showMy" title="我的成绩" width="460px" append-to-body>
+    <!-- 学生查分 → 学情报告（对标智学网学生报告） -->
+    <el-dialog v-model="showMy" title="我的学情报告" width="720px" top="5vh" append-to-body>
+      <StudentReport v-if="showMy && curExam" :exam="curExam" :subject-id="subject?.id" />
+    </el-dialog>
+
+    <!-- 旧版简易成绩弹窗（保留但不渲染） -->
+    <el-dialog v-if="false" v-model="showMyLegacy" title="我的成绩" width="460px" append-to-body>
       <div v-if="myResult === null" v-loading="myLoading" />
       <template v-else-if="myResult?.released">
         <template v-if="myResult.response">
@@ -207,6 +226,9 @@ import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { renderMarkdown } from '@/utils/markdown'
 import ZgGlyph from '@/components/ZgGlyph.vue'
+import AnswerSheetPanel from '@/components/AnswerSheetPanel.vue'
+import GradingWorkbench from '@/components/GradingWorkbench.vue'
+import StudentReport from '@/components/StudentReport.vue'
 import { ElMessage } from 'element-plus'
 import { UploadFile } from 'element-plus'
 
@@ -302,6 +324,10 @@ function stripMd(s: string) { return (s || '').replace(/\*\*/g, '').replace(/\$/
 
 // ===== 网阅 =====
 const showGrade = ref(false)
+const showGradeLegacy = ref(false)
+const showMyLegacy = ref(false)
+const showSheet = ref(false)
+function openSheet() { showSheet.value = true }
 const gradeLoading = ref(false)
 const gradeStudent = ref<number | null>(null)
 const gradeScores: any = ref({})

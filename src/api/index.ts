@@ -69,6 +69,19 @@ async function compressImage(file: File): Promise<File> {
   }
 }
 
+// ===== 读取图片自然尺寸（用于编辑器自动限制插图展示宽度） =====
+async function measureImage(file: File): Promise<{ width: number; height: number } | null> {
+  if (typeof window === 'undefined') return null
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (!COMPRESS_IMAGE_EXTS.includes(ext) && !file.type.toLowerCase().startsWith('image/')) return null
+  try {
+    const img = await loadImageFromFile(file)
+    return { width: img.naturalWidth || img.width, height: img.naturalHeight || img.height }
+  } catch {
+    return null
+  }
+}
+
 // ===== 统一经 Worker 代理上传（废除 Supabase 直传 / presign 预签名直传） =====
 // 流程：前端把文件用 FormData 包成字段 file → POST 到 Worker 的 /api/upload/file 或 /api/upload/image
 //       Worker 内部完成存储写入，返回 { url, fileId, filePath, fileName, fileType, fileSize }
@@ -106,9 +119,13 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   const rawUrl: string = result?.url || ''
   const url: string = fileUrl(rawUrl)
   const fileId: string = result?.fileId || ''
+  const dim = await measureImage(uploadFile)
   return {
     url,
     fileId,
+    // 【v4.8.15】返回图片自然宽高，供编辑器按内容区宽度自动限制展示尺寸
+    width: dim?.width || 0,
+    height: dim?.height || 0,
     filePath: fileUrl(result?.filePath || rawUrl),
     fileName: result?.fileName || uploadFile.name,
     fileType: result?.fileType || (kind === 'image' ? 'image' : 'file'),

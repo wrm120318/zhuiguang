@@ -228,19 +228,23 @@ async function smartAssemble() {
 
       <!-- 右侧：筛选 + 题卡 -->
       <section class="bank-main">
+        <!-- 【v4.8.15】筛选区：移除全部内联定宽（原 150/110/100/120/90px）。
+             内联宽度会与移动端 2 列网格的列宽互相打架，导致控件宽度 132 vs 273
+             参差、高度 44/48 混杂，是「模块大小极不统一」的直接根因。
+             宽度改由 CSS 网格接管，桌面/移动共用一套等宽规则。 -->
         <div class="filters glass">
-          <el-input v-model="filters.keyword" placeholder="关键词" clearable style="width:150px" @keyup.enter="loadQuestions" />
-          <el-select v-model="filters.qtype" placeholder="题型" clearable style="width:110px" @change="loadQuestions">
+          <el-input v-model="filters.keyword" placeholder="关键词" clearable @keyup.enter="loadQuestions" />
+          <el-select v-model="filters.qtype" placeholder="题型" clearable @change="loadQuestions">
             <el-option v-for="(l, v) in qtypeLabels" :key="v" :label="l" :value="v" />
           </el-select>
-          <el-select v-model="filters.difficulty" placeholder="难度" clearable style="width:100px" @change="loadQuestions">
+          <el-select v-model="filters.difficulty" placeholder="难度" clearable @change="loadQuestions">
             <el-option v-for="d in [1,2,3,4,5]" :key="d" :label="`${d}星`" :value="d" />
           </el-select>
-          <el-input v-model="filters.textbook_version" placeholder="教材版本" clearable style="width:120px" @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.region" placeholder="地区" clearable style="width:100px" @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.chapter" placeholder="章节" clearable style="width:120px" @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.year" placeholder="年份" clearable style="width:90px" @keyup.enter="loadQuestions" />
-          <el-select v-model="filters.source" placeholder="题源" clearable style="width:100px" @change="loadQuestions">
+          <el-input v-model="filters.textbook_version" placeholder="教材版本" clearable @keyup.enter="loadQuestions" />
+          <el-input v-model="filters.region" placeholder="地区" clearable @keyup.enter="loadQuestions" />
+          <el-input v-model="filters.chapter" placeholder="章节" clearable @keyup.enter="loadQuestions" />
+          <el-input v-model="filters.year" placeholder="年份" clearable @keyup.enter="loadQuestions" />
+          <el-select v-model="filters.source" placeholder="题源" clearable @change="loadQuestions">
             <el-option label="真题" value="真题" /><el-option label="模拟" value="模拟" />
             <el-option label="同步" value="同步" /><el-option label="专题" value="专题" /><el-option label="原创" value="原创" />
           </el-select>
@@ -445,8 +449,23 @@ async function smartAssemble() {
 .kp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kp-count { font-size: 11px; color: #aaa; }
 .kp-mgr-btn { margin-top: 8px; }
-/* 筛选 */
-.filters { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px; margin-bottom: 12px; border-radius: 14px; align-items: center; }
+/* 筛选
+   【v4.8.15】原为 flex + 每个控件内联定宽（150/110/100/120/90px），
+   宽度参差、窄屏互相打架。改为等宽网格：关键字占两格更宽，
+   其余控件同宽，桌面与移动共用同一套"统一控件规范"。 */
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  align-items: center;
+}
+/* 关键词是主输入，占两格 */
+.filters > *:first-child { grid-column: span 2; }
+.filters .el-input,
+.filters .el-select { width: 100%; }
 /* 题目卡 */
 .q-list { display: flex; flex-direction: column; gap: 12px; }
 .q-card { position: relative; padding: 14px 16px 14px 22px; border-radius: 14px; cursor: pointer; transition: transform .15s, box-shadow .15s; }

@@ -35,6 +35,7 @@ const emit = defineEmits<{
   (e: 'upload', payload: { url: string; type: 'image' | 'file' }): void
 }>()
 
+const rootRef = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 // 【v4.8.14】移动端默认「编辑」而不是「分屏」：
@@ -307,7 +308,7 @@ async function uploadFile(file: File, type: 'image' | 'file') {
     const r: any = type === 'image' ? await api.uploadImage(file) : await api.uploadFile(file)
     const url = r.url
     if (type === 'image') {
-      insertAtCursor(`\n![${file.name}](${url})\n\n`)
+      insertAtCursor(`\n![${file.name}](${url})${imgSizeAttrs(r)}\n\n`)
       ElMessage.success('图片已上传并插入')
     } else {
       insertAtCursor(`\n[${file.name}](file://${file.name})\n\n实际链接：${url}\n\n`)
@@ -317,6 +318,27 @@ async function uploadFile(file: File, type: 'image' | 'file') {
   } catch (e: any) {
     ElMessage.error(e?.message || '上传失败')
   }
+}
+
+// 【v4.8.15】上传题目图片后自动限制展示尺寸，避免大图撑爆编辑器/题库卡片
+// 复用既有语法 ![alt](url =WxH)（见 marked-extensions.ts 的 imageSized 扩展），
+// 不引入新语法，渲染侧 / Word 导出侧零改动即可生效。
+const IMG_MAX_RATIO = 1      // 图片不超过内容区宽度的 100%
+const IMG_MIN_PX = 120       // 兜底最小宽度，避免极端窄容器把图压成一条线
+
+function imgSizeAttrs(r: any): string {
+  let w = Number(r?.width) || 0
+  let h = Number(r?.height) || 0
+  if (!w || !h) return ''
+  const host = textareaRef.value?.clientWidth || rootRef.value?.clientWidth || 0
+  // 编辑器未挂载（极少数）时退回 720px 的经验内容宽度
+  const contentW = host > 200 ? host : 720
+  const maxW = Math.max(IMG_MIN_PX, Math.round(contentW * IMG_MAX_RATIO))
+  if (w > maxW) {
+    h = Math.round((h * maxW) / w)
+    w = maxW
+  }
+  return ` =${Math.round(w)}x${Math.round(h)}`
 }
 
 // ===== 拖拽 / 粘贴 =====
@@ -395,7 +417,7 @@ const tools = computed(() => [
 </script>
 
 <template>
-  <div class="zg-editor" :class="{ fullscreen }">
+  <div ref="rootRef" class="zg-editor" :class="{ fullscreen }">
     <div class="zg-editor-bar">
       <div class="zg-tools">
         <template v-for="(t, i) in tools" :key="i">
