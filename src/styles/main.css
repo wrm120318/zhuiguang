@@ -770,9 +770,24 @@ img { -webkit-user-drag: none; }
 .d-content img, .g-content img, .ad-content img, .au-content img {
   max-width: min(100%, 680px) !important;
   max-height: 520px;
+  object-fit: contain;
+}
+/* 【v4.8.23 关键修正】原来这里无条件写 `width: auto; height: auto`，
+   把**用户在编辑器里拖出来的宽度**（内联 style="width:300px" / HTML width="300" 属性）
+   全部覆盖掉了 —— 表现为「图片大小设了没用」「拖了不变」。
+   现在只在图片**没有显式宽度**时才自动，有显式宽度就尊重用户设置（仍受 max-width 上限保护）。 */
+.q-content img:not([width]):not([style*="width"]),
+.markdown-body img:not([width]):not([style*="width"]),
+.pc-content img:not([width]):not([style*="width"]),
+.rb-content img:not([width]):not([style*="width"]),
+.rc-question img:not([width]):not([style*="width"]),
+.grade-content img:not([width]):not([style*="width"]),
+.d-content img:not([width]):not([style*="width"]),
+.g-content img:not([width]):not([style*="width"]),
+.ad-content img:not([width]):not([style*="width"]),
+.au-content img:not([width]):not([style*="width"]) {
   width: auto;
   height: auto;
-  object-fit: contain;
 }
 /* 移动端进一步收紧，避免单图占满整个视口 */
 @media (max-width: 768px) {

@@ -78,32 +78,82 @@ const previewHtml = computed(() => renderExtendedMarkdown(content.value, true))
 // ============================================================================
 const previewPaneRef = ref<HTMLElement | null>(null)
 const MIN_IMG_W = 40           // 最小宽度，避免拖成一条线
-const HANDLE_HIT = 14          // 手柄尺寸（px），与 CSS 保持一致
+let dragging = false           // 是否正在拖拽图片（供手柄 hover 显隐逻辑判断）
 
-/** 给预览区所有 img.zg-img 包一层带手柄的容器 */
+/**
+ * 给预览区所有图片包一层带手柄的容器
+ * 【v4.8.23】原来只选 `img.zg-img`（marked 的 imageSized 扩展产出），
+ *   但**裸 HTML `<img src=... width=300>` 不会带这个类**（数学/物理题里很常见），
+ *   导致那些图完全没有手柄 —— 用户的反馈「图片自适应到现在还没做」正是这个漏网之鱼。
+ *   现在改为覆盖预览区所有 img，再排除掉不该拖的（KaTeX 公式图、极小图标、表情）。
+ *
+ * 【v4.8.23 二修｜手柄点了没反应】
+ *   本组件 `<style scoped>`，scoped 会给选择器编译出 `[data-v-xxx]` 属性要求，
+ *   而这些节点是**原生 JS 动态创建**的、拿不到 `data-v-*` 属性 → 样式全部落空
+ *   （实测 handle 的 display 仍是 inline、position 仍是 static、宽高 0 → 根本点不到）。
+ *   故这里改为**直接写内联样式**，彻底绕开 scoped 作用域问题。
+ */
+const HANDLE_STYLE: Partial<CSSStyleDeclaration> = {
+  position: 'absolute',
+  width: '14px',
+  height: '14px',
+  borderRadius: '3px',
+  background: '#f59e0b',
+  border: '2px solid #fff',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+  cursor: 'nwse-resize',
+  opacity: '0',
+  transition: 'opacity .15s ease',
+  zIndex: '3',
+  boxSizing: 'border-box',
+  pointerEvents: 'auto',
+  userSelect: 'none',
+}
+
 function decorateImages() {
   const pane = previewPaneRef.value
   if (!pane) return
-  pane.querySelectorAll<HTMLImageElement>('img.zg-img').forEach(img => {
+  pane.querySelectorAll<HTMLImageElement>('img').forEach(img => {
     const parent = img.parentElement
     if (!parent) return
     // 已包装过（父级就是 box）→ 跳过，避免重复渲染时层层嵌套
     if (parent.classList.contains('zg-img-box')) return
+    // KaTeX 公式渲染出的 SVG/图片不参与拖拽
+    if (img.closest('.katex, .katex-display, .katex-html')) return
+    if (img.classList.contains('katex-img')) return
+    // 排除 emoji / 表情等小图（内容小图另说，这里按 src 特征判断）
+    const cls = img.className || ''
+    if (/emoji|emojione|twemoji|icon/i.test(cls)) return
+    // 宽高都极小（< 24px）的多半是图标，不挂手柄
+    const r = img.getBoundingClientRect()
+    if ((r.width && r.width < 24) || (r.height && r.height < 24)) return
+
     const box = document.createElement('span')
     box.className = 'zg-img-box'
+    Object.assign(box.style, {
+      position: 'relative', display: 'inline-block', maxWidth: '100%', lineHeight: '0',
+    } as Partial<CSSStyleDeclaration>)
     parent.insertBefore(box, img)
     box.appendChild(img)
-    const handle = document.createElement('span')
-    handle.className = 'zg-img-handle'
-    handle.title = '拖动调整图片大小'
-    handle.dataset.role = 'resize'
-    box.appendChild(handle)
-    // 左上角手柄（反向缩放）
-    const handleTL = document.createElement('span')
-    handleTL.className = 'zg-img-handle tl'
-    handleTL.title = '拖动调整图片大小'
-    handleTL.dataset.role = 'resize-tl'
-    box.appendChild(handleTL)
+    Object.assign(img.style, { display: 'block', maxWidth: '100%' } as Partial<CSSStyleDeclaration>)
+
+    const mkHandle = (tl: boolean) => {
+      const h = document.createElement('span')
+      h.className = tl ? 'zg-img-handle tl' : 'zg-img-handle'
+      h.title = '拖动调整图片大小'
+      h.dataset.role = tl ? 'resize-tl' : 'resize'
+      Object.assign(h.style, HANDLE_STYLE)
+      if (tl) { h.style.left = '-6px'; h.style.top = '-6px' }
+      else { h.style.right = '-6px'; h.style.bottom = '-6px' }
+      // hover 显隐：直接绑事件，不依赖 CSS
+      h.addEventListener('mouseenter', () => { h.style.opacity = '1' })
+      h.addEventListener('mouseleave', () => { if (!dragging) h.style.opacity = '0' })
+      box.addEventListener('mouseenter', () => { box.querySelectorAll<HTMLElement>('.zg-img-handle').forEach(x => { x.style.opacity = '1' }) })
+      box.addEventListener('mouseleave', () => { if (!dragging) box.querySelectorAll<HTMLElement>('.zg-img-handle').forEach(x => { x.style.opacity = '0' }) })
+      box.appendChild(h)
+    }
+    mkHandle(false)
+    mkHandle(true)
   })
 }
 
@@ -115,8 +165,15 @@ function onPreviewMouseDown(e: MouseEvent) {
   e.stopPropagation()
 
   const box = target.parentElement
-  const img = box?.querySelector<HTMLImageElement>('img.zg-img')
+  const img = box?.querySelector<HTMLImageElement>('img')
   if (!box || !img) return
+
+  dragging = true
+  target.style.opacity = '1'
+  // 拖拽期间禁掉文本选中，避免拖出蓝色选区
+  const prevUserSelect = document.body.style.userSelect
+  document.body.style.userSelect = 'none'
+  if (previewPaneRef.value) previewPaneRef.value.style.userSelect = 'none'
 
   const isTL = target.classList.contains('tl')
   const startX = e.clientX
@@ -128,6 +185,9 @@ function onPreviewMouseDown(e: MouseEvent) {
   // 内容区最大宽度：约等于预览区可视宽度
   const paneW = previewPaneRef.value?.clientWidth || 720
   const maxW = Math.max(MIN_IMG_W, paneW - 8)
+  // 拖拽过程中先去掉 max-width 限制，否则改不动（CSS max-width:100% 会压住内联宽度）
+  const prevMaxW = img.style.maxWidth
+  img.style.maxWidth = 'none'
 
   const onMove = (ev: MouseEvent) => {
     const dx = ev.clientX - startX
@@ -142,9 +202,17 @@ function onPreviewMouseDown(e: MouseEvent) {
   const onUp = () => {
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
+    dragging = false
+    document.body.style.userSelect = prevUserSelect
+    if (previewPaneRef.value) previewPaneRef.value.style.userSelect = ''
+    img.style.maxWidth = prevMaxW || ''
     const w = Number(box.dataset.curW || 0)
     const h = Number(box.dataset.curH || 0)
-    if (w && h) applyImageSize(img.src, w, h)
+    // 【v4.8.23】优先用**原始 src 属性**（源码里写的那个），而不是 img.src
+    //   （后者是浏览器解析后的绝对 URL，源码里可能是相对路径 → 反查会失败）
+    if (w && h) applyImageSize(img.getAttribute('src') || img.src, w, h)
+    // 收起手柄
+    box.querySelectorAll<HTMLElement>('.zg-img-handle').forEach(x => { x.style.opacity = '0' })
   }
   document.addEventListener('mousemove', onMove)
   document.addEventListener('mouseup', onUp)
@@ -153,35 +221,52 @@ function onPreviewMouseDown(e: MouseEvent) {
 /** 把新的 W×H 写回 Markdown 源码 */
 function applyImageSize(src: string, w: number, h: number) {
   const md = content.value
-  // 在 Markdown 里找该图片对应的 ![alt](url) —— url 可能被 escapeHtml 过，这里做双向匹配
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // 归一化：把 &amp; 等还原，便于比对
-  const norm = (s: string) => s.replace(/&amp;/g, '&')
+  // 归一化：还原 HTML 实体 + 去掉空白，便于跨表示形式比对
+  const norm = (s: string) => String(s)
+    .replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\s+/g, '')
   const targetNorm = norm(src)
+  // 相对/绝对等价的候选（源码写 /api/xxx，浏览器 src 是 https://api.../api/xxx）→ 取路径后缀比对
+  const tail = (s: string) => {
+    try { const u = new URL(s, location.origin); return norm(u.pathname + u.search) } catch { return norm(s) }
+  }
+  const targetTail = tail(src)
   let matched = false
 
+  // ① Markdown 语法 ![alt](url =WxH?)
   const re = /!\[([^\]]*)\]\(([^)\s]+)(\s*=\s*(\d+)\s*[x×]\s*(\d+)\s*)?\)/g
-  const out = md.replace(re, (full, alt, url) => {
+  let out = md.replace(re, (full, alt, url) => {
     if (matched) return full
-    if (norm(url) !== targetNorm) return full
+    if (norm(url) !== targetNorm && tail(url) !== targetTail) return full
     matched = true
     return `![${alt}](${url} =${w}x${h})`
   })
 
+  // ② 裸 HTML <img ...>（数学/物理题里常见，也是「图片拖不动」的原发场景）
   if (!matched) {
-    // 兜底：源码里可能是裸 HTML <img src="..."> 或 data: URL（无法按 src 反查）
-    // 这种直接改 img 标签的 width/height 属性
-    const imgRe = new RegExp('<img\\b[^>]*\\bsrc\\s*=\\s*["\']' + esc(src) + '["\'][^>]*>', 'i')
-    if (imgRe.test(content.value)) {
-      content.value = content.value.replace(imgRe, (tag) => {
-        let t = tag.replace(/\s+width\s*=\s*["']?\d+(px)?["']?/i, '')
-        t = t.replace(/\s+height\s*=\s*["']?\d+(px)?["']?/i, '')
-        t = t.replace(/\s+style\s*=\s*["']([^"']*)["']/i, (_m, s) => ` style="${s.replace(/(^|;)\s*width\s*:[^;]*/i, '').replace(/(^|;)\s*height\s*:[^;]*/i, '')};width:${w}px;height:${h}px"`)
-        return t.replace(/<img\b/i, `<img width="${w}" height="${h}"`)
+    const imgRe = /<img\b[^>]*>/gi
+    out = out.replace(imgRe, (tag) => {
+      if (matched) return tag
+      const m = tag.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || tag.match(/\bsrc\s*=\s*([^\s>]+)/i)
+      if (!m) return tag
+      if (norm(m[1]) !== targetNorm && tail(m[1]) !== targetTail) return tag
+      matched = true
+      // 清掉旧的 width / height（属性形式与内联 style 形式都清）
+      let t = tag
+        .replace(/\s+width\s*=\s*["']?[^"'\s>]+["']?/i, '')
+        .replace(/\s+height\s*=\s*["']?[^"'\s>]+["']?/i, '')
+      t = t.replace(/\s+style\s*=\s*["']([^"']*)["']/i, (_mm: string, sty: string) => {
+        const cleaned = sty
+          .split(';').map(s => s.trim())
+          .filter(s => s && !/^width\s*:/i.test(s) && !/^height\s*:/i.test(s))
+          .join(';')
+        return cleaned ? ` style="${cleaned};width:${w}px;height:${h}px"` : ` style="width:${w}px;height:${h}px"`
       })
-      ElMessage.success(`图片已调整为 ${w}×${h}`)
-      return
-    }
+      return t.replace(/<img\b/i, `<img width="${w}" height="${h}"`)
+    })
+  }
+
+  if (!matched) {
     ElMessage.warning('没能定位到这张图片的源码，请手动调整尺寸')
     return
   }
@@ -729,44 +814,6 @@ const tools = computed(() => [
 }
 .zg-preview-content { font-size: 15px; line-height: 1.85; }
 
-/* 【v4.8.21】图片拖拽调大小：预览区每张图外包一层 .zg-img-box，四角带手柄 */
-.zg-img-box {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  line-height: 0;
-}
-.zg-img-box > img.zg-img { display: block; max-width: 100%; }
-/* hover 时给个淡金描边，提示"这张图可拖" */
-.zg-img-box:hover > img.zg-img {
-  outline: 2px solid rgba(var(--zg-primary-rgb), 0.55);
-  outline-offset: 1px;
-}
-.zg-img-handle {
-  position: absolute;
-  right: -6px; bottom: -6px;
-  width: 14px; height: 14px;
-  border-radius: 3px;
-  background: var(--zg-primary, #f59e0b);
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
-  cursor: nwse-resize;
-  opacity: 0;
-  transition: opacity .15s ease;
-  z-index: 3;
-}
-.zg-img-handle.tl {
-  right: auto; bottom: auto;
-  left: -6px; top: -6px;
-  cursor: nwse-resize;
-}
-.zg-img-box:hover > .zg-img-handle { opacity: 1; }
-.zg-img-handle:hover { transform: scale(1.15); }
-/* 触屏设备：手柄常显，否则没法拖 */
-@media (hover: none) {
-  .zg-img-handle { opacity: 1; }
-}
-
 .zg-editor-foot {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 12px; color: var(--zg-text-dim);
@@ -832,5 +879,31 @@ const tools = computed(() => [
 .zg-mention-uid { font-size: 12px; color: var(--zg-text-dim); }
 .zg-mention-empty {
   text-align: center; padding: 24px 12px; font-size: 13px; color: var(--zg-text-dim);
+}
+</style>
+
+<!--
+  【v4.8.23】图片拖拽手柄的样式必须放在**非 scoped** 的全局块里。
+  原因：手柄节点由原生 JS 动态创建（document.createElement），拿不到 Vue 编译出的
+       `data-v-*` 作用域属性，scoped 样式会全部落空（实测 display 仍是 inline、
+       position 仍是 static、宽高 0 → 完全点不到）。
+  这里只放"纯装饰、可被覆盖"的部分（hover 描边、手柄外观兜底）；
+  关键的定位/尺寸/显隐已在 decorateImages() 里写成内联样式，确保一定生效。
+-->
+<style>
+.zg-img-box > img {
+  display: block;
+  max-width: 100%;
+  transition: outline-color .15s ease;
+}
+/* hover 时给个淡金描边，提示"这张图可以拖" */
+.zg-img-box:hover > img {
+  outline: 2px solid rgba(245, 158, 11, 0.55);
+  outline-offset: 1px;
+}
+.zg-img-handle:hover { transform: scale(1.15); }
+/* 触屏设备没有 hover：手柄常显，否则根本拖不到 */
+@media (hover: none) {
+  .zg-img-handle { opacity: 1 !important; }
 }
 </style>

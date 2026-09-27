@@ -88,6 +88,21 @@ function onPageChange(p: number) {
   load()
 }
 
+/**
+ * 【v4.8.24】删除后重载，并在「当前页已被删空」时自动回退到最后一页。
+ * 为什么需要它：本地 filter 的写法在末页删光后会停在越界页码上 → 显示空列表，
+ * 用户感知为「列表没刷新/数据不对」。重载 + 页码回收可彻底消除该现象。
+ */
+async function reloadKeepingPage() {
+  await load()
+  // load() 后 total 已更新：若当前页超出总页数且不是第 1 页，则回退到最后一页
+  const maxPage = Math.max(1, Math.ceil((total.value || 0) / pageSize.value))
+  if (page.value > maxPage) {
+    page.value = maxPage
+    await load()
+  }
+}
+
 function onSizeChange(s: number) {
   pageSize.value = s
   page.value = 1
@@ -153,10 +168,13 @@ async function deleteOneLog(row: any) {
   try {
     await api.deleteExpLog(row.id)
     ElMessage.success('已删除')
-    // 从列表移除，避免刷新
-    list.value = list.value.filter((x: any) => x.id !== row.id)
-    total.value = Math.max(0, total.value - 1)
     selected.value = selected.value.filter((x: any) => x.id !== row.id)
+    // 【v4.8.24 修复「末页删光后列表变白板」】
+    //   原写法只做本地 filter + 手减 total，从不重新请求，也不回收页码：
+    //   当用户在第 N 页（也是最后一页）删到该页剩 0 条时，page 仍指向 N，
+    //   而后端已没有第 N 页 → 页面显示空列表，用户以为「删了但列表不对/不刷新」。
+    //   改为删除后重载，并在当前页超界时自动回退到最后一页。
+    await reloadKeepingPage()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '删除失败')
   } finally {
@@ -178,11 +196,9 @@ async function batchDeleteLogs() {
   try {
     const r: any = await api.batchDeleteExpLogs(ids)
     ElMessage.success(`已删除 ${r.deleted} 条记录${r.affectedUsers ? `，影响 ${r.affectedUsers} 个用户` : ''}`)
-    // 从列表移除已删除的记录
-    const idSet = new Set(ids)
-    list.value = list.value.filter((x: any) => !idSet.has(x.id))
-    total.value = Math.max(0, total.value - r.deleted)
     selected.value = []
+    // 【v4.8.24】同 deleteOneLog：改为重载 + 页码回收，避免末页删光后出现空列表
+    await reloadKeepingPage()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '批量删除失败')
   } finally {

@@ -104,11 +104,18 @@ function addToBasket(q: any) {
   ElMessage[ok ? 'success' : 'info'](ok ? '已加入试题篮' : '已在试题篮中')
 }
 async function onDelete(q: any) {
-  await ElMessageBox.confirm('确定删除该题？', '提示', { type: 'warning' }).catch(() => null)
+  // 【v4.8.24 修复「点取消也把题删了」】
+  //   原写法 `await ElMessageBox.confirm(...).catch(() => null)` 把用户点「取消」
+  //   产生的 reject 也吞成了正常返回，Promise 链随后**无条件继续执行删除**——
+  //   于是「取消」等于「确定」。这里改为标准的提前 return（与全项目其余 40+ 处一致）。
+  try {
+    await ElMessageBox.confirm('确定删除该题？', '提示', { type: 'warning' })
+  } catch { return }
   try {
     await api.deleteSubjectQuestion(q.id)
-    questions.value = questions.value.filter(x => x.id !== q.id)
     ElMessage.success('已删除')
+    // 【v4.8.24】删除后重新拉取，而不是仅本地 filter —— 保证与后端（含分页/总数）完全一致
+    await loadQuestions()
   } catch (e: any) { ElMessage.error(e?.response?.data?.message || '删除失败') }
 }
 async function onFavorite(q: any) {

@@ -40,7 +40,14 @@ async function removeRecord(rec: any) {
     deleting.value = rec.id
     await api.deletePracticeRecord(rec.id)
     ElMessage.success('已删除')
-    await load()
+    // 【v4.8.24 修复「删除后列表跳回第 1 页」】
+    //   原写法 `await load()` 未传页码 → 默认 load(1)，用户在第 3 页删一条就被弹回第 1 页，
+    //   感知为「列表乱跳/没刷新」。改为保留当前页码；
+    //   若删的是末页最后一条导致页码越界，再自动回退到新的最后一页。
+    const keep = page.value
+    await load(keep)
+    const maxPage = Math.max(1, Math.ceil((total.value || 0) / perPage))
+    if (keep > maxPage) await load(maxPage)
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error(e?.response?.data?.message || '删除失败')
   } finally { deleting.value = null }

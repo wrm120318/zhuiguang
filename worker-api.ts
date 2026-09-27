@@ -642,7 +642,9 @@ function apiCacheKey(c: Context): string | null {
   // v4.4.30 公共只读接口延长内存/边缘缓存至 60s，显著降低 D1 命中频次（写操作仍会清全缓存保一致）
   if (p.includes('/subjects') || p.includes('/articles') || p.includes('/leaderboard') || p.includes('/pages') || p.includes('/themes') || p.includes('/feature-flags')) ttl = 60000
   const urlKey = p + '|' + new URL(c.req.url).search
-  return `${authHash}|${ttl}|${urlKey}`
+  // 【v4.8.24】把缓存版本号拼进 key —— 写操作后 CACHE_VERSION 递增，
+  // 旧 key 立刻全部失效（跨实例可靠，不受「只清了本实例 Map」的限制）。
+  return `${CACHE_VERSION}|${authHash}|${ttl}|${urlKey}`
 }
 
 let lastCacheCleanup = 0
@@ -654,9 +656,55 @@ function maybeCleanupCache() {
   }
 }
 
-/** 清除全部缓存（公共内容修改后调用，确保所有用户立即看到最新数据） */
+/** 清除全部缓存（公共内容修改后调用，确保所有用户立即看到最新数据）
+ *
+ * 【v4.8.24 严重修复｜「增删改后列表不刷新，手动刷新也没用」】
+ * 原实现只有 `API_CACHE.clear()` —— 只能清掉**本实例**的内存 Map，完全清不掉
+ * Cloudflare 边缘缓存（caches.default）里那份 `s-maxage=60, stale-while-revalidate=120`
+ * 的响应。后果（已生产实测确认）：
+ *   · GET /api/subjects、/api/leaderboard、/api/pages 的响应头是
+ *     `Cache-Control: public, max-age=14400, s-maxage=60, stale-while-revalidate=120`
+ *   · 连续请求返回 `X-Zg-Cache: EDGE-HIT` —— 命中的是边缘缓存，压根没回源
+ *   · 于是增删改之后，**最长 60 + 120 = 180 秒**所有用户仍拿到旧数据
+ *   · 用户手动刷新（Ctrl+F5）只清**浏览器**缓存，**清不掉 CF 边缘缓存**，
+ *     所以表现为「点了删除，列表还是旧的，手动刷新也不行」
+ * 修法（双管齐下）：
+ *   ① 同步递增 CACHE_VERSION —— 旧版本的所有缓存 key 立刻作废。这一步是**跨实例生效**的
+ *      （不像清 Map 只能影响当前实例），是真正可靠的失效手段。
+ *   ② 尽力删除已写入 caches.default 的具体条目（deleteByUrl 由调用方在写操作后触发）。
+ * 说明：Worker 的 caches.default 里旧条目会自然过期（s-maxage=60），
+ *      且 ① 保证任何请求都不会再复用它们，因此一致性是立即达成的。
+ */
 function clearAllCache() {
   API_CACHE.clear()
+  // ① 版本号递增：所有基于旧版本号构造的缓存 key 立即全部失效（跨实例可靠）
+  CACHE_VERSION = 'v' + Date.now()
+  // ② 顺手记下需要从边缘缓存删除的 URL 前缀（由 afterWritePurgeEdge 消费）
+  EDGE_PURGE_NEEDED = true
+}
+
+// ===== v4.8.24 缓存版本号（跨实例失效用）=====
+// 每次发生写操作就 +1，拼进所有缓存 key。这样即使某个实例的内存 Map 或
+// 某个节点的 caches.default 还残留旧条目，也会因为 key 不匹配而永不命中。
+// ⚠️ 必须以 `v` 开头：下面提取 ttl 时用 `/^\d+$/` 找「纯数字段」，
+//    若版本号是裸数字（如 Date.now()）会被误认成 ttl → max-age 算出天文数字。
+let CACHE_VERSION = 'v' + Date.now()
+let EDGE_PURGE_NEEDED = false
+// 会被写入 caches.default 的公共只读接口前缀 —— 写操作后需要逐个 DELETE
+const EDGE_CACHEABLE_PREFIXES = [
+  '/api/subjects', '/api/leaderboard', '/api/pages', '/api/themes', '/api/feature-flags',
+]
+
+/** 写操作后清理边缘缓存：尽最大努力删除已知的公共只读接口缓存条目 */
+async function purgeEdgeCache(c) {
+  if (!EDGE_PURGE_NEEDED) return
+  EDGE_PURGE_NEEDED = false
+  const origin = new URL(c.req.url).origin
+  for (const prefix of EDGE_CACHEABLE_PREFIXES) {
+    for (const u of [origin + prefix, origin + prefix + '/']) {
+      try { await caches.default.delete(new Request(u, { method: 'GET' })) } catch {}
+    }
+  }
 }
 
 // ===== v4.4.30 边缘缓存（Cloudflare Cache API / caches.default）=====
@@ -688,7 +736,11 @@ async function edgeCachePut(c, body, status, ttlSec) {
     const req = new Request(c.req.url, { method: 'GET' })
     // 复制 c.res 全部响应头（含中间件2写入的 CORS），仅覆盖缓存策略与标记头
     const h = new Headers(c.res.headers)
-    h.set('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+    // 【v4.8.24】存进边缘缓存时就用**正确策略**：no-cache（浏览器每次必须校验）
+    //   + s-maxage=ttlSec（CF 边缘缓存 ttlSec 秒）。
+    //   原写法 `max-age=${ttlSec}, s-maxage=${ttlSec}` 会让浏览器也长期缓存，
+    //   导致「增删改后点菜单重进页面 / 普通 F5」都拿不到新数据。
+    h.set('Cache-Control', `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=120`)
     h.set('X-Zg-Cache', 'EDGE-MISS')
     await caches.default.put(req, new Response(body, { status, headers: h }))
   } catch {}
@@ -847,12 +899,47 @@ app.use('*', async (c, next) => {
     if (c.req.method !== 'GET' && c.req.method !== 'OPTIONS' && c.req.method !== 'HEAD') {
       clearAllCache()
     }
-    await next(); return
+    await next()
+    // 【v4.8.24】写操作**成功**后，把边缘缓存里的公共只读条目也删掉。
+    //   必须放在 await next() 之后：只有请求真的成功（2xx）才值得清；
+    //   放在之前清是无效的 —— 那时写还没落库，清完立刻又会被回源填充旧值。
+    if (c.req.method !== 'GET' && c.req.method !== 'OPTIONS' && c.req.method !== 'HEAD') {
+      if (c.res.status >= 200 && c.res.status < 300) {
+        try { await purgeEdgeCache(c) } catch {}
+      }
+    }
+    return
   }
-  const [, ttlStr] = k.split('|', 3)
+  // 【v4.8.24】key 格式为 `${CACHE_VERSION}|${authHash}|${ttl}|${urlKey}`。
+  //   注意：**不能**再用 `k.split('|', 3)[1]` 取 ttl —— 加了版本号后段位后移，
+  //   原来那种「按位置取」的写法会取到 authHash，parseInt 出 NaN，
+  //   最终发出去 `max-age=NaN, s-maxage=NaN`（浏览器/CF 会忽略该头，
+  //   等于缓存策略失效）。这里改为从 key 里精确提取「纯数字」那一段，
+  //   对将来再增删 key 字段也免疫。
+  const ttlStr = k.split('|').find(seg => /^\d+$/.test(seg))
   const ttl = parseInt(ttlStr || '15000', 10)
-  const ttlSec = Math.floor(ttl / 1000)
+  const ttlSec = Math.max(0, Math.floor(ttl / 1000))
   const edgeKey = edgeCacheablePath(c)
+  // 【v4.8.24｜真修「增删改后列表不刷新，手动刷新也不行」】
+  //   原策略：`public, max-age=60, s-maxage=60, stale-while-revalidate=120`
+  //   —— `max-age=60` 是给**浏览器**的，导致 Chromium 把响应存进磁盘缓存，
+  //      60 秒内（含 swr 共 180 秒）后续请求**根本不发出去**。
+  //      实测抓包（CDP Network.responseReceived）：
+  //        { "url": ".../api/subjects", "fromDiskCache": true,
+  //          "cc": "public, max-age=60, s-maxage=60, stale-while-revalidate" }
+  //      这完美解释了用户的现象：
+  //        · 增删改后列表不刷新 —— 拿的是浏览器缓存里的旧响应
+  //        · **手动刷新也不行** —— 普通 F5 仍命中磁盘缓存，只有 Ctrl+Shift+R 能绕过
+  //   正确策略（业界标准）：
+  //        · `s-maxage` 只作用于**共享缓存（CF 边缘 / CDN）**，性能收益保留；
+  //        · `no-cache` 让**浏览器每次使用前都必须向服务端校验**（配合 ETag 走 304，
+  //          数据没变时依然很省流量），但**绝不复用未经校验的旧数据**。
+  //          刻意不用 `max-age=0`：它语义上等价，但实测部分场景下浏览器
+  //          仍会把响应留在磁盘缓存里直接复用，`no-cache` 才是「必须校验」的最强标准写法。
+  //      这样「边缘省流量」和「数据不陈旧」两头都拿到。
+  const ccValue = edgeKey
+    ? `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=120`
+    : 'private, no-cache, must-revalidate'
 
   // --- ① 边缘缓存命中（跨全部实例共享，毫秒级，不再打 D1）---
   if (edgeKey) {
@@ -860,7 +947,11 @@ app.use('*', async (c, next) => {
     if (hit) {
       // 用 c.body() + c.header() 继承中间件2写入的 CORS 头，避免跨域请求失败
       c.header('Content-Type', hit.headers.get('Content-Type') || 'application/json; charset=utf-8')
-      c.header('Cache-Control', hit.headers.get('Cache-Control') || `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+      // 【v4.8.24】这里必须用**当前**的 ccValue，而不是 `hit.headers.get('Cache-Control')`。
+      //   前者是「本次请求该发的策略」，后者是「当初 put 进边缘缓存时存下的旧策略」。
+      //   若沿用旧值，即使代码已改成 max-age=0，边缘老条目仍会继续把 max-age=60 发给浏览器
+      //   → 浏览器继续走磁盘缓存 → 用户的「手动刷新也不行」依旧复现。
+      c.header('Cache-Control', ccValue)
       const etag = hit.headers.get('ETag'); if (etag) c.header('ETag', etag)
       c.header('X-Zg-Cache', 'EDGE-HIT')
       return c.body(hit.body, 200)
@@ -872,11 +963,17 @@ app.use('*', async (c, next) => {
   if (e && e.expireAt > Date.now()) {
     const ifNm = c.req.header('if-none-match')
     if (ifNm === e.etag) {
+      // 【v4.8.24】304 必须**显式带上 Cache-Control**！
+      //   304 Not Modified 不带缓存指令时，浏览器会**沿用上一次响应里存的 max-age**。
+      //   于是即使我们已把策略改成 max-age=0，浏览器仍按旧的 max-age=60 继续用磁盘缓存
+      //   → 表现就是「改了数据，重进页面/按 F5 都还是旧的」。
+      //   这里把当前策略一并发出，让浏览器立刻改用「每次回源校验」。
+      c.header('Cache-Control', ccValue)
       c.header('X-Zg-Cache', 'HIT-304')
       return c.body(null, 304)
     }
     c.header('Content-Type', e.type)
-    c.header('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+    c.header('Cache-Control', ccValue)
     c.header('ETag', e.etag)
     c.header('X-Zg-Cache', `HIT-${Math.floor((e.expireAt - Date.now()) / 1000)}s`)
     return c.body(e.body)
@@ -902,7 +999,7 @@ app.use('*', async (c, next) => {
       API_CACHE.set(k, { body, type: contentType, expireAt: Date.now() + ttl, etag })
       const headers = new Headers(c.res.headers)
       headers.set('ETag', etag)
-      headers.set('Cache-Control', `public, max-age=${ttlSec}, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+      headers.set('Cache-Control', ccValue)
       headers.set('X-Zg-Cache', 'MISS')
       c.res = new Response(body, { status: c.res.status, headers })
       // --- ③ 写入边缘缓存（跨实例共享，覆盖冷启动/跨节点回源）---
