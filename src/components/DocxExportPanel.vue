@@ -377,8 +377,19 @@ const INLINE_RE = /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\!\[[^\]]*\]\([^)]*\))|(\*
 // 清理 file:// 附件裸引用（网页端是蓝色链接，Word 里应转成可读性文本，避免导出出一堆 file://xxx）
 // 【v4.8.16】同时兜掉「漏网的 data:image base64 长串」——图片行若因正则未命中而落进普通文本，
 // 会把几十 KB 的 base64 原样写进 Word（表现为"乱码"）。这里统一降级为 [图片]。
+//
+// 【v4.8.20 真修「导出 Word 时填空线变成一堆 \ 」】
+//   题干里的填空线在 Markdown 中写作 `\_\_\_\_\_\_\_\_\_\_`（下划线是 Markdown 保留字符，
+//   落库时被转义成 `\_`）。导出 Word 时**从未还原转义**，于是 Word 里显示成一长串 `\_\_\_\_\_\_`
+//   —— 用户看到的就是"导出 Word 的时候居然变成了 \"。
+//   Markdown 的转义规则是：反斜杠 + ASCII 标点 = 该标点的字面量。这里按此规则统一还原。
+const MD_ESCAPABLE = '\\\\`*_{}\\[\\]()#+\\-.!|<>~"\'$%=:;,?/@&'
+function unescapeMd(s: string): string {
+  // 仅还原「反斜杠 + 可转义 ASCII 标点」，避免误伤 LaTeX 里的 \\、\{ 等（那些在 $…$ 里已被单独抽出）
+  return s.replace(new RegExp('\\\\([' + MD_ESCAPABLE + '])', 'g'), '$1')
+}
 function cleanText(s: string): string {
-  return s
+  return unescapeMd(s)
     .replace(/file:\/\/\S+/g, (m) => {
       const name = m.replace(/^file:\/\//, '')
       return name ? `[附件:${name}]` : ''
@@ -427,7 +438,8 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
         else runs.push(new TextRun({ text: ' [图片] ', size }))
       }
     } else if (t.startsWith('**')) {
-      runs.push(new TextRun({ text: t.slice(2, -2), size, bold: true }))
+      // 【v4.8.20】加粗内容同样要走 unescapeMd，否则 `**\_\_\_\_\_**` 会导出成一堆 `\_`
+      runs.push(new TextRun({ text: unescapeMd(t.slice(2, -2)), size, bold: true }))
     }
     last = INLINE_RE.lastIndex
   }

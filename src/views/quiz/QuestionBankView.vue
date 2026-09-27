@@ -435,8 +435,13 @@ async function smartAssemble() {
 .bh-stats .stat b { font-size: 18px; color: #F59E0B; }
 .bh-stats .stat span { font-size: 11px; color: var(--zg-text-dim); }
 .bh-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-/* 主体两栏 */
+/* 主体两栏
+   【v4.8.22 修复「电脑端题库横向溢出」】
+   grid 子项默认 min-width:auto —— 右侧 1fr 列的"最小值"会变成内容的 min-content 宽度。
+   数学题里的宽表格（实测 1661px）因此把该列撑到 1701px，连带 body 横向溢出 683px。
+   显式 min-width:0 允许子项收缩，内容过宽时交给内部的 overflow-x:auto 滚动。 */
 .bank-body { display: grid; grid-template-columns: 248px 1fr; gap: 14px; align-items: start; }
+.bank-body > * { min-width: 0; }
 .kp-aside { padding: 12px; border-radius: 14px; position: sticky; top: 12px; }
 .kp-aside-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; color: #7c4a03; }
 .kp-aside-head .el-icon { vertical-align: -2px; margin-right: 4px; }
@@ -461,6 +466,10 @@ async function smartAssemble() {
   margin-bottom: 12px;
   border-radius: 14px;
   align-items: center;
+  /* 【v4.8.22】minmax(132px,…) 的固定下限在窄容器里会让 grid 整体撑宽 → 显式收敛 */
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 /* 关键词是主输入，占两格 */
 .filters > *:first-child { grid-column: span 2; }

@@ -64,12 +64,149 @@ watch(content, v => {
 // 实时预览 HTML
 const previewHtml = computed(() => renderExtendedMarkdown(content.value, true))
 
+// ============================================================================
+// 【v4.8.21】图片拖拽调大小（预览区所见即所得）
+//   需求由来：「自适应图片大小到现在还没做，你就给上传的用户一个拖拽大小的权力很难吗」
+//   实现思路：
+//     1. 预览区渲染完 → 给每张 <img class="zg-img"> 外面包一层 .zg-img-box
+//     2. box 右下角放一个 .zg-img-handle 拖拽手柄
+//     3. 拖动 → 实时改 img 的 width/height（保持宽高比）
+//     4. 松手 → 按 src 在 Markdown 源码里定位对应的 ![alt](url)，写入/更新 `=WxH`
+//   为什么按 src 定位：marked 渲染后拿不到原始位置，但 src 在本题范围内唯一，
+//   用它回查是最稳的做法（同一张图重复引用时改第一处，符合直觉）。
+//   四角都支持：右下角放大、左上角反向缩，拖拽方向统一按「对角锚点」处理。
+// ============================================================================
+const previewPaneRef = ref<HTMLElement | null>(null)
+const MIN_IMG_W = 40           // 最小宽度，避免拖成一条线
+const HANDLE_HIT = 14          // 手柄尺寸（px），与 CSS 保持一致
+
+/** 给预览区所有 img.zg-img 包一层带手柄的容器 */
+function decorateImages() {
+  const pane = previewPaneRef.value
+  if (!pane) return
+  pane.querySelectorAll<HTMLImageElement>('img.zg-img').forEach(img => {
+    const parent = img.parentElement
+    if (!parent) return
+    // 已包装过（父级就是 box）→ 跳过，避免重复渲染时层层嵌套
+    if (parent.classList.contains('zg-img-box')) return
+    const box = document.createElement('span')
+    box.className = 'zg-img-box'
+    parent.insertBefore(box, img)
+    box.appendChild(img)
+    const handle = document.createElement('span')
+    handle.className = 'zg-img-handle'
+    handle.title = '拖动调整图片大小'
+    handle.dataset.role = 'resize'
+    box.appendChild(handle)
+    // 左上角手柄（反向缩放）
+    const handleTL = document.createElement('span')
+    handleTL.className = 'zg-img-handle tl'
+    handleTL.title = '拖动调整图片大小'
+    handleTL.dataset.role = 'resize-tl'
+    box.appendChild(handleTL)
+  })
+}
+
+/** 鼠标按下手柄 → 开始拖拽 */
+function onPreviewMouseDown(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target?.classList?.contains('zg-img-handle')) return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const box = target.parentElement
+  const img = box?.querySelector<HTMLImageElement>('img.zg-img')
+  if (!box || !img) return
+
+  const isTL = target.classList.contains('tl')
+  const startX = e.clientX
+  const startW = img.getBoundingClientRect().width
+  // 用原始比例算高，避免图片本身已变形
+  const naturalRatio = (img.naturalHeight && img.naturalWidth)
+    ? img.naturalHeight / img.naturalWidth
+    : (img.getBoundingClientRect().height / Math.max(1, startW))
+  // 内容区最大宽度：约等于预览区可视宽度
+  const paneW = previewPaneRef.value?.clientWidth || 720
+  const maxW = Math.max(MIN_IMG_W, paneW - 8)
+
+  const onMove = (ev: MouseEvent) => {
+    const dx = ev.clientX - startX
+    let w = isTL ? startW - dx : startW + dx
+    w = Math.max(MIN_IMG_W, Math.min(maxW, w))
+    const h = Math.round(w * naturalRatio)
+    img.style.width = Math.round(w) + 'px'
+    img.style.height = h + 'px'
+    box.dataset.curW = String(Math.round(w))
+    box.dataset.curH = String(h)
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    const w = Number(box.dataset.curW || 0)
+    const h = Number(box.dataset.curH || 0)
+    if (w && h) applyImageSize(img.src, w, h)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+/** 把新的 W×H 写回 Markdown 源码 */
+function applyImageSize(src: string, w: number, h: number) {
+  const md = content.value
+  // 在 Markdown 里找该图片对应的 ![alt](url) —— url 可能被 escapeHtml 过，这里做双向匹配
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // 归一化：把 &amp; 等还原，便于比对
+  const norm = (s: string) => s.replace(/&amp;/g, '&')
+  const targetNorm = norm(src)
+  let matched = false
+
+  const re = /!\[([^\]]*)\]\(([^)\s]+)(\s*=\s*(\d+)\s*[x×]\s*(\d+)\s*)?\)/g
+  const out = md.replace(re, (full, alt, url) => {
+    if (matched) return full
+    if (norm(url) !== targetNorm) return full
+    matched = true
+    return `![${alt}](${url} =${w}x${h})`
+  })
+
+  if (!matched) {
+    // 兜底：源码里可能是裸 HTML <img src="..."> 或 data: URL（无法按 src 反查）
+    // 这种直接改 img 标签的 width/height 属性
+    const imgRe = new RegExp('<img\\b[^>]*\\bsrc\\s*=\\s*["\']' + esc(src) + '["\'][^>]*>', 'i')
+    if (imgRe.test(content.value)) {
+      content.value = content.value.replace(imgRe, (tag) => {
+        let t = tag.replace(/\s+width\s*=\s*["']?\d+(px)?["']?/i, '')
+        t = t.replace(/\s+height\s*=\s*["']?\d+(px)?["']?/i, '')
+        t = t.replace(/\s+style\s*=\s*["']([^"']*)["']/i, (_m, s) => ` style="${s.replace(/(^|;)\s*width\s*:[^;]*/i, '').replace(/(^|;)\s*height\s*:[^;]*/i, '')};width:${w}px;height:${h}px"`)
+        return t.replace(/<img\b/i, `<img width="${w}" height="${h}"`)
+      })
+      ElMessage.success(`图片已调整为 ${w}×${h}`)
+      return
+    }
+    ElMessage.warning('没能定位到这张图片的源码，请手动调整尺寸')
+    return
+  }
+  content.value = out
+  ElMessage.success(`图片已调整为 ${w}×${h}`)
+}
+
+// 【v4.8.21】previewHtml 每次按键都会变，decorateImages 要遍历所有 img 做 DOM 操作，
+// 内容大时（题库有 60KB 的题面）会拖慢输入手感 → 加 120ms 防抖。
+let decorateTimer: any = null
+function scheduleDecorate() {
+  if (decorateTimer) clearTimeout(decorateTimer)
+  decorateTimer = setTimeout(() => { decorateImages() }, 120)
+}
+watch(previewHtml, () => { nextTick(scheduleDecorate) })
+
 onMounted(() => {
   ensureKatexCss()
   document.addEventListener('keydown', handleKeyDown)
+  // 【v4.8.21】首屏也要挂钩手柄（模型初始值带来的图片不会触发 previewHtml 变化）
+  nextTick(decorateImages)
 })
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
+  if (decorateTimer) clearTimeout(decorateTimer)
 })
 
 // ===== 撤销/重做（基于快照栈） =====
@@ -496,7 +633,7 @@ const tools = computed(() => [
           spellcheck="false"
         />
       </div>
-      <div v-show="viewMode !== 'edit'" class="zg-preview-pane">
+      <div v-show="viewMode !== 'edit'" class="zg-preview-pane" ref="previewPaneRef" @mousedown="onPreviewMouseDown">
         <div class="zg-preview-content markdown-body" v-html="previewHtml"></div>
       </div>
     </div>
@@ -591,6 +728,45 @@ const tools = computed(() => [
   color: var(--zg-text);
 }
 .zg-preview-content { font-size: 15px; line-height: 1.85; }
+
+/* 【v4.8.21】图片拖拽调大小：预览区每张图外包一层 .zg-img-box，四角带手柄 */
+.zg-img-box {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+.zg-img-box > img.zg-img { display: block; max-width: 100%; }
+/* hover 时给个淡金描边，提示"这张图可拖" */
+.zg-img-box:hover > img.zg-img {
+  outline: 2px solid rgba(var(--zg-primary-rgb), 0.55);
+  outline-offset: 1px;
+}
+.zg-img-handle {
+  position: absolute;
+  right: -6px; bottom: -6px;
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  background: var(--zg-primary, #f59e0b);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 3;
+}
+.zg-img-handle.tl {
+  right: auto; bottom: auto;
+  left: -6px; top: -6px;
+  cursor: nwse-resize;
+}
+.zg-img-box:hover > .zg-img-handle { opacity: 1; }
+.zg-img-handle:hover { transform: scale(1.15); }
+/* 触屏设备：手柄常显，否则没法拖 */
+@media (hover: none) {
+  .zg-img-handle { opacity: 1; }
+}
+
 .zg-editor-foot {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 12px; color: var(--zg-text-dim);

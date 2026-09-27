@@ -2976,6 +2976,23 @@ html, body { overflow-x: clip; }
   font-size: 13px;
 }
 /* ---------------------------------------------------------------------------
+   【v4.8.22 修复「电脑端题库横向溢出 / 界面被撑爆」】
+   现象：数学题库（含宽表格的题）在 ≤1600px 窗口下整页横向溢出。
+        实测 1440px 窗口：.bank-body 的 grid 列算成 `248px 1701.02px`，
+        scrollWidth 1963 vs clientWidth 1280 → 溢出 683px。
+        窗口越窄溢出越多（1600→523 / 1280→703 / 1024→959），
+        而 body 有 overflow-x:hidden 兜着，所以**看不到滚动条，只看到内容被裁掉**。
+   根因链：题面里的 <table> 实测宽 1661px，逐级把父容器撑开：
+        TABLE(1661) → .q-content(1661) → .q-card(1701) → .q-list(1701)
+        → .bank-body grid 第二列 `1fr` 被内容撑成 1701px。
+   ⚠️ 真凶是 grid 子项的 **min-width: auto**（CSS Grid 默认值）：
+        它让 `1fr` 的"最小值"变成内容的 min-content 宽度，
+        于是子项拒绝收缩，父级跟着变宽（同时让 table 上的 max-width:100% 自锁失效）。
+   修法（两处，缺一不可）：
+        ① 给 grid 子项显式 `min-width: 0` —— 解除自锁，允许收缩；
+        ② 表格 `width: max-content` 改回 `width: 100%` —— 停止按内容撑宽
+           （滚动交给 table 自身的 overflow-x:auto，横向滚动依然可用）。
+
    【v4.8.16 修复「表格列被压成竖排单字」】
    原写法 `.markdown-body table { display:block; width:100%; overflow:auto }` 的致命副作用：
      ① display:block 让 table 脱离自身的表格布局算法 —— 浏览器不再按内容分配列宽，
@@ -2987,6 +3004,16 @@ html, body { overflow-x: clip; }
    ⚠️ 关键是必须显式恢复 thead/tbody/tr/td 的 display，
       否则只设 table:block 而不管内部 → 就是上面那个 bug。
    --------------------------------------------------------------------------- */
+
+/* ① 解除 grid 子项的 min-width:auto 自锁（v4.8.22） */
+.bank-body > *,
+.q-list,
+.bank-main,
+.q-card,
+.q-content {
+  min-width: 0;
+}
+
 .markdown-body table,
 .q-content table,
 .q-answer table,
@@ -2994,8 +3021,12 @@ html, body { overflow-x: clip; }
   border-collapse: collapse;
   margin: 1em 0;
   display: block;            /* 作为滚动容器 */
+  /* 【v4.8.22】原 width:max-content 会按内容宽度撑开（数学题宽表格实测 1661px），
+     逐级把 .q-content → .q-card → .q-list → .bank-body grid 撑爆。
+     改为 100%：先老老实实占满可用宽度，内容过宽时由本行 overflow-x:auto 横向滚动。
+     配合上面 .bank-body > * 等容器的 min-width:0，链条才不会自锁。 */
+  width: 100%;
   max-width: 100%;
-  width: max-content;        /* 按内容宽度，不强制拉满 */
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
