@@ -202,6 +202,67 @@ function tidy(md: string): string {
 }
 
 /**
+ * 【v4.8.18】判断一段内容是否"以 Markdown/纯文本为主，只是混入了个别 HTML 标签"。
+ *
+ * 背景：生产库里存在**混合格式**题面，例如物理 id=25 —— 正文是 Markdown + 行内 LaTeX
+ * `$c_水=4.2\times10^3\mathrm{J/(kg·℃)}$`，中间只夹了一个裸 `<img src="…" width="300">`。
+ * 这类内容若整条丢进 `htmlToMarkdown()`，`DOMParser` 会把它当 HTML 文档重新解析，
+ * 段落结构与行内 LaTeX 都有被破坏的风险（属于"杀鸡用牛刀"）。
+ *
+ * 判据：HTML 标签总字符数占全文比例 < 8%，且标签种类很少（只有 img / br / sup 等行内标签）。
+ * 命中时走 `inlineHtmlPatch()` 只做局部替换，其余内容原样保留。
+ */
+export function isMostlyMarkdown(s: string): boolean {
+  if (!s) return false
+  const tags = s.match(/<\/?[a-zA-Z][^>]*>/g) || []
+  if (!tags.length) return true
+  const tagChars = tags.reduce((n, t) => n + t.length, 0)
+  if (tagChars / s.length >= 0.08) return false
+  // 只要出现块级结构标签（table/ul/ol/div/p/h1-6/blockquote/pre），就按纯 HTML 处理
+  const hasBlock = /<\s*(table|tbody|thead|tr|td|th|div|p|h[1-6]|ul|ol|li|blockquote|pre|section|article)\b[^>]*>/i.test(s)
+  return !hasBlock
+}
+
+/**
+ * 【v4.8.18】混合内容的"局部标签替换"：
+ * 只把散落在 Markdown 里的 HTML 标签翻译成等价 Markdown，不去解析整篇文档。
+ * 这样行内 LaTeX、段落空行、列表缩进等全部原样保留。
+ */
+function inlineHtmlPatch(s: string): string {
+  let out = s
+  // 1) <img src="…" alt="…"> → ![alt](src)   （width/height 等属性丢弃，样式交给 CSS 统一约束）
+  out = out.replace(/<img\b([^>]*)\/?>/gi, (_m, attrs: string) => {
+    const src = (attrs.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || [])[1]
+      || (attrs.match(/\bsrc\s*=\s*([^\s>]+)/i) || [])[1] || ''
+    const alt = (attrs.match(/\balt\s*=\s*["']([^"']*)["']/i) || [])[1] || '图片'
+    return src ? `![${alt}](${src})` : ''
+  })
+  // 2) <br> → 换行
+  out = out.replace(/<br\s*\/?>/gi, '\n')
+  // 3) 行内语义标签
+  out = out
+    .replace(/<\/?strong\b[^>]*>/gi, '**')
+    .replace(/<\/?b\b[^>]*>/gi, '**')
+    .replace(/<\/?em\b[^>]*>/gi, '*')
+    .replace(/<\/?i\b[^>]*>/gi, '*')
+    .replace(/<\/?u\b[^>]*>/gi, '')
+    .replace(/<\/?span\b[^>]*>/gi, '')
+    .replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, '^$1^')
+    .replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, '~$1~')
+  // 4) 清掉残留的孤立标签（开/闭不成对的情况）
+  out = out.replace(/<\/?[a-zA-Z][^>]*>/g, '')
+  // 5) 解码常见 HTML 实体
+  out = out
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+  return tidy(out)
+}
+
+/**
  * HTML → Markdown 主入口
  * @param html 原始 HTML 片段（可直接来自剪贴板 text/html 或数据库中的 HTML 题面）
  * @returns 规范化后的 Markdown；无法解析时返回去标签的纯文本兜底
@@ -213,6 +274,10 @@ export function htmlToMarkdown(html: string): string {
   src = src.replace(/<!--[\s\S]*?-->/g, '')
   // Word 特有的 <o:p></o:p> 等命名空间标签
   src = src.replace(/<\/?[a-z]+:[a-z]+\b[^>]*>/gi, '')
+
+  // 【v4.8.18】混合内容（Markdown 为主 + 个别 HTML 标签）走局部替换，
+  // 避免整篇走 DOMParser 造成的段落/LaTeX 结构损失。见 isMostlyMarkdown 注释。
+  if (isMostlyMarkdown(src)) return inlineHtmlPatch(src)
 
   if (typeof document === 'undefined') {
     // SSR / 非浏览器环境：退化为去标签

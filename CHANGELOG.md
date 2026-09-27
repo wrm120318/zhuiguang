@@ -5,6 +5,81 @@
 
 ---
 
+## [v4.8.18] - 2026-09-27
+
+> **用户反馈**：「输入框上面覆盖着一个有问题的变形框线，反正是输入框有严重的问题哦」
+
+### 现象
+
+输入框聚焦时，**在其上层叠着一圈与输入框圆角不重合的方框**，看起来像"框线变形了"。经典档显橘、墨金档显金。
+
+### 真根因（用 CDP `CSS.getMatchedStylesForNode` 抓到）
+
+聚焦时命中的是这条**排在文件末尾**的全局焦点环规则：
+
+```css
+:where(a, button, [tabindex], .el-button):focus-visible {
+  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .35) !important;
+  border-radius: var(--zg-r-md);   /* = 12px */
+}
+```
+
+它同时通过**两条路径**命中了输入框：
+
+| 路径 | 说明 |
+|---|---|
+| **裸标签** | 选择器里的 `input`/`select`/`textarea` 命中的是 `.el-input__wrapper` **里面**的原生控件 |
+| **`[tabindex]`** ⚠️ | Element Plus 给 `.el-input__inner` 设了 `tabindex`，原生 `<input>` 本身也天然可聚焦 → 输入框被**再次**捞回 |
+
+于是聚焦时出现**两层框、两个圆角**：
+
+| 层 | box-shadow | border-radius |
+|---|---|---|
+| 内层 `<input>` | `0 0 0 3px 主色35%`（外环） | **12px** |
+| 外层 `.el-input__wrapper` | `0 0 0 1px 主色95% inset` | **10px**（§A4 统一值） |
+
+两圆错位 + 外环偏移 → 视觉上就是"输入框上面压着一个变形的方框"。
+编辑器 `<textarea>` 更明显：`outline: solid 2px` **不跟随** `border-radius`，在圆角元素上渲染成方框状描边。
+
+> v4.8.16 曾修过一次，但**只排除了 `.el-input__wrapper` 等外层容器**，漏掉了 `input`/`textarea` 裸标签与 `[tabindex]` —— 所以用户反馈"还是没完成"。
+
+### 改法
+
+1. `:where(a, button, [tabindex], .el-button)` → 拆成两条，**输入控件全部排除**：
+   ```css
+   :where(a, button, .el-button):focus-visible { … }
+   :where([tabindex]):focus-visible:not(input):not(select):not(textarea)
+     :not(.el-input__wrapper):not(.el-select__wrapper)
+     :not(.el-textarea__inner):not(.el-input__inner) { … }
+   ```
+2. 全局 `:focus-visible { outline: 2px solid … }` 增加 `input/select/textarea` 排除
+3. 墨金**浅档/深档**的 `:focus-visible:not(…)` 链补 `not(input):not(select):not(textarea)`
+4. 墨金浅/深档聚焦态补 `:focus-within` 与 `.is-focused`（见下）
+
+### 顺带修掉的一个"沉寂 bug"
+
+```css
+.el-select__wrapper.is-focused { … }   /* ← 类名不存在 */
+```
+
+Element Plus 2.x 实际类名是 **`.is-focus`**（无 ed），墨金档一直写对了，**经典档写错了** → 经典主题下**下拉框的聚焦态从未生效**（实测聚焦时只有 hover 的 45%，没有 95%）。现补全 `.is-focus` / `.is-focused` / `:focus-within`。
+
+### 实测对比（生产，聚焦用户名输入框）
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 内层 `<input>` box-shadow | `0 0 0 3px 主色35%` ⚠️ | **`none`** ✅ |
+| 内层 `<input>` border-radius | `12px` ⚠️ | **`0px`** ✅ |
+| 外层 wrapper | `1px inset + 3px 外晕` / 10px | 同（**现在只有一层框**）✅ |
+| 编辑器 `<textarea>` outline | `solid 2px` ⚠️ | **`none`** ✅ |
+| select 展开态 | `45%`（聚焦未生效） | **`95% inset + 3px 外晕`** ✅ |
+
+### 修改文件
+
+- `src/styles/main.css`（全局焦点环拆分 + 输入控件排除 + `is-focused` 笔误 + 墨金两档 `:focus-within`）
+
+---
+
 ## [v4.8.17] - 2026-09-27
 
 > **续修 v4.8.16 的导出链路：Word 导出里图片变成一长串 base64「乱码」。**
