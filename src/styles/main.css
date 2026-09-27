@@ -193,9 +193,13 @@ html, body { overflow-x: clip; }
 /* A1 修复（经典档）：hover 100% 实色 → 45% 半透明（走 rgb 通道变量，后台自定义主色时同样跟随） */
 .el-input__wrapper:hover, .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(var(--zg-primary-rgb), 0.45) inset !important; }
 /* A1 修复（经典档）：focus 态改为"只换内边色"（不再叠加 3px 外环，避免橙色矩形块）；默认 1px 20% 内边 → focus 1px 100% 主色，更克制 */
+/* 【v4.8.17】原写 `.el-select__wrapper.is-focused` —— Element Plus 2.x 实际类名是
+   `.is-focus`（无 ed），导致经典档下拉的聚焦态**从未生效**；这里补全两个类名 + :focus-within 兜底。 */
 .el-input__wrapper.is-focus,
 .el-textarea__inner:focus,
-.el-select__wrapper.is-focused {
+.el-select__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-select__wrapper:focus-within {
   box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
   transition: box-shadow .2s ease;
 }
@@ -215,8 +219,12 @@ html, body { overflow-x: clip; }
   max-height: none;
 }
 /* B9 修复：全局键盘焦点指示（仅键盘导航时可见，不影响鼠标操作；输入框已有焦点光环，排除避免双圈） */
+/* 【v4.8.17】裸 input/select/textarea 一并排除 —— outline 不跟随 border-radius，
+   在 10px 圆角输入框上会渲染成方框状描边（"变形框线"）。 */
 :focus-visible { outline: 2px solid rgba(var(--zg-primary-rgb), 0.6); outline-offset: 2px; }
-.el-input__inner:focus-visible, .el-textarea__inner:focus-visible { outline: none; }
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+.el-input__inner:focus-visible, .el-textarea__inner:focus-visible,
+.el-select__input:focus-visible { outline: none !important; }
 /* ★★★ 报告 §7.3-1 根治「输入框聚焦时罩一层橘色/金色矩形方框」★★★
    根因：Element Plus 2.8.4 的 .el-input__wrapper 默认 tabindex:0（input.mjs L230），
    本身即可聚焦容器 → 触发上面全局 :focus-visible 的 2px outline；
@@ -1277,7 +1285,11 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
       本选择器含 4 个 :not(类) → 特异性 (0,5,0) 且带 !important，
       任何写在后面的低特异性规则（哪怕同样 !important）都压不过它（实测已验证）。
       所以唯一干净的解法，就是把它的排除清单自己补全。 */
-.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* 【v4.8.17】原规则只排除了 Element 容器类，**漏了裸 input/select/textarea** ——
+   它们命中的是 wrapper 里面的原生控件，会被套上 outline: 2px 主色 + offset 2px。
+   而 outline **不跟随 border-radius**，在 10px 圆角输入框上渲染成方框状描边，
+   就是用户说的"输入框上面覆盖着一个变形的框线"。这里把原生控件一并排除。 */
+.zg-inkgold :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(input):not(select):not(textarea):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 输入 / 标签 */
 .zg-inkgold .el-button,
@@ -1414,9 +1426,14 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 }
 .zg-inkgold .el-input__wrapper:hover,
 .zg-inkgold .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(186,117,23,0.45) inset !important; }
+/* 【v4.8.17】聚焦态补 `:focus-within` 与 `.is-focused`（Element Plus 2.x 实际类名），
+   否则鼠标点击聚焦、或下拉展开时命中不到，用户看到"点了没反应/框线乱变"。 */
 .zg-inkgold .el-input__wrapper.is-focus,
+.zg-inkgold .el-input__wrapper:focus-within,
 .zg-inkgold .el-textarea__inner:focus,
-.zg-inkgold .el-select__wrapper.is-focus {
+.zg-inkgold .el-select__wrapper.is-focus,
+.zg-inkgold .el-select__wrapper.is-focused,
+.zg-inkgold .el-select__wrapper:focus-within {
   /* 【v4.8.16】聚焦态给"更实的内边框 + 极柔外晕"：内边框负责边界（可辨识），
      外晕负责层次（不产生硬矩形方框）。两者并存，不互相替换。 */
   box-shadow: 0 0 0 1px rgba(186,117,23,0.95) inset, 0 0 0 3px rgba(186,117,23,0.14) !important;
@@ -1850,7 +1867,8 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 .zg-inkgold-dark .el-menu-item.is-active { background: transparent !important; color: var(--zg-primary) !important; border-left: 3px solid var(--zg-primary); border-radius: 0 8px 8px 0; }
 
 /* ===== 焦点态 / 可达性（仅墨金深档，排除输入框/文本域/下拉 + 弹窗容器，理由同浅档） ===== */
-.zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
+/* 【v4.8.17】同浅档：排除裸 input/select/textarea，避免 outline 方框状描边 */
+.zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(input):not(select):not(textarea):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
 /* 胶囊：按钮 / 标签 / 导航链接
    【v4.8.16 修复】原规则把 el-input__wrapper / el-textarea__inner / el-select__wrapper
@@ -1975,9 +1993,13 @@ html.zg-inkgold.zg-inkgold-dark .hero-name {
 }
 .zg-inkgold-dark .el-input__wrapper:hover,
 .zg-inkgold-dark .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(212,175,55,0.45) inset !important; }
+/* 【v4.8.17】深档同样补 `:focus-within` / `.is-focused`，与浅档保持一致（守铁律8：深档特异性 ≥ 浅档） */
 .zg-inkgold-dark .el-input__wrapper.is-focus,
+.zg-inkgold-dark .el-input__wrapper:focus-within,
 .zg-inkgold-dark .el-textarea__inner:focus,
-.zg-inkgold-dark .el-select__wrapper.is-focus {
+.zg-inkgold-dark .el-select__wrapper.is-focus,
+.zg-inkgold-dark .el-select__wrapper.is-focused,
+.zg-inkgold-dark .el-select__wrapper:focus-within {
   /* 内边框负责边界，外晕负责层次（两者并存，不互相替换） */
   box-shadow: 0 0 0 1px rgba(212,175,55,0.95) inset, 0 0 0 3px rgba(212,175,55,0.16) !important;
   transition: box-shadow .2s ease;
@@ -4532,20 +4554,69 @@ p, li, .desc, .content {
 
    【v4.8.16 修复】原规则把 `.el-input__wrapper` 也纳入进来，且带 !important 排在文件末尾，
    于是聚焦时输入框被套上 `0 0 0 3px 主色35%` 的粗外环 —— 与 §L199 定好的
-   「focus 态只换内边色 1px 主色」冲突，两层叠加成了难看的双圈，也是用户说的"框线 bug"。
-   输入框已有专属的 focus 内边框表达（§L196-201），这里必须排除，与 §L219 的处理保持一致。 */
-:where(a, button, [tabindex], input, select, textarea, .el-button):focus-visible {
+   「focus 态只换内边色 1px 主色」冲突，两层叠加成了难看的双圈。
+
+   【v4.8.17 真修「输入框上面覆盖一个有问题的变形框线」】
+   上次只排除了 `.el-input__wrapper` 等**外层容器**，却漏了两条路径：
+     ① 选择器里的**裸标签 `input` / `select` / `textarea`** —— 命中的是 wrapper
+        **里面**的原生控件；
+     ② 更要命的是 **`[tabindex]`** —— Element Plus 给 `.el-input__inner` 设了 tabindex，
+        原生 `<input>` 本身也天然可聚焦，于是这条规则**再次**把输入框捞了回来。
+   实测聚焦时出现"两层框、两个圆角"：
+     · 内层 <input>  ：shadow `0 0 0 3px 主色35%` + border-radius 12px（--zg-r-md）
+     · 外层 wrapper  ：shadow `0 0 0 1px 主色95% inset` + border-radius 10px（§A4 统一值）
+   两圆错位 + 外环偏移 → 视觉上就是"输入框上面压着一个变形的方框"。
+   编辑器 <textarea> 更明显：outline(solid 2px) 不跟随圆角，渲染成方框状描边。
+   现把 input/select/textarea/**[tabindex] 里的输入控件**全部摘出去 —— 输入类控件的
+   焦点表达统一由 §L192-201 / 墨金三态（1px 内边框 → hover 45% → focus 95%）承担，
+   保证"只有一个圆、一个框"。
+   --------------------------------------------------------------------------- */
+:where(a, button, .el-button):focus-visible {
   outline: none !important;
   box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .35) !important;
   border-radius: var(--zg-r-md);
 }
-/* 输入框类：交回 §L199 的 1px 主色内边框，不参与上面的外环 */
+/* 单独给 [tabindex] 一类（不含输入控件）保留键盘焦点环 */
+:where([tabindex]):focus-visible:not(input):not(select):not(textarea)
+  :not(.el-input__wrapper):not(.el-select__wrapper):not(.el-textarea__inner):not(.el-input__inner) {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .35) !important;
+  border-radius: var(--zg-r-md);
+}
+/* 输入类控件（含原生 input/select/textarea 与 Element 各层容器）：
+   一律不参与上面的外环，交回 §L192-201 的 1px 主色内边框体系。 */
 .el-input__wrapper:focus-visible,
 .el-input__wrapper:focus-within,
+.el-input__wrapper .el-input__inner:focus-visible,
 .el-select__wrapper:focus-visible,
 .el-select__wrapper:focus-within,
-.el-textarea__inner:focus-visible {
+.el-select__wrapper .el-select__input:focus-visible,
+.el-select__selected-item input:focus-visible,
+.el-textarea__inner:focus-visible,
+.el-textarea__inner:focus,
+.el-input__inner:focus-visible,
+.el-input__inner:focus,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: none !important;
+  box-shadow: none;
+}
+/* 但输入控件在**自身有专属内边框**时不能被上面的 box-shadow:none 抹掉，
+   所以这里按"三态"重新声明一次（特异性更高，排在后面生效）。 */
+.el-input__wrapper:focus,
+.el-input__wrapper:focus-within,
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
+}
+.el-select__wrapper:focus,
+.el-select__wrapper:focus-within,
+.el-select__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
+}
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--zg-primary) inset !important;
 }
 
 /* 尊重系统"减弱动态效果"偏好（无障碍 + 省电） */
