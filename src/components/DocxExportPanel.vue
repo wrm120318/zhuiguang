@@ -51,26 +51,56 @@ const QTYPES = [
 //      现改为：拉到图片后用 canvas 归一化为 PNG，并取真实像素尺寸，按比例限制最大宽度。
 async function fetchImage(url: string): Promise<{ data: ArrayBuffer; width: number; height: number } | null> {
   try {
-    const clean = String(url).replace(/\s+/g, '')
-    const abs = clean.startsWith('http') || clean.startsWith('//')
-      ? clean.startsWith('//') ? 'https:' + clean : clean
-      : API_BASE + clean
-    const token = (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
-    const tryFetch = async (withToken: boolean) => {
-      let u = abs
-      if (withToken && abs.includes('/api/file/')) u = abs + (abs.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
-      return fetch(u)
+    // 【v4.8.16 修复「导出 Word 里图片变成一长串 base64 文字」】
+    // data: URL 不以 http / // 开头，会被下面的相对路径分支拼成 API_BASE + 'data:image/png;base64,…'
+    // → fetch 必然失败返回 null → 图片降级成 `[图片]` 文字，甚至整串 base64 落进 Word。
+    // 这里先把 data URL 单独接住：直接 atob 解出二进制，不经过网络。
+    const raw = String(url).replace(/\s+/g, '')
+    let buf: ArrayBuffer
+    if (/^data:image\//i.test(raw)) {
+      const comma = raw.indexOf(',')
+      if (comma < 0) return null
+      const meta = raw.slice(5, comma)           // image/png;base64
+      const body = raw.slice(comma + 1)
+      if (/;base64/i.test(meta)) {
+        const bin = atob(body)
+        const u8 = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
+        buf = u8.buffer
+      } else {
+        // 非 base64 的 data URL（含 %XX 转义）→ 用 fetch 解
+        const r = await fetch(raw)
+        if (!r.ok) return null
+        buf = await r.arrayBuffer()
+      }
+    } else {
+      const abs = raw.startsWith('http') || raw.startsWith('//')
+        ? raw.startsWith('//') ? 'https:' + raw : raw
+        : API_BASE + raw
+      const token = (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
+      const tryFetch = async (withToken: boolean) => {
+        let u = abs
+        if (withToken && abs.includes('/api/file/')) u = abs + (abs.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+        return fetch(u)
+      }
+      let r = await tryFetch(false)
+      if (!r.ok && token) r = await tryFetch(true)
+      if (!r.ok) return null
+      buf = await r.arrayBuffer()
     }
-    let r = await tryFetch(false)
-    if (!r.ok && token) r = await tryFetch(true)
-    if (!r.ok) return null
-    const buf = await r.arrayBuffer()
     const objUrl = URL.createObjectURL(new Blob([buf]))
     const img = new Image()
     await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img load fail')); img.src = objUrl })
     const nw = img.naturalWidth || 360, nh = img.naturalHeight || 240
-    const scale = Math.min(1, 480 / nw) // 限制最大宽度 480，避免超宽图撑破版心
-    const cw = Math.max(40, Math.round(nw * scale)), ch = Math.max(30, Math.round(nh * scale))
+    // 【v4.8.16】宽度策略三档：
+    //   超宽图（>480）→ 压到 480，避免撑破版心
+    //   小图（<300）  → 放大到 300，避免 Word 里缩成看不清的一点
+    //   中间 → 原尺寸
+    let cw: number
+    if (nw > 480) cw = 480
+    else if (nw < 300) cw = 300
+    else cw = nw
+    const ch = Math.max(30, Math.round(nh * (cw / nw)))
     const canvas = document.createElement('canvas')
     canvas.width = cw; canvas.height = ch
     const ctx = canvas.getContext('2d')
@@ -308,11 +338,15 @@ async function katexToImage(tex: string): Promise<{ data: ArrayBuffer; type: 'pn
 
 const INLINE_RE = /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\!\[[^\]]*\]\([^)]*\))|(\*\*[^*]+\*\*)/g
 // 清理 file:// 附件裸引用（网页端是蓝色链接，Word 里应转成可读性文本，避免导出出一堆 file://xxx）
+// 【v4.8.16】同时兜掉「漏网的 data:image base64 长串」——图片行若因正则未命中而落进普通文本，
+// 会把几十 KB 的 base64 原样写进 Word（表现为"乱码"）。这里统一降级为 [图片]。
 function cleanText(s: string): string {
-  return s.replace(/file:\/\/\S+/g, (m) => {
-    const name = m.replace(/^file:\/\//, '')
-    return name ? `[附件:${name}]` : ''
-  })
+  return s
+    .replace(/file:\/\/\S+/g, (m) => {
+      const name = m.replace(/^file:\/\//, '')
+      return name ? `[附件:${name}]` : ''
+    })
+    .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{80,}/g, '')
 }
 // 【v4.7.0 真修】把一段纯文本按 \n 拆成 TextRun，换行用 break 保留（修复「导出 Word 自动吞没换行」）
 function textRuns(s: string, size: number): any[] {
