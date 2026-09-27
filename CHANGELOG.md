@@ -5,6 +5,100 @@
 
 ---
 
+## [v4.8.19] - 2026-09-27
+
+> **承接 v4.8.18**：题面里的**外链图片**（第三方图床）导出 Word 时一直是 `[图片]` 占位，本轮补上后端图片代理，彻底打通。
+
+### 现象
+
+题库里有题目的题面引用了外部图床图片，例如物理 id=25：
+
+```html
+<img src="https://i.imgs.ovh/2026/09/15/7ba247a9a04a79d3eab5610cd39a1b4f.png" width="300">
+```
+
+导出 Word 时这张图**从不出现**，只留一个 `[图片]` 文字占位。
+
+### 真根因
+
+外链图所在图床（i.imgs.ovh）**响应头里没有 `Access-Control-Allow-Origin`**：
+
+```
+$ curl -I https://i.imgs.ovh/2026/09/15/7ba247a9a04a79d3eab5610cd39a1b4f.png
+HTTP/2 200
+content-type: image/png
+content-length: 97141
+（没有 access-control-allow-origin）
+```
+
+浏览器端 `fetchImage()` 走的是**浏览器直连**，跨域请求被 CORS 策略拦截 → 返回 `null` → 降级成 `[图片]`。
+图床本身完全可访问（`curl` 能拿到 97,141 字节的真实 PNG），**只是浏览器拿不到**。
+
+### 改法
+
+**① 后端新增图片代理接口**（`worker-api.ts`）
+
+```
+GET /api/proxy-image?url=<urlencoded>
+```
+
+由 Worker 在**服务端**代为抓取（服务端不受浏览器 CORS 限制），再原样回传给前端。
+
+安全约束（防止被当成开放代理 / SSRF 跳板）：
+
+| 约束 | 说明 |
+|---|---|
+| 协议白名单 | 仅 `http` / `https`，`file://` 等一律 400 |
+| 类型白名单 | 仅回传 `content-type: image/*`，抓到 HTML 一律 400 |
+| 体积上限 | 8 MB（先看 `Content-Length` 快速拒绝，再兜底检查实际字节数） |
+| SSRF 防护 | 拦截 `localhost` / `127.x` / `10.x` / `172.16-31.x` / `192.168.x` / `169.254.x` / `::1` / `fe80::` 等内网地址 → 403 |
+| 鉴权 | 仅已登录用户可调用（复用 `verifyFileAccess`） |
+| 缓存 | 命中后 `Cache-Control: public, max-age=86400`，避免同一题反复抓取 |
+
+同时伪装浏览器 UA / Referer，绕过部分图床的防盗链。
+
+**② 前端 `fetchImage()` 外链分支改为三级降级**（`DocxExportPanel.vue`）
+
+```
+外链图 → ① 走本站代理 /api/proxy-image
+       → ② 代理不可用时，退回浏览器直连（万一图床有 CORS 头呢）
+       → ③ 两条都不通，才降级为 [图片]，并记录到 externalImageFails
+```
+
+**③ 导出后给出明确提示**
+
+导出结束若有图片失败，弹出 `ElMessage.warning`：
+
+> 有 1 张外部图片未能下载（i.imgs.ovh），Word 中已用「[图片]」占位。建议先把这些图片重新上传到本站再导出。
+
+### 实测对比（物理 id=25，含 1 张外链图）
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| `w:drawing` 次数 | **0** | **1** ✅ |
+| `word/media/` 图片 | 0 | **1 个 PNG，67,188 B** ✅ |
+| `[图片]` 占位 | 有 | **0** ✅ |
+| 正文 base64 残留 | 0 | **0** ✅ |
+| 正文可见字符数 | — | 985 |
+
+接口层实测（`curl` + 浏览器 `fetch`）：
+
+| 用例 | 预期 | 实测 |
+|---|---|---|
+| 无 token | 401 | **401** ✅ |
+| 抓 i.imgs.ovh 图 | 200 + image/png | **200 / 97,141 B / 955×681 解码成功** ✅ |
+| `http://127.0.0.1/admin` | 403 | **403「该地址不被允许」** ✅ |
+| `http://192.168.1.1/a.png` | 403 | **403** ✅ |
+| 抓 `www.baidu.com`（HTML） | 400 | **400「目标不是图片」** ✅ |
+| `file:///etc/passwd` | 400 | **400「仅支持 http/https」** ✅ |
+
+### 修改文件
+
+- `worker-api.ts` — 新增 `GET /api/proxy-image` + `isPrivateHost()` SSRF 防护
+- `src/components/DocxExportPanel.vue` — `fetchImage()` 三级降级 + `externalImageFails` 导出后提示
+
+---
+
 ## [v4.8.18] - 2026-09-27
 
 > **用户反馈**：「输入框上面覆盖着一个有问题的变形框线，反正是输入框有严重的问题哦」
