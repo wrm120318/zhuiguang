@@ -749,6 +749,32 @@ img { -webkit-user-drag: none; }
 .d-content :deep(ol), .g-content :deep(ol), .ad-content :deep(ol), .q-content :deep(ol) { padding-left: 22px; margin: 10px 0; }
 .d-content :deep(li), .g-content :deep(li), .ad-content :deep(li), .q-content :deep(li) { margin: 4px 0; }
 .d-content :deep(img), .g-content :deep(img), .ad-content :deep(img), .q-content :deep(img) { max-width: 100%; border-radius: 12px; margin: 10px 0; }
+
+/* 【v4.8.16 修复「题面图片撑满整屏」】
+   从 Word / 网页粘贴的题面图片是**内联 base64 的裸 <img>**（没有 .zg-img 类，
+   也没有 width/height 属性），`max-width:100%` 对它不起作用 —— 父容器（题卡）本身很宽，
+   于是图片按自身分辨率铺满整屏，一张几何图就能占一整屏高度。
+   这里对所有题面容器内的图片统一加**绝对尺寸上限**（比 100% 更严格），
+   同时保留原有圆角与间距。用户诉求原话："编辑器自动调整图片大小 不要太大"。 */
+.q-content img, .q-answer img, .q-ref img,
+.markdown-body img,
+.pc-content img, .rb-content img, .rc-question img, .grade-content img,
+.d-content img, .g-content img, .ad-content img, .au-content img {
+  max-width: min(100%, 680px) !important;
+  max-height: 520px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+/* 移动端进一步收紧，避免单图占满整个视口 */
+@media (max-width: 768px) {
+  .q-content img, .q-answer img, .q-ref img,
+  .markdown-body img,
+  .pc-content img, .rb-content img, .rc-question img, .grade-content img {
+    max-width: 100% !important;
+    max-height: 320px;
+  }
+}
 .d-content :deep(code), .g-content :deep(code), .ad-content :deep(code), .q-content :deep(code) { background: rgba(245,158,11,.12); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
 .d-content :deep(pre), .g-content :deep(pre), .ad-content :deep(pre), .q-content :deep(pre) { background: rgba(0,0,0,.06); padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0; }
 .d-content :deep(pre) :deep(code), .g-content :deep(pre) :deep(code), .q-content :deep(pre) :deep(code) { background: transparent; padding: 0; }
@@ -1370,22 +1396,30 @@ html.zg-inkgold { scrollbar-color: rgba(186,117,23,0.35) transparent; scrollbar-
 .zg-inkgold .sub-tab.on::after,
 .zg-inkgold .sub-tab:hover::after { transform: scaleX(1); }
 
-/* 微交互：输入框三态（消全局 L131/L132 经典橘框，改墨金棕金） */
-/* 墨金输入框：去"白色矩形框"——瓷调半透填充 + 柔润内陷阴影（无硬 1px 金环、无刺眼白底），
-   与温润瓷语言一致；focus 用柔和金晕而非硬方框（§7 已排除 outline 双圈）。 */
+/* 微交互：输入框三态（对齐经典档 L192-201 的框线体系）
+   ---------------------------------------------------------------------------
+   【v4.8.16 修复】原实现是「去白色矩形框」——把边框整个换成
+   `inset 0 1px 3px rgba(186,117,23,0.07)`，一个 7% 透明度的内阴影。
+   实测后果：输入框在静止态几乎看不到边界，用户填表时无法分辨"哪里能输入"，
+   反馈原话"输入框框线的东西全是 bug"。内陷阴影适合表达"凹陷"，但不能替代边框。
+   现改为与经典档同构的三态框线：默认 1px 20% 主色 → hover 45% → focus 100%，
+   保留墨金特有的瓷调半透填充（不回到刺眼纯白）。
+   ⚠️ 注意：这里是**内部填充 + inset 边框**并存，用逗号分隔叠加，不要互相替换。
+   --------------------------------------------------------------------------- */
 .zg-inkgold .el-input__wrapper,
 .zg-inkgold .el-textarea__inner,
 .zg-inkgold .el-select__wrapper {
   background: rgba(255,253,248,0.62) !important;
-  box-shadow: inset 0 1px 3px rgba(186,117,23,0.07) !important;
+  box-shadow: 0 0 0 1px rgba(186,117,23,0.20) inset !important;
 }
 .zg-inkgold .el-input__wrapper:hover,
-.zg-inkgold .el-select__wrapper:hover { box-shadow: inset 0 1px 3px rgba(186,117,23,0.12) !important; }
+.zg-inkgold .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(186,117,23,0.45) inset !important; }
 .zg-inkgold .el-input__wrapper.is-focus,
 .zg-inkgold .el-textarea__inner:focus,
 .zg-inkgold .el-select__wrapper.is-focus {
-  /* 根治「聚焦橘/金矩形方框」：删去 0 0 0 3px 外环（硬矩形），仅留内陷柔光，用负扩散柔影"浮"起而非"框"起 */
-  box-shadow: inset 0 1px 4px rgba(186,117,23,0.14), 0 6px 18px -8px rgba(186,117,23,0.28) !important;
+  /* 【v4.8.16】聚焦态给"更实的内边框 + 极柔外晕"：内边框负责边界（可辨识），
+     外晕负责层次（不产生硬矩形方框）。两者并存，不互相替换。 */
+  box-shadow: 0 0 0 1px rgba(186,117,23,0.95) inset, 0 0 0 3px rgba(186,117,23,0.14) !important;
   transition: box-shadow .2s ease;
 }
 
@@ -1818,14 +1852,20 @@ html.zg-inkgold-dark { scrollbar-color: rgba(212,175,55,0.35) transparent; scrol
 /* ===== 焦点态 / 可达性（仅墨金深档，排除输入框/文本域/下拉 + 弹窗容器，理由同浅档） ===== */
 .zg-inkgold-dark :focus-visible:not(.el-input__wrapper):not(.el-textarea__inner):not(.el-select__wrapper):not(.el-input__inner):not(.el-dialog):not(.el-message-box):not(.el-drawer):not(.el-overlay):not(.el-overlay-dialog):not(.el-overlay-message-box) { outline: 2px solid var(--zg-primary) !important; outline-offset: 2px !important; }
 
-/* 胶囊：按钮 / 输入 / 标签 */
+/* 胶囊：按钮 / 标签 / 导航链接
+   【v4.8.16 修复】原规则把 el-input__wrapper / el-textarea__inner / el-select__wrapper
+   也纳入了 999px 胶囊，导致深档输入框变成全圆胶囊；而浅档在 §L1255-1259 明确写了
+   "输入框圆角独立于胶囊体系——固定 10px（避免大圆角切字）"。两档因此不一致，
+   且胶囊形多行文本域会把首末行文字裁掉。此处对齐浅档，把输入类移出胶囊名单。 */
 .zg-inkgold-dark .el-button,
-.zg-inkgold-dark .el-input__wrapper,
-.zg-inkgold-dark .el-textarea__inner,
-.zg-inkgold-dark .el-select__wrapper,
 .zg-inkgold-dark .el-tag,
 .zg-inkgold-dark .sq-tag,
 .zg-inkgold-dark .nav-link { border-radius: 999px !important; }
+/* 深档输入类：与浅档一致固定 10px */
+.zg-inkgold-dark .el-textarea,
+.zg-inkgold-dark .el-textarea__inner,
+.zg-inkgold-dark .el-input__wrapper,
+.zg-inkgold-dark .el-select__wrapper { border-radius: 10px !important; }
 .zg-inkgold-dark .el-button--primary { background: linear-gradient(135deg, var(--zg-primary), var(--zg-primary-2)) !important; border-color: var(--zg-primary) !important; color: #1B1710 !important; font-weight: 600; }
 .zg-inkgold-dark .el-button--primary:hover { color: #1B1710 !important; }
 
@@ -1923,20 +1963,23 @@ html.zg-inkgold.zg-inkgold-dark .hero-name {
 .zg-inkgold-dark .sub-tab.on::after,
 .zg-inkgold-dark .sub-tab:hover::after { transform: scaleX(1); }
 
-/* 微交互：输入框三态（暖黑面板 + 柔润内陷，无硬金环；focus 柔和金晕） */
+/* 微交互：输入框三态（暖黑面板 + 清晰金边）
+   【v4.8.16】同浅档修复：原用 `inset 0 1px 3px rgba(0,0,0,0.30)` 表达边框，
+   在暖黑底上几乎没有对比度 → 输入框边界不可见。改为金色内边框（深底上金色才显形），
+   默认 22% → hover 45% → focus 95% + 柔和外晕。 */
 .zg-inkgold-dark .el-input__wrapper,
 .zg-inkgold-dark .el-textarea__inner,
 .zg-inkgold-dark .el-select__wrapper {
   background: rgba(255,243,214,0.05) !important;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.30) !important;
+  box-shadow: 0 0 0 1px rgba(212,175,55,0.22) inset !important;
 }
 .zg-inkgold-dark .el-input__wrapper:hover,
-.zg-inkgold-dark .el-select__wrapper:hover { box-shadow: inset 0 1px 3px rgba(0,0,0,0.38) !important; }
+.zg-inkgold-dark .el-select__wrapper:hover { box-shadow: 0 0 0 1px rgba(212,175,55,0.45) inset !important; }
 .zg-inkgold-dark .el-input__wrapper.is-focus,
 .zg-inkgold-dark .el-textarea__inner:focus,
 .zg-inkgold-dark .el-select__wrapper.is-focus {
-  /* 深色档同理：删外环，仅内陷柔光 + 负扩散柔影 */
-  box-shadow: inset 0 1px 4px rgba(0,0,0,0.42), 0 6px 18px -8px rgba(212,175,55,0.22) !important;
+  /* 内边框负责边界，外晕负责层次（两者并存，不互相替换） */
+  box-shadow: 0 0 0 1px rgba(212,175,55,0.95) inset, 0 0 0 3px rgba(212,175,55,0.16) !important;
   transition: box-shadow .2s ease;
 }
 
@@ -2910,19 +2953,65 @@ html, body { overflow-x: clip; }
   color: inherit;
   font-size: 13px;
 }
-.markdown-body table {
+/* ---------------------------------------------------------------------------
+   【v4.8.16 修复「表格列被压成竖排单字」】
+   原写法 `.markdown-body table { display:block; width:100%; overflow:auto }` 的致命副作用：
+     ① display:block 让 table 脱离自身的表格布局算法 —— 浏览器不再按内容分配列宽，
+        第一列遇到较长文本（如"特殊平行四边形"）时被压到极窄 → 文字逐字换行、竖排成柱；
+     ② width:100% 强制拉满容器，进一步挤压窄列。
+   正确做法（业界通行）：**外层 div 负责横向滚动，table 自身保持 table 布局**。
+   但这里的 table 由 marked 直接产出、没有外层包裹，所以用
+   「table 设 display:block 做滚动容器 + 内部元素恢复表格显示」的组合。
+   ⚠️ 关键是必须显式恢复 thead/tbody/tr/td 的 display，
+      否则只设 table:block 而不管内部 → 就是上面那个 bug。
+   --------------------------------------------------------------------------- */
+.markdown-body table,
+.q-content table,
+.q-answer table,
+.q-ref table {
   border-collapse: collapse;
   margin: 1em 0;
-  width: 100%;
-  overflow: auto;
-  display: block;
+  display: block;            /* 作为滚动容器 */
+  max-width: 100%;
+  width: max-content;        /* 按内容宽度，不强制拉满 */
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  table-layout: auto;
 }
-.markdown-body table th, .markdown-body table td {
+/* 恢复表格内部布局 —— 这一步是修 bug 的核心，不能省 */
+.markdown-body table > thead,
+.q-content table > thead,
+.q-answer table > thead { display: table-header-group; }
+.markdown-body table > tbody,
+.q-content table > tbody,
+.q-answer table > tbody { display: table-row-group; }
+.markdown-body table > tfoot,
+.q-content table > tfoot { display: table-footer-group; }
+.markdown-body table > tr,
+.q-content table > tr { display: table-row; }
+.markdown-body table > colgroup,
+.q-content table > colgroup { display: table-column-group; }
+.markdown-body table tr,
+.q-content table tr,
+.q-answer table tr,
+.q-ref table tr { display: table-row; }
+.markdown-body table th, .markdown-body table td,
+.q-content table th, .q-content table td,
+.q-answer table td, .q-ref table td {
+  display: table-cell;
   border: 1px solid rgba(var(--zg-primary-rgb), 0.2);
   padding: 8px 14px;
   text-align: left;
+  /* 关键：给列一个下限，杜绝"竖排单字" */
+  min-width: 76px;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
-.markdown-body table th {
+.markdown-body table th,
+.q-content table th {
   background: rgba(var(--zg-primary-rgb), 0.08);
   font-weight: 700;
 }
@@ -4385,18 +4474,24 @@ a.zg-file-link {
   box-shadow: var(--zg-el-glow) !important;
 }
 
-/* ③ 输入类控件：统一圆角与聚焦光晕（聚焦时有一圈柔光，明确"我在输入"） */
+/* ③ 输入类控件：圆角与聚焦
+   ---------------------------------------------------------------------------
+   【v4.8.16 回退】v4.8.14 曾在此处新增一条 "统一圆角 + 聚焦光晕" 规则，实测造成
+   全站输入框「框线消失」的 bug（用户反馈"全是 bug"）。根因：
+     ① border-radius 被改成 var(--zg-r-md)，打乱了原本统一收敛的 10px（§A4）；
+     ② .is-focus 的 box-shadow 被替换成 `0 0 0 3px 主色14% 外环 + el-1 阴影`，
+        这一条排在文件末尾且带 !important → 直接盖掉了 §L196-201 定好的
+        「1px 主色内边框」，输入框边界因此在静止与聚焦态都看不出来；
+     ③ 同一份 box-shadow 无法同时表达「边框」与「外环」，属于写法上的根本冲突。
+   现整段移除，回退到 §L192-201 的原生框线体系：
+     默认 1px 20% 主色内边框 → hover 1px 45% → focus 1px 100%，圆角统一 10px。
+   ⚠️ 后续若要加"聚焦光晕"，请**追加**在外环而不是替换 box-shadow，例：
+      box-shadow: 0 0 0 1px var(--zg-primary) inset, 0 0 0 3px rgba(var(--zg-primary-rgb), .14) !important;
+   --------------------------------------------------------------------------- */
 .el-input__wrapper,
 .el-textarea__inner,
 .el-select__wrapper {
-  border-radius: var(--zg-r-md) !important;
-  transition: box-shadow var(--zg-dur) var(--zg-ease-out),
-              border-color var(--zg-dur) var(--zg-ease-out) !important;
-}
-.el-input__wrapper.is-focus,
-.el-select__wrapper.is-focused,
-.el-textarea__inner:focus {
-  box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .14), var(--zg-el-1) !important;
+  transition: box-shadow var(--zg-dur) var(--zg-ease-out) !important;
 }
 
 /* ⑤ 排版质感：数字等宽对齐 + 标题收紧字距 + 中文正文放宽 */
@@ -4433,11 +4528,24 @@ p, li, .desc, .content {
 }
 
 /* 焦点可见性（无障碍）：键盘用户必须能看到焦点在哪。
-   用 box-shadow 而不是 outline —— 与圆角天然贴合，不会出现"矩形框"。 */
-:where(a, button, [tabindex], input, select, textarea, .el-button, .el-input__wrapper):focus-visible {
+   用 box-shadow 而不是 outline —— 与圆角天然贴合，不会出现"矩形框"。
+
+   【v4.8.16 修复】原规则把 `.el-input__wrapper` 也纳入进来，且带 !important 排在文件末尾，
+   于是聚焦时输入框被套上 `0 0 0 3px 主色35%` 的粗外环 —— 与 §L199 定好的
+   「focus 态只换内边色 1px 主色」冲突，两层叠加成了难看的双圈，也是用户说的"框线 bug"。
+   输入框已有专属的 focus 内边框表达（§L196-201），这里必须排除，与 §L219 的处理保持一致。 */
+:where(a, button, [tabindex], input, select, textarea, .el-button):focus-visible {
   outline: none !important;
   box-shadow: 0 0 0 3px rgba(var(--zg-primary-rgb), .35) !important;
   border-radius: var(--zg-r-md);
+}
+/* 输入框类：交回 §L199 的 1px 主色内边框，不参与上面的外环 */
+.el-input__wrapper:focus-visible,
+.el-input__wrapper:focus-within,
+.el-select__wrapper:focus-visible,
+.el-select__wrapper:focus-within,
+.el-textarea__inner:focus-visible {
+  outline: none !important;
 }
 
 /* 尊重系统"减弱动态效果"偏好（无障碍 + 省电） */

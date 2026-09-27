@@ -13,6 +13,7 @@ import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingL
 import { saveAs } from 'file-saver'
 import katex from 'katex'
 import { API_BASE } from '@/utils/helpers'
+import { htmlToMarkdown, looksLikeHtml } from '@/utils/html-to-md'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps<{ subjectName: string; items: any[] }>()
@@ -367,15 +368,44 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
  * 【v4.7.0 真修】Markdown → Word 段落（修复「markdown 样式未变为正常 Word 文字大小样式」）
  * 支持：#/##/### 标题（按层级放大加粗）、-/* 无序列表、1. 有序列表、> 引用、普通段落；
  * 行内保留 **加粗** / $公式$ / ![图片] / 链接；换行用 break 保留。
+ *
+ * 【v4.8.16 修复「HTML 题面导出乱码」】
+ * 本函数原只认 Markdown 语法。而生产库里存在**纯 HTML 题面**（用户从 Word 粘贴而来，
+ * 如 id=57 的 `<table><tbody><tr><td><p><strong>…`）。这类内容走原来的分支时，
+ * 整串标签会被当作普通文本行，于是 `<table><tbody><tr><td><p><strong>` 原样写进
+ * Word 文档 → 用户看到的"乱码"。
+ * 现在入口先做格式嗅探：命中 HTML 标签的，先用 htmlToMarkdown() 规范化为 Markdown，
+ * 再走下面同一套解析。这样"Markdown 走 Markdown、HTML 先转换"，两条路都不丢格式。
  */
 async function mdToParagraphs(md: string, size: number, opts: { indent?: number; spacingAfter?: number } = {}): Promise<any[]> {
-  const lines = (md || '').split('\n')
+  let src = md || ''
+  // 格式嗅探：HTML → Markdown（Markdown 自身合法出现 < 的场景由 looksLikeHtml 的标签白名单排除）
+  if (looksLikeHtml(src)) {
+    try { src = htmlToMarkdown(src) } catch { /* 转换失败则按原文继续，至少不抛错 */ }
+  }
+  const lines = src.split('\n')
   const out: any[] = []
   const baseIndent = opts.indent || 0
   let i = 0
   while (i < lines.length) {
     const line = lines[i]
     if (!line.trim()) { i++; continue }
+    // GFM 表格：连续的 | 开头行 → 还原为 Word 真表格
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const tbl: string[] = []
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { tbl.push(lines[i]); i++ }
+      // 需要至少 表头 + 分隔行，才视为表格
+      if (tbl.length >= 2 && /^\s*\|[\s:|-]+\|\s*$/.test(tbl[1])) {
+        const parseRow = (r: string) => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim().replace(/\\\|/g, '|'))
+        const header = parseRow(tbl[0])
+        const bodyRows = tbl.slice(2).map(parseRow)
+        out.push(buildWordTable(header, bodyRows, size))
+        continue
+      }
+      // 不符合表格结构 → 退回普通段落处理
+      for (const t of tbl) out.push(new Paragraph({ children: await inlineRuns(t, size), spacing: { after: opts.spacingAfter ?? 30 } }))
+      continue
+    }
     const h = line.match(/^(#{1,3})\s+(.*)$/)
     if (h) {
       const hs = size + (4 - h[1].length) * 2
@@ -414,6 +444,30 @@ function mdPlain(md: string): string {
     .replace(/==([^=]+)==/g, '$1')
     .replace(/\$\$*([^$]+)\$\$*/g, '$1')
     .replace(/\n{2,}/g, '\n').trim()
+}
+
+// ===== 【v4.8.16】Markdown 表格 → Word 真表格 =====
+/**
+ * 把 GFM 表格（表头 + 数据行）渲染成 docx 的 Table，带边框、表头加粗。
+ * 用于承载从 HTML 题面（Word 粘贴的 <table>）转换来的表格，
+ * 这样"表格题面导出 Word 乱码"的问题彻底闭环 —— 表格仍是表格，不是一堆竖线。
+ */
+function buildWordTable(header: string[], bodyRows: string[][], size: number): Table {
+  const cols = Math.max(header.length, ...bodyRows.map(r => r.length), 1)
+  const norm = (r: string[]) => { const c = r.slice(); while (c.length < cols) c.push(''); return c.slice(0, cols) }
+  const widthPct = Math.floor(100 / cols)
+
+  const headRow = new TableRow({
+    tableHeader: true,
+    children: norm(header).map(h => cell(
+      [new Paragraph({ children: textRuns(h, size - 1).map((r: any) => { r.bold = true; return r }) })],
+      widthPct,
+    )),
+  })
+  const rows = bodyRows.map(r => new TableRow({
+    children: norm(r).map(c => cell([new Paragraph({ children: textRuns(c, size - 1) })], widthPct)),
+  }))
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headRow, ...rows] })
 }
 
 // ===== 双向细目表 =====

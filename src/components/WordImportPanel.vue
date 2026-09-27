@@ -27,27 +27,139 @@ function htmlToText(html: string): string {
     .trim()
 }
 
-// 将 Word 转换出的 HTML 按"题号"切分为若干题目块（每块含题干/选项/图片/表格，区块不破断）
+// ===== 两级题号识别（v4.8.16 重写）=====
+//
+// 【原实现的 bug】下级 `marker` 正则把「一、二、三」与「1. 2. 3.」塞进同一个模式，
+// 于是两者被同等对待：既把「一、选择题（每题3分）」当成一道题的起点，
+// 又把其下的「1. …」「2. …」各自当成新题起点。
+// 结果一份卷子被切得七零八落 —— 大题标题单独成"题"，小题各成"题"，
+// 用户反馈「只有看到 1.2.3 阿拉伯数字才截断题目，一二三 是大题截断」正是此意。
+//
+// 【正确模型】两级：
+//   · 一级（大题）：一、二、三 … / 第一部分 / 第Ⅰ卷 / （一）
+//   · 二级（小题）：1. / 1、 / (1) / （1）
+// 切分策略：先按一级切「大题段」，再在每个大题段内按二级切「小题」；
+// 若整份文档不含一级题号，则退化为仅按二级切（兼容纯小题的练习卷）。
+const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
+const MINOR_RE = /^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])/
+
+/** 取节点的题号文本（取首行，避免题面正文里的序号误判） */
+function markerLine(el: Element): string {
+  const t = (el.textContent || '').replace(/\u00a0/g, ' ').trim()
+  return t.split('\n')[0] || ''
+}
+
+/**
+ * 将 Word 转换出的 HTML 切分为题目块。
+ * 两级切分：一级大题内的多个小题会被正确拆开；大题标题与紧随其后的首题合并，
+ * 避免"光秃秃一行『一、选择题』"成为一道空题。
+ * 卷首的标题/说明（题号之前的内容）作为「前言」并入第一道题，不单独成块。
+ */
 function splitHtmlToQuestions(html: string): string[] {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const blocks = Array.from(doc.body.childNodes).filter(n => n.nodeType === 1) as Element[]
-  const marker = /^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）])/
-  const out: string[] = []
-  let cur: string[] = []
-  let started = false
-  const flush = () => { if (cur.length) { out.push(cur.join('')); cur = [] } }
+  if (!blocks.length) return []
+
+  // ---- 第零遍：剥离卷首前言（首个题号标记之前的标题/说明）----
+  // 原实现把卷首 <h1>/<h2> 也当成一个块推入 out，导致「标题」单独成一道"题"，
+  // 而且兜底分支还会把内部子节点再拆一遍 → 标题被重复计入（实测切出 9 块含 2 块标题）。
+  let preamble: Element[] = []
+  let firstMarkerIdx = blocks.findIndex(el => {
+    const line = markerLine(el)
+    return MAJOR_RE.test(line) || MINOR_RE.test(line)
+  })
+  if (firstMarkerIdx > 0) {
+    preamble = blocks.slice(0, firstMarkerIdx)
+    blocks.splice(0, firstMarkerIdx)
+  }
+  if (!blocks.length) {
+    // 整篇都没有题号 → 按前言整体返回 1 块（避免"导入 0 题"）
+    return preamble.length ? [preamble.map(e => (e as HTMLElement).outerHTML).join('')] : []
+  }
+
+  // ---- 第一遍：按一级（大题）分段 ----
+  const majorSegs: { titleEl: Element | null; body: Element[] }[] = []
+  let curSeg: { titleEl: Element | null; body: Element[] } = { titleEl: null, body: [] }
   for (const el of blocks) {
-    const isMarker = marker.test(el.textContent?.trim() || '')
-    if (isMarker) {
-      // 首个题号之前的内容（如卷首标题）并入第一题，不单独成题
-      if (started && cur.length) flush()
-      cur.push((el as HTMLElement).outerHTML)
-      started = true
+    const line = markerLine(el)
+    if (MAJOR_RE.test(line)) {
+      if (curSeg.titleEl || curSeg.body.length) majorSegs.push(curSeg)
+      curSeg = { titleEl: el, body: [] }
     } else {
-      cur.push((el as HTMLElement).outerHTML)
+      curSeg.body.push(el)
     }
   }
-  flush()
+  if (curSeg.titleEl || curSeg.body.length) majorSegs.push(curSeg)
+
+  // ---- 第二遍：每段内按二级（小题）切分 ----
+  const out: string[] = []
+  const pushChunk = (els: Element[]) => {
+    const h = els.map(e => (e as HTMLElement).outerHTML).join('')
+    if (htmlToText(h).trim()) out.push(h)
+  }
+
+  majorSegs.forEach((seg, segIdx) => {
+    // 大题标题并入该段的第一道小题（题干里保留「一、选择题（本大题共10小题）」这类必要信息）；
+    // 卷首前言只并入**全卷第一道**题，后续大题不再重复。
+    let pending: Element[] = segIdx === 0 ? [...preamble] : []
+    if (seg.titleEl) pending.push(seg.titleEl)
+    let cur: Element[] = []
+    let startedMinor = false
+
+    const flushMinor = () => {
+      if (cur.length) pushChunk([...pending, ...cur])
+      pending = []
+      cur = []
+    }
+
+    for (const el of seg.body) {
+      const line = markerLine(el)
+      if (MINOR_RE.test(line)) {
+        if (startedMinor && cur.length) flushMinor()
+        cur.push(el)
+        startedMinor = true
+      } else {
+        cur.push(el)
+      }
+    }
+    const beforeLen = out.length
+    if (cur.length) flushMinor()
+
+    // 该大题下没有任何二级题号、且本段尚未产出任何块 → 整段作为一道题（如材料分析题）。
+    // 用「本段产出前后的长度差」判断，避免把已输出的内容再推一遍
+    //（实测 bug：材料题被拆成 1 份正确 + 1 份重复）。
+    if (!startedMinor && out.length === beforeLen) {
+      pushChunk([...pending, ...seg.body])
+      pending = []
+    }
+  })
+
+  // 兜底：仅当「整份文档被包在一个外层容器里」才降级（Word 偶发把全部内容塞进一个 <div>）。
+  // 原条件是 `out.length <= 1`，过宽 —— 材料题（合法地只有 1 题）也会被误拆成多块。
+  // 现在加两道更严格的闸门：
+  //   ① 必须完全没有二级题号（hasMinor === false），否则二级切分已经生效，无需兜底；
+  //   ② 顶层块必须极少先（<= 2），且**存在嵌套结构**（有元素包含 >1 个子元素），
+  //      这才符合"被一层容器包裹"的特征。顶层就是一堆平铺 <p> 的情况不属于此列。
+  const hasMinor = blocks.some(el => MINOR_RE.test(markerLine(el)))
+  const hasNesting = blocks.some(el => el.children.length > 1)
+  if (!hasMinor && out.length <= 1 && blocks.length <= 2 && hasNesting) {
+    const flat: Element[] = []
+    blocks.forEach(el => {
+      const kids = Array.from(el.children)
+      if (kids.length > 1) kids.forEach(k => flat.push(k))
+      else flat.push(el)
+    })
+    const alt: string[] = []
+    let acc: Element[] = []
+    for (const el of flat) {
+      if (MINOR_RE.test(markerLine(el))) {
+        if (acc.length) { const h = acc.map(e => (e as HTMLElement).outerHTML).join(''); if (htmlToText(h).trim()) alt.push(h) }
+        acc = [el]
+      } else acc.push(el)
+    }
+    if (acc.length) { const h = acc.map(e => (e as HTMLElement).outerHTML).join(''); if (htmlToText(h).trim()) alt.push(h) }
+    if (alt.length > out.length) return alt
+  }
   return out
 }
 
@@ -61,7 +173,10 @@ function parseBlock(raw: string) {
   const text = htmlToText(raw)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return null
-  let first = lines[0].replace(/^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）])\s*/, '')
+  // 剥离题首的题号前缀（两级题号都要认：小题 1. / (1)，大题 一、/ 第Ⅰ部分）
+  let first = lines[0].replace(/^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）]|[一二三四五六七八九十百]+[、.])/, '').trim()
+  // 若剥完变空（整行就是"一、选择题"这种大题标题），保留原文本，避免空题干
+  if (!first) first = lines[0].trim()
   const opts: string[] = []
   const rest: string[] = []
   let answer = ''

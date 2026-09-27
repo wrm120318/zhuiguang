@@ -5,6 +5,94 @@
 
 ---
 
+## [v4.8.16] - 2026-09-27
+
+> **回应 6 条诉求：① 继续未完成任务；② 输入框框线回退（全是 bug）；③ 题面渲染「编辑器预览美观、题库里就难看」；④ Word 导入只有阿拉伯数字才截断、中文序号不截断；⑤ 表格/HTML 题面下载 Word 乱码；⑥ Word 复制直接粘贴进编辑器要保留正确格式。**
+
+### 核心结论：诉求 ③⑤⑥ 是同一个根因
+
+勘察生产库发现，数学学科 4 道题里**三种内容格式并存**：
+
+| 题目 | content 格式 | 长度 | 表现 |
+|---|---|---|---|
+| id=57 | **纯 HTML**（`<table><tbody><tr><td><p><strong>` + base64 `<img>`） | **60,042 字节** | ❌ 题库竖排挤字、图片撑满；❌ Word 导出乱码 |
+| id=54 | 纯文本 + `![](/api/file/xxx)` | 331 | ✅ |
+| id=28 | Markdown + LaTeX `$...$` | 116 | ✅ |
+| id=21 | Markdown（`# 题目` + `$...$` + `![]()`） | 267 | ✅ |
+
+Word/网页粘贴进来的内容是**原始 HTML 片段**，但下游（题库卡片样式、Word 导出器）**只支持 Markdown** —— 于是一处存 HTML、多处消费不了，表现为三个看似无关的 bug。
+
+**统一解法**：新增 `src/utils/html-to-md.ts`，把 HTML 收敛为 Markdown，让**下游只处理一种格式**。
+
+### ② 输入框框线回退（诉求②）
+
+**根因**：墨金档把输入框边框整体换成了 `inset 0 1px 3px rgba(186,117,23,0.07)` —— 一个 **7% 透明度的内阴影**。实测静止态几乎不可见，用户无法分辨哪里能输入。另外 v4.8.14 在文件末尾新增的两条规则（`③ 输入类控件` 的 `.is-focus` 盒阴影替换、`:where(...):focus-visible` 全局焦点环含 `.el-input__wrapper`）**位置靠后且带 `!important`**，把原有框线体系又覆盖了一层。
+
+**改法**（对齐经典档 L192-201 的三态体系）：
+- 浅档：默认 `0 0 0 1px 主色20% inset` → hover 45% → focus `1px 95% inset + 3px 14% 外晕`
+- 深档：同上但用金色 `rgba(212,175,55,…)`（深底上金色才显形）
+- 移除 v4.8.14 末尾两条冲突规则，并把 `.el-input__wrapper` 从全局 `:focus-visible` 选择器里排除
+- **顺带修一个两档不一致**：深档原把输入框也纳入 `border-radius: 999px` 胶囊，而浅档明确写了"输入框固定 10px（避免大圆角切字）"→ 已对齐 10px
+
+### ③ 题面渲染统一（诉求③）
+
+**根因**：`.markdown-body table { display:block; width:100% }` —— `display:block` 让 table **脱离自身表格布局算法**，不再按内容分配列宽，第一列遇到长文本（如"特殊平行四边形"）被压到极窄 → 文字逐字换行竖排成柱；`width:100%` 进一步挤压窄列。且题库卡片的类名是 `.q-content`（不带 `.markdown-body`），这条规则**压根没应用到题库**。
+
+**改法**：
+- table 保留 `display:block` 作**滚动容器**，但**显式恢复内部布局** `thead/tbody/tr/td → display:table-*`（这是修 bug 的核心，不能省）
+- 改用 `width: max-content` + `max-width: 100%` + `overflow-x: auto`，宽表横滑而不是被压扁
+- 单元格加 `min-width: 76px`（**杜绝竖排单字**）、`vertical-align: top`、`overflow-wrap: break-word`
+- 选择器扩展到 `.q-content / .q-answer / .q-ref`，并补 `.markdown-body` 之外的题面容器
+
+### ⑤ Word 导出支持 HTML（诉求⑤）
+
+**根因**：`DocxExportPanel.vue` 的 `mdToParagraphs()` 只认 Markdown 语法（`#`/`-`/`1.`/`>`），**完全不认 HTML 标签**。当 content 是 `<table><tbody><tr><td><p><strong>…` 时按普通文本行处理 → **标签原样写进 Word 文档** = 用户看到的"乱码"。
+
+**改法**：
+- 入口加**格式嗅探** `looksLikeHtml()`：命中 HTML 的先用 `htmlToMarkdown()` 规范化，再走原有 Markdown 流程
+- 新增 `buildWordTable()`：GFM 表格 → docx **真表格**（`Table/TableRow/TableCell` + 边框 + 表头加粗），表格题面导出后仍是表格
+
+### ④ Word 导入两级截断（诉求④）
+
+**根因**：原 `marker` 正则把「一、二、三」与「1. 2. 3.」塞进**同一个模式**，两者被同等对待 —— 既把「一、选择题（每题3分）」当成一道题起点，又把其下「1.」「2.」各自当新题起点。一份卷子被切得七零八落。
+
+**改法**：改为**两级切分**
+- 一级（大题）：`MAJOR_RE` = `一、二、三…` / `第一部分` / `第Ⅰ卷` / `（一）` / `【一】`
+- 二级（小题）：`MINOR_RE` = `1.` `1、` `(1)` `（1）`
+- 先按一级切大题段，再在段内按二级切小题；大题标题并入该段**第一道**小题（保留"本大题共10小题"这类必要信息）
+- 卷首标题/说明作为「前言」并入全卷第一题，**不单独成块**
+- 无一级序号时自动退化为仅按二级切（兼容纯小题练习卷）
+- 兜底分支收紧（原 `out.length<=1` 过宽，会把合法只有 1 题的材料题误拆）
+
+### ⑥ Word 粘贴保留格式（诉求⑥）
+
+**根因**：机制本已存在（`onPaste` 识别 `text/html`），但**存的是原始 HTML**，正是 ③⑤ 的源头。
+
+**改法**：粘贴时走 `htmlToMarkdown()` 收敛为 Markdown；转换前先把内联 **base64 图片上传成真实 URL**（`uploadInlineDataImages()`）—— Word 复制的图片全是 base64，单题面可达 60KB，转 URL 后降到百字节级。转换失败降级为纯文本粘贴，不让用户"粘完什么都没有"。
+
+### 交付物
+
+| 文件 | 改动 |
+|---|---|
+| `src/utils/html-to-md.ts` | **新建**：HTML→Markdown 规范化器（表格/标题/列表/粗斜体/上下标/KaTeX 还原/base64 图片） |
+| `src/components/MarkdownEditor.vue` | 粘贴走 htmlToMarkdown + base64 图上传 |
+| `src/components/WordImportPanel.vue` | **重写** `splitHtmlToQuestions` 为两级切分 |
+| `src/components/DocxExportPanel.vue` | 导出加格式嗅探 + `buildWordTable` 真表格 |
+| `src/styles/main.css` | 输入框框线（浅/深档三态）、表格布局、题面图片尺寸上限 |
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| HTML→Markdown 转换器 | **30/30 断言通过**（表格转 GFM、标签剥离、数学 `a<b` 不误判、script 剥离等） |
+| Word 导入两级切分 | **13/13 通过**（标准卷 3 大题 7 小题 → 正确切 7 道；纯小题卷 3 道；材料题 1 道；卷首标题不单独成题） |
+| 浏览器实测（本地） | **12/12 通过** —— 输入框静止态 `1px 20% inset` 可见、focus `1px 95% + 3px 14%`、深档金色框、圆角统一 10px |
+| 表格渲染 | 单元格 **135×43**（修复前是竖排单字比例）；table `display:block` + 内部恢复 table 布局 |
+| 图片尺寸 | 无 >700px 的图（新增 680px 上限 + 移动端 320px） |
+| 类型检查 / 构建 | `vue-tsc --noEmit` 干净；`npm run build` ✓ 16.40s |
+
+---
+
 ## [v4.8.15] - 2026-09-26
 
 > **回应三条诉求：① 题库/组卷/学情/考试功能对标组卷网与智学网（重点开发答题卡制作、教师在线阅卷、学生查看报告）；② 上传含图片的题目时编辑器自动限制图片尺寸；③ 题库首页移动端模块大小极不统一、不符合人类视觉习惯，整体重排。**

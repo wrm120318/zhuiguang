@@ -12,6 +12,9 @@ import { ElMessage } from 'element-plus'
 import { renderExtendedMarkdown, sanitizeHtml } from '@/utils/marked-extensions'
 import { ensureKatexCss } from '@/utils/markdown'
 import { api } from '@/api'
+// 【v4.8.16】从 Word / 网页粘贴的富文本统一转 Markdown 后入库，
+// 让下游（题库卡片、Word 导出、组卷）只处理一种格式
+import { htmlToMarkdown } from '@/utils/html-to-md'
 
 // ===== props =====
 const props = withDefaults(defineProps<{
@@ -367,19 +370,67 @@ async function onPaste(e: ClipboardEvent) {
       return
     }
   }
-  // 2) 复制的是富文本 HTML → 识别为 HTML 源码插入，避免浏览器按 text/plain
-  //    把标签全脱掉、粘进来成了纯文本（历史根因）
+  // 2) 富文本 HTML（Word / 网页复制）→ 转 Markdown 后插入
+  //    【v4.8.16 重写】原实现把剪贴板的 HTML 原样塞进 content，引发三个连锁问题：
+  //      · 题库卡片：HTML 表格无列宽约束 → 列被压成"竖排单字"；样式与 Markdown 题目不一致
+  //      · Word 导出：导出器只认 Markdown，遇到 `<table><tbody><tr><td>` 原样写进文档 = 乱码
+  //      · base64 图片：一段 Word 题面可达 60KB，撑爆存储与卡片布局
+  //    现在统一走 htmlToMarkdown() 收敛成 Markdown，并在转换前把 base64 图上传成真实 URL。
   const html = cd.getData('text/html')
   if (html && html.trim()) {
     const cleaned = sanitizeHtml(html)
     if (isMeaningfulHtml(cleaned)) {
       e.preventDefault()
-      insertAtCursor(normalizeClipboardHtml(cleaned))
-      ElMessage.success('已识别为 HTML 并插入，可在预览中查看效果')
+      try {
+        // ① 先把内联 base64 图片（Word 粘贴的图都是这种）上传，换成短 URL
+        const withUrls = await uploadInlineDataImages(cleaned)
+        // ② HTML → Markdown（表格转 GFM 表格，strong→**，KaTeX span→$..$ 等）
+        let md = htmlToMarkdown(withUrls)
+        if (!md.trim()) md = htmlToMarkdown(cleaned)
+        insertAtCursor(md)
+        ElMessage.success('已粘贴并转为标准格式')
+      } catch (err: any) {
+        // 转换失败不阻塞用户：退回纯文本粘贴，避免"粘贴后什么都没有"
+        ElMessage.warning('粘贴内容解析失败，已按纯文本插入')
+      }
       return
     }
   }
   // 3) 纯文本 / 代码 → 走浏览器默认粘贴
+}
+
+/**
+ * 【v4.8.16】把 HTML 里的内联 base64 图片上传成真实 URL。
+ * Word 复制出来的图片全部是 `src="data:image/png;base64,..."`（单张可达数百 KB），
+ * 直接入库会让 D1 单行超限、且每次列表渲染都要解析巨型字符串。
+ * 这里逐张上传，失败则保留原 base64（宁可图大，不能丢图）。
+ */
+async function uploadInlineDataImages(html: string): Promise<string> {
+  const re = /<img\b[^>]*\bsrc\s*=\s*"data:image\/([a-zA-Z0-9.+-]+);base64,([^"]+)"[^>]*>/gi
+  const matches = [...html.matchAll(re)]
+  if (!matches.length) return html
+
+  let out = html
+  for (const m of matches) {
+    const ext = (m[1] || 'png').toLowerCase().replace('jpeg', 'jpg')
+    const b64 = m[2]
+    // 粗略估算体积，超过 12MB 的单图跳过（避免浏览器卡死 / 请求体超限）
+    if (b64.length * 0.75 > 12 * 1024 * 1024) continue
+    try {
+      const bin = atob(b64)
+      const arr = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+      const file = new File([arr], `paste-${Date.now()}.${ext}`, { type: `image/${ext}` })
+      const r: any = await api.uploadImage(file)
+      if (r?.url) {
+        // 用上传后的短 URL 替换该张 base64
+        out = out.replace(m[0], m[0].replace(m[0].match(/src\s*=\s*"[^"]*"/i)![0], `src="${r.url}"`))
+      }
+    } catch {
+      // 单张失败不影响其它图片与整体转换
+    }
+  }
+  return out
 }
 
 // 判断清理后的 HTML 是否“有意义”：避免把单个 <div>文字</div> 平凡包裹误当 HTML 插入
@@ -391,11 +442,6 @@ function isMeaningfulHtml(cleaned: string): boolean {
     if (!/<\/?[a-z]/i.test(inner)) return false // 内部已无其它标签 → 平凡包裹
   }
   return /<[a-z][\s\S]*>/i.test(cleaned)
-}
-
-// 归一化粘贴 HTML 的换行符（剪贴板常见 \r\n）
-function normalizeClipboardHtml(s: string): string {
-  return s.replace(/\r\n?/g, '\n').trim()
 }
 
 // ===== 全屏 =====
