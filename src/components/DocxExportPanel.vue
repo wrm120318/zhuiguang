@@ -49,6 +49,18 @@ const QTYPES = [
 //      被 catch 静默吞掉 → 图片整张丢失。现改为「先免 token 试取，失败再带 token 重试」。
 //   ② ImageRun 的 transformation.height 被写成 'auto'（非法值）→ 图片高度 0，Word 不渲染。
 //      现改为：拉到图片后用 canvas 归一化为 PNG，并取真实像素尺寸，按比例限制最大宽度。
+//
+// 【v4.8.19】外部图床图片（i.imgs.ovh 等）无 CORS 头 → 浏览器直连 fetch 必被拦。
+//   改为**先走本站后端代理** /api/proxy-image（服务端抓取，无 CORS 限制），
+//   代理也失败时才降级为 [图片] 占位，并把这个 url 记进 externalImageFails 供面板提示用户。
+const externalImageFails: string[] = []
+
+/** 带 token 后缀的完整 URL（仅 /api/file/ 需要） */
+function withToken(u: string, token: string): string {
+  if (!token || !u.includes('/api/file/')) return u
+  return u + (u.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+}
+
 async function fetchImage(url: string): Promise<{ data: ArrayBuffer; width: number; height: number } | null> {
   try {
     // 【v4.8.16 修复「导出 Word 里图片变成一长串 base64 文字」】
@@ -74,18 +86,43 @@ async function fetchImage(url: string): Promise<{ data: ArrayBuffer; width: numb
         buf = await r.arrayBuffer()
       }
     } else {
-      const abs = raw.startsWith('http') || raw.startsWith('//')
-        ? raw.startsWith('//') ? 'https:' + raw : raw
+      const isExternal = /^https?:\/\//i.test(raw) || raw.startsWith('//')
+      const abs = isExternal
+        ? (raw.startsWith('//') ? 'https:' + raw : raw)
         : API_BASE + raw
       const token = (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
-      const tryFetch = async (withToken: boolean) => {
-        let u = abs
-        if (withToken && abs.includes('/api/file/')) u = abs + (abs.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
-        return fetch(u)
+      let r: Response | null = null
+
+      if (isExternal) {
+        // 【v4.8.19】外链图：先试本站代理（服务端抓取，绕开 CORS / 防盗链）
+        try {
+          r = await fetch(`${API_BASE}/api/proxy-image?url=${encodeURIComponent(abs)}`, {
+            headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+          })
+        } catch { r = null }
+        const ct = (r?.headers.get('content-type') || '').toLowerCase()
+        if (!r || !r.ok || !ct.startsWith('image/')) {
+          // 代理不可用（未部署 / 网络不通）→ 退回浏览器直连，能成就成
+          try {
+            const direct = await fetch(abs, { mode: 'cors' })
+            if (direct.ok) {
+              const dct = (direct.headers.get('content-type') || '').toLowerCase()
+              if (dct.startsWith('image/')) r = direct
+            }
+          } catch { /* 直连被 CORS 拦，保持失败 */ }
+        }
+        const finalCt = (r?.headers.get('content-type') || '').toLowerCase()
+        if (!r || !r.ok || !finalCt.startsWith('image/')) {
+          // 两条路都不通 → 记录，稍后在导出面板给用户明确提示
+          if (!externalImageFails.includes(abs)) externalImageFails.push(abs)
+          return null
+        }
+      } else {
+        // 站内图：先免 token 试取，401 再带上 token 重试
+        r = await fetch(withToken(abs, ''))
+        if (!r.ok && token) r = await fetch(withToken(abs, token))
+        if (!r.ok) return null
       }
-      let r = await tryFetch(false)
-      if (!r.ok && token) r = await tryFetch(true)
-      if (!r.ok) return null
       buf = await r.arrayBuffer()
     }
     const objUrl = URL.createObjectURL(new Blob([buf]))
@@ -628,10 +665,23 @@ async function download(blob: Blob, name: string) { saveAs(blob, `${cfg.title}-$
 async function onExport() {
   if (!props.items.length) { ElMessage.warning('试题篮为空'); return }
   try {
+    // 【v4.8.19】每次导出前清空外链图失败记录，导出后统一提示
+    externalImageFails.length = 0
     const student = await buildDoc('student'); await download(student, '学生卷')
     if (cfg.withAnswer) { const t = await buildDoc('teacher'); await download(t, '解析卷') }
     if (cfg.withAnswerSheet) { const s = await buildDoc('sheet'); await download(s, '答题卡') }
     ElMessage.success('已生成 Word（学生卷/解析卷/答题卡）')
+    if (externalImageFails.length) {
+      // 逐条提示最多 3 条，避免弹窗爆炸
+      const shown = externalImageFails.slice(0, 3).map(u => {
+        try { return new URL(u).host } catch { return u.slice(0, 40) }
+      })
+      ElMessage.warning({
+        duration: 8000,
+        dangerouslyUseHTMLString: false,
+        message: `有 ${externalImageFails.length} 张外部图片未能下载（${shown.join('、')}${externalImageFails.length > 3 ? ' 等' : ''}），Word 中已用「[图片]」占位。建议先把这些图片重新上传到本站再导出。`,
+      })
+    }
     emit('done')
   } catch (e: any) { ElMessage.error('生成失败：' + (e?.message || e)) }
 }

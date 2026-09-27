@@ -1140,6 +1140,114 @@ app.get('/api/file/:fileId/preview', async (c) => {
   return serveFileById(c, fileId, { mode: 'preview', resourceCheck, rangeHeader: c.req.header('Range') })
 })
 
+// ==============================================================================
+// 🖼️ v4.8.19 外部图片代理 /api/proxy-image?url=<encoded>
+//   场景：题面里引用了**第三方外链图片**（如 i.imgs.ovh / 各类图床），
+//   导出 Word 时前端需要拿到图片字节流内嵌进 docx。但：
+//     1) 图床普遍不带 Access-Control-Allow-Origin → 浏览器 fetch 被 CORS 拦截
+//     2) 部分图床不认浏览器 UA / Referer，直连 403
+//   由 Worker 在服务端代为抓取（服务端无 CORS 限制），再原样回传给前端。
+//
+//   🔒 安全约束（防止被当成开放代理 / SSRF 跳板）：
+//     - 仅允许 http/https 协议
+//     - 仅回传 content-type: image/* 的响应
+//     - 单个响应体上限 8MB
+//     - 拒绝指向内网/本地地址的 URL（SSRF 防护）
+//     - 仅允许已登录用户调用（复用 verifyFileAccess 的鉴权语义）
+//   命中后响应带 1 天 public 缓存，避免同一题反复抓取。
+// ==============================================================================
+const PROXY_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+
+/** 判断主机名是否指向内网 / 环回 / 链路本地，用于 SSRF 防护 */
+function isPrivateHost(host: string): boolean {
+  const h = host.toLowerCase()
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+  // 纯 IPv4 字面量（含十进制/十六进制简写一律保守拦掉）
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const p = h.split('.').map(Number)
+    if (p.some(n => n > 255)) return true
+    if (p[0] === 10) return true                       // 10.0.0.0/8
+    if (p[0] === 127) return true                      // 127.0.0.0/8
+    if (p[0] === 0) return true                        // 0.0.0.0/8
+    if (p[0] === 169 && p[1] === 254) return true      // 169.254.0.0/16
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true  // 172.16.0.0/12
+    if (p[0] === 192 && p[1] === 168) return true      // 192.168.0.0/16
+    return false
+  }
+  // IPv6 环回 / 链路本地 / ULA
+  if (h === '[::1]' || h === '::1') return true
+  if (h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd')) return true
+  return false
+}
+
+app.get('/api/proxy-image', async (c) => {
+  // 仅登录用户可调用（与文件代理同一套鉴权语义）
+  const user = await resolveFileUser(c)
+  if (!user) return c.json({ message: '请先登录', needLogin: true }, 401)
+
+  const raw = c.req.query('url') || ''
+  const target = raw.trim()
+  if (!target) return c.json({ message: '缺少 url 参数' }, 400)
+  if (!/^https?:\/\//i.test(target)) return c.json({ message: '仅支持 http/https 图片地址' }, 400)
+
+  let u: URL
+  try {
+    u = new URL(target)
+  } catch {
+    return c.json({ message: 'url 格式非法' }, 400)
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return c.json({ message: '协议不支持' }, 400)
+  if (isPrivateHost(u.hostname)) return c.json({ message: '该地址不被允许' }, 403)
+
+  let r: Response
+  try {
+    r = await fetch(u.toString(), {
+      redirect: 'follow',
+      headers: {
+        // 伪装成普通浏览器，绕过部分图床的 UA / Referer 防盗链
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Referer': `${u.protocol}//${u.host}/`,
+      },
+    })
+  } catch (e: any) {
+    return c.json({ message: '抓取失败：' + String(e?.message || e) }, 502)
+  }
+  if (!r.ok) return c.json({ message: `源站返回 ${r.status}` }, 502)
+
+  const ct = (r.headers.get('content-type') || '').toLowerCase()
+  if (!ct.startsWith('image/')) {
+    return c.json({ message: '目标不是图片（' + (ct || 'unknown') + '）' }, 400)
+  }
+
+  // 先看 Content-Length 快速拒绝，再兜底检查实际字节数
+  const declared = Number(r.headers.get('content-length') || 0)
+  if (declared && declared > PROXY_IMAGE_MAX_BYTES) {
+    return c.json({ message: '图片过大（超过 8MB）' }, 413)
+  }
+
+  let buf: ArrayBuffer
+  try {
+    buf = await r.arrayBuffer()
+  } catch (e: any) {
+    return c.json({ message: '读取图片数据失败：' + String(e?.message || e) }, 502)
+  }
+  if (buf.byteLength > PROXY_IMAGE_MAX_BYTES) {
+    return c.json({ message: '图片过大（超过 8MB）' }, 413)
+  }
+  if (buf.byteLength === 0) return c.json({ message: '图片内容为空' }, 502)
+
+  return new Response(buf, {
+    headers: {
+      'Content-Type': ct,
+      'Content-Length': String(buf.byteLength),
+      'Cache-Control': 'public, max-age=86400',
+      'Access-Control-Allow-Origin': '*',
+      'X-Proxy-Source': u.host,
+    },
+  })
+})
+
 /** 核心文件服务函数：鉴权 → 缓存检查 → Supabase 下载 → 缓存写入 → 返回 */
 async function serveFileWithCache(c: Context, resourceId: string, mode: 'download' | 'preview'): Promise<Response> {
   const t0 = Date.now()
