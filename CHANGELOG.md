@@ -5,6 +5,50 @@
 
 ---
 
+## [v4.8.17] - 2026-09-27
+
+> **续修 v4.8.16 的导出链路：Word 导出里图片变成一长串 base64「乱码」。**
+
+### 现象
+
+v4.8.16 修完"HTML 题面导出乱码"后复验，发现 `escaped_html_tags = 0` ✅、真表格 ✅，但**正文里出现 3 处 `![图片](data:image/png;base64,iVBOR…)`**，单串 16~22 KB。打开 docx 满屏乱码，且 `word/media/` 里 **0 个图片文件**、`w:drawing` **0 个** —— 图片一张都没进去。
+
+### 排查过程（三次误判，最终定位）
+
+| 阶段 | 假设 | 实测 | 结论 |
+|---|---|---|---|
+| ① | `fetchImage` 把 `data:` 当相对路径拼了 API_BASE | 代码确实如此（`raw.startsWith('http')` 为假 → `API_BASE + 'data:image…'`） | 修了，但结果没变 |
+| ② | CDN 缓存，跑的是旧 chunk | 浏览器加载的是新哈希，`atob` 与新正则都在 | 排除 |
+| ③ | `INLINE_RE` 匹配不到 19 KB 的长 data URL | 浏览器实测 `mLen=19533`、`atobOk=true`、`imgLoad=true`(375×305)、`toBlob=true`(52072B) —— **整条链路全通** | 排除 |
+
+**真正根因**：那 3 张图**全在 `<table>` 的 `<td>` 单元格里**，而 `buildWordTable()` 对单元格只调 `textRuns()`（纯文本），**从不解析 Markdown** —— `![图片](data:…)`、`$公式$`、`**加粗**` 一律原样写进 `<w:t>`。正文走 `inlineRuns`、表格走 `textRuns`，**两条路不对称**。
+
+排查中还有一个干扰项：`/workspace` 的 gitignore 里 `dist/` 被排除，而 CF Pages 有 **Git 集成自动构建**，产出的哈希（`index-C3WodJIP` / `DocxExportPanel-D5rdc09x`）与本地 `wrangler pages deploy` 上传的（`index-D3E_0IIv` / `CxzaOkYK`）**不一致** → 主域和部署直连域名跑的是**两套产物**，横向对比时极易误判。后续验收统一以 `wrangler pages deploy` 返回的直连域名为准。
+
+### 改法
+
+- `buildWordTable()` 改为 `async`：先把**所有单元格**并行跑 `inlineRuns()`（与正文同一条解析链，图片/公式/加粗都处理），再组装 `Table` 对象（`Table` 构造本身同步，所以 runs 要提前 await）
+- `fetchImage()` 单独接住 `data:` URL —— 直接 `atob` 解出二进制，不经过网络（原来的相对路径分支会把它拼坏）
+- `cleanText()` 增加**裸 base64 长串兜底清理**（`data:image/…;base64,{80,}`），任何漏网图片行统一降级为占位，不再污染正文
+- 图片宽度改**三档**：`>480px` 压到 480（不撑破版心）/ `<300px` 放大到 300（小图在 Word 里能看清）/ 中间保持原尺寸
+
+### 实测对比（同一道 id=57，含 3 张图 + 2 个表格）
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| `w:drawing`（真图片） | **0** | **6** ✅ |
+| `word/media/` 图片文件 | **0** | **4**（84,320 字节）✅ |
+| 正文 base64 长串 | **3 处** | **0 处** ✅ |
+| 真表格 `w:tbl` | 2 | 2 ✅ |
+| docx 体积 | 53 KB | 99 KB（图片已内嵌） |
+| 正文字符数 | 59,631（含 5 万字符乱码） | **7,492**（干净） |
+
+### 修改文件
+
+- `src/components/DocxExportPanel.vue`（`buildWordTable` / `fetchImage` / `cleanText` / 图片宽度策略）
+
+---
+
 ## [v4.8.16] - 2026-09-27
 
 > **回应 6 条诉求：① 继续未完成任务；② 输入框框线回退（全是 bug）；③ 题面渲染「编辑器预览美观、题库里就难看」；④ Word 导入只有阿拉伯数字才截断、中文序号不截断；⑤ 表格/HTML 题面下载 Word 乱码；⑥ Word 复制直接粘贴进编辑器要保留正确格式。**
