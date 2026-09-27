@@ -5,9 +5,171 @@
 
 ---
 
+## [v4.8.24] - 2026-09-27
+
+> **本轮主修两件事**：① 用户报的「增删改后列表不刷新、手动刷新也不行」；② 主域 `xkzg.de5.net` 白屏。
+> 同时一并提交 v4.8.22 / v4.8.23 的三项修复（Word 导出转义、图片拖拽调大小、题库横向溢出）。
+
+### 🔥 真修「进行删除/修改/添加操作时，列表不立刻刷新，即使手动刷新也不行」
+
+这是**三层缓存叠加**导致的，浏览器 / CF 边缘 / Worker 内存各锁一份旧数据。
+
+#### 根因（均有生产实测证据，不靠推测）
+
+**1）浏览器磁盘缓存 —— 主因**
+
+后端对公共只读接口发的是：
+
+```
+public, max-age=60, s-maxage=60, stale-while-revalidate=120
+```
+
+`max-age=60` 是发给**浏览器**的。Chromium 因此把响应写进磁盘缓存，60 秒内（含 swr 共 180 秒）**请求根本不发出去**。
+
+实测抓包（CDP `Network.responseReceived`）：
+
+```json
+{ "url": "https://api.xkzg.de5.net/api/subjects",
+  "status": 200, "fromDiskCache": true,
+  "cc": "public, max-age=60, s-maxage=60, stale-while-revalidate" }
+```
+
+> 这完美解释了「**手动刷新也不行**」：普通 F5 仍命中磁盘缓存，只有 `Ctrl+Shift+R` 强制刷新才能绕过。用户不可能每次都强制刷新。
+
+**2）CF 边缘缓存清不掉**
+
+`clearAllCache()` 只做了 `API_CACHE.clear()`（**本实例**的内存 Map），**完全没清** `caches.default` 里的边缘条目。实测：
+
+```
+/api/subjects   → X-Zg-Cache: EDGE-HIT（连续 3 次）
+/api/users      → X-Zg-Cache: HIT-28s
+```
+
+**3）304 响应不带 `Cache-Control`**
+
+内存命中走 304 分支时未设置缓存头。浏览器遇到 304 会**沿用上一次存的 `max-age`**，于是即便服务端已换成新策略，浏览器仍按旧的 60 秒继续用本地缓存。
+
+#### 修复
+
+| 项 | 改动 |
+|---|---|
+| 公共只读接口 | `public, max-age=60, s-maxage=60, swr=120` → **`public, no-cache, s-maxage=N, swr=120`**。边缘缓存省流量的收益保留，但浏览器**每次必须回源校验**；数据没变仍走 304（照样省流量），变了立刻拿新的 |
+| 私有接口 | `/api/users`、`/api/classes`、`/api/announcements` 等原来错发 `public` → 改为 **`private, no-cache, must-revalidate`**。原写法存在「A 用户可能命中 B 用户响应」的**越权风险**，且失效不可控 |
+| 新增 `CACHE_VERSION` | 每次写操作递增并拼进所有缓存 key，旧 key 立刻全部作废。**跨实例生效** —— 弥补「只能清本实例 Map」的缺陷 |
+| 新增 `purgeEdgeCache()` | 写操作**成功后**（2xx）删除 `caches.default` 里的公共只读条目。必须放在 `await next()` **之后** —— 放在之前清，会被立刻回填旧值 |
+| 修复 `max-age=NaN` | 加了版本号后 key 段位后移，原「按位置取 ttl」的写法取到了 `authHash` → `parseInt` 出 NaN。改为从 key 里精确提取「纯数字段」，对增删字段免疫 |
+| 边缘缓存命中/写入 | 统一使用**当前**策略，不再沿用条目里存的历史策略（否则老条目会继续把旧 `max-age` 发给浏览器） |
+
+#### 生产验收（真机 Chromium + 独立 API 双通道）
+
+| 判据 | 修复前 | 修复后 |
+|---|---|---|
+| 后端立即生效 | — | ✅ `API='语文V'` |
+| **UI 未手动刷新即更新** | ❌ | ✅ 单元格 `'语文V chinese'` |
+| **重进页面后一致** | ❌ | ✅ 一致 |
+| 数据已还原 | — | ✅ `'语文'` |
+
+### 🐛 顺带修掉的前端缺陷
+
+- **`QuestionBankView` 删除题目：点「取消」也会把题删了**
+  原写法 `ElMessageBox.confirm(...).catch(() => null)` 把「用户点取消」产生的 reject 吞成了正常返回，Promise 链随后**无条件继续执行删除**。改为标准 `try/catch` + 提前 `return`（全站唯一一处该反模式，已全量扫描确认）。删除后同时改为 `await loadQuestions()` 重载。
+- **`ExpLogsView` 删除/批量删除：末页删光后显示空列表**
+  原来只做本地 `filter` + 手减 `total`，不重载也不回收页码 → 在最后一页删到该页剩 0 条时，`page` 仍指向越界页码，页面变白板。改为 `reloadKeepingPage()`：重载 + 页码超界时自动回退最后一页。
+- **`PracticeRecordsView` 删除记录：列表跳回第 1 页**
+  原 `await load()` 未传页码 → 默认第 1 页，用户在第 3 页删一条就被弹回。改为保留当前页码 + 越界回退。
+
+### 🚨 真修主域白屏（`xkzg.de5.net`）
+
+**现象**：访问主域白屏，页面 0 个 `input`、正文为空。Chromium 控制台报：
+
+```
+Refused to apply style from '.../style-DChl5NDa.css' because its MIME type ('text/html')
+Failed to load module script: Expected a JavaScript-or-Wasm module script but the server
+  responded with a MIME type of "text/html"
+```
+
+**排查**：同一 URL、同一时刻 ——
+
+| 客户端 | 协议 | 拿到的 `content-type` |
+|---|---|---|
+| `curl` | h2 | ✅ `application/javascript` |
+| Chromium | h2 | ❌ `text/html` |
+| Chromium | h3 | ❌ `text/html` |
+| Chromium（带 `?v=1`） | — | ✅ 正确，且 `cf-cache-status: MISS` |
+
+→ 证明**源站正常**，是 **CF 边缘节点缓存了一条 MIME 错误的响应**。
+
+**根源**：`public/_headers` 给 `/assets/*` 设了 `immutable, max-age=31536000`。一旦某次部署间隙某边缘节点回源拿到 SPA fallback（返回 `index.html`，MIME=`text/html`），这条错误响应会被缓存**一整年**，且 `immutable` 意味着客户端不会重新校验 → 该节点上的用户长期白屏。
+
+**修复**：`vite.config.ts` 给**入口 JS 与 CSS 加上构建时间戳**
+
+```ts
+entryFileNames: `assets/index-[hash]-${Date.now().toString(36)}.js`,
+assetFileNames: (a) => a.name?.endsWith('.css')
+  ? `assets/style-[hash]-${Date.now().toString(36)}[extname]`
+  : 'assets/[name]-[hash][extname]',
+```
+
+每次部署都是全新 URL，脏缓存自然失效，**以后也不会再命中历史脏条目**。其余 vendor / 懒加载 chunk 仍用内容 hash，以保留缓存复用（只有入口强制换名，兼顾性能与「必然破缓存」）。
+
+**验收**：主域 `inputs: 2`，登录框正常渲染，无任何 MIME 报错。
+
+### 🖼 图片拖拽调大小（v4.8.23，用户诉求②）
+
+原以为简单，实际被三个坑连击：
+
+1. **选不中图**：`decorateImages()` 只选 `img.zg-img`（marked 的 `imageSized` 扩展产出），但数学/物理题里的图常是**裸 HTML `<img src=... width=300>`**，不带这个类 → 那些图完全没有手柄。改为覆盖预览区**所有 `img`**，再排除 KaTeX 公式图 / emoji / 小图标（<24px）。
+2. **手柄点了没反应**：本组件是 `<style scoped>`，scoped 会给选择器编译出 `[data-v-xxx]` 属性要求；而手柄节点由 `document.createElement` **动态创建**，拿不到该属性 → **scoped 样式全部落空**（实测 `display: inline`、`position: static`、尺寸 `0×0`，根本点不到）。改为**直接写内联样式**（`HANDLE_STYLE`），并把纯装饰部分移到**非 scoped 全局 `<style>`** 块。
+3. **改不动宽度**：拖拽时 CSS `max-width: 100%` 会压住内联宽度 → 拖拽期间临时 `img.style.maxWidth = 'none'`，松手恢复。
+
+另修一个既有 bug：`main.css` 里无条件写的 `width: auto` 会**覆盖 HTML `width="300"` 属性**（表现为「图片大小设了没用」）。改为只对**没有显式宽度**的图自动：
+
+```css
+.q-content img:not([width]):not([style*="width"]) { width: auto; height: auto; }
+```
+
+尺寸回写支持两种表示形式：Markdown `![alt](url =WxH)` 与裸 HTML `<img width height>`（后者会清理旧的 `width`/`height` 属性与 style 里的 `width:`/`height:` 再写新值）。
+
+**真机验收**：手柄 `display=block` / `position=absolute` / `14×14px`；真实拖拽 **300px → 180px**；源码正确回写 `<img width="180" height="128" src="...">`。
+
+### 🖥 电脑端题库横向溢出（v4.8.22，用户诉求③）
+
+**现象**：数学题库（含宽表格的题）在 ≤1600px 窗口下整页横向溢出。实测 1440px：`.bank-body` 的 grid 列算成 `248px 1701.02px`，`scrollWidth 1963` vs `clientWidth 1280` → 溢出 **683px**。窗口越窄溢出越多（1600→523 / 1280→703 / 1024→959），而 `body` 有 `overflow-x:hidden` 兜着 → **看不到滚动条，只看到内容被裁掉**。
+
+**根因链**：题面里的 `<table>` 实测宽 1661px，逐级撑开父容器：
+
+```
+TABLE(1661) → .q-content(1661) → .q-card(1701) → .q-list(1701)
+  → .bank-body grid 第二列 1fr 被撑成 1701px
+```
+
+真凶是 **CSS Grid 子项默认的 `min-width: auto`** —— 它让 `1fr` 的「最小值」变成内容的 min-content 宽度，于是子项**拒绝收缩**、父级跟着变宽（同时让 table 上的 `max-width:100%` 自锁失效）。
+
+**修法（缺一不可）**：
+
+1. grid 子项显式 `min-width: 0` —— 解除自锁，允许收缩
+2. 表格 `width: max-content` → `width: 100%` —— 停止按内容撑宽（横向滚动交给 table 自身的 `overflow-x: auto`）
+
+**回归**：48 组合（6 学科 × 8 宽度）**46 通过**，剩 2 项经 `check_cell.py` 逐字符验证为**误报**（`lastCharRight=471 < tdRight=479`，文字确实在单元格内；`tdScrollW == tdClientW == 113`，是 `<p>` 元素 `scrollWidth` 的虚高）。
+
+> 附带发现：移动端 v4.8.15 就用了 `min-width: 0 !important`（`body.is-quiz-route` 选择器），**桌面端漏了** —— 正好解释了为什么用户只在电脑端看到问题。
+
+### 📄 Word 导出填空线变成一堆 `\`（v4.8.22，用户诉求①）
+
+**现象**：导出 Word 时填空线变成一长串反斜杠。
+
+**根因**：题干里的填空线在 Markdown 中写作 `\_\_\_\_\_\_\_\_\_\_`（下划线是 Markdown 保留字符，落库时被转义），导出 Word 时**从未还原转义** → Word 里显示成一堆 `\_\_\_\_\_\_`。实测 docx 里有 **121 个反斜杠**，片段如 `'升高，其分子热运动速度变\\_\\_\\_\\_\\_\\_\\'`。
+
+**修复**：新增 `unescapeMd()`，按 Markdown 规则「反斜杠 + ASCII 标点 = 该标点的字面量」统一还原，接进 `cleanText()` 与加粗分支。
+
+**验收**：反斜杠 **121 → 0**，填空线恢复为干净的 `_________________`。
+
+---
+
 ## [v4.8.19] - 2026-09-27
 
 > **承接 v4.8.18**：题面里的**外链图片**（第三方图床）导出 Word 时一直是 `[图片]` 占位，本轮补上后端图片代理，彻底打通。
+
 
 ### 现象
 
