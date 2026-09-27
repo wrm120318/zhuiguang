@@ -433,7 +433,7 @@ async function mdToParagraphs(md: string, size: number, opts: { indent?: number;
         const parseRow = (r: string) => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim().replace(/\\\|/g, '|'))
         const header = parseRow(tbl[0])
         const bodyRows = tbl.slice(2).map(parseRow)
-        out.push(buildWordTable(header, bodyRows, size))
+        out.push(await buildWordTable(header, bodyRows, size))
         continue
       }
       // 不符合表格结构 → 退回普通段落处理
@@ -486,20 +486,30 @@ function mdPlain(md: string): string {
  * 用于承载从 HTML 题面（Word 粘贴的 <table>）转换来的表格，
  * 这样"表格题面导出 Word 乱码"的问题彻底闭环 —— 表格仍是表格，不是一堆竖线。
  */
-function buildWordTable(header: string[], bodyRows: string[][], size: number): Table {
+async function buildWordTable(header: string[], bodyRows: string[][], size: number): Promise<Table> {
   const cols = Math.max(header.length, ...bodyRows.map(r => r.length), 1)
   const norm = (r: string[]) => { const c = r.slice(); while (c.length < cols) c.push(''); return c.slice(0, cols) }
   const widthPct = Math.floor(100 / cols)
 
+  // 【v4.8.17 修复「表格里的图片导出成一长串 base64 文字」】
+  // 之前单元格直接 textRuns()，等于把单元格内容当**纯文本**：Markdown 的 ![图片](…)、$公式$、**加粗**
+  // 全都不解析。而 Word 粘贴来的题面，图片/公式经常就在 <td> 里 → 几十 KB 的 base64 原样写进 Word，
+  // 用户看到的就是"乱码"。现改为逐格调 inlineRuns（与正文同一条解析链），再组装表格。
+  // Table 构造是同步的，所以先把所有单元格的 runs 并行算出来。
+  const cellsRaw: string[][] = [norm(header), ...bodyRows.map(norm)]
+  const runsGrid: any[][][] = await Promise.all(
+    cellsRaw.map(row => Promise.all(row.map(c => inlineRuns(c, size - 1))))
+  )
+
   const headRow = new TableRow({
     tableHeader: true,
-    children: norm(header).map(h => cell(
-      [new Paragraph({ children: textRuns(h, size - 1).map((r: any) => { r.bold = true; return r }) })],
+    children: runsGrid[0].map(runs => cell(
+      [new Paragraph({ children: runs.map((r: any) => { r.bold = true; return r }) })],
       widthPct,
     )),
   })
-  const rows = bodyRows.map(r => new TableRow({
-    children: norm(r).map(c => cell([new Paragraph({ children: textRuns(c, size - 1) })], widthPct)),
+  const rows = runsGrid.slice(1).map(runs => new TableRow({
+    children: runs.map(cellRuns => cell([new Paragraph({ children: cellRuns })], widthPct)),
   }))
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headRow, ...rows] })
 }
