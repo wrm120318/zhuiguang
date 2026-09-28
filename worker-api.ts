@@ -658,10 +658,11 @@ function apiCacheKey(c: Context): string | null {
   if (p.includes('/articles') || p.includes('/notices') || p.includes('/announcements') ||
       p.includes('/guide') || p.includes('/blog')) ttl = 600000
   // ── 档位 2（120s）：中频内容，写入后可接受 2 分钟内生效 ──
-  //   题库/知识点/评论等：教师会编辑，但不需要秒级一致。
+  //   题库/知识点等：教师会编辑，但不需要秒级一致。
   //   注意：这些接口带 authHash，缓存按用户隔离，不会串数据。
+  //   `/comments` 不在此列 —— 见 `apiCacheKey` 开头的排除名单（该接口从不进缓存）。
   if (p.includes('/knowledge-points') || p.includes('/questions') ||
-      p.includes('/comments') || p.includes('/subjects/') && p.includes('/forum')) ttl = 120000
+      (p.includes('/subjects/') && p.includes('/forum'))) ttl = 120000
   const urlKey = p + '|' + new URL(c.req.url).search
   // 【v4.8.24】把缓存版本号拼进 key —— 写操作后 CACHE_VERSION 递增，
   // 旧 key 立刻全部失效（跨实例可靠，不受「只清了本实例 Map」的限制）。
@@ -791,9 +792,12 @@ function edgeCacheablePath(c) {
     // 【v4.8.26 新增】低频变动的公共内容（由管理员编辑）
     p.includes('/articles') || p.includes('/notices') || p.includes('/announcements') ||
     p.includes('/guide') || p.includes('/blog') ||
-    // 【v4.8.26 新增】中频业务内容（题库/知识点/评论/论坛主题）
+    // 【v4.8.26 新增】中频业务内容（题库/知识点）
+    //   注：**刻意不含** `/comments` —— `apiCacheKey()` 出于历史原因把 `/comments` 排除在外
+    //   （该函数返回 null 时整个缓存段短路），两处必须保持一致；
+    //   若只在这一侧加白名单，会形成「看着覆盖了、实际从未生效」的假象。
     p.includes('/knowledge-points') || p.includes('/questions') ||
-    p.includes('/comments') || p.includes('/forum/topics')
+    p.includes('/forum/topics')
   if (!cacheable) return null
 
   // 按身份隔离（见上方安全说明）：authHash 参与 key，杜绝跨用户串数据
