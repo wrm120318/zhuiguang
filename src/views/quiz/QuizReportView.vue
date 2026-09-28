@@ -133,9 +133,9 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
               {{ q.qtype === 'subjective' ? `平均 ${q.avgScore} 分` : `正确率 ${q.correctRate}%` }}
             </span>
           </div>
-          <div class="qana-content markdown-body" v-html="renderMd(q.content)"></div>
+          <div class="qana-content markdown-body zg-rich" v-html="renderMd(q.content)"></div>
           <div class="qana-detail" v-if="q.qtype !== 'subjective'">
-            正确答案：<span class="markdown-body" v-html="renderMd(q.answer)"></span> · 答对 {{ q.correctCnt }} / {{ q.answeredCnt }} 人
+            正确答案：<span class="markdown-body zg-rich" v-html="renderMd(q.answer)"></span> · 答对 {{ q.correctCnt }} / {{ q.answeredCnt }} 人
           </div>
           <div class="qana-detail" v-else>
             平均得分：{{ q.avgScore }} / {{ q.score }} · 已批 {{ q.answeredCnt }} 人
@@ -221,7 +221,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
           <span class="q-score" :class="scoreClass(q)">本题 {{ q.score }} 分 · {{ scoreText(q) }}</span>
           <span class="q-result" :class="resultClass(q)">{{ resultText(q) }}</span>
         </div>
-        <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
+        <div class="q-content markdown-body zg-rich" v-html="renderMd(q.content)"></div>
 
         <template v-if="q.qtype === 'single' || q.qtype === 'multiple' || q.qtype === 'judge'">
           <div class="q-options">
@@ -236,13 +236,13 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
               <span class="qo-tag wrong" v-if="(sub?.answers?.answers?.[q.id] || '').split(',').includes(letter(idx)) && !q.answer.split(',').includes(letter(idx))">你的选择</span>
             </div>
           </div>
-          <div class="q-line">正确答案：<span class="markdown-body" v-html="renderMd(q.answer)"></span> | 你的答案：<b>{{ sub?.answers?.answers?.[q.id] || '未作答' }}</b></div>
+          <div class="q-line">正确答案：<span class="markdown-body zg-rich" v-html="renderMd(q.answer)"></span> | 你的答案：<b>{{ sub?.answers?.answers?.[q.id] || '未作答' }}</b></div>
         </template>
         <template v-else>
           <div class="q-line">你的作答：</div>
-          <div class="q-answer markdown-body" v-html="renderMd(sub?.answers?.answers?.[q.id] || '未作答')"></div>
+          <div class="q-answer markdown-body zg-rich" v-html="renderMd(sub?.answers?.answers?.[q.id] || '未作答')"></div>
           <div class="q-line" v-if="q.answer">参考答案：</div>
-          <div class="q-ref markdown-body" v-if="q.answer" v-html="renderMd(q.answer)"></div>
+          <div class="q-ref markdown-body zg-rich" v-if="q.answer" v-html="renderMd(q.answer)"></div>
           <div class="q-line" v-if="graded[q.id]?.comment">教师评语：{{ graded[q.id]?.comment }}</div>
         </template>
       </div>

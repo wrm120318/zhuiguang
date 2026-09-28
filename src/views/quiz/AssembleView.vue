@@ -501,7 +501,9 @@ table.matrix .total-row td { background: rgba(var(--zg-primary-rgb), .10); font-
 .pno { font-weight: 700; color: var(--zg-primary); min-width: 22px; }
 .pbody { flex: 1; min-width: 0; }
 .pcontent { font-size: 14px; line-height: 1.6; }
-.pcontent :deep(p) { margin: 0; display: inline; }
+/* 【v4.8.25 修复「吞空格空行/换行」】原写法 `display:inline` 把题面里的 <p> 内联化，
+   段间换行全部消失（编辑器里明明有换行，组卷预览里没了）。改为保留块级 + 收紧外边距。 */
+.pcontent :deep(p) { margin: 0; }
 .pmeta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
 .pmeta .score { display: flex; align-items: center; gap: 4px; }
 .pacts { display: flex; flex-direction: column; gap: 2px; }

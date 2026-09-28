@@ -28,6 +28,14 @@ export function renderMarkdownRaw(src: string): string {
 
 /**
  * 保留换行的简单版本（用于公告栏、页脚等短文本）
+ *
+ * @deprecated 【v4.8.25】全站已无调用方，**请勿再使用**。
+ *   本函数完全不走 marked，只做 `\n` → `<br>` 替换：
+ *   用户用 Markdown 写的 `**粗体**`、列表、链接、公式会被**原样输出源码**，
+ *   与编辑器预览所见完全不同 —— 这是「提交后在正常界面查看就不行了」的根因之一。
+ *   请统一改用 `renderMarkdown()`；它已配 `breaks: true`（单个 \n → <br>），
+ *   配合 `.zg-rich` 容器的 `white-space: pre-wrap` 可完整保留空格/空行/换行。
+ *   保留此导出仅为兼容可能存在的历史引用，无任何调用方时会随构建被摇树移除。
  */
 export function renderMarkdownPreserveSpaces(src: string): string {
   if (!src) return ''

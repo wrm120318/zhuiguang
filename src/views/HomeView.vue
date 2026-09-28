@@ -6,7 +6,13 @@ import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
 import { useThemeStore } from '@/store/theme'
-import { renderMarkdownPreserveSpaces } from '@/utils/markdown'
+// 【v4.8.25】公告栏/页脚改用全站统一渲染 renderMarkdown。
+//   原用 renderMarkdownPreserveSpaces —— 它**完全不走 marked**，只做 `\n`→`<br>` 替换，
+//   于是后台用 Markdown 写的公告（`**粗体**`、列表、链接、公式）在首页**原样输出源码**，
+//   与编辑器预览所见完全不同。这是用户反馈「编辑器里好好的，提交后不一样」的一条路径。
+//   改用 renderMarkdown 后：Markdown 语法正常渲染，且 marked 已配 breaks:true，
+//   单个换行仍是 <br>，空白语义由 .zg-rich 的 white-space:pre-wrap 完整保留。
+import { renderMarkdown } from '@/utils/markdown'
 import { fileUrl } from '@/utils/helpers'
 
 const router = useRouter()
@@ -198,7 +204,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
       <!-- 公告：经典=玻璃横标；墨金=去盒化贴顶细栏（§3.1） -->
       <div v-if="showAnnouncement" class="announce-bar zg-slide-up">
         <span class="ab-icon"><ZgGlyph :emoji="'📢'" /></span>
-        <span class="ab-text" v-html="renderMarkdownPreserveSpaces(siteConfig.announcementBar)"></span>
+        <span class="ab-text zg-rich" v-html="renderMarkdown(siteConfig.announcementBar)"></span>
       </div>
 
       <!-- 快捷入口：经典=玻璃胶囊；墨金=L3 瓷纹胶囊条（融入底色、不单独投影） -->
@@ -254,7 +260,7 @@ function goArticle(id: number) { router.push(`/article/${id}`) }
 
       <!-- 页脚 -->
       <footer class="zg-footer" v-if="configLoaded && siteConfig?.footerText">
-        <span v-html="renderMarkdownPreserveSpaces(siteConfig.footerText)"></span>
+        <span class="zg-rich" v-html="renderMarkdown(siteConfig.footerText)"></span>
       </footer>
     </template>
   </div>

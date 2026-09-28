@@ -163,7 +163,7 @@ async function deleteSubmission() {
         <span class="pb-author" v-if="q.creator_name">出题：{{ q.creator_name }}</span>
       </div>
 
-      <div class="pb-content q-content markdown-body" v-html="md(q.content)"></div>
+      <div class="pb-content q-content markdown-body zg-rich" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
         <a v-for="(a, i) in q.attachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
@@ -203,7 +203,7 @@ async function deleteSubmission() {
       <h1 class="rb-title"><ZgGlyph emoji="🎯" /> 训练结果</h1>
       <div class="rb-subj"><ZgGlyph :emoji="subject?.icon" /> {{ subject?.name }} · {{ qtypeLabel }}</div>
 
-      <div class="rb-content q-content markdown-body" v-html="md(q.content)"></div>
+      <div class="rb-content q-content markdown-body zg-rich" v-html="md(q.content)"></div>
 
       <div class="rb-score-row">
         <template v-if="result.status === 'graded'">
@@ -222,15 +222,15 @@ async function deleteSubmission() {
       </div>
 
       <div class="rb-line">你的作答：</div>
-      <div class="rb-answer markdown-body" v-html="md(result.answer || '未作答')"></div>
+      <div class="rb-answer markdown-body zg-rich" v-html="md(result.answer || '未作答')"></div>
 
       <template v-if="q.qtype !== 'subjective'">
-        <div class="rb-line">正确答案：<span class="markdown-body" v-html="md(q.answer)"></span></div>
+        <div class="rb-line">正确答案：<span class="markdown-body zg-rich" v-html="md(q.answer)"></span></div>
       </template>
       <template v-else>
         <div class="rb-line" v-if="result.comment">教师评语：{{ result.comment }}</div>
         <div class="rb-line" v-if="q.answer">参考答案：</div>
-        <div class="rb-ref markdown-body" v-if="q.answer" v-html="md(q.answer)"></div>
+        <div class="rb-ref markdown-body zg-rich" v-if="q.answer" v-html="md(q.answer)"></div>
       </template>
 
       <div class="pb-foot">
@@ -262,7 +262,7 @@ async function deleteSubmission() {
       </div>
 
       <!-- 题目内容 -->
-      <div class="grade-content q-content markdown-body" v-html="md(q.content)"></div>
+      <div class="grade-content q-content markdown-body zg-rich" v-html="md(q.content)"></div>
 
       <div v-if="q.attachments?.length" class="pb-att">
         <a v-for="(a, i) in q.attachments" :key="i" :href="attachmentUrl(a)" target="_blank" class="att-link"><ZgGlyph emoji="📎" /> {{ a.name }}</a>
@@ -271,14 +271,14 @@ async function deleteSubmission() {
       <!-- 学生作答 -->
       <div class="grade-answer-section">
         <div class="grade-label">学生作答：</div>
-        <div class="grade-answer markdown-body" v-html="md(gradingSub.answer || '（未作答）')"></div>
+        <div class="grade-answer markdown-body zg-rich" v-html="md(gradingSub.answer || '（未作答）')"></div>
       </div>
 
       <!-- 参考答案（主观题） -->
       <template v-if="q.qtype === 'subjective' && q.answer">
         <div class="grade-ref-section">
           <div class="grade-label">参考答案：</div>
-          <div class="grade-ref markdown-body" v-html="md(q.answer)"></div>
+          <div class="grade-ref markdown-body zg-rich" v-html="md(q.answer)"></div>
         </div>
       </template>
 

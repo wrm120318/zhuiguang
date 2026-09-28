@@ -56,7 +56,7 @@ const qtName = (t: any) => QT[t] || t
         <div v-if="!examCards.length" class="empty">暂无题目，先到题库选入试题篮或筛选题目。</div>
         <div v-for="(q, i) in examCards" :key="q.id" class="card">
           <div class="card-head"><b>{{ i + 1 }}.</b> <span class="ct">{{ qtName(q.qtype) }}</span> <span class="cs">{{ q.basketScore || q.score || 5 }}分</span></div>
-          <div class="card-q" v-html="renderMarkdown(q.content)" />
+          <div class="card-q zg-rich" v-html="renderMarkdown(q.content)" />
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
             <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
           </div>
@@ -72,7 +72,7 @@ const qtName = (t: any) => QT[t] || t
         <div v-else-if="!wrong.length" class="empty">暂无错题，去题库自测后会自动归集。</div>
         <div v-for="(q, i) in wrong" :key="q.id" class="card wrong">
           <div class="card-head"><b>错题 {{ i + 1 }}.</b> <span class="ct">{{ qtName(q.qtype) }}</span> <span class="cs">{{ q.subject_name }}</span></div>
-          <div class="card-q" v-html="renderMarkdown(q.content)" />
+          <div class="card-q zg-rich" v-html="renderMarkdown(q.content)" />
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
             <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
           </div>
@@ -87,7 +87,7 @@ const qtName = (t: any) => QT[t] || t
         <div v-for="g in kpGroups" :key="g.id" class="card kp">
           <div class="card-head kp-head"><ZgGlyph emoji="📘" /> {{ g.name }}（{{ g.items.length }} 题）</div>
           <div v-for="(q, i) in g.items" :key="q.id" class="kp-item">
-            <div class="card-q" v-html="renderMarkdown(q.content)" />
+            <div class="card-q zg-rich" v-html="renderMarkdown(q.content)" />
             <div class="card-ans"><b>答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
           </div>
         </div>
@@ -112,16 +112,21 @@ const qtName = (t: any) => QT[t] || t
 .card-opts > div { display: flex; align-items: baseline; gap: 6px; line-height: 1.7; }
 .card-opts > div > b { flex: 0 0 auto; min-width: 18px; }
 .card-opts > div > span { flex: 1 1 auto; min-width: 0; }
-.card-opts > div > span :deep(p) { display: inline; margin: 0; }
-.card-opts > div > span :deep(.katex-display) { display: inline-block; margin: 0; vertical-align: middle; }
+/* 【v4.8.25 修复「吞空格空行/换行」】
+   原写法把选项/答案/解析里的 <p> 强制 `display:inline`，治的是「A. √2 断行」，
+   代价是**段内换行与空行被彻底吃掉**（用户："编辑器里预览好好的，提交后就不行了"）。
+   现在统一改为：<p> 保持块级 + 只收紧外边距；靠外层 flex 的 baseline 对齐来
+   保证「选项字母与首行内容同行」，效果等价且不牺牲换行。 */
+.card-opts > div > span :deep(p) { margin: 0; }
+.card-opts > div > span :deep(.katex-display) { margin: 0; }
 .card-ans { margin-top: 6px; font-weight: 600; display: flex; align-items: baseline; gap: 4px; }
 .card-ans > b { flex: 0 0 auto; }
 .card-ans > span { flex: 1 1 auto; min-width: 0; font-weight: 400; }
-.card-ans > span :deep(p) { display: inline; margin: 0; }
+.card-ans > span :deep(p) { margin: 0; }
 .card-ana { margin-top: 4px; color: #555; display: flex; align-items: baseline; gap: 4px; }
 .card-ana > b { flex: 0 0 auto; }
 .card-ana > span { flex: 1 1 auto; min-width: 0; }
-.card-ana > span :deep(p) { display: inline; margin: 0; }
+.card-ana > span :deep(p) { margin: 0; }
 .card-kp { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 .kp-item { border-top: 1px dashed rgba(0,0,0,0.08); padding-top: 6px; margin-top: 6px; }
 .empty { padding: 30px; text-align: center; color: #999; }

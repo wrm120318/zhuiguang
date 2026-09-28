@@ -96,11 +96,41 @@ export const useThemeStore = defineStore('theme', () => {
   const draft = ref<any>(null)
   const loaded = ref(false)
 
+  /**
+   * 【v4.8.25 修复「首屏偶发卡在 splash」】
+   * 原实现 `Promise.all([api.themes(), api.activeTheme()])` 有两个隐患：
+   *   ① 任一请求慢（实测 `/api/themes/active` 冷查询 D1 可达 5~8s）→ 整体被拖住；
+   *   ② 请求挂死（无响应）→ `await` 永远不返回，App.vue 的 `ready` 永远为 false，
+   *      用户看到的就是「一直转圈的白屏 splash」，且无任何报错可查。
+   * 修复原则：**主题是皮肤，属"锦上添花"，绝不能阻塞首屏**。
+   *   · 给两个请求各加 ms 超时，超时即放弃（保留 :root 默认主题，站点照常可用）；
+   *   · 任何一个失败/超时都只记警告，不向调用方抛错；
+   *   · 成功后正常应用主题与 favicon。
+   */
   async function load() {
-    const [list, active]: any = await Promise.all([api.themes(), api.activeTheme()])
-    themes.value = list
-    activeTheme.value = active
-    if (active) { applyTheme(active.config); draft.value = { ...active.config, id: active.id, name: active.name } }
+    const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T | null> =>
+      new Promise<T | null>((resolve) => {
+        const timer = setTimeout(() => {
+          console.warn(`[theme] ${label} 超时（${ms}ms），跳过主题应用，使用默认皮肤`)
+          resolve(null)
+        }, ms)
+        p.then((v) => { clearTimeout(timer); resolve(v) })
+         .catch((e) => { clearTimeout(timer); console.warn(`[theme] ${label} 失败：`, e?.message || e); resolve(null) })
+      })
+
+    // 3.5s 上限：远超正常 RTT（边缘缓存命中 <100ms，D1 冷查询通常 <2s），
+    //   既不误杀正常请求，又能兜住「挂死」场景。
+    const [list, active]: any = await Promise.all([
+      withTimeout(api.themes() as any, 3500, 'themes'),
+      withTimeout(api.activeTheme() as any, 3500, 'themes/active'),
+    ])
+    if (Array.isArray(list)) themes.value = list
+    if (active) {
+      activeTheme.value = active
+      applyTheme(active.config)
+      draft.value = { ...active.config, id: active.id, name: active.name }
+    }
+    // 无论成功与否都标记已尝试加载，避免调用方再次 await 卡住
     loaded.value = true
   }
 

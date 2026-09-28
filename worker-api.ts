@@ -3595,9 +3595,22 @@ app.get('/api/subjects/:id/questions', auth, async (c) => {
   const where: string[] = ['sq.subject_id=?']
   const args: any[] = [sid]
   if (!isStaff) where.push("sq.status='active'")           // 学生只看到已激活题目
+  // 【v4.8.25 修复「父子知识点逻辑」—— 对齐组卷网】
+  //   旧写法只匹配**点中的那一个节点**：
+  //     `WHERE knowledge_point_id = ?`
+  //   → 点「力学」（一级）时，一道挂在「牛顿第二定律」（其子节点）上的题都查不出来，
+  //     侧栏却显示父节点可点，用户体验就是「点了没反应 / 知识点是空的」。
+  //   组卷网的语义是**一级节点 = 其下所有二级节点的聚合**，故改为「本节点 OR 其直接子节点」。
+  //   本项目知识点层级为 2 级封顶（见下方 POST/PATCH 的层级校验），
+  //   因此一层 `parent_id = ?` 即可覆盖，无需递归 CTE（D1/SQLite 也更好优化）。
   if (q.knowledge_point_id) {
-    where.push('sq.id IN (SELECT question_id FROM question_knowledge WHERE knowledge_point_id=?)')
-    args.push(Number(q.knowledge_point_id))
+    const kpId = Number(q.knowledge_point_id)
+    where.push(`sq.id IN (
+      SELECT qk.question_id FROM question_knowledge qk
+      JOIN knowledge_points kp ON kp.id = qk.knowledge_point_id
+      WHERE qk.knowledge_point_id = ? OR kp.parent_id = ?
+    )`)
+    args.push(kpId, kpId)
   }
   if (q.qtype) { where.push('sq.qtype=?'); args.push(q.qtype) }
   if (q.difficulty) { where.push('sq.difficulty=?'); args.push(Number(q.difficulty)) }
@@ -4168,8 +4181,28 @@ app.patch('/api/subject-questions/:id', auth, async (c) => {
 })
 
 // ==============================================================================
-// ============ 【v4.5.0】知识点（支持层级树）============
+// ============ 【v4.5.0】知识点（层级树）============
+// 【v4.8.25 对齐组卷网】本项目知识点层级**固定 2 级封顶**：
+//   · 一级 = 章 / 模块（如「力学」），作聚合标签，不再挂子级
+//   · 二级 = 具体知识点（如「牛顿第二定律」），出题时真正打标的层级
+//   组卷网交互语义：**点一级 = 查其下所有二级的题**（聚合查询，见上方筛选 SQL）。
+//   之所以硬性限制 2 级：「点父节点聚合子节点」若允许无限层级就需要递归 CTE，
+//   D1 上性能与可维护性都变差，而教学场景（章 → 节）2 级已足够。
 // ==============================================================================
+
+/** 【v4.8.25】校验知识点层级：父节点必须存在、属于同一学科、且自身不能再有父级 */
+async function validateKpParent(subjectId: number, parentId: any, selfId?: number): Promise<string | null> {
+  if (parentId === null || parentId === undefined || parentId === '') return null
+  const pid = Number(parentId)
+  if (!pid) return null
+  if (selfId && pid === Number(selfId)) return '不能把知识点设为自己的上级'
+  const parent = await get<any>('SELECT id, subject_id, parent_id FROM knowledge_points WHERE id=?', pid)
+  if (!parent) return '上级知识点不存在'
+  if (Number(parent.subject_id) !== Number(subjectId)) return '上级知识点不属于本学科'
+  if (parent.parent_id) return '知识点最多支持两级（当前选择的上级本身已是子级）'
+  return null
+}
+
 app.get('/api/subjects/:id/knowledge-points', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const list = await all<any>('SELECT * FROM knowledge_points WHERE subject_id=? ORDER BY sort, id ASC', sid)
@@ -4184,8 +4217,17 @@ app.post('/api/subjects/:id/knowledge-points', auth, async (c) => {
   }
   const b = await c.req.json()
   if (!b.name?.trim()) return c.json({ message: '知识点名称不能为空' }, 400)
+  // 【v4.8.25】层级校验：最多两级
+  const bad = await validateKpParent(sid, b.parent_id)
+  if (bad) return c.json({ message: bad }, 400)
+  // 【v4.8.25】同级重名拦截（组卷网同样不允许，否则筛选时无法区分）
+  const dup = b.parent_id
+    ? await get<any>('SELECT id FROM knowledge_points WHERE subject_id=? AND name=? AND parent_id=?', sid, b.name.trim(), Number(b.parent_id))
+    : await get<any>('SELECT id FROM knowledge_points WHERE subject_id=? AND name=? AND parent_id IS NULL', sid, b.name.trim())
+  if (dup) return c.json({ message: '同级下已存在同名知识点' }, 400)
   const r = await run(`INSERT INTO knowledge_points (subject_id,parent_id,name,description,sort,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
     sid, b.parent_id ? Number(b.parent_id) : null, b.name.trim().slice(0, 80), b.description || '', b.sort || 0)
+  clearAllCache()
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
@@ -4198,8 +4240,27 @@ app.patch('/api/knowledge-points/:id', auth, async (c) => {
     return c.json({ message: '只有超管和本学科教师可以编辑知识点' }, 403)
   }
   const b = await c.req.json()
+  // 【v4.8.25】层级校验（编辑时排除自身）
+  if (b.parent_id !== undefined) {
+    const bad = await validateKpParent(kp.subject_id, b.parent_id, id)
+    if (bad) return c.json({ message: bad }, 400)
+    // 若要把「已有子节点的一级」降为二级，会形成第 3 级 → 拒绝
+    if (b.parent_id) {
+      const child = await get<any>('SELECT id FROM knowledge_points WHERE parent_id=? LIMIT 1', id)
+      if (child) return c.json({ message: '该知识点下已有子知识点，不能再设为其它知识点的下级' }, 400)
+    }
+  }
+  const newName = b.name?.trim() || null
+  // 【v4.8.25】同级重名拦截
+  if (newName) {
+    const effParent = b.parent_id !== undefined ? b.parent_id : kp.parent_id
+    const dup = effParent
+      ? await get<any>('SELECT id FROM knowledge_points WHERE subject_id=? AND name=? AND id<>? AND parent_id=?', kp.subject_id, newName, id, Number(effParent))
+      : await get<any>('SELECT id FROM knowledge_points WHERE subject_id=? AND name=? AND id<>? AND parent_id IS NULL', kp.subject_id, newName, id)
+    if (dup) return c.json({ message: '同级下已存在同名知识点' }, 400)
+  }
   await run('UPDATE knowledge_points SET name=COALESCE(?,name), description=COALESCE(?,description), parent_id=COALESCE(?,parent_id), sort=COALESCE(?,sort) WHERE id=?',
-    b.name?.trim() || null, b.description ?? null, b.parent_id !== undefined ? (b.parent_id ? Number(b.parent_id) : null) : null, b.sort ?? null, id)
+    newName, b.description ?? null, b.parent_id !== undefined ? (b.parent_id ? Number(b.parent_id) : null) : null, b.sort ?? null, id)
   clearAllCache()
   return c.json({ ok: true })
 })
@@ -4212,8 +4273,12 @@ app.delete('/api/knowledge-points/:id', auth, async (c) => {
   if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
     return c.json({ message: '只有超管和本学科教师可以删除知识点' }, 403)
   }
+  // 【v4.8.25 对齐组卷网】原写法删父节点时把子节点 `parent_id=NULL`（**提升为一级**），
+  //   会静默改变树的形状：用户以为删掉了一个章，结果它的节全变成顶级知识点。
+  //   组卷网的做法是**存在子节点时不允许删除**（提示先处理下级），这里对齐该语义。
+  const child = await get<any>('SELECT id, name FROM knowledge_points WHERE parent_id=? LIMIT 1', id)
+  if (child) return c.json({ message: `该知识点下还有子知识点（如「${child.name}」），请先删除或移出子知识点` }, 400)
   await run('DELETE FROM question_knowledge WHERE knowledge_point_id=?', id)
-  await run('UPDATE knowledge_points SET parent_id=NULL WHERE parent_id=?', id)
   await run('DELETE FROM knowledge_points WHERE id=?', id)
   clearAllCache()
   return c.json({ ok: true })

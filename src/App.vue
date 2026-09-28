@@ -65,12 +65,32 @@ function handleVisibility() {
 }
 
 onMounted(async () => {
-  try {
-    await theme.load()
-    if (user.isLogin) {
-      await user.fetchProfile().catch(() => {})
-      await Promise.all([data.loadCommon(), settings.fetchAll().catch(() => {})])
+  // 【v4.8.25 修复「首屏偶发永久卡在 splash 白屏」】
+  //   原实现：`await theme.load()` / `await user.fetchProfile()` 等任一请求
+  //   若因网络抖动、Worker 冷启动、接口挂死而长时间不返回，
+  //   `ready` 就永远停在 false，用户看到的是「一直转圈、无任何报错」的白屏。
+  //   修复：给整段初始化套一个**总超时兜底**（6s）。到点无论成败都放行首屏，
+  //   后续数据由各页面自己的加载态接管——绝不让"皮肤/统计"这类非关键数据挡住整站。
+  const BOOT_TIMEOUT = 6000
+  const boot = (async () => {
+    try {
+      await theme.load()
+      if (user.isLogin) {
+        await user.fetchProfile().catch(() => {})
+        await Promise.all([data.loadCommon(), settings.fetchAll().catch(() => {})])
+      }
+    } catch (e: any) {
+      console.warn('[boot] 初始化异常（已忽略，放行首屏）：', e?.message || e)
     }
+  })()
+  const timeout = new Promise<void>((resolve) => {
+    setTimeout(() => {
+      if (!ready.value) console.warn(`[boot] 初始化超过 ${BOOT_TIMEOUT}ms，强制放行首屏`)
+      resolve()
+    }, BOOT_TIMEOUT)
+  })
+  try {
+    await Promise.race([boot, timeout])
   } finally {
     ready.value = true
   }

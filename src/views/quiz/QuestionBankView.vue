@@ -64,15 +64,54 @@ function flatten(nodes: any[], depth = 0, out: any[] = []): any[] {
   return out
 }
 const flatKps = computed(() => flatten(kpTree.value))
+/**
+ * 【v4.8.25 对齐组卷网】知识点题数统计：**父节点要含子节点**
+ *
+ * 原实现只对 `q.knowledge_points` 里直接出现的 id 计数 → 由于出题时打的是**二级**知识点，
+ * 一级节点永远显示 0，用户看到「父节点是个空壳」。
+ * 组卷网的语义是「一级题数 = 其下所有二级之和」，故这里做一次**向上汇总**：
+ * 先把每道题计入它直接挂的节点，再把每个子节点的计数累加到父节点。
+ */
 const kpCount = computed(() => {
-  const m: Record<number, number> = {}
-  questions.value.forEach(q => (q.knowledge_points || []).forEach((k: any) => { m[k.id] = (m[k.id] || 0) + 1 }))
-  return m
+  const direct: Record<number, number> = {}
+  questions.value.forEach(q => (q.knowledge_points || []).forEach((k: any) => {
+    direct[k.id] = (direct[k.id] || 0) + 1
+  }))
+  // 向上汇总：子 → 父（本项目 2 级封顶，一层即可）
+  const total: Record<number, number> = { ...direct }
+  kpList.value.forEach(k => {
+    if (k.parent_id && direct[k.id]) {
+      total[k.parent_id] = (total[k.parent_id] || 0) + direct[k.id]
+    }
+  })
+  return total
 })
 function toggleKp(id: number) { expandedKp[id] = !expandedKp[id] }
 function selectKp(id: number | null) { filters.knowledge_point_id = id ? String(id) : ''; loadQuestions() }
 
-async function loadSubject() { subject.value = await api.subject(slug) }
+// 【v4.8.25 修复存量缺陷】原写法 `subject.value = await api.subject(slug)` 未做空值校验：
+//   当 slug 无效 / 接口异常返回空时，subject.value 为 null，
+//   而模板里有多处 `basket.count(subject.id)`、`basket.items(subject.id)` 直接取属性 →
+//   抛 `TypeError: Cannot read properties of null (reading 'id')`，整页渲染中断。
+//   现在：① 判空并给出可见提示；② 空值时直接 return，不进入后续加载。
+const subjectMissing = ref(false)
+async function loadSubject() {
+  try {
+    const s: any = await api.subject(slug)
+    if (!s || !s.id) {
+      subjectMissing.value = true
+      subject.value = null
+      ElMessage.error('未找到该学科，或你没有访问权限')
+      return
+    }
+    subjectMissing.value = false
+    subject.value = s
+  } catch (e: any) {
+    subjectMissing.value = true
+    subject.value = null
+    ElMessage.error(e?.response?.data?.message || '学科加载失败')
+  }
+}
 async function loadKp() { if (subject.value) kpList.value = (await api.knowledgePoints(subject.value.id)) as any }
 async function loadQuestions() {
   if (!subject.value) return
@@ -88,6 +127,8 @@ async function loadQuestions() {
 
 onMounted(async () => {
   await loadSubject()
+  // 学科没加载到 → 直接停在这里，避免后续所有 `subject.id` 访问炸掉整页
+  if (!subject.value) return
   await Promise.all([loadKp(), loadQuestions()])
   // 默认展开一级知识点
   kpTree.value.forEach(n => { if (n.children.length) expandedKp[n.id] = true })
@@ -146,15 +187,69 @@ async function submitFeedback() {
   try { await api.questionFeedback(detail.value.id, feedbackText.value.trim()); ElMessage.success('纠错已提交，感谢反馈'); showFeedback.value = false; feedbackText.value = '' } catch (e: any) { ElMessage.error(e?.response?.data?.message || '提交失败') }
 }
 
-// ===== 知识点管理 =====
-const kpForm = reactive({ name: '', parent_id: '' as any })
+// ===== 知识点管理（v4.8.25 对齐组卷网：两级封顶 + 同级重名拦截 + 编辑/改层级）=====
+const kpForm = reactive({ name: '', parent_id: '' as any, sort: 0 })
+/** 只有「一级节点」才能当上级（二级不能再挂子级） */
+const rootKpOptions = computed(() => kpList.value.filter((k: any) => !k.parent_id))
 async function createKp() {
   if (!kpForm.name.trim() || !subject.value) return
-  await api.createKnowledgePoint(subject.value.id, { name: kpForm.name, parent_id: kpForm.parent_id || null })
-  kpForm.name = ''; kpForm.parent_id = ''
-  await loadKp()
+  try {
+    await api.createKnowledgePoint(subject.value.id, {
+      name: kpForm.name.trim(),
+      parent_id: kpForm.parent_id || null,
+      sort: kpForm.sort || 0,
+    })
+    kpForm.name = ''
+    kpForm.parent_id = ''
+    kpForm.sort = 0
+    await loadKp()
+    // 新建后重新拉题目，保证父节点计数立即反映子节点的题（v4.8.25）
+    await loadQuestions()
+    ElMessage.success('知识点已添加')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '添加失败')
+  }
 }
-async function deleteKp(id: number) { await api.deleteKnowledgePoint(id); await loadKp() }
+async function deleteKp(id: number) {
+  try {
+    await api.deleteKnowledgePoint(id)
+    await loadKp()
+    await loadQuestions()
+    ElMessage.success('已删除')
+  } catch (e: any) {
+    // 【v4.8.25】后端在「存在子知识点」时会返回 400，这里原样透出提示
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  }
+}
+
+// —— 知识点内联编辑（改名 / 改上级），对齐组卷网的可编辑树 ——
+const kpEditingId = ref<number | null>(null)
+const kpEditForm = reactive({ name: '', parent_id: '' as any })
+function startEditKp(k: any) {
+  kpEditingId.value = k.id
+  kpEditForm.name = k.name
+  kpEditForm.parent_id = k.parent_id || ''
+}
+function cancelEditKp() { kpEditingId.value = null }
+async function saveEditKp(k: any) {
+  if (!kpEditForm.name.trim()) { ElMessage.warning('名称不能为空'); return }
+  try {
+    await api.updateKnowledgePoint(k.id, {
+      name: kpEditForm.name.trim(),
+      parent_id: kpEditForm.parent_id || null,
+    })
+    kpEditingId.value = null
+    await loadKp()
+    await loadQuestions()
+    ElMessage.success('已保存')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '保存失败')
+  }
+}
+/** 是否为「一级且有子级」（用于禁用「设为其它节点的下级」这类非法操作） */
+function isRootWithChildren(k: any) {
+  return !k.parent_id && kpList.value.some((x: any) => x.parent_id === k.id)
+}
 
 // ===== 智能组卷（按条件自动抽题）=====
 const showSmart = ref(false)
@@ -188,7 +283,17 @@ async function smartAssemble() {
 </script>
 
 <template>
-  <div class="bank-page zg-container">
+  <!-- 【v4.8.25 修复存量缺陷】学科不存在 / 接口异常时，给出可见提示页，
+       而不是让模板里的 `subject.id` 访问抛 TypeError 导致整页白屏。 -->
+  <div v-if="subjectMissing" class="bank-page zg-container">
+    <div class="bank-missing glass">
+      <el-empty description="未找到该学科，或你没有访问权限">
+        <el-button type="primary" @click="router.back()" icon="ArrowLeft">返回上一页</el-button>
+        <el-button @click="router.push('/')" icon="HomeFilled">回到首页</el-button>
+      </el-empty>
+    </div>
+  </div>
+  <div v-else class="bank-page zg-container">
     <!-- 头部：学科 + 统计 + 主操作 -->
     <div class="bank-head glass">
       <div class="bh-left">
@@ -208,7 +313,7 @@ async function smartAssemble() {
         <el-button type="success" @click="showSmart = true" icon="MagicStick">智能组卷</el-button>
         <el-button @click="showCards = true" icon="Postcard">制卡</el-button>
         <el-button v-if="isStaff" @click="showImport = true" icon="Upload">Word 导入</el-button>
-        <el-badge :value="basket.count(subject.id)" :hidden="basket.count(subject.id) === 0">
+        <el-badge :value="subject ? basket.count(subject.id) : 0" :hidden="!subject || basket.count(subject.id) === 0">
           <el-button @click="showBasket = true" icon="Files">试题篮</el-button>
         </el-badge>
       </div>
@@ -259,19 +364,55 @@ async function smartAssemble() {
           <el-button text @click="showAnswer = !showAnswer" :icon="showAnswer ? 'View' : 'Hide'">{{ showAnswer ? '隐藏答案' : '显示答案' }}</el-button>
         </div>
 
-        <!-- 知识点管理 -->
+        <!-- 知识点管理（v4.8.25：两级封顶，对齐组卷网） -->
         <div v-if="showKpManager" class="kp-manager glass">
+          <div class="kp-hint">
+            知识点为**两级结构**：一级＝章/模块（如「力学」），二级＝具体知识点（如「牛顿第二定律」）。
+            出题时打二级标签，点一级即可查出其下全部题目。
+          </div>
           <div class="kp-add">
-            <el-input v-model="kpForm.name" placeholder="新知识点名称" style="width:200px" />
-            <el-select v-model="kpForm.parent_id" placeholder="上级（可选）" clearable filterable style="width:170px">
-              <el-option v-for="k in kpList" :key="k.id" :label="k.name" :value="k.id" />
+            <el-input v-model="kpForm.name" placeholder="知识点名称" style="width:190px" @keyup.enter="createKp" />
+            <el-select v-model="kpForm.parent_id" placeholder="上级（留空＝一级）" clearable filterable style="width:190px">
+              <!-- 【v4.8.25】只能选一级节点作上级 —— 二级不能再挂子级（2 级封顶） -->
+              <el-option v-for="k in rootKpOptions" :key="k.id" :label="`${k.name}（一级）`" :value="k.id" />
             </el-select>
+            <el-input-number v-model="kpForm.sort" :min="0" :max="999" size="default" style="width:110px" />
             <el-button type="primary" @click="createKp" icon="Plus">添加</el-button>
           </div>
           <div class="kp-list">
             <div v-for="k in kpList" :key="k.id" class="kp-item">
-              <span>{{ k.name }}<small v-if="k.parent_id">（子）</small></span>
-              <el-button size="small" text type="danger" @click="deleteKp(k.id)" icon="Delete" />
+              <!-- 编辑态 -->
+              <template v-if="kpEditingId === k.id">
+                <el-input v-model="kpEditForm.name" size="small" style="width:150px" @keyup.enter="saveEditKp(k)" />
+                <el-select
+                  v-model="kpEditForm.parent_id"
+                  size="small"
+                  clearable
+                  filterable
+                  placeholder="一级"
+                  style="width:150px"
+                  :disabled="isRootWithChildren(k)"
+                >
+                  <el-option
+                    v-for="p in rootKpOptions.filter((x:any) => x.id !== k.id)"
+                    :key="p.id"
+                    :label="`${p.name}（一级）`"
+                    :value="p.id"
+                  />
+                </el-select>
+                <el-button size="small" type="primary" text @click="saveEditKp(k)" icon="Check" />
+                <el-button size="small" text @click="cancelEditKp" icon="Close" />
+              </template>
+              <!-- 展示态 -->
+              <template v-else>
+                <span class="kp-item-name">
+                  <el-tag v-if="!k.parent_id" size="small" effect="plain" type="info">一级</el-tag>
+                  <el-tag v-else size="small" effect="plain" type="warning">二级</el-tag>
+                  {{ k.name }}
+                </span>
+                <el-button size="small" text @click="startEditKp(k)" icon="Edit" title="编辑 / 调整上级" />
+                <el-button size="small" text type="danger" @click="deleteKp(k.id)" icon="Delete" title="删除" />
+              </template>
             </div>
             <div v-if="!kpList.length" class="empty-sm">暂无知识点，先添加</div>
           </div>
@@ -294,7 +435,7 @@ async function smartAssemble() {
               <span v-if="q.source" class="tag src">{{ q.source }}</span>
               <span v-if="q.chapter" class="tag">{{ q.chapter }}</span>
             </div>
-            <div class="q-content" v-html="renderMarkdown(q.content)" />
+            <div class="q-content zg-rich" v-html="renderMarkdown(q.content)" />
             <div v-if="['single','multiple','judge'].includes(q.qtype)" class="q-options">
               <div v-for="(o, i) in (q.options || [])" :key="i" class="q-opt">
                 <b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" />
@@ -320,15 +461,15 @@ async function smartAssemble() {
       </section>
     </div>
 
-    <!-- 试题篮抽屉 -->
-    <el-drawer v-model="showBasket" title="试题篮 · 组卷" size="46%" :append-to-body="true">
+    <!-- 试题篮抽屉（v-if="subject" 兜底：学科未加载完成时整块不渲染） -->
+    <el-drawer v-if="subject" v-model="showBasket" title="试题篮 · 组卷" size="46%" :append-to-body="true">
       <div class="basket">
         <div v-for="(it, idx) in basket.items(subject.id)" :key="it.id" class="basket-item">
           <div class="bi-order">
             <el-button size="small" text :disabled="idx===0" @click="basket.reorder(idx, idx-1, subject.id)" icon="Top" />
             <el-button size="small" text :disabled="idx===basket.items(subject.id).length-1" @click="basket.reorder(idx, idx+1, subject.id)" icon="Bottom" />
           </div>
-          <div class="bi-content"><span class="bi-idx">{{ idx+1 }}.</span> <span v-html="renderMarkdown(it.content)" /></div>
+          <div class="bi-content"><span class="bi-idx">{{ idx+1 }}.</span> <span class="zg-rich" v-html="renderMarkdown(it.content)" /></div>
           <el-input-number v-model="it.basketScore" :min="1" :max="100" size="small" @change="(v:number)=>basket.setScore(it.id, v, subject.id)" />
           <el-button size="small" text type="danger" @click="basket.remove(it.id, subject.id)" icon="Delete" />
         </div>
@@ -391,7 +532,10 @@ async function smartAssemble() {
           <span v-if="detail.year" class="tag">{{ detail.year }}</span>
           <span v-if="detail.source" class="tag src">{{ detail.source }}</span>
         </div>
-        <div class="d-content q-card-inner" v-html="renderMarkdown(detail.content)" />
+        <!-- 【v4.8.25】详情抽屉容器改为与列表卡片**完全一致**的 `q-content zg-rich`
+             （原为 `d-content q-card-inner`，容器类不同 → 少了一整套样式，
+             是用户反馈「点开预览跟不在预览状态显示不一样」的根因）。 -->
+        <div class="d-content q-content zg-rich" v-html="renderMarkdown(detail.content)" />
         <div v-if="['single','multiple','judge'].includes(detail.qtype)" class="q-options">
           <div v-for="(o, i) in (detail.options || [])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" /></div>
         </div>
@@ -412,7 +556,7 @@ async function smartAssemble() {
         <div v-if="similar.length" class="similar">
           <div v-for="s in similar" :key="s.id" class="sim-item" @click="openDetail(s)">
             <el-tag size="small" effect="plain">{{ qtypeLabels[s.qtype] }}</el-tag>
-            <span class="sim-content" v-html="renderMarkdown(s.content)" />
+            <span class="sim-content zg-rich" v-html="renderMarkdown(s.content)" />
           </div>
         </div>
         <div v-else class="empty-sm">暂无同类题</div>
@@ -432,6 +576,8 @@ async function smartAssemble() {
 
 <style scoped>
 .bank-page { max-width: 1320px; margin: 0 auto; padding: 16px 20px 60px; }
+/* 【v4.8.25】学科不存在时的提示页容器 */
+.bank-missing { margin-top: 60px; padding: 40px 20px; border-radius: 16px; }
 /* 头部 */
 .bank-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 20px; border-radius: 16px; margin-bottom: 14px; }
 .bh-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px; }
@@ -499,31 +645,45 @@ async function smartAssemble() {
 .q-opt { display: flex; align-items: baseline; gap: 6px; line-height: 1.7; }
 .q-opt > b { flex: 0 0 auto; min-width: 18px; font-weight: 600; color: var(--zg-primary); }
 .q-opt > span { flex: 1 1 auto; min-width: 0; }
-.q-opt > span :deep(p) { display: inline; margin: 0; }
-.q-opt > span :deep(.katex-display) { display: inline-block; margin: 0; vertical-align: middle; }
+/* 【v4.8.25 修复「吞空格空行」】原写法 `.q-opt > span :deep(p){display:inline}` 把选项里的
+   `<p>` 强制内联化，代价是**选项内的段落换行全部消失**（用户反馈的"编辑器里好好的，
+   提交后换行没了"正是此处）。现在选项字母与首行对齐的问题改由 flex + `p{margin:0}` 解决，
+   `<p>` 保持块级 → 段间换行被完整保留。 */
+.q-opt > span :deep(p) { margin: 0; }
+.q-opt > span :deep(p:first-child) { margin-top: 0; }
+.q-opt > span :deep(p:last-child) { margin-bottom: 0; }
+.q-opt > span :deep(.katex-display) { margin: 0; }
 .q-kp { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
 .q-answer { margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; background: rgba(245,158,11,0.07); border-left: 3px solid rgba(245,158,11,0.5); }
 .qa-row { display: flex; align-items: baseline; gap: 6px; line-height: 1.75; }
 .qa-row > b { flex: 0 0 auto; color: var(--zg-primary); }
 .qa-row > span { flex: 1 1 auto; min-width: 0; }
-.qa-row > span :deep(p) { display: inline; margin: 0; }
+/* 【v4.8.25】同上：答案/解析里的 `<p>` 不再内联化，换行完整保留 */
+.qa-row > span :deep(p) { margin: 0; }
 .qa-analysis { margin-top: 4px; color: #6b7280; }
 .q-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 /* 详情 */
-.detail .q-card-inner { line-height: 1.8; font-size: 15px; }
-.q-card-inner :deep(.katex-display) { margin: 8px 0; }
+/* 【v4.8.25 修复「点开详情预览与列表不一致」】原写法 `.detail .q-card-inner { … }`
+   是 **scoped 样式、特异性 (0,2,0)**，高于全局 `.d-content img`(0,1,1) →
+   抽屉里图片尺寸、表格滚动等规则全被压过。现在详情容器在模板里已改为与列表
+   完全一致的 `q-content`（+ 全局 .zg-rich），此处不再复写任何富文本样式。 */
 .d-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .d-actions { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
 .similar { display: flex; flex-direction: column; gap: 8px; }
 .sim-item { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; border-radius: 10px; background: rgba(245,158,11,0.06); cursor: pointer; }
 .sim-item:hover { background: rgba(245,158,11,0.14); }
-.sim-content { flex: 1; line-height: 1.6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* 【v4.8.25】原 `-webkit-line-clamp:2` 会把同类题内容硬截两行（用户看到的"内容被吞"）。
+   同类题本来就是缩略预览，改为限高 3 行 + 不显示滚动条，保留更多内容。 */
+.sim-content { flex: 1; line-height: 1.6; font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; }
 .empty { padding: 30px; text-align: center; color: var(--zg-text-dim); }
 .empty-sm { padding: 12px; text-align: center; color: #aaa; font-size: 13px; }
 .kp-manager { padding: 12px; margin-bottom: 12px; border-radius: 14px; }
+/* 【v4.8.25】层级说明条：把「两级结构」的规则显式告诉用户，减少误操作 */
+.kp-hint { font-size: 12px; line-height: 1.7; color: var(--zg-text-dim); background: rgba(245,158,11,0.08); border-left: 3px solid rgba(245,158,11,0.5); padding: 8px 10px; border-radius: 0 8px 8px 0; margin-bottom: 10px; }
 .kp-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .kp-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .kp-item { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(245,158,11,0.1); border-radius: 8px; }
+.kp-item-name { display: inline-flex; align-items: center; gap: 6px; }
 .kp-item small { color: var(--zg-text-dim); margin-left: 4px; }
 .basket-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06); }
 .bi-order { display: flex; flex-direction: column; }

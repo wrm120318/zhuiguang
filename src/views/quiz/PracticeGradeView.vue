@@ -63,7 +63,7 @@ const qtypeLabels: Record<string, string> = { single: '单选题', multiple: '�
         <div class="col">
           <h3>题目 / 学生作答</h3>
           <div class="card glass">
-            <div class="q-content" v-html="renderMarkdown(question.content)" />
+            <div class="q-content zg-rich" v-html="renderMarkdown(question.content)" />
             <div v-if="['single','multiple','judge'].includes(question.qtype)" class="q-opts">
               <div v-for="(o, i) in (question.options||[])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" /></div>
             </div>
@@ -82,10 +82,10 @@ const qtypeLabels: Record<string, string> = { single: '单选题', multiple: '�
           <h3>参考答案 / 解析</h3>
           <div class="card glass answer">
             <div class="sec"><b>参考答案</b></div>
-            <div class="q-content" v-html="renderMarkdown(question.answer || '（无）')" />
+            <div class="q-content zg-rich" v-html="renderMarkdown(question.answer || '（无）')" />
             <template v-if="question.analysis">
               <div class="sec"><b>解析</b></div>
-              <div class="q-content" v-html="renderMarkdown(question.analysis)" />
+              <div class="q-content zg-rich" v-html="renderMarkdown(question.analysis)" />
             </template>
             <template v-if="question.knowledge_points?.length">
               <div class="sec"><b>知识点</b></div>

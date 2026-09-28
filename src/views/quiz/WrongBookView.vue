@@ -93,7 +93,12 @@ onMounted(load)
 .wq-top { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .qtag { font-size: 11px; padding: 1px 6px; border-radius: 6px; color: #fff; background: var(--zg-primary); flex: none; }
 .qcontent { flex: 1; font-size: 14px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 【v4.8.25】本容器是**列表单行缩略预览**（`slice(0,90)` + ellipsis），
+   必须显式压回 nowrap —— 否则全局 .zg-rich 的 white-space:pre-wrap 会胜出，
+   缩略文本会把行高撑成多行、破坏列表布局。此处用 !important 明确表达意图。 */
+.qcontent.zg-rich { white-space: nowrap !important; }
 .wq-detail { margin-top: 8px; padding: 10px; background: rgba(var(--zg-primary-rgb), .06); border-radius: 10px; font-size: 14px; line-height: 1.7; }
 .wq-detail .row { margin-bottom: 6px; }
-.wq-detail :deep(p) { margin: 0; display: inline; }
+/* 【v4.8.25】同上：保留块级，换行不再被内联化吃掉 */
+.wq-detail :deep(p) { margin: 0; }
 </style>

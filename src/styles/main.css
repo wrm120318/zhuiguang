@@ -3281,6 +3281,216 @@ a.zg-file-link {
   .markdown-body .zg-video, .markdown-body .zg-pdf-iframe { max-height: 320px; }
 }
 
+/* ============================================================================
+   【v4.8.25 · P0 核心修复】统一富文本容器 .zg-rich
+   ----------------------------------------------------------------------------
+   用户诉求（原话）：
+     「网站所有的编辑器在正常显示之后都不能吞空格和空行换行，不要编辑器里预览
+       界面好好的，提交之后在正常界面查看就不行了，严格保持两个一致」
+     「点开具体题目预览的时候显示的跟不在预览状态时不一样，不在预览状态的是正确渲染」
+
+   【根因】全站存在**两条不一致的渲染链路**，用的是同一份 HTML，但**样式容器不同**：
+     · 编辑器预览 → `.zg-preview-content.markdown-body`
+     · 题库/详情  → `.q-content` / `.d-content.q-card-inner` / `.pc-content` …
+   两条链路样式各写一套、且**互相缺项**，于是同一份内容在 A 好看、在 B 就变样。
+   具体三类差异：
+     ① **空白语义不统一**：编辑器 textarea 里的空格/空行是原样的，但 HTML 展示端
+        没有 `white-space: pre-wrap` → 连续空格被折叠，用户看到「编辑器里好好的，
+        提交后空格空行全没了」。
+     ② **块级被强制内联**：`.q-opt > span :deep(p) { display:inline }` 等规则把
+        选项/答案里的 `<p>` 内联化 → **段间换行直接消失**。
+     ③ **图片尺寸规则缺失**：详情抽屉容器 `.d-content.q-card-inner` 是 scoped 样式，
+        特异性高于全局 `.d-content img` → 用户拖出来的尺寸在抽屉里失效。
+
+   【本类的作用】把散落在 .markdown-body / .q-content / .d-content / .g-content / … 里的
+   富文本规则**收敛成一份权威实现**。所有展示位 + 编辑器预览统一挂 `.zg-rich`，
+   做到「编辑器所见 = 提交后所见」。
+   ============================================================================ */
+.zg-rich {
+  /* —— ① 空白语义：根治「吞空格/空行」（本次修复的关键一行）——
+     pre-wrap = 保留换行与连续空格，同时仍在容器边界正常折行（不会横向溢出）。
+     组件：marked 已配 breaks:true（单个 \n → <br>），配合此处即「所见即所得」。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  font-size: 15px;
+  color: var(--zg-text, #1e293b);
+  min-width: 0;
+}
+.zg-rich > *:first-child { margin-top: 0; }
+.zg-rich > *:last-child { margin-bottom: 0; }
+
+/* —— ② 块级元素：保留块级，绝不内联化 ——
+   （旧实现用 `p { display:inline }` 治「A. √2 断行」，代价是段间换行全丢；
+     正确做法是保留块级 + 把选项字母做 flex 对齐，见 .q-opt 规则。） */
+.zg-rich p { margin: 0.6em 0; }
+.zg-rich h1, .zg-rich h2, .zg-rich h3,
+.zg-rich h4, .zg-rich h5, .zg-rich h6 {
+  font-weight: 800;
+  margin: 1.2em 0 0.5em;
+  line-height: 1.35;
+  color: var(--zg-text-strong, #0f172a);
+}
+.zg-rich h1 { font-size: 1.7em; }
+.zg-rich h2 { font-size: 1.4em; }
+.zg-rich h3 { font-size: 1.2em; }
+.zg-rich h4 { font-size: 1.05em; }
+.zg-rich h5, .zg-rich h6 { font-size: 1em; }
+.zg-rich ul, .zg-rich ol { padding-left: 1.8em; margin: 0.6em 0; }
+.zg-rich li { margin: 0.25em 0; }
+.zg-rich li > p { margin: 0.25em 0; }
+.zg-rich blockquote {
+  margin: 0.8em 0;
+  padding: 8px 16px;
+  border-left: 4px solid var(--zg-primary, #6366f1);
+  background: rgba(var(--zg-primary-rgb), 0.05);
+  color: var(--zg-text-dim, #475569);
+  border-radius: 0 8px 8px 0;
+}
+.zg-rich blockquote > :first-child { margin-top: 0; }
+.zg-rich blockquote > :last-child { margin-bottom: 0; }
+.zg-rich strong { font-weight: 700; color: var(--zg-text-strong, #0f172a); }
+.zg-rich em { font-style: italic; }
+.zg-rich del { color: var(--zg-text-dim, #64748b); }
+.zg-rich a {
+  color: var(--zg-primary, #6366f1);
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+.zg-rich a:hover { opacity: 0.82; border-bottom-style: solid; }
+
+/* 行内代码 / 代码块
+   ⚠️ pre 必须覆盖 white-space：父级 pre-wrap 会让 <pre> 里的换行被「二次展开」
+   （marked 已把源码换行变成真实换行，pre 自身再用 pre-wrap 会多出空白行）。 */
+.zg-rich code {
+  background: rgba(148, 163, 184, 0.18);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #c7254e;
+  white-space: pre-wrap;
+}
+.zg-rich pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 14px 18px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 4;
+}
+.zg-rich pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: 13px;
+  white-space: pre;
+}
+
+/* —— ③ 表格：始终保持「外层滚动容器 + 内部表格布局」 ——
+   ⚠️ 不要改回 `display:block; width:100%` 单条 —— 那会让列被压成竖排单字（v4.8.16 已修）。
+   必须 table:block 做滚动 + 显式恢复 thead/tbody/tr/td 的 display，两步缺一不可。 */
+.zg-rich table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  table-layout: auto;
+  white-space: normal;   /* 表格单元格内不保留源码空白，避免 Excel 粘贴出现诡异缩进 */
+}
+.zg-rich table > thead { display: table-header-group; }
+.zg-rich table > tbody { display: table-row-group; }
+.zg-rich table > tfoot { display: table-footer-group; }
+.zg-rich table > tr { display: table-row; }
+.zg-rich table > colgroup { display: table-column-group; }
+.zg-rich table tr { display: table-row; }
+.zg-rich table th, .zg-rich table td {
+  display: table-cell;
+  border: 1px solid rgba(var(--zg-primary-rgb), 0.2);
+  padding: 8px 14px;
+  text-align: left;
+  min-width: 76px;          /* 列下限，杜绝「竖排单字」 */
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+.zg-rich table th {
+  background: rgba(var(--zg-primary-rgb), 0.08);
+  font-weight: 700;
+}
+.zg-rich hr {
+  border: 0;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(var(--zg-primary-rgb), 0.3), transparent);
+  margin: 1.4em 0;
+}
+.zg-rich kbd {
+  background: #1e293b; color: #e2e8f0;
+  padding: 1px 6px; border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.85em;
+  border: 1px solid #475569; box-shadow: 0 1px 0 #475569;
+}
+.zg-rich sub, .zg-rich sup { font-size: 0.75em; }
+.zg-rich ins { color: #16a34a; text-decoration: none; border-bottom: 2px solid #16a34a; }
+.zg-rich figure { margin: 0.8em 0; text-align: center; }
+.zg-rich figcaption { color: var(--zg-text-dim); font-size: 13px; margin-top: 6px; }
+.zg-rich details {
+  background: rgba(var(--zg-primary-rgb), 0.04);
+  border: 1px solid rgba(var(--zg-primary-rgb), 0.12);
+  border-radius: 8px; padding: 10px 14px; margin: 0.8em 0;
+}
+.zg-rich summary { cursor: pointer; font-weight: 600; color: var(--zg-primary, #6366f1); }
+
+/* —— ④ 图片：尊重用户显式尺寸（v4.8.25 修正判定方式）——
+   ⚠️ 旧写法 `img:not([style*="width"])` 是**子串匹配**，`max-width:300px` 里含有
+   "width" 子串 → 被误判为「已有显式宽度」，于是 `width:auto` 不生效；
+   反过来若用 `[style*="width"]` 判「有宽度」又会把 `max-width` 误判成有宽度。
+   这里改用**带冒号**的精确子串 `[style*="width:" i]`，同时把两种情形分开处理。 */
+.zg-rich img {
+  max-width: min(100%, 680px);
+  max-height: 520px;
+  height: auto;
+  border-radius: 10px;
+  object-fit: contain;
+}
+/* 无显式宽度 → 按原始尺寸自适应（不拉伸、不变形） */
+.zg-rich img:not([width]):not([style*="width:" i]) {
+  width: auto;
+}
+/* 有显式宽度（属性或内联样式）→ 尊重，仅受上限保护 */
+.zg-rich img[width], .zg-rich img[style*="width:" i] {
+  height: auto;
+}
+.zg-rich img.zg-img { max-width: min(100%, 760px); }
+@media (max-width: 768px) {
+  .zg-rich img { max-width: 100%; max-height: 320px; }
+}
+@media (max-width: 640px) {
+  .zg-rich { font-size: 15px; }
+  .zg-rich h1 { font-size: 1.5em; }
+  .zg-rich h2 { font-size: 1.3em; }
+  .zg-rich h3 { font-size: 1.15em; }
+  .zg-rich pre { font-size: 13px; padding: 12px; }
+  .zg-rich table { font-size: 13px; }
+  .zg-rich table th, .zg-rich table td { padding: 6px 8px; }
+  .zg-rich .zg-video, .zg-rich .zg-pdf-iframe { max-height: 320px; }
+}
+
+/* —— ⑤ 编辑器预览区与展示区共用同一套 .zg-rich 规则 ——
+   原来 `.zg-preview-content` 只覆盖了 font-size / line-height 两项，
+   空白、表格、图片等全部沿用 .markdown-body → 与题库展示存在差异。
+   这里把预览区显式并入 .zg-rich 体系（选择器等价，仅为兼容旧类名）。 */
+.zg-preview-content.zg-rich { font-size: 15px; line-height: 1.8; }
+
 
 /* ============================================================================
    v4.8.10 移动端深度适配（追加式 · 置于文件末尾以赢得级联；桌面/经典不受影响）

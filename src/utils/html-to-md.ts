@@ -46,7 +46,19 @@ function tableToMd(table: HTMLElement): string {
     tr.querySelectorAll('th,td').forEach(td => {
       // 单元格内可能有 <p><strong>文字</strong></p>，取纯文本 + 保留粗体标记
       let txt = inlineToMd(td as HTMLElement)
-      txt = txt.replace(/\n+/g, ' ').replace(/\|/g, '\\|').trim()
+      // 【v4.8.25 修复「表格单元格内容被压成一行」】
+      //   原写法 `replace(/\n+/g, ' ')` 把单元格里的**所有换行**（含显式 <br>）
+      //   压成空格 —— 用户从 Excel/Word 粘贴的多行单元格内容全部塌成一行。
+      //   GFM 表格支持在单元格内用 `<br>` 表达换行（pandoc / GitHub / 组卷网一致做法），
+      //   故这里把换行折叠成 `<br>`，而不是空格。
+      //   注意：必须先折叠「空行 / 连续换行」，再统一替换为单个 <br>，避免出现 <br><br> 堆叠。
+      txt = txt
+        .replace(/\n{2,}/g, '\n')
+        .replace(/\s*\n\s*/g, '<br>')
+        // ⚠️ `|` 必须转义成 `\|`，否则单元格里的竖线会被 GFM 解析成新的列分隔符 → 表格错位
+        //    （注意顺序：先转成 <br> 再转义竖线，避免把 `<br>` 里的字符误伤）
+        .replace(/\|/g, '\\|')
+        .trim()
       cells.push(txt)
     })
     if (cells.length) rows.push(cells)
@@ -111,8 +123,18 @@ function inlineToMd(el: HTMLElement | ChildNode): string {
       const src = e.getAttribute('src') || ''
       const alt = e.getAttribute('alt') || '图片'
       if (!src) return ''
+      // 【v4.8.25】保留图片尺寸：属性 width/height 优先，其次内联 style 的 width/height。
+      //   输出平台原生的 `![alt](url =WxH)` 语法（imageSized 扩展消费），
+      //   否则用户从 Word 粘贴来的图尺寸会在 HTML→Markdown 转换时被丢弃。
+      const attrW = Number(e.getAttribute('width')) || 0
+      const attrH = Number(e.getAttribute('height')) || 0
+      const st = (e.getAttribute('style') || '')
+      const stW = Number((st.match(/(?:^|;)\s*width\s*:\s*(\d+)px/i) || [])[1]) || 0
+      const stH = Number((st.match(/(?:^|;)\s*height\s*:\s*(\d+)px/i) || [])[1]) || 0
+      const w = attrW || stW
+      const h = attrH || stH
       // base64 图片保留原样（调用方可先经 uploadDataImages 换成真实 URL）
-      return `![${alt}](${src})`
+      return (w && h) ? `![${alt}](${src} =${w}x${h})` : `![${alt}](${src})`
     }
     case 'a': {
       const href = e.getAttribute('href') || ''
@@ -230,12 +252,28 @@ export function isMostlyMarkdown(s: string): boolean {
  */
 function inlineHtmlPatch(s: string): string {
   let out = s
-  // 1) <img src="…" alt="…"> → ![alt](src)   （width/height 等属性丢弃，样式交给 CSS 统一约束）
+  // 1) <img src="…" alt="…" width="…" height="…"> → ![alt](src =WxH)
+  //    【v4.8.25 修复「拖拽图片大小只在编辑器里生效」】
+  //      原实现注释写着「width/height 等属性丢弃，样式交给 CSS 统一约束」——
+  //      后果是**粘贴进来的图片尺寸从源头就没进源码**，用户在编辑器里拖出来的宽度
+  //      保存后再打开就没了（"打开智能题库看就不行了"）。
+  //      这里改为保留尺寸，并输出本平台原生支持的 `![alt](url =WxH)` 语法
+  //      （见 marked-extensions.ts 的 imageSized 扩展），渲染侧零改动即可生效。
   out = out.replace(/<img\b([^>]*)\/?>/gi, (_m, attrs: string) => {
     const src = (attrs.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || [])[1]
       || (attrs.match(/\bsrc\s*=\s*([^\s>]+)/i) || [])[1] || ''
     const alt = (attrs.match(/\balt\s*=\s*["']([^"']*)["']/i) || [])[1] || '图片'
-    return src ? `![${alt}](${src})` : ''
+    if (!src) return ''
+    // 尺寸来源优先级：width/height 属性 > 内联 style 里的 width/height
+    const attrW = (attrs.match(/\bwidth\s*=\s*["']?(\d+)["']?/i) || [])[1]
+    const attrH = (attrs.match(/\bheight\s*=\s*["']?(\d+)["']?/i) || [])[1]
+    const styleM = attrs.match(/\bstyle\s*=\s*["']([^"']*)["']/i)
+    const styleW = styleM ? (styleM[1].match(/(?:^|;)\s*width\s*:\s*(\d+)px/i) || [])[1] : undefined
+    const styleH = styleM ? (styleM[1].match(/(?:^|;)\s*height\s*:\s*(\d+)px/i) || [])[1] : undefined
+    const w = Number(attrW || styleW) || 0
+    const h = Number(attrH || styleH) || 0
+    // 只有宽高都拿到才写尺寸语法（imageSized 扩展要求 W 与 H 同时存在）
+    return (w && h) ? `![${alt}](${src} =${w}x${h})` : `![${alt}](${src})`
   })
   // 2) <br> → 换行
   out = out.replace(/<br\s*\/?>/gi, '\n')

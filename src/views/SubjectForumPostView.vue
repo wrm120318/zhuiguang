@@ -48,7 +48,7 @@
             >{{ topicNameMap[tid] || '#'+tid }}</span>
           </div>
 
-          <div class="sfp-content markdown-body" v-html="md(post.content)"></div>
+          <div class="sfp-content markdown-body zg-rich" v-html="md(post.content)"></div>
 
           <div v-if="post.review_note" class="sfp-review-note">
             <ZgGlyph emoji="⚠️" /> 审核意见：{{ post.review_note }}

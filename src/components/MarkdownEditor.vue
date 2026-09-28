@@ -218,7 +218,25 @@ function onPreviewMouseDown(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-/** 把新的 W×H 写回 Markdown 源码 */
+/**
+ * 把新的 W×H 写回 Markdown 源码
+ *
+ * 【v4.8.25 重写 —— 修复「拖了尺寸不生效 / 尺寸只在编辑器里生效」】
+ * ----------------------------------------------------------------------------
+ * 旧实现有三个致命缺陷：
+ *   ① **分三步正则改属性**：先删 `width`/`height` 属性 → 再改 style → 最后在
+ *      `<img` 后插属性。任何一步的正则没匹配上（属性带引号 / 换行 / 属性顺序不同），
+ *      前一步的「删除」就已经生效了 → **旧尺寸被删掉、新尺寸没写进去 = 尺寸彻底丢失**。
+ *   ② 匹配用的是「第一个命中即止」的 `matched` 标志，但 `String.replace` 的回调
+ *      是在**整串扫描中**逐次调用的；一旦前面的候选恰好同 src（同一张图被引用多次）
+ *      或匹配失败，就会错改 / 漏改。
+ *   ③ 只认 `<img ...>` 的 `src="…"` 双/单引号形式，**无引号写法**、带 `\n` 的多行标签
+ *      都会漏（Word 粘贴来的 HTML 恰恰是多行 + 无引号）。
+ *
+ * 新实现改为「**整段精确替换**」：先用一个容忍度更高的正则找到**目标 img 标签的完整
+ * 文本**，再对这一段文本做原位重建 —— 重建时统一输出「属性 + 内联样式」双保险，
+ * 并保留 style 里除 width/height 之外的其它声明（如 max-width）。
+ */
 function applyImageSize(src: string, w: number, h: number) {
   const md = content.value
   // 归一化：还原 HTML 实体 + 去掉空白，便于跨表示形式比对
@@ -231,42 +249,55 @@ function applyImageSize(src: string, w: number, h: number) {
     try { const u = new URL(s, location.origin); return norm(u.pathname + u.search) } catch { return norm(s) }
   }
   const targetTail = tail(src)
-  let matched = false
+  /** 判断源码里写的 url 是否就是要调整的那张图 */
+  const isTarget = (raw: string) => norm(raw) === targetNorm || tail(raw) === targetTail
 
-  // ① Markdown 语法 ![alt](url =WxH?)
-  const re = /!\[([^\]]*)\]\(([^)\s]+)(\s*=\s*(\d+)\s*[x×]\s*(\d+)\s*)?\)/g
+  // ① Markdown 语法 ![alt](url) / ![alt](url =WxH)
+  const re = /!\[([^\]]*)\]\(([^)\s]+)(\s*=\s*\d+\s*[x×]\s*\d+\s*)?\)/g
   let out = md.replace(re, (full, alt, url) => {
-    if (matched) return full
-    if (norm(url) !== targetNorm && tail(url) !== targetTail) return full
-    matched = true
+    if (!isTarget(url)) return full
     return `![${alt}](${url} =${w}x${h})`
   })
-
-  // ② 裸 HTML <img ...>（数学/物理题里常见，也是「图片拖不动」的原发场景）
-  if (!matched) {
-    const imgRe = /<img\b[^>]*>/gi
-    out = out.replace(imgRe, (tag) => {
-      if (matched) return tag
-      const m = tag.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || tag.match(/\bsrc\s*=\s*([^\s>]+)/i)
-      if (!m) return tag
-      if (norm(m[1]) !== targetNorm && tail(m[1]) !== targetTail) return tag
-      matched = true
-      // 清掉旧的 width / height（属性形式与内联 style 形式都清）
-      let t = tag
-        .replace(/\s+width\s*=\s*["']?[^"'\s>]+["']?/i, '')
-        .replace(/\s+height\s*=\s*["']?[^"'\s>]+["']?/i, '')
-      t = t.replace(/\s+style\s*=\s*["']([^"']*)["']/i, (_mm: string, sty: string) => {
-        const cleaned = sty
-          .split(';').map(s => s.trim())
-          .filter(s => s && !/^width\s*:/i.test(s) && !/^height\s*:/i.test(s))
-          .join(';')
-        return cleaned ? ` style="${cleaned};width:${w}px;height:${h}px"` : ` style="width:${w}px;height:${h}px"`
-      })
-      return t.replace(/<img\b/i, `<img width="${w}" height="${h}"`)
-    })
+  if (out !== md) {
+    content.value = out
+    ElMessage.success(`图片已调整为 ${w}×${h}`)
+    return
   }
 
-  if (!matched) {
+  // ② 裸 HTML <img ...>（数学/物理题里常见，也是「图片拖不动」的原发场景）
+  //    正则容忍：多行标签、属性无引号、属性顺序任意、自闭合斜杠可选
+  const imgRe = /<img\b[^>]*>/gi
+  let hit = false
+  out = md.replace(imgRe, (tag) => {
+    if (hit) return tag
+    const m = tag.match(/\bsrc\s*=\s*["']([^"']*)["']/i) || tag.match(/\bsrc\s*=\s*([^\s>]+)/i)
+    if (!m || !isTarget(m[1])) return tag
+    hit = true
+
+    // —— 重建这个 img 标签 ——
+    // 1) 取出旧 style，剥掉 width/height 声明，其余保留（max-width / border 等不能被吞）
+    const styleM = tag.match(/\sstyle\s*=\s*["']([^"']*)["']/i)
+    const keptDecls = styleM
+      ? styleM[1]
+          .split(';')
+          .map(s => s.trim())
+          .filter(s => s && !/^width\s*:/i.test(s) && !/^height\s*:/i.test(s))
+      : []
+    // 2) 剥掉所有 width / height 属性（含无引号、含内联 style 形式）
+    let rest = tag
+      .replace(/\s+width\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/\s+height\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi, '')
+    // 3) 在新样式里写回尺寸（追加到保留声明的末尾），并把 width/height 属性一起补上
+    //    —— 双写的原因：属性形式给「按属性判断」的 CSS 与 Word 导出器用，
+    //       内联样式给「按 style 判断」的分支用，两边都能命中，避免任一侧失效。
+    const newStyle = [...keptDecls, `width:${w}px`, `height:${h}px`].join(';')
+    rest = rest.replace(/<img\b/i, `<img width="${w}" height="${h}" style="${newStyle}"`)
+    // 4) 兜底：若原标签以 /> 结尾，保持自闭合形态（XHTML 风格，Word 里常见）
+    return rest
+  })
+
+  if (!hit) {
     ElMessage.warning('没能定位到这张图片的源码，请手动调整尺寸')
     return
   }
@@ -583,22 +614,27 @@ async function onDrop(e: DragEvent) {
 async function onPaste(e: ClipboardEvent) {
   const cd = e.clipboardData
   if (!cd) return
-  // 1) 图片文件优先（保留原粘贴上传行为：图片自动入文）
-  for (const item of Array.from(cd.items)) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      e.preventDefault()
-      const file = item.getAsFile()
-      if (file) await uploadFile(file, 'image')
-      return
-    }
-  }
-  // 2) 富文本 HTML（Word / 网页复制）→ 转 Markdown 后插入
+  // 【v4.8.25 修复「从 Word/PPT/Excel 复制粘贴被自动转成图片 / 丢格式」】
+  //   本次改动要点：
+  //     ① 原来「图片文件优先」放在最前面 —— PPT/Excel 复制时剪贴板常常**同时**带
+  //        `image/png`（整块截屏）和 `text/html`（真实表格），而 `cd.items` 的顺序
+  //        并不保证 html 在前。旧逻辑一旦先命中 image 就 `return`，
+  //        于是**表格被整块当成一张图片贴进来**（正是用户抱怨的"自动转成图片"）。
+  //        现在改为：**先取 text/html，只有确实没有 HTML 才退化为图片/纯文本**。
+  //     ② 补 `text/rtf` 分支：Excel / 部分 Word 场景只提供 RTF，旧实现直接走浏览器
+  //        默认粘贴 → 粘成纯文本，表格与加粗全丢。
+  //     ③ `text/plain` 也做一次「表格感」嗅探：Excel 复制出来的纯文本是
+  //        `a\tb\tc\n1\t2\t3` 的制表符网格，转成 GFM 表格能保住结构。
+  const html = cd.getData('text/html')
+  const rtf = cd.getData('text/rtf') || (cd as any).getData('application/rtf') || ''
+  const plain = cd.getData('text/plain')
+
+  // 2) 富文本 HTML（Word / PPT / Excel / 网页复制）→ 转 Markdown 后插入
   //    【v4.8.16 重写】原实现把剪贴板的 HTML 原样塞进 content，引发三个连锁问题：
   //      · 题库卡片：HTML 表格无列宽约束 → 列被压成"竖排单字"；样式与 Markdown 题目不一致
   //      · Word 导出：导出器只认 Markdown，遇到 `<table><tbody><tr><td>` 原样写进文档 = 乱码
   //      · base64 图片：一段 Word 题面可达 60KB，撑爆存储与卡片布局
   //    现在统一走 htmlToMarkdown() 收敛成 Markdown，并在转换前把 base64 图上传成真实 URL。
-  const html = cd.getData('text/html')
   if (html && html.trim()) {
     const cleaned = sanitizeHtml(html)
     if (isMeaningfulHtml(cleaned)) {
@@ -618,7 +654,170 @@ async function onPaste(e: ClipboardEvent) {
       return
     }
   }
-  // 3) 纯文本 / 代码 → 走浏览器默认粘贴
+
+  // 3) RTF（Excel / 部分 Word 只给 RTF）→ 尽力提取纯文本与表格感
+  if (rtf && rtf.trim()) {
+    const fromRtf = rtfToMarkdown(rtf)
+    if (fromRtf.trim()) {
+      e.preventDefault()
+      insertAtCursor(fromRtf)
+      ElMessage.success('已粘贴并转为标准格式')
+      return
+    }
+  }
+
+  // 4) 纯文本：若呈「制表符网格」（Excel 复制特征）则转成 GFM 表格，
+  //    否则交给浏览器默认粘贴（保持 Markdown 源码原样，不吞空格）
+  if (plain && plain.trim()) {
+    const asTable = tabGridToMd(plain)
+    if (asTable) {
+      e.preventDefault()
+      insertAtCursor(asTable)
+      ElMessage.success('已按表格粘贴')
+      return
+    }
+  }
+
+  // 5) 兜底：剪贴板里只有图片文件（截图 / 从图片复制）→ 上传入文
+  for (const item of Array.from(cd.items)) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (file) await uploadFile(file, 'image')
+      return
+    }
+  }
+  // 6) 其余（纯文本 / 代码）→ 走浏览器默认粘贴
+}
+
+/**
+ * 【v4.8.25】按名字剥掉 RTF 目标组（支持嵌套花括号）
+ *
+ * RTF 的组形如 `{\fonttbl{\f0\fnil Arial;}}` —— 目标名紧跟 `{` 或 `{\*`，
+ * 组体内部还可能再有若干层 `{...}`。正则的非贪婪匹配无法正确处理嵌套，
+ * 因此这里手工做**括号配平扫描**：找到组起始后，逐字符计数 `{` / `}`，
+ * 计数归零的位置就是组结束位置，整段删除。
+ *
+ * 同时处理 `\\*` 前缀（可忽略目标组标记）与未转义的 `\{` `\}`（不算配对）。
+ */
+function stripRtfGroup(src: string, names: string[]): string {
+  const nameSet = new Set(names.map(n => n.toLowerCase()))
+
+  /** 递归处理一段 RTF：命中黑名单的组整组丢弃，其余组**进入内部继续扫描** */
+  const drop = (s: string): string => {
+    let out = ''
+    let i = 0
+    while (i < s.length) {
+      if (s[i] !== '{') { out += s[i]; i++; continue }
+      // 1) 先找本组的配平结束位置（`\{` / `\}` 是转义字符，不参与配对）
+      let depth = 0
+      let k = i
+      while (k < s.length) {
+        const ch = s[k]
+        if (ch === '\\' && (s[k + 1] === '{' || s[k + 1] === '}')) { k += 2; continue }
+        if (ch === '{') depth++
+        else if (ch === '}') { depth--; if (depth === 0) { k++; break } }
+        k++
+      }
+      const group = s.slice(i, k)
+      // 2) 读组头名字
+      //    ⚠️ 这里最容易写错：`{\fonttbl` 的形式是 `{` + `\` + `fonttbl`，
+      //       必须先跳过那个反斜杠，否则读出来的是空名字 → 一个组都剥不掉
+      //       （实测症状：字体表残留，表格首格变成 `Arial;姓名`）。
+      let j = i + 1
+      if (s[j] === '\\' && s[j + 1] === '*') j += 2   // `{\*\generator ...}`
+      else if (s[j] === '\\') j += 1                  // `{\fonttbl ...}`
+      let name = ''
+      while (j < s.length && /[a-zA-Z]/.test(s[j])) { name += s[j]; j++ }
+      // 3) 命中黑名单 → 整组丢弃
+      if (name && nameSet.has(name.toLowerCase())) { i = k; continue }
+      // 4) 未命中 → 保留花括号，递归处理组内（这样才能剥掉嵌套在 rtf1 里的 fonttbl）
+      out += '{' + drop(group.slice(1, -1)) + '}'
+      i = k
+    }
+    return out
+  }
+
+  return drop(src)
+}
+
+/**
+ * 【v4.8.25】RTF → Markdown（轻量实现）
+ *
+ * 背景：Excel 与部分 Word 版本复制时**只提供 `text/rtf`**，旧实现直接落到浏览器默认粘贴，
+ * 于是表格/加粗/换行全部丢失，用户看到「粘出来是一坨纯文本」。
+ *
+ * 策略：不做完整 RTF 解析器（RTF 规范过于庞大，且引入新依赖违反"全免费、不重构"原则），
+ * 只做**够用的结构化提取**：
+ *   · 剥掉控制字（`\word`）、控制符号（`\{` `\}` `\\`）、字体表/颜色表/样式表等目标块
+ *   · `\par` / `\line` / `\row` → 换行；`\cell` → 制表符；`\tab` → 制表符
+ *   · `\b ... \b0` → **粗体**
+ * 提取出带制表符的纯文本后，复用 tabGridToMd() 还原表格。
+ */
+function rtfToMarkdown(rtf: string): string {
+  let s = rtf
+  // 【v4.8.25 修正】剥掉「不参与正文」的 RTF 目标组。
+  //   ⚠️ 这些组是**嵌套**的：`{\fonttbl{\f0\fnil Arial;}}` 有两层花括号，
+  //   原来用非贪婪 `[\s\S]*?\}\}` 只吃一层 → 残留 `Arial;` 混进正文
+  //   （实测表格首格变成了 `Arial;姓名`）。这里改为**括号配平**扫描，一次吃干净。
+  s = stripRtfGroup(s, ['fonttbl', 'colortbl', 'stylesheet', 'info', 'pict',
+    'generator', 'listtable', 'listoverridetable', 'rsidtbl',
+    'latentstyles', 'datastore', 'themedata', 'colorschememapping'])
+  // 其它 `{\*\...}` 自定义目标组
+  s = s.replace(/\{\\\*\\[a-z]+[\s\S]*?\}/gi, '')
+  // 转义序列 → 字面量
+  s = s.replace(/\\([\\{}])/g, '$1')
+  // 粗体开关 → Markdown
+  s = s.replace(/\\b\s/g, '**').replace(/\\b0\s?/g, '**')
+  s = s.replace(/\\i\s/g, '*').replace(/\\i0\s?/g, '*')
+  // 结构控制字 → 文本
+  s = s.replace(/\\row\b/g, '\n')
+  s = s.replace(/\\cell\b/g, '\t')
+  s = s.replace(/\\tab\b/g, '\t')
+  s = s.replace(/\\(?:par|line)\b/g, '\n')
+  // 十六进制转义 \'xx → 字符（按 latin1 近似即可，中文在 RTF 里通常是 \uN?）
+  s = s.replace(/\\'([0-9a-f]{2})/gi, (_m, h) => String.fromCharCode(parseInt(h, 16)))
+  // Unicode 转义 \uNNNN? → 字符
+  s = s.replace(/\\u(-?\d+)\s?\??/g, (_m, n) => String.fromCharCode(Number(n) < 0 ? Number(n) + 65536 : Number(n)))
+  // 清掉剩余控制字与花括号
+  s = s.replace(/\\[a-z]+-?\d*\s?/gi, '')
+  s = s.replace(/[{}]/g, '')
+  // 收尾：多余空行压平
+  s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+
+  // 若提取结果呈制表符网格 → 转 GFM 表格；否则按普通文本返回
+  return tabGridToMd(s) || s
+}
+
+/**
+ * 【v4.8.25】制表符网格 → GFM 表格
+ *
+ * Excel / Numbers 复制出来的纯文本形如：
+ *   `姓名\t语文\t数学\n张三\t90\t95\n`
+ * 转换成 GFM 表格可保住行列结构，而不是压成一串带空格的文字。
+ * 判据：至少 2 行，且**每行都含制表符**（避免把普通含 Tab 的文本误转）。
+ */
+function tabGridToMd(text: string): string {
+  const raw = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '')
+  if (!raw.includes('\t')) return ''
+  const lines = raw.split('\n').filter(l => l.trim() !== '')
+  if (lines.length < 2) return ''
+  // 必须每一行都有制表符，且列数 >= 2 —— 才认定是表格
+  const grids = lines.map(l => l.split('\t'))
+  if (!grids.every(g => g.length >= 2)) return ''
+  const cols = Math.max(...grids.map(g => g.length))
+  const norm = grids.map(g => {
+    const c = g.map(x => x.trim().replace(/\|/g, '\\|'))
+    while (c.length < cols) c.push('')
+    return c
+  })
+  const head = norm[0]
+  const body = norm.slice(1)
+  return '\n\n'
+    + `| ${head.join(' | ')} |\n`
+    + `| ${Array(cols).fill('---').join(' | ')} |\n`
+    + body.map(r => `| ${r.join(' | ')} |`).join('\n')
+    + '\n\n'
 }
 
 /**
@@ -719,7 +918,11 @@ const tools = computed(() => [
         />
       </div>
       <div v-show="viewMode !== 'edit'" class="zg-preview-pane" ref="previewPaneRef" @mousedown="onPreviewMouseDown">
-        <div class="zg-preview-content markdown-body" v-html="previewHtml"></div>
+        <!-- 【v4.8.25】预览区改用全站统一容器 .zg-rich（与题库/详情/练习等展示位同款）
+             —— 做到「编辑器所见 = 提交后所见」。原先用 .markdown-body，
+             与展示端的 .q-content/.d-content 样式各写一套、互相缺项，
+             是用户反馈「预览好好的、提交后不一样」的根因之一。 -->
+        <div class="zg-preview-content zg-rich" v-html="previewHtml"></div>
       </div>
     </div>
 
@@ -812,7 +1015,9 @@ const tools = computed(() => [
   font-size: 14px; line-height: 1.7; resize: vertical;
   color: var(--zg-text);
 }
-.zg-preview-content { font-size: 15px; line-height: 1.85; }
+/* 【v4.8.25】预览区样式改由全局 .zg-rich 提供（见 main.css），
+   这里只保留字体/行高的微调，不再重复定义空白与块级规则 —— 避免两套样式打架。 */
+.zg-preview-content { font-size: 15px; line-height: 1.8; }
 
 .zg-editor-foot {
   display: flex; justify-content: space-between; align-items: center;

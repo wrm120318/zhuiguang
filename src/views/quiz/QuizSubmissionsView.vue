@@ -122,11 +122,11 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
           <el-tag size="small">{{ qTypeLabel(q.qtype) }}</el-tag>
           <span class="q-score">{{ q.score }} 分</span>
         </div>
-        <div class="q-content markdown-body" v-html="renderMd(q.content)"></div>
+        <div class="q-content markdown-body zg-rich" v-html="renderMd(q.content)"></div>
 
         <template v-if="q.qtype !== 'subjective'">
           <div class="q-line">学生答案：<b>{{ activeSub.answers?.answers?.[q.id] || '未作答' }}</b></div>
-          <div class="q-line">正确答案：<span class="markdown-body" v-html="renderMd(q.answer)"></span></div>
+          <div class="q-line">正确答案：<span class="markdown-body zg-rich" v-html="renderMd(q.answer)"></span></div>
           <div class="q-line">
             <el-tag :type="activeSub.answers?.graded?.[q.id]?.correct ? 'success' : 'danger'">
               <template v-if="activeSub.answers?.graded?.[q.id]?.correct"><ZgGlyph emoji="✓" /> 正确</template><template v-else><ZgGlyph emoji="✗" /> 错误</template>
@@ -136,9 +136,9 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
         </template>
         <template v-else>
           <div class="q-line">学生作答：</div>
-          <div class="q-answer markdown-body" v-html="renderMd(activeSub.answers?.answers?.[q.id] || '未作答')"></div>
+          <div class="q-answer markdown-body zg-rich" v-html="renderMd(activeSub.answers?.answers?.[q.id] || '未作答')"></div>
           <div class="q-line" v-if="q.answer">参考答案：</div>
-          <div class="q-ref markdown-body" v-if="q.answer" v-html="renderMd(q.answer)"></div>
+          <div class="q-ref markdown-body zg-rich" v-if="q.answer" v-html="renderMd(q.answer)"></div>
           <div class="grade-row">
             <span>给分：</span>
             <el-input-number v-model="grades[q.id].score" :min="0" :max="q.score" size="small" />

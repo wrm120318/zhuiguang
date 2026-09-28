@@ -5,6 +5,313 @@
 
 ---
 
+## [v4.8.25] - 2026-09-28
+
+> **本轮修复用户报的 5 个问题**（P0~P3 全量落地，无分批）：
+> 1. 拖拽图片大小只在编辑器生效、题库无效
+> 2. Word/PPT/Excel 粘贴要保格式、**不要自动转成图片**
+> 3. 智能题库父子知识点逻辑对齐组卷网
+> 4. **全站编辑器不得吞空格/空行/换行** —— 编辑器预览 ↔ 提交后展示必须严格一致
+> 5. 题目预览态与非预览态渲染不一致（非预览态才正确）
+>
+> 另修复 2 个排查中发现的**存量缺陷**：题库空学科白屏、首屏偶发永久卡在 splash。
+
+### 🔥 需求 4+5 根因：`white-space: normal` 折叠空白 + 容器类不一致
+
+用户诉求「编辑器预览好好的，提交后在正常界面查看就不行了」的**唯一根因**是：
+
+- 编辑器预览区用的是 `.markdown-body` 系（保留空白），
+- 而提交后的展示容器（`.q-content` / `.d-content` / `.qcontent` …）**默认 `white-space: normal`** → 连续空格被折叠成 1 个、空行被吃掉、换行丢失。
+
+实测对比（同一段富文本，600px 宽容器）：
+
+| 容器 | `white-space` | 渲染高度 |
+| --- | --- | --- |
+| 旧 `.q-content` | `normal` | 189px |
+| 新 `.zg-rich` | **`pre-wrap`** | **521px** |
+
+**差出的 332px 就是被吞掉的空白**。
+
+#### 修复：全站统一富文本容器 `.zg-rich`
+
+`src/styles/main.css` 新增 `.zg-rich`（210 行），核心一行：
+
+```css
+.zg-rich {
+  white-space: pre-wrap;   /* ← 根治「吞空格空行」的关键 */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  font-size: 15px;
+  min-width: 0;
+}
+.zg-rich p { margin: 0.6em 0; }        /* 保留块级，不内联化 */
+.zg-rich pre { white-space: pre; }     /* pre 必须覆盖，否则换行二次展开 */
+.zg-rich table { display: block; width: 100%; overflow-x: auto; white-space: normal; }
+.zg-rich table > thead { display: table-header-group; }
+.zg-rich img { max-width: min(100%, 680px); max-height: 520px; height: auto; }
+```
+
+**全站 16 个文件的 `v-html` 容器统一加上 `zg-rich` 类**：
+`CardsPanel` / `AnnouncementDetailView` / `BlogDetailView` / `GuideView` / `SubjectForumPostView` /
+`ArticleView` / `SubjectView` / `admin/AuditView` / `PracticeStatsView` / `PracticeTakeView` /
+`QuizListView` / `QuizReportView` / `QuizSubmissionsView` / `QuizTakeView` / `PracticeGradeView` /
+`PracticeRecordsView` / `HomeView`（公告条 + 页脚）。
+
+#### 同时移除「治标副作用」：`p { display: inline }`
+
+v4.8.22 为治「A. √2 断行」把选项段落改成 `display: inline`，**代价是吃掉了段间换行**。本轮统一改回块级：
+
+```css
+/* 原 */ .q-opt > span :deep(p) { display: inline; }
+/* 新 */ .q-opt > span :deep(p) { margin: 0; }
+```
+
+涉及：`QuestionBankView`（`.q-opt` / `.qa-row`）、`WrongBookView`（`.wq-detail`）、
+`AssembleView`（`.pcontent`）、`CardsPanel`（`.card-opts` / `.card-ans` / `.card-ana`）。
+
+> 注：`WrongBookView` 列表缩略图必须压回单行，单独保留
+> `.qcontent.zg-rich { white-space: nowrap !important; }`。
+
+#### 需求 5：详情抽屉容器与列表卡片不一致
+
+`QuestionBankView` 详情抽屉原用 `class="d-content q-card-inner"`，与列表卡片的 `.q-content` **不同类** →
+少了一整套样式 → 用户看到「点开预览跟不在预览状态显示不一样」。
+
+```html
+<!-- 原 --> <div class="d-content q-card-inner" v-html="renderMarkdown(detail.content)" />
+<!-- 新 --> <div class="d-content q-content zg-rich" v-html="renderMarkdown(detail.content)" />
+```
+
+另：`.sim-content` 的 `-webkit-line-clamp` 由 2 改 3（原为硬截断，与展示不一致）。
+
+#### scoped 特异性陷阱
+
+`.detail .q-card-inner`（特异性 0,2,0）会压过全局 `.d-content img`（0,1,1）→
+抽屉里图片尺寸规则**静默失效**。改用同一容器类后消失。
+
+---
+
+### 🔥 需求 1：拖拽图片尺寸只在编辑器生效
+
+**根因**：应用尺寸的函数把 `width/height` **分三步正则替换**，第 1 步先删属性、后两步匹配失败 →
+尺寸彻底丢失。同时 `inlineHtmlPatch()` 在粘贴时**直接丢弃** `width/height`（源码注释原文：「width/height 等属性丢弃」）。
+
+#### 修复 ①：`MarkdownEditor.applyImageSize()` 完全重写
+
+改为「定位整段 `<img>` 标签 → 原位重建 → **属性 + 内联样式双写**」：
+
+```ts
+// 1) 优先 Markdown 语法 ![alt](url =WxH)
+// 2) 退化到裸 HTML <img>：容忍多行/无引号/任意属性顺序
+// 3) 保留 style 里除 width/height 外的声明（max-width 等不能被吞）
+// 4) 双写 width="180" height="120" style="width:180px;height:120px"
+```
+
+**CSS 子串匹配陷阱**：原判据 `[style*="width"]` 会把 `max-width:300px` 误判为"已有宽度"。
+改用属性选择器 `[style*="width:" i]`（带冒号，且大小写不敏感）。
+
+#### 修复 ②：`html-to-md.ts` 保留图片尺寸
+
+```ts
+const attrW = (attrs.match(/\bwidth\s*=\s*["']?(\d+)["']?/i) || [])[1]
+const styleW = styleM ? (styleM[1].match(/(?:^|;)\s*width\s*:\s*(\d+)px/i) || [])[1] : undefined
+return (w && h) ? `![${alt}](${src} =${w}x${h})` : `![${alt}](${src})`
+```
+
+粘贴来的图片尺寸从源头就进了源码，不再丢。
+
+---
+
+### 🔥 需求 2：Word/PPT/Excel 粘贴保留格式，不再自动转图片
+
+**根因**：`onPaste()` 里**「图片文件优先」排在第一位**。PPT 剪贴板常**同时**携带
+`image/png` + `text/html`，代码先命中 image 分支就 `return` → 用户拿到一张图。
+
+#### 修复：粘贴优先级重排
+
+```ts
+if (html  && html.trim())  { htmlToMarkdown(html); return }   // ① HTML 优先
+if (rtf   && rtf.trim())   { rtfToMarkdown(rtf);   return }   // ② RTF
+if (plain && plain.trim()) { tabGridToMd(plain);   return }   // ③ 制表符网格
+for (...items) if (image/*) { ... }                            // ④ 图片仅作兜底
+```
+
+#### 新增 `rtfToMarkdown()` —— 支持 Excel/旧版 Office 只给 RTF 的场景
+
+RTF 组是**嵌套**的，`{\fonttbl{\f0\fnil Arial;}}` 有**两层**花括号，非贪婪正则只吃一层 →
+实测表格首格变成 `| Arial;姓名 |`。改**括号配平 + 递归扫描**：
+
+```ts
+function stripRtfGroup(src: string, names: string[]): string {
+  // 关键 1：读组名时必须先跳过反斜杠 —— `{\fonttbl` = `{` + `\` + `fonttbl`
+  let j = i + 1
+  if (s[j] === '\\' && s[j+1] === '*') j += 2
+  else if (s[j] === '\\') j += 1
+  // 关键 2：未命中黑名单的组要**递归进内层**，
+  //   因为 `{\rtf1 ... {内层组}}` 外层包着，不递归就永远轮不到内层
+  out += '{' + drop(group.slice(1, -1)) + '}'
+}
+```
+
+黑名单含 `fonttbl` / `colortbl` / `stylesheet` / `info` / `pict` / `listtable` /
+`rsidtbl` / `latentstyles` / `datastore` / `themedata` 等 12 类非内容组。
+
+#### 新增 `tabGridToMd()` —— 制表符网格 → GFM 表格
+
+判据：**≥2 行 且 每行都有 `\t` 且列数 ≥2**。
+
+#### GFM 表格单元格内换行统一用 `<br>`
+
+```ts
+txt = txt
+  .replace(/\n{2,}/g, '\n')
+  .replace(/\s*\n\s*/g, '<br>')   // ⚠️ 必须先转 <br> 再转义竖线
+  .replace(/\|/g, '\\|')
+  .trim()
+```
+
+与 pandoc / GitHub / 组卷网做法一致（真换行会破坏表格结构）。
+
+---
+
+### 🔥 需求 3：父子知识点对齐组卷网
+
+**组卷网逻辑**：知识点为**「章 → 节」两级封顶**；筛一级自动含其下二级；
+建节点时同级不允许重名；删除有子节点的一级必须先处理子节点。
+
+#### 后端（`worker-api.ts`）
+
+**① 筛选改聚合**（原只匹配单节点，点一级搜不到二级的题）：
+
+```sql
+where.push(`sq.id IN (
+  SELECT qk.question_id FROM question_knowledge qk
+  JOIN knowledge_points kp ON kp.id = qk.knowledge_point_id
+  WHERE qk.knowledge_point_id = ? OR kp.parent_id = ?
+)`)
+```
+
+**② 新增 `validateKpParent(subjectId, parentId, selfId?)`** ——
+父节点须存在、同科、且**自身无父级**（否则会变成三级）。
+
+**③ POST/PATCH `knowledge-points`** 加层级校验 + 同级重名 + `clearAllCache()`。
+PATCH 额外处理「**有子节点的一级不能降为二级**」。
+
+**④ DELETE 修复**：**移除** `UPDATE knowledge_points SET parent_id=NULL WHERE parent_id=?`
+（原会把子节点**提升为顶级**，制造出意料之外的一级节点）。改为有子节点时返回 400：
+
+```
+该知识点下还有子知识点（如「比热容」），请先删除或移出子知识点
+```
+
+#### 前端
+
+- `QuestionBankView.kpCount` 改为**向上汇总**（点一级显示「自身 + 所有子级」的题目数）
+- 知识点管理改「**两级封顶 + 同级重名 + 内联编辑/改层级**」
+- `QuestionForm` 知识点分组 + **父子联动**：
+
+```ts
+// 选了子 → 自动补父；取消父 → 自动删其所有子
+function onKpChange(next: number[]) {
+  for (const id of Array.from(set)) {          // ① 补父
+    const node = kpList.value.find(k => Number(k.id) === id)
+    if (node?.parent_id && !set.has(Number(node.parent_id))) set.add(Number(node.parent_id))
+  }
+  for (const root of kpRoots.value) {          // ② 删子
+    if (!set.has(Number(root.id))) kpChildren(root.id).forEach(c => set.delete(Number(c.id)))
+  }
+}
+```
+
+模板用 `el-option-group`：有子级 → 一级作组标题、二级为选项；无子级 → 直接可选项。
+
+---
+
+### 🐛 存量缺陷：题库空学科整页白屏
+
+原写法 `subject.value = await api.subject(slug)` **未做空值校验**：
+slug 无效 / 接口异常时 `subject.value` 为 `null`，
+而模板里 `basket.count(subject.id)`、`basket.items(subject.id)` 等**直接取属性** →
+抛 `TypeError: Cannot read properties of null (reading 'id')`，整页渲染中断。
+
+**修复**：① 判空 → 显示友好的 `<el-empty>` 提示页；② 空值时直接 `return`，不进入后续加载；
+③ 抽屉/弹窗加 `v-if="subject"` 兜底。
+
+---
+
+### 🐛 存量缺陷：首屏偶发永久卡在 splash 白屏
+
+`App.vue` 的 `ready` 依赖 `theme.load()` → `user.fetchProfile()` → `data.loadCommon()` +
+`settings.fetchAll()`。**任一请求挂死（无响应），`await` 永远不返回 → `ready` 永远 `false`**
+→ 用户看到「一直转圈、无任何报错」的白屏。
+
+实测抓包：`GET /api/themes/active` 冷查询 D1 可达 **5~8s**，且偶发**无响应**。
+
+**修复**（双重保险）：
+
+- `store/theme.ts`：给 `themes` / `themes/active` 各加 **3.5s 超时**，
+  超时即放弃（保留 `:root` 默认皮肤，站点照常可用），失败只 `console.warn` 不抛错；
+- `App.vue`：整段初始化套 **6s 总超时兜底**，到点无论成败都放行首屏。
+
+> 原则：**主题/统计属"锦上添花"，绝不能阻塞首屏**。
+
+---
+
+### 验证结果（全部真机跑通）
+
+| 验收项 | 结果 |
+| --- | --- |
+| `.zg-rich` `white-space=pre-wrap` | ✅ |
+| 预览区 ↔ 展示区 渲染高度一致 | ✅ **99px vs 99px** |
+| 图片 `style="width:180px"` | ✅ 180px |
+| 图片 `width="220"` | ✅ 220px |
+| `max-width:300px` 不被误判 | ✅ |
+| Word HTML → MD 保留加粗段落 | ✅ `**题目：**…\n\nA. 时间 B. 位移` |
+| Word HTML **不产生 `<img>`** | ✅ |
+| 图片尺寸 → `=220x140` / `=180x90` | ✅ |
+| 表格单元格换行 → `<br>` | ✅ |
+| RTF 字体表不残留（`Arial;` 已消除） | ✅ |
+| 点一级知识点 → 聚合含子级题目 | ✅ 2 题 |
+| 建三级 → 400 拒绝 | ✅ |
+| 同级重名 → 400 拒绝 | ✅ |
+| 删有子节点的一级 → 400 拒绝 | ✅ |
+| 无效学科 slug → 友好提示不白屏 | ✅ |
+| 首页 splash 超时兜底放行 | ✅ |
+| **全站页面回归** | ✅ **24/24** |
+
+### 踩坑记录
+
+**#35 非贪婪正则吃不动嵌套花括号**
+RTF `{\fonttbl{\f0\fnil Arial;}}` 两层括号，`/\{\\...[\s\S]*?\}\}/` 只吃一层 →
+`Arial;` 残留在表格首格。改**括号配平 + 递归扫描**。
+
+**#36 读 RTF 组名忘了跳过反斜杠**
+`{\fonttbl` 是 `{` + `\` + `fonttbl`。从 `i+1` 开始读字母 → 读到空名字 →
+**一个组都剥不掉**。用 `node t4.mjs` 逐步打印 `char[1]="\\"`、`第一个组名 = ""` 定位。
+
+**#37 CSS `[style*="width"]` 子串误判**
+`max-width:300px` 含 `width` 子串 → 被误判"已有显式宽度" → 拖拽尺寸不生效。
+必须写 `[style*="width:" i]`（带冒号 + 大小写不敏感）。
+
+**#38 scoped 特异性静默失效**
+`.detail .q-card-inner`（0,2,0）压过全局 `.d-content img`（0,1,1），
+抽屉里图片规则**不报错但完全不生效**。诊断这类问题要 `getComputedStyle` 直查最终值。
+
+**#39 `p { display: inline }` 会吃掉段间换行**
+为治「A. √2 断行」引入的，副作用是段间换行消失。正确做法是保留块级 + `margin: 0`。
+
+**#40 用 `git stash` 做基线对比，避免误判存量问题**
+全站回归报 2 项失败时，先 `git stash` 构建 `2b01dea` 基线复测，
+确认**改动前就存在** → 是存量问题，不是本次引入。
+
+**#41 Playwright 等待条件要贴合 SPA 真实渲染时机**
+`wait_until="networkidle"` 对含长轮询的页面永不触发；
+`innerText !== '追光'` 又会误判（站点名恰好就是"追光"）。
+最终用 `wait_until="load"` + `wait_for_function` 等内容长度达标。
+
+---
+
 ## [v4.8.24] - 2026-09-27
 
 > **本轮主修两件事**：① 用户报的「增删改后列表不刷新、手动刷新也不行」；② 主域 `xkzg.de5.net` 白屏。
