@@ -76,13 +76,22 @@ function goSearch() {
   searchQuery.value = ''
 }
 
-async function loadNotices() {
+/** 拉取通知并同步未读数
+ *  【v4.8.26】统一走 data store（并发去重 + 全局共享），不再直接调 api.notices()。
+ *  force=true 用于「已读后刷新」等必须拿最新数据的场景。 */
+async function loadNotices(force = false) {
   if (!user.isLogin) return
-  myNotices.value = (await api.notices()) as any
-  unread.value = myNotices.value.filter((n: any) => !n.read).length
+  try {
+    const list: any[] = await data.fetchNotices(force)
+    myNotices.value = list
+    unread.value = list.filter((n: any) => !n.read).length
+  } catch { /* 静默：不打断导航栏渲染 */ }
 }
 onMounted(() => {
-  applyFontScale(); loadNotices(); refreshUnread()
+  // 【v4.8.26】原来这里调 loadNotices()，而 startNoticePolling() 内部也会
+  //   立即 pollNotices() —— 两者拉的是同一份数据，属于**自相重复**。
+  //   现在只保留 startNoticePolling() 一处入口（它内部已含「立即拉一次」）。
+  applyFontScale(); refreshUnread()
   if (!settings.siteConfigLoaded) settings.fetchSiteConfig()
   // 站内信已读后即时刷新未读数
   window.addEventListener('messages-read', refreshUnread)
@@ -90,7 +99,7 @@ onMounted(() => {
   window.addEventListener('zg-open-notice', openNoticeFromBar)
   // v4.4.29 手机端底栏「更多」按钮 → 打开主导航抽屉（博客/公告/题库/经验榜等全页面一键可达）
   window.addEventListener('zg-open-menu', openMenuFromBar)
-  // 【v4.2.1】启动通知轮询
+  // 【v4.2.1】启动通知轮询（内部会立即拉取一次并初始化 lastSeenIds）
   startNoticePolling()
 })
 function openNoticeFromBar() { noticeVisible.value = true }
@@ -126,7 +135,8 @@ async function readAll() {
   reading.value = true
   try {
     await api.readAllNotices()
-    await loadNotices()
+    // force=true：刚标记已读，必须强制拿最新数据（绕过并发去重）
+    await loadNotices(true)
     ElMessage.success('已全部已读')
   } catch (e: any) {
     ElMessage.error(e?.message || '操作失败，请稍后重试')
@@ -165,8 +175,14 @@ async function openNotice(n: any) {
 }
 
 // 【v4.2.1】定时轮询：让通知中心"实时"（15 秒）+ 新通知桌面 toast 提醒
+// 【v4.8.26 性能专项】统一走 data store 的唯一数据源 + 并发去重：
+//   原实现 loadNotices()（onMounted 调用）与 pollNotices()（轮询立即执行一次）
+//   **各拉一次**，加上 MobileTabBar 那次，首页共 3 次并发请求同一接口。
+//   现合并为 pollNotices() 一处入口，且数据存进 store 供全局共享。
 let noticeTimer: any = null
 let lastSeenIds: Set<number> = new Set()
+/** 是否已完成首次拉取 —— 首次走「可去重」路径，避免与 MobileTabBar 并发重复请求 */
+let firstPollDone = false
 function startNoticePolling() {
   stopNoticePolling()
   // 立即拉一次，初始化 lastSeenIds
@@ -176,8 +192,10 @@ function startNoticePolling() {
 async function pollNotices() {
   if (!user.isLogin) return
   try {
-    const resp: any = await api.notices()
-    const list: any[] = Array.isArray(resp) ? resp : (resp?.data || [])
+    // 【v4.8.26】首次拉取用 force=false → 与 MobileTabBar 的同时请求**合并为一次**；
+    //   后续轮询用 force=true → 必须拿新数据，绕过去重（数据不能陈旧）。
+    const list: any[] = await data.fetchNotices(firstPollDone)
+    firstPollDone = true
     myNotices.value = list
     unread.value = list.filter((n: any) => !n.read).length
     // 首次拉取：只记录 id，不弹 toast

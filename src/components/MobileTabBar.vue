@@ -43,22 +43,25 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { useDataStore } from '@/store/data'
 import { api } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
+const data = useDataStore()
 const barRef = ref<HTMLElement | null>(null)
 const tabRefs = ref<(HTMLElement | null)[]>([])
 
-const unread = ref(0)
+// 【v4.8.26 性能专项】未读数改为**从 data store 的同一份 notices 推导**。
+//   原实现自己 `api.notices()` 单独拉一份，导致首页一次加载该接口被并发请求
+//   （NavBar 2 处 + 这里 1 处 = 3 次）。现在统一数据源，不再重复请求。
+const unread = computed(() => (user.isLogin ? data.noticeUnread : 0))
 
 async function refreshNoticeUnread() {
-  if (!user.isLogin) { unread.value = 0; return }
-  try {
-    const notices: any = await api.notices()
-    unread.value = (notices || []).filter((n: any) => !n.read).length
-  } catch { unread.value = 0 }
+  if (!user.isLogin) return
+  // 通过 store 拉取（内含并发去重），不再直接调用 api.notices()
+  try { await data.fetchNotices() } catch { /* 失败时保持原值，不打断 UI */ }
 }
 
 const setTabRef = (el: any, i: number) => {

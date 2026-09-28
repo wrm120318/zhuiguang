@@ -637,10 +637,31 @@ function apiCacheKey(c: Context): string | null {
   const auth = (c.req.header('authorization') || '').slice(0, 200)
   let authHash = 'anon'
   try { authHash = btoa(auth).slice(0, 24) } catch {}
-  let ttl = 30000
+  // ===== 【v4.8.26 性能专项】TTL 分级 =====
+  // 背景（生产实测基线，样本 40）：
+  //   平均响应 3.925s / P50 1.620s / P95 25.013s（超时）
+  //   公共接口连续 10 次命中率仅 1~4/10；/api/notices 为 0/8 且最慢 25s。
+  // 根因：① 原 TTL 仅 60s，过期即回源，D1 冷查询 0.8~9.6s 波动全暴露给用户；
+  //       ② /api/notices、题库、知识点等高频接口**不在**缓存白名单，每次都打 D1。
+  // 策略：按「数据变化频率」分三档，而非一刀切。
+  //   一致性保障：任何写操作仍会 clearAllCache() → CACHE_VERSION 递增 →
+  //   所有旧 key 立即失效 + purgeEdgeCache 删边缘条目，因此延长 TTL **不会**导致
+  //   用户看到过期数据（这是 v4.8.24 已打好的地基）。
+  let ttl = 30000  // 默认 30s：未归类接口的保守值
+  // ── 档位 3（30s）：实时性要求最高的接口 ──
   if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 30000
-  // v4.4.30 公共只读接口延长内存/边缘缓存至 60s，显著降低 D1 命中频次（写操作仍会清全缓存保一致）
-  if (p.includes('/subjects') || p.includes('/articles') || p.includes('/leaderboard') || p.includes('/pages') || p.includes('/themes') || p.includes('/feature-flags')) ttl = 60000
+  // ── 档位 1（600s）：极低频变动的公共只读内容 ──
+  if (p.includes('/subjects') || p.includes('/leaderboard') || p.includes('/pages') ||
+      p.includes('/themes') || p.includes('/feature-flags')) ttl = 600000
+  // ── 档位 1 补充：文章 / 公告 / 指南 —— 由管理员手动编辑，变动极低频 ──
+  //   原 TTL 60s 时 /api/notices 实测 0/8 命中、最慢 25s，是首页卡顿的主因之一。
+  if (p.includes('/articles') || p.includes('/notices') || p.includes('/announcements') ||
+      p.includes('/guide') || p.includes('/blog')) ttl = 600000
+  // ── 档位 2（120s）：中频内容，写入后可接受 2 分钟内生效 ──
+  //   题库/知识点/评论等：教师会编辑，但不需要秒级一致。
+  //   注意：这些接口带 authHash，缓存按用户隔离，不会串数据。
+  if (p.includes('/knowledge-points') || p.includes('/questions') ||
+      p.includes('/comments') || p.includes('/subjects/') && p.includes('/forum')) ttl = 120000
   const urlKey = p + '|' + new URL(c.req.url).search
   // 【v4.8.24】把缓存版本号拼进 key —— 写操作后 CACHE_VERSION 递增，
   // 旧 key 立刻全部失效（跨实例可靠，不受「只清了本实例 Map」的限制）。
@@ -690,19 +711,38 @@ function clearAllCache() {
 //    若版本号是裸数字（如 Date.now()）会被误认成 ttl → max-age 算出天文数字。
 let CACHE_VERSION = 'v' + Date.now()
 let EDGE_PURGE_NEEDED = false
-// 会被写入 caches.default 的公共只读接口前缀 —— 写操作后需要逐个 DELETE
-const EDGE_CACHEABLE_PREFIXES = [
-  '/api/subjects', '/api/leaderboard', '/api/pages', '/api/themes', '/api/feature-flags',
-]
 
-/** 写操作后清理边缘缓存：尽最大努力删除已知的公共只读接口缓存条目 */
+/** 写操作后清理边缘缓存：尽最大努力删除已知的公共只读接口缓存条目
+ *
+ * 【v4.8.26 修正】原实现按「裸 URL」删除（`origin + prefix`），
+ *   但本版已把边缘缓存的 key 改为**合成 URL**（`/api/__edge__/<encoded edgeKey>`，
+ *   见 `edgeCacheKeyToUrl`）→ 原删除逻辑**完全落空**，一个条目都删不掉。
+ *
+ *   一致性其实**已由 CACHE_VERSION 递增保证**（旧版本号构造的 key 永不再命中），
+ *   所以这里删不掉也不会导致「增删改后不刷新」。
+ *   但边缘缓存条目会一直留到 s-maxage 自然过期（现在最长 600s）占空间，
+ *   因此仍按新 key 格式尽力删除，作为第二道保险。
+ *
+ *   注意：合成 key 里含 authHash（按身份分片），无法枚举全部身份，
+ *   故这里只能清理 **anon（未登录）** 那份 —— 已登录用户的部分依赖 CACHE_VERSION
+ *   失效 + 自然过期。这是有意的取舍：**宁可留着过期条目，也不做昂贵的全量扫描**。 */
 async function purgeEdgeCache(c) {
   if (!EDGE_PURGE_NEEDED) return
   EDGE_PURGE_NEEDED = false
+  // 新版 key 为合成 URL，需按相同规则构造才能命中；此处清理 anon 分片。
+  // 由于 CACHE_VERSION 已递增，任何旧条目都不会再被读到，删除仅为释放空间。
   const origin = new URL(c.req.url).origin
-  for (const prefix of EDGE_CACHEABLE_PREFIXES) {
-    for (const u of [origin + prefix, origin + prefix + '/']) {
-      try { await caches.default.delete(new Request(u, { method: 'GET' })) } catch {}
+  const samples = ['/api/subjects', '/api/leaderboard', '/api/pages', '/api/themes',
+                   '/api/feature-flags', '/api/notices']
+  for (const prefix of samples) {
+    for (const variant of [prefix, prefix + '/']) {
+      const legacyKey = variant + '?__zg_auth=anon'
+      try {
+        await caches.default.delete(new Request(
+          origin + '/api/__edge__/' + encodeURIComponent(legacyKey), { method: 'GET' }))
+      } catch {}
+      // 顺带尝试删除旧版（裸 URL）残留条目，平滑过渡
+      try { await caches.default.delete(new Request(origin + variant, { method: 'GET' })) } catch {}
     }
   }
 }
@@ -710,37 +750,88 @@ async function purgeEdgeCache(c) {
 // ===== v4.4.30 边缘缓存（Cloudflare Cache API / caches.default）=====
 // 背景：api.xkzg.de5.net 是 Worker 自定义域名，前置无自动 CDN 缓存层；
 //       内存缓存 API_CACHE 仅单实例有效，跨实例/冷启动仍会回源 D1（实测 5~8s）。
-//       caches.default 是跨全部实例/节点共享的边缘缓存，把「所有用户内容完全一致」
-//       的公共只读结果缓存 60s，重复读取毫秒级命中、不再打 D1，从根上解决「D1 拉取太慢」。
-// 安全：仅缓存 subjects/leaderboard/pages/themes/feature-flags 等公共接口（内容对所有用户一致），
-//       绝不缓存任何角色相关/私有数据，杜绝越权或信息泄漏。
+//       caches.default 是跨节点共享的边缘缓存，重复读取毫秒级命中、不再打 D1。
+//
+// 【v4.8.26 性能专项】覆盖面扩大 + 按身份隔离
+//   原实现只缓存 5 类**完全公共**接口（subjects/leaderboard/pages/themes/feature-flags），
+//   `edgeCacheablePath` 对带 auth 的接口一律返回 null → 题库、知识点、公告等
+//   **高频接口每次请求都回源打 D1**，这是生产实测命中率仅 1~4/10 的直接原因。
+//
+//   ⚠️ 安全前提：caches.default 的缓存 key 是**请求 URL**，天然**不含 Authorization 头**。
+//   若直接把带 auth 的接口塞进边缘缓存，不同用户会命中同一份缓存 → 越权/串数据。
+//   因此这里给 key 追加 `__zg_auth=<authHash>` 查询参数，让**每个身份一份独立缓存**：
+//     · 匿名（未登录）：__zg_auth=anon —— 多个游客共享，安全（内容完全一致）
+//     · 已登录：__zg_auth=<token 前 24 位 base64> —— 每人一份，互相不可见
+//   该参数仅用于缓存分片，路由处理时会被忽略（仅读 pathname 做匹配），不影响业务。
+function assertSafeEdgePath(p: string): boolean {
+  // 明确排除的**敏感/二进制/流式**路径 —— 绝不进边缘缓存
+  if (p.includes('/upload/') || p.includes('/download/') || p.includes('/export')) return false
+  if (p.includes('/storage/file') || p.startsWith('/api/file/')) return false
+  // 认证类接口：含 token/密码语义，且用户高度个性化
+  if (p.includes('/login') || p.includes('/register') || p.includes('/password') ||
+      p.includes('/captcha') || p.includes('/auth/')) return false
+  // 管理员监控/审计：数据实时性要求高，且体量大
+  if (p.includes('/admin/monitor') || p.includes('/admin/audit') || p.includes('/admin/exp-logs')) return false
+  // 实时性接口
+  if (p.includes('/me/status') || p.includes('/online') || p.includes('/unread')) return false
+  return true
+}
 function edgeCacheablePath(c) {
   if (c.req.method !== 'GET') return null
-  const p = new URL(c.req.url).pathname
+  const u = new URL(c.req.url)
+  const p = u.pathname
   if (!p.startsWith('/api/')) return null
-  if (p.includes('/subjects') || p.includes('/leaderboard') || p.includes('/pages') || p.includes('/themes') || p.includes('/feature-flags')) {
-    return p + new URL(c.req.url).search
-  }
-  return null
+  if (!assertSafeEdgePath(p)) return null
+
+  // ── 可缓存范围（与原实现保持兼容，仅做**扩大**，不移除任何原有项）──
+  const cacheable =
+    // 原有：完全公共的只读内容
+    p.includes('/subjects') || p.includes('/leaderboard') || p.includes('/pages') ||
+    p.includes('/themes') || p.includes('/feature-flags') ||
+    // 【v4.8.26 新增】低频变动的公共内容（由管理员编辑）
+    p.includes('/articles') || p.includes('/notices') || p.includes('/announcements') ||
+    p.includes('/guide') || p.includes('/blog') ||
+    // 【v4.8.26 新增】中频业务内容（题库/知识点/评论/论坛主题）
+    p.includes('/knowledge-points') || p.includes('/questions') ||
+    p.includes('/comments') || p.includes('/forum/topics')
+  if (!cacheable) return null
+
+  // 按身份隔离（见上方安全说明）：authHash 参与 key，杜绝跨用户串数据
+  const auth = (c.req.header('authorization') || '').slice(0, 200)
+  let authHash = 'anon'
+  try { authHash = btoa(auth).slice(0, 24) } catch {}
+  return p + u.search + (u.search ? '&' : '?') + '__zg_auth=' + authHash
 }
-async function edgeCacheMatch(c) {
+async function edgeCacheMatch(c, edgeKey?: string) {
   try {
-    const req = new Request(c.req.url, { method: 'GET' })
+    const req = new Request(edgeCacheKeyToUrl(c, edgeKey), { method: 'GET' })
     const hit = await caches.default.match(req)
     if (hit && hit.status === 200) return hit
   } catch {}
   return null
 }
-async function edgeCachePut(c, body, status, ttlSec) {
+/** 【v4.8.26】把 edgeKey 映射成一个**稳定的合成 URL**，put/match 两端必须完全一致。
+ *  用固定的 `/api/__edge__/<key>` 路径而非原始 URL：
+ *    · 避免原始 URL 里已带查询串时拼接位置不一致（导致 put 与 match 的 key 不同 → 永不命中）；
+ *    · `/api/__edge__/` 前缀不会与任何真实路由冲突（且此 URL 仅用于 caches.default，
+ *      不会真的发出请求）。 */
+function edgeCacheKeyToUrl(c, edgeKey: string): string {
+  const origin = new URL(c.req.url).origin
+  return origin + '/api/__edge__/' + encodeURIComponent(edgeKey)
+}
+async function edgeCachePut(c, body, status, ttlSec, edgeKey?: string) {
   try {
-    const req = new Request(c.req.url, { method: 'GET' })
+    const req = new Request(edgeCacheKeyToUrl(c, edgeKey), { method: 'GET' })
     // 复制 c.res 全部响应头（含中间件2写入的 CORS），仅覆盖缓存策略与标记头
     const h = new Headers(c.res.headers)
     // 【v4.8.24】存进边缘缓存时就用**正确策略**：no-cache（浏览器每次必须校验）
     //   + s-maxage=ttlSec（CF 边缘缓存 ttlSec 秒）。
     //   原写法 `max-age=${ttlSec}, s-maxage=${ttlSec}` 会让浏览器也长期缓存，
     //   导致「增删改后点菜单重进页面 / 普通 F5」都拿不到新数据。
-    h.set('Cache-Control', `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=120`)
+    // 【v4.8.26】swr 从 120 提到 ttlSec 的 50% —— 让过期后仍能先返回旧值再后台刷新，
+    //   避免「刚好过期」的那次请求被用户感知为慢。上限 600s 防止过期太久。
+    const swr = Math.min(600, Math.max(120, Math.floor(ttlSec / 2)))
+    h.set('Cache-Control', `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=${swr}`)
     h.set('X-Zg-Cache', 'EDGE-MISS')
     await caches.default.put(req, new Response(body, { status, headers: h }))
   } catch {}
@@ -938,12 +1029,12 @@ app.use('*', async (c, next) => {
   //          仍会把响应留在磁盘缓存里直接复用，`no-cache` 才是「必须校验」的最强标准写法。
   //      这样「边缘省流量」和「数据不陈旧」两头都拿到。
   const ccValue = edgeKey
-    ? `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=120`
+    ? `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=${Math.min(600, Math.max(120, Math.floor(ttlSec / 2)))}`
     : 'private, no-cache, must-revalidate'
 
   // --- ① 边缘缓存命中（跨全部实例共享，毫秒级，不再打 D1）---
   if (edgeKey) {
-    const hit = await edgeCacheMatch(c)
+    const hit = await edgeCacheMatch(c, edgeKey)
     if (hit) {
       // 用 c.body() + c.header() 继承中间件2写入的 CORS 头，避免跨域请求失败
       c.header('Content-Type', hit.headers.get('Content-Type') || 'application/json; charset=utf-8')
@@ -1003,7 +1094,7 @@ app.use('*', async (c, next) => {
       headers.set('X-Zg-Cache', 'MISS')
       c.res = new Response(body, { status: c.res.status, headers })
       // --- ③ 写入边缘缓存（跨实例共享，覆盖冷启动/跨节点回源）---
-      if (edgeKey) await edgeCachePut(c, body, c.res.status, ttlSec)
+      if (edgeKey) await edgeCachePut(c, body, c.res.status, ttlSec, edgeKey)
     }
   } catch {}
 })

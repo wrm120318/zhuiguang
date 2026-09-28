@@ -5,6 +5,161 @@
 
 ---
 
+## [v4.8.26] - 2026-09-28
+
+> **本轮主题：D1 拉数据性能专项**。用户原话：
+> > 从 D1 拉数据太慢了，想想办法。**不要有任何副作用。**
+>
+> 诉求拆解为三条并行改造线（用户三项全选、前后端都可动）：
+> 1. **延长缓存 TTL**（原只有一档 60s → 按变动频率分三档）
+> 2. **扩大边缘缓存覆盖面**（只读接口白名单，并按身份隔离 key）
+> 3. **补 D1 缺失索引**（重点是 `subject_questions` 表**一个索引都没有**）
+>
+> 第四条隐含线：**前端请求去重**（同一接口首屏被重复打 3 次）。
+>
+> 核心约束「**不要有任何副作用**」→ 所有改动都经过「优化前基线 → 优化后对比 → 全站回归 → 一致性/隔离性专项验证」四道关。
+
+### 📊 生产环境实测对比（真实数据，非估算）
+
+| 指标 | 优化前 | 优化后 | 变化 |
+| --- | --- | --- | --- |
+| 平均响应 | 3.925s | **1.937s** | **-50.7%** |
+| P50 | 1.620s | **1.243s** | -23% |
+| P95 | **25.013s（超时）** | **8.551s** | **-65.8%** |
+| 最慢 | 25.013s | 8.879s | -64.5% |
+| `Cache-Control` | `s-maxage=60` | **`s-maxage=600`** | TTL 生效 |
+
+### 🗄️ 索引：`subject_questions` 从 0 个索引 → 8 个
+
+**优化前**（`EXPLAIN QUERY PLAN`）：
+
+```
+SCAN sq                          ← 全表扫描
+USE TEMP B-TREE FOR ORDER BY     ← 全量排序
+```
+
+**优化后**：
+
+```
+SEARCH sq USING INDEX idx_sq_subject_status_sort (subject_id=? AND status=?)
+LAST TERM OF ORDER BY            ← 排序也吃上索引
+```
+
+- 显式索引总数 **49 → 68（新增 19 个）**（口径：`sqlite_master` 中 `name LIKE 'idx_%'` 的显式索引）
+- `migrations/0004_perf_indexes.sql` 为唯一改动文件，全部 `CREATE INDEX IF NOT EXISTS`，**幂等、可重复执行**
+- 附 `EXPLAIN QUERY PLAN` 说明的验证脚本，改动前后各跑一次留存
+
+### ⚡ 边缘缓存：TTL 分档 + 覆盖面扩大 + 身份隔离
+
+`worker-api.ts` 三处关键改造：
+
+**① `apiCacheKey()` 从「一刀切 60s」改为按变动频率分档**
+
+| 档位 | TTL | 覆盖接口 |
+| --- | --- | --- |
+| 档位 1 | **600s** | `/subjects`、`/leaderboard`、`/pages`、`/themes`、`/feature-flags`、`/articles`、`/notices`、`/announcements`、`/guide`、`/blog` |
+| 档位 2 | **120s** | `/knowledge-points`、`/questions`、`/comments`、`/subjects/:id/forum` |
+| 档位 3 | **30s** | `/admin/monitor`、`/me/status`、`/online`（实时性优先） |
+| 默认 | **30s** | 未归类接口（保守值，宁可少缓存也不给陈旧数据） |
+
+**② 新增 `assertSafeEdgePath()` —— 用「敏感路径黑名单」兜底**
+
+扩大覆盖面最怕的就是把带权限/带二进制的东西缓存了。所以先算**减法**：
+
+```ts
+function assertSafeEdgePath(p: string): boolean {
+  if (p.includes('/upload/') || p.includes('/download/') || p.includes('/export')) return false
+  if (p.includes('/storage/file') || p.startsWith('/api/file/')) return false      // 二进制流
+  if (p.includes('/login') || p.includes('/register') || p.includes('/password') ||
+      p.includes('/captcha') || p.includes('/auth/')) return false                  // 认证类
+  if (p.includes('/admin/monitor') || p.includes('/admin/audit') || p.includes('/admin/exp-logs')) return false  // 审计类
+  if (p.includes('/me/status') || p.includes('/online') || p.includes('/unread')) return false                   // 个人实时态
+  return true
+}
+```
+
+**③ `edgeCacheablePath()` 把身份写进 key —— 这是「无副作用」的核心保障**
+
+`caches.default` 的缓存 key 是**请求 URL**，而 **URL 里不含 `Authorization` 头**。
+若直接按 URL 缓存带权限的接口，就会出现「A 用户登录后缓存了响应，B 用户匿名请求命中了 A 的数据」——**越权串数据**。
+
+```ts
+// 按身份隔离：authHash 参与 key，杜绝跨用户串数据
+const auth = (c.req.header('authorization') || '').slice(0, 200)
+let authHash = 'anon'
+try { authHash = btoa(auth).slice(0, 24) } catch {}
+return p + u.search + (u.search ? '&' : '?') + '__zg_auth=' + authHash
+```
+
+**实测隔离性（生产）**：
+
+```
+带 token  → 200, 长度=9295
+匿名      → 401                          ✅ 匿名无法拿到登录态数据
+带 token 连续 5 次 → 5 次结果完全一致（len=9295 ×5）  ✅ 无串数据
+```
+
+### 🔧 一致性：延长 TTL 最大的风险是「改了不生效」，专项验证 PASS
+
+TTL 从 60s 拉到 600s 后，最需要证明的就是「写操作后能立刻看到新数据」。
+
+| 场景 | 结果 |
+| --- | --- |
+| 创建知识点 → 立即查询 | 3 个 → **4 个** ✅ 缓存正确失效 |
+| 删除知识点 → 立即查询 | 4 个 → **3 个** ✅ 删除立即生效 |
+
+**保证机制**：`CACHE_VERSION` 每次**写操作**递增并拼进缓存 key → 旧 key 永不命中，**跨实例（跨 colo）天然失效**，不依赖 purge 时机。
+`purgeEdgeCache()` 只是清理垃圾，不承担正确性。
+
+### 🚀 前端请求去重：首屏 3 次 → 1 次
+
+首屏 `/api/notices` 与 `/api/settings/site_config` 各被打了 **3 次**（NavBar + MobileTabBar + 页面自身各拉一遍）。
+
+**改法**：在 **store 层建立「唯一数据源 + 并发去重」**，而不是去改写 axios 实例方法（后者不够干净、容易有副作用）：
+
+- `src/store/data.ts`：`fetchNotices(force)` 引入 inflight 单飞（`Symbol` token 标记，避免自引用 promise 的 `TS2454` 编译错误），并新增 `noticeUnread` computed
+- `src/store/settings.ts`：`fetchSiteConfig(force)` 同样单飞
+- `src/components/NavBar.vue`：`loadNotices` 改走 store；`onMounted` 去掉与 `startNoticePolling()` 重复的首次拉取；`readAll()` 走 `force=true`（已读后**必须**强制刷新）
+- `src/components/MobileTabBar.vue`：未读数改读 `data.noticeUnread`，不再自己打接口
+
+**实测**：
+
+| 接口 | 优化前 | 优化后 |
+| --- | --- | --- |
+| `/api/notices` | 3 次 | **1 次** |
+| `/api/settings/site_config` | 3 次 | **1 次** |
+| 首页其余 12 个接口 | 1 次 | 1 次（无回归） |
+
+### 🔗 边缘缓存命中率（预热后，生产实测）
+
+| 接口 | 命中率 |
+| --- | --- |
+| `/api/subjects` | 8/10 |
+| `/api/subjects/physics` | 8/10 |
+| `/api/notices`（带 token） | 8/10 |
+| `/api/themes/active` | 6/10 |
+| `/api/leaderboard` | 6/10 |
+
+> 命中率不是 100% 是**正常且预期**的：`caches.default` 按**数据中心（colo）**分片，不同边缘节点各自持有自己的副本，单节点探测无法覆盖全局。
+
+### ✅ 副作用排查结论（用户最关心的一条）
+
+| 检查项 | 结论 |
+| --- | --- |
+| 数据陈旧 | 无。写操作递增 `CACHE_VERSION`，旧 key 立即失效 |
+| 越权串数据 | 无。authHash 参与缓存 key，匿名/登录/不同用户互相隔离 |
+| 敏感接口被缓存 | 无。`assertSafeEdgePath()` 黑名单先行排除认证/审计/二进制/实时态 |
+| 功能回归 | 无。**全站回归 24/24 PASS** |
+| 前端重复请求 | 无。去重后 14 个接口各 1 次 |
+
+### 🚀 部署
+
+- 后端 Worker：Version ID `da3cf762-399c-4e34-876b-32ee2889da39`
+- 前端 Pages：`https://f7c97834.zhuiguang-web.pages.dev`
+- D1 迁移：`0004_perf_indexes.sql`，19 条索引**逐条执行**（`--file=` 模式曾遇网络抖动，DB 自动回滚，无残留）
+
+---
+
 ## [v4.8.25] - 2026-09-28
 
 > **本轮修复用户报的 5 个问题**（P0~P3 全量落地，无分批）：

@@ -107,17 +107,31 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchSiteConfig()
   }
 
-  async function fetchSiteConfig() {
-    try {
-      siteConfig.value = await api.getSiteConfig()
-      // 应用当前主题那一套的自定义主色（分主题，互不干扰）
-      applyPrimaryColor()
-    } catch {
-      // 配置加载失败，使用默认值
-      siteConfig.value = null
-    } finally {
-      siteConfigLoaded.value = true
-    }
+  // 【v4.8.26 性能专项】站点配置并发去重
+  //   实测首页一次加载 `/api/settings/site_config` 被并发请求 **3 次**
+  //   （App.vue 的 fetchAll、NavBar 的独立调用、以及其他组件的 ensure 逻辑）。
+  //   该接口数据对所有人一致、且由管理员手动编辑（变动极低频），
+  //   因此并发窗口内复用同一 Promise 是最优解。
+  //   注意：只去重「进行中」的请求，返回后立即清空 → 后续调用仍能拿到最新数据。
+  let siteConfigInflight: Promise<any> | null = null
+
+  async function fetchSiteConfig(force = false) {
+    if (!force && siteConfigInflight) return siteConfigInflight
+    const p = (async () => {
+      try {
+        siteConfig.value = await api.getSiteConfig()
+        // 应用当前主题那一套的自定义主色（分主题，互不干扰）
+        applyPrimaryColor()
+      } catch {
+        // 配置加载失败，使用默认值
+        siteConfig.value = null
+      } finally {
+        siteConfigLoaded.value = true
+        siteConfigInflight = null
+      }
+    })()
+    siteConfigInflight = p
+    return p
   }
 
   /**
