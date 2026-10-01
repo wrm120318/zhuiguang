@@ -394,6 +394,17 @@ export function renderExtendedMarkdown(src: string, sanitize = true): string {
     html = `<pre class="md-error">渲染失败：${escapeHtml(e?.message || String(e))}</pre>`
   }
   if (sanitize) html = sanitizeHtml(html)
+  // 【v4.8.27】剥掉渲染结果**首尾**的空白 —— 修复「首页公告/页脚末尾莫名多出一个空行，删不掉」
+  //   根因：marked 输出的 HTML 末尾天然带一个换行符（`<p>…</p>\n`，标准行为，不是 bug）；
+  //        而展示容器（如 `.ab-text`）带 `white-space: pre-wrap`（v4.8.25 为「不吞空格空行」加的），
+  //        于是这个 `\n` 被**渲染成一个真实空行**。
+  //   实测证据：公告 `<p>` 高 71px、容器高 95px，差值 24px ≈ 14px × 1.7(line-height)，正好一行。
+  //   用户视角：这个空行**不在公告文字里**，去后台怎么删都删不掉 —— 因为它每次渲染都被重新生成。
+  //   修法：只 trim **首尾**，中间的空格/空行**完整保留**，
+  //        因此对 v4.8.25 修好的「不吞空格空行」**零影响**（那条针对的是中间内容）。
+  //   在此处统一处理的好处：公告栏、页脚、以及全站所有 renderMarkdown 调用方一次性修好，
+  //        无需逐个组件打补丁。
+  html = html.replace(/^\s+|\s+$/g, '')
   // 【v4.4.3】上传图片存为相对 /api/file/{id}，补全为绝对 API 地址，
   // 否则在 Pages 域(xkzg.de5.net)下 <img> 请求相对路径会落到 SPA 兜底、导致裂图。
   html = html

@@ -306,6 +306,9 @@ export const api = {
   deleteTheme: (id: number) => http.delete(`/api/themes/${id}`),
   // 统计
   stats: () => http.get('/api/stats'),
+  // 【v4.8.27】首页聚合：一次返回 美文数 + 资料数 + 收藏数
+  //   替代原来的 stats + favorites 两次往返（美文列表仍走 /api/articles，保持口径零变更）
+  home: () => http.get('/api/home'),
   // 搜索
   search: (q: string) => http.get('/api/search', { params: { q } }),
   // 收藏

@@ -648,6 +648,11 @@ function apiCacheKey(c: Context): string | null {
   //   所有旧 key 立即失效 + purgeEdgeCache 删边缘条目，因此延长 TTL **不会**导致
   //   用户看到过期数据（这是 v4.8.24 已打好的地基）。
   let ttl = 30000  // 默认 30s：未归类接口的保守值
+  // ── 【v4.8.27】首页聚合接口：含个人收藏数（favoritesCount），显式归最短档 ──
+  //   虽然本函数的 key 已按 authHash 隔离，但「含个人数据 → 给最短 TTL」是更稳的兜底：
+  //   用户在别处取消收藏后回到首页，最多 30s 就能看到正确数字。
+  //   注意必须**放在其它档位判定之前**，否则后续 p.includes('/articles') 等规则会把它抬到 600s。
+  if (p === '/api/home') ttl = 15000
   // ── 档位 3（30s）：实时性要求最高的接口 ──
   if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 30000
   // ── 档位 1（600s）：极低频变动的公共只读内容 ──
@@ -3228,6 +3233,60 @@ app.delete('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
 // ==============================================================================
 // ============ 数据统计 ============
 // ==============================================================================
+// 【v4.8.27】首页聚合接口 —— 把首屏 3 次往返压成 1 次
+//   背景：用户反馈「首页的美文/资料/收藏拉取太慢」。
+//   实测根因有两条：
+//     ① 前端 `load()` 里 `siteConfig` → `subjects` 是**串行 await**，
+//        之后才并行发 articles/stats/favorites —— 首屏白等两轮往返；
+//     ② `/api/stats` 内部是 **9 次串行 `await get(COUNT(*))`**，
+//        而首页只用得到其中 `articles`（美文数）与 `resources`（资料数）两个值。
+//   本接口把首页**除美文列表外**的数据一次性返回：
+//     · stats.articles  —— 美文总数
+//     · stats.resources —— 资料总数
+//     · favoritesCount  —— 当前用户收藏数（未登录为 0）
+//   ⚠️ 刻意**不**合并美文列表：`/api/articles` 的可见性按角色分四种分支
+//      （超管全量 / 教师 approved+自己+本学科 / 学生 approved+自己 / 游客）,
+//      逻辑复杂且属于权限范畴。若在此重写一份筛选条件，
+//      极易出现「首页看到的美文和 /api/articles 不一致」的行为变更。
+//      因此美文列表仍走原接口，本接口只做**纯聚合**，做到零行为变更。
+//   ⚠️ 同样刻意**不**返回收藏列表：原前端拉整张收藏表却只用 `.length`，
+//      这里只回一个 COUNT，顺带减少传输量。
+//   兼容性：`/api/stats` 与 `/api/favorites` 原路由**保持不动**，
+//          本接口为纯新增，任何旧调用方不受影响。
+app.get('/api/home', async (c) => {
+  const me = await parseOptionalAuth(c)
+
+  // ── 并行取数：2 条独立查询同时发出，不等彼此 ──
+  const [cnt, favCnt] = await Promise.all([
+    // 美文数 + 资料数：合并为**一条** SQL（原 /api/stats 里是 2 次独立 COUNT）
+    //   ⚠️ 口径必须与 /api/stats **完全一致**：那里是 `COUNT(*)`（全站总数，**不过滤 status**）。
+    //      不要"顺手"改成 status='approved' —— 那会改变用户看到的历史数字（属行为变更，非本次目标）。
+    get<any>(
+      `SELECT
+         (SELECT COUNT(*) FROM articles) AS articles,
+         (SELECT COUNT(*) FROM resources) AS resources`,
+    ),
+    // 收藏数：只取 COUNT，不回传全量 rows
+    me?.id
+      ? get<any>(
+          `SELECT COUNT(*) AS n FROM likes_map
+           WHERE user_id = ? AND target_type IN ('fav_article','fav_resource')`,
+          me.id,
+        )
+      : Promise.resolve({ n: 0 }),
+  ])
+
+  return c.json({
+    stats: {
+      articles: cnt?.articles || 0,
+      resources: cnt?.resources || 0,
+    },
+    favoritesCount: me?.id ? (favCnt?.n || 0) : 0,
+    // 未登录时明确告知前端，便于前端决定是否隐藏"收藏"项
+    loggedIn: !!me?.id,
+  })
+})
+
 app.get('/api/stats', auth, async (c) => {
   // 【v4.0.2】全站统计口径：教师看到的资源/美文/查询任务/题库 都是全站数量（不是只本学科），
   // 跟学生、超管一致。教师"看到本学科"的需求 走 /api/subjects/:id/* 这类带 subjectId 的端点。
