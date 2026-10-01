@@ -123,12 +123,31 @@ export const useThemeStore = defineStore('theme', () => {
   const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T | null> =>
     new Promise<T | null>((resolve) => {
       const timer = setTimeout(() => {
-        console.warn(`[theme] ${label} 超时（${ms}ms），跳过主题应用，使用默认皮肤`)
+        console.warn(`[theme] ${label} 超时（${ms}ms），先用本地缓存/默认皮肤兜底，后台继续等待`)
         resolve(null)
       }, ms)
       p.then((v) => { clearTimeout(timer); resolve(v) })
        .catch((e) => { clearTimeout(timer); console.warn(`[theme] ${label} 失败：`, e?.message || e); resolve(null) })
     })
+
+  const THEME_CACHE_KEY = 'zg_theme_active'
+  const THEME_CACHE_TTL = 24 * 60 * 60 * 1000   // 24h：主题是低频变更的站点级配置
+
+  function readThemeCache(): any | null {
+    try {
+      const raw = localStorage.getItem(THEME_CACHE_KEY)
+      if (!raw) return null
+      const o = JSON.parse(raw)
+      if (!o || !o.config) return null
+      if (o.ts && Date.now() - o.ts > THEME_CACHE_TTL) return null
+      return o
+    } catch { return null }
+  }
+  function writeThemeCache(active: any) {
+    try {
+      localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({ ...active, ts: Date.now() }))
+    } catch { /* 隐私模式/配额满：忽略 */ }
+  }
 
   /** 全量主题列表（摘要：id / name / is_active / config{primary,accent}）
    *  —— 仅后台「界面风格编辑器」需要；前台不再拉取（v4.8.28） */
@@ -149,16 +168,93 @@ export const useThemeStore = defineStore('theme', () => {
     return t
   }
 
+  /**
+   * 【v4.8.28-fix 修复「主题不生效」副作用】
+   *
+   * 上一版把主题移出首屏栅栏后引入了一个**比性能问题更严重的回归**：
+   *   `withTimeout(api.activeTheme(), 3500ms)` 一旦超时，就 `resolve(null)`
+   *   直接放弃 —— 而**没有任何重试**。实测 `/api/themes/active` 耗时
+   *   **1.6s / 2.4s / 9.1s / 9.1s / 11.1s**，超过 3.5s 是常态。
+   *   结果：站点生效主题是「墨金学术」，用户却看到「经典暖橘」，
+   *   而且**整个会话都回不来**（load() 只被调用一次）。
+   *
+   * 现在改为「本地缓存秒开 + 后台必达」两层：
+   *   第 1 层（同步、0ms）：读 localStorage 主题缓存，**立即** applyTheme
+   *     —— 首屏拿到的就是用户上次见到的正确皮肤，不是 :root 兜底
+   *   第 2 层（后台）：请求 `/api/themes/active`，**成功即覆盖**并写回缓存
+   *
+   * ⚠️ v4.8.28-fix2 又修掉一个隐藏缺陷（第二轮踩坑）：
+   *   上一版第 2 层是「for 循环里每轮 `withTimeout(fetch())`，超时就再发一个新请求」。
+   *   实测（延迟 5s 场景）发现**重试链根本没生效**：
+   *     · `withTimeout` 超时只是把**等待**放弃了，**底层 HTTP 请求仍在天上飞**，
+   *       它占着浏览器对同域（HTTP/1.1）的连接池槽位；
+   *     · 下一轮重试的新请求排在旧请求后面，反而更晚才拿到响应；
+   *     · 每轮又是**重新计时**，窗口全被浪费 → 20s 都没收敛。
+   *   正确做法是**不放弃原请求**：只发**一次** `api.activeTheme()`，
+   *   让它自己慢慢跑（soft timeout 只用于"先兜底显示"，不用于"放弃"），
+   *   响应回来**无条件覆盖**。真正意义上的"最终放弃"只留一个很长的硬上限
+   *   （HARD_TIMEOUT，50s）防止永不返回的挂死请求，正常网络永远不会触发。
+   *
+   * 这样同时满足三条硬要求：
+   *   · 主题**一定**会生效（本地缓存秒开 + 单请求必达）
+   *   · 首屏**不**被拖慢（同步缓存读完就放行，网络请求在后台进行）
+   *   · 慢接口**不**再被超时丢弃（不重发、不重算窗口，等的是同一个 Promise）
+   *
+   * 缓存失效（杜绝"缓存覆盖新修改"）：
+   *   · `apply()` / `saveDraft()` 保存后 → `refreshAll()` → 成功即 `writeThemeCache()`
+   *   · `reset()` 不写缓存（它只是把 UI 还原成 activeTheme，不代表站点配置变更）
+   */
   async function load() {
-    // 3.5s 上限：远超正常 RTT（边缘缓存命中 <100ms，D1 冷查询通常 <2s），
-    //   既不误杀正常请求，又能兜住「挂死」场景。
-    const active: any = await withTimeout(api.activeTheme() as any, 3500, 'themes/active')
+    // ── 第 1 层：本地缓存秒开（同步，不阻塞） ──
+    const cached = readThemeCache()
+    if (cached) {
+      activeTheme.value = cached
+      applyTheme(cached.config)
+      draft.value = { ...cached.config, id: cached.id, name: cached.name }
+    }
+
+    // ── 第 2 层：单个后台请求，长等待 + 软兜底 + 硬上限 ──
+    // 只发一次请求：超时只影响"是否继续等"，不影响"请求是否存在"。
+    const HARD_TIMEOUT = 50000   // 真正的最终放弃线：仅防挂死，正常网络永不触发
+    const SOFT_TIMEOUT = 2500    // 软兜底：超过此时长用户在首访场景会先看到 :root 默认皮肤
+
+    let settled = false
+    const req = (async (): Promise<any | null> => {
+      try {
+        return await api.activeTheme()
+      } catch (e: any) {
+        console.warn('[theme] themes/active 请求失败：', e?.message || e)
+        return null
+      }
+    })()
+
+    const softTimer = setTimeout(() => {
+      if (!settled && !cached) {
+        console.warn(`[theme] themes/active 超过 ${SOFT_TIMEOUT}ms 未返回，首访先用默认皮肤兜底，请求继续等待`)
+      }
+    }, SOFT_TIMEOUT)
+
+    const hardTimer = setTimeout(() => {
+      if (!settled) console.warn(`[theme] themes/active 超过 ${HARD_TIMEOUT}ms 仍未返回，放弃等待（请求可能已挂死）`)
+    }, HARD_TIMEOUT)
+
+    // 竞争：谁先到用谁。请求先到 → 应用真实主题；硬超时先到 → 沿用缓存/默认皮肤。
+    const active: any = await Promise.race([
+      req,
+      new Promise<null>((r) => setTimeout(() => r(null), HARD_TIMEOUT)),
+    ])
+    settled = true
+    clearTimeout(softTimer)
+    clearTimeout(hardTimer)
+
     if (active) {
       activeTheme.value = active
       applyTheme(active.config)
       draft.value = { ...active.config, id: active.id, name: active.name }
+      writeThemeCache(active)
+    } else {
+      console.warn('[theme] themes/active 未取到，沿用本地缓存/默认皮肤')
     }
-    // 无论成功与否都标记已尝试加载，避免调用方再次 await 卡住
     loaded.value = true
   }
 
@@ -185,5 +281,20 @@ export const useThemeStore = defineStore('theme', () => {
     if (activeTheme.value) { applyTheme(activeTheme.value.config); draft.value = { ...activeTheme.value.config, id: activeTheme.value.id, name: activeTheme.value.name } }
   }
 
-  return { themes, activeTheme, draft, loaded, load, loadList, loadOne, refreshAll, preview, apply, saveDraft, reset, applyTheme }
+  /**
+   * 【v4.8.28-fix】极早期同步应用本地主题缓存。
+   * 在 `main.ts` 里 **mount 之前** 调用 —— 这样首帧渲染就已经带着正确皮肤，
+   * 不会出现「先经典暖橘、再闪成墨金」的跳变，也不受任何网络耗时影响。
+   * 纯 localStorage 同步读取，零成本；无缓存时是 no-op（走 :root 默认）。
+   */
+  function applyCachedSync() {
+    const c = readThemeCache()
+    if (!c) return false
+    activeTheme.value = c
+    applyTheme(c.config)
+    draft.value = { ...c.config, id: c.id, name: c.name }
+    return true
+  }
+
+  return { themes, activeTheme, draft, loaded, load, loadList, loadOne, refreshAll, preview, apply, saveDraft, reset, applyTheme, applyCachedSync }
 })

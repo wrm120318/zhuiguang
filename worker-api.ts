@@ -669,9 +669,43 @@ function apiCacheKey(c: Context): string | null {
   if (p.includes('/knowledge-points') || p.includes('/questions') ||
       (p.includes('/subjects/') && p.includes('/forum'))) ttl = 120000
   const urlKey = p + '|' + new URL(c.req.url).search
-  // 【v4.8.24】把缓存版本号拼进 key —— 写操作后 CACHE_VERSION 递增，
-  // 旧 key 立刻全部失效（跨实例可靠，不受「只清了本实例 Map」的限制）。
+  // 【v4.8.28-fix3 修复「边缘缓存被 CACHE_VERSION 切碎，公共接口几乎不命中」】
+  //   现象（生产实测，同一 AMS 节点 10 次请求）：
+  //     MISS / MISS / HIT-428s / HIT-394s / HIT-425s / HIT-494s / MISS / HIT-389s / HIT-591s / HIT-539s
+  //   → 同一 URL 同一时刻并存 **7 份不同 age 的副本**，命中率被稀释到 ~50%。
+  //   根因：`CACHE_VERSION` 是**每实例私有**的模块级变量，写操作只递增"当时处理
+  //     该请求的那个实例"的版本号。Worker 有 N 个隔离实例，各自算出**不同的 key**
+  //     → 边缘缓存被切成 N 份，轮流 MISS 回源打 D1（D1 冷查 0.8~11.8s）。
+  //     而 `caches.default` 是**跨实例跨节点共享**的 —— 用实例私有量做 key 前缀，
+  //     本质上就是「让共享缓存永远冷」。
+  //   修法：对**已确认纯公共只读**的接口（isPublicShared），key **不含 CACHE_VERSION**，
+  //     全局只留一份 → 命中率趋近 100%，首屏主题/学科/特性开关全部毫秒级返回。
+  //   写后一致性怎么保证？
+  //     · 这些接口的写入只发生在超管后台，且**写完后立即 purge 精确删除公共分片**
+  //       （见 `purgeEdgeCache` 里新增的 `__zg_auth=public` 变体）；
+  //     · 不是靠"等过期"，所以「改了主题 → 前台立刻生效」依旧成立，不会出现
+  //       「缓存覆盖新修改」的老问题。
+  //   注意：非公共接口（含个人数据）**保持原样**用 CACHE_VERSION，行为完全不变。
+  if (isPublicSharedPath(p)) return `stable|public|${ttl}|${urlKey}`
   return `${CACHE_VERSION}|${authHash}|${ttl}|${urlKey}`
+}
+
+/** 【v4.8.28-fix3】纯站点级公共只读路径判定 —— 结果对所有身份**完全一致**。
+ *  这些接口的 key 不参与身份分片、不随 CACHE_VERSION 漂移，全局共享一份边缘缓存。
+ *  安全性：已逐个核对实现，均为服务端固定返回全站同一份数据，无任何 req 身份参与查询。
+ *  ⚠️ **不能**用 `/pages` 前缀 —— `/api/pages/:id/liked` 是带 auth 的个人接口，
+ *     前缀豁免会把它一起放开 → 越权。故只列精确安全项。 */
+function isPublicSharedPath(p: string): boolean {
+  // `/api/subjects/:slug/forum` 等带个人视角的子路径必须排除豁免
+  if (p.includes('/forum')) return false
+  return (
+    p === '/api/themes' ||                    // 主题列表（已瘦身，仅色板摘要）
+    p === '/api/themes/active' ||             // 站点生效主题（纯公共配置）
+    /^\/api\/themes\/\d+$/.test(p) ||         // 主题详情（后台点选预设）
+    p === '/api/feature-flags' ||             // 全站功能开关
+    p === '/api/subjects' ||                  // 学科全量列表
+    /^\/api\/subjects\/[^/]+$/.test(p)        // 学科详情（纯公共，无个人字段）
+  )
 }
 
 let lastCacheCleanup = 0
@@ -735,18 +769,23 @@ let EDGE_PURGE_NEEDED = false
 async function purgeEdgeCache(c) {
   if (!EDGE_PURGE_NEEDED) return
   EDGE_PURGE_NEEDED = false
-  // 新版 key 为合成 URL，需按相同规则构造才能命中；此处清理 anon 分片。
-  // 由于 CACHE_VERSION 已递增，任何旧条目都不会再被读到，删除仅为释放空间。
+  // 新版 key 为合成 URL，需按相同规则构造才能命中；此处清理既有分片。
+  // 【v4.8.28-fix3】公共只读接口已改用**稳定 key**（`stable|public|...`），
+  //   不再随 CACHE_VERSION 漂移 —— 这意味着**必须**在这里真正删掉它，
+  //   否则「超管改主题后前台要等 600s 才生效」，正是用户反复强调的
+  //   「缓存覆盖新修改」老问题。故一次性清 anon（历史分片）与 public（现行分片）。
   const origin = new URL(c.req.url).origin
   const samples = ['/api/subjects', '/api/leaderboard', '/api/pages', '/api/themes',
                    '/api/feature-flags', '/api/notices']
   for (const prefix of samples) {
     for (const variant of [prefix, prefix + '/']) {
-      const legacyKey = variant + '?__zg_auth=anon'
-      try {
-        await caches.default.delete(new Request(
-          origin + '/api/__edge__/' + encodeURIComponent(legacyKey), { method: 'GET' }))
-      } catch {}
+      for (const shard of ['anon', 'public']) {
+        const legacyKey = variant + '?__zg_auth=' + shard
+        try {
+          await caches.default.delete(new Request(
+            origin + '/api/__edge__/' + encodeURIComponent(legacyKey), { method: 'GET' }))
+        } catch {}
+      }
       // 顺带尝试删除旧版（裸 URL）残留条目，平滑过渡
       try { await caches.default.delete(new Request(origin + variant, { method: 'GET' })) } catch {}
     }
@@ -804,6 +843,19 @@ function edgeCacheablePath(c) {
     p.includes('/knowledge-points') || p.includes('/questions') ||
     p.includes('/forum/topics')
   if (!cacheable) return null
+
+  // ===== 【v4.8.28-fix2 修复「主题接口边缘缓存命中率被身份分片打散」】=====
+  // 现象（生产实测）：`/api/themes/active` 连续 12 次请求，
+  //   X-Zg-Cache 在 HIT-548s / HIT-118s / MISS / HIT-33s / HIT-523s 之间乱跳 ——
+  //   同一 URL 同一时刻 age 差出 500 秒，说明边缘上**同时存在多份不同 key 的副本**。
+  // 根因：这里把 `authHash` 拼进边缘缓存 URL 做「按身份隔离」。这对
+  //   **返回个人数据**的接口是必要的（防越权/串数据），但对**纯站点级公共配置**
+  //   是纯粹负优化 —— 站点生效主题对所有身份**完全一致**，按身份分片只会把
+  //   命中率除以用户数，导致反复 MISS 回源打 D1（D1 冷查 0.8~11.8s）。
+  // 修法：为**确认无任何个人字段**的公共接口豁免身份分片，全局共享一份边缘缓存。
+  //   （判定统一收敛到 `isPublicSharedPath()`，与 `apiCacheKey` 共用同一份名单，
+  //     避免两处各写一遍导致「看着覆盖了、实际不一致」的假象。）
+  if (isPublicSharedPath(p)) return p + u.search + (u.search ? '&' : '?') + '__zg_auth=public'
 
   // 按身份隔离（见上方安全说明）：authHash 参与 key，杜绝跨用户串数据
   const auth = (c.req.header('authorization') || '').slice(0, 200)

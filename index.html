@@ -16,6 +16,74 @@
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/noto-serif-sc-600.woff2" />
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/noto-serif-sc-700.woff2" />
     <title>追光 · 学科共享平台</title>
+    <!-- ==========================================================================
+         【v4.8.28-fix 主题零闪烁引导脚本】
+         为什么必须放在这里（不能只靠 main.ts）：
+           CSS 被解析后第一帧可能就已经绘制，此时 Vue 还没 mount、main.ts 也还没执行。
+           若等到 Vue 起来再 applyTheme，用户会先看到 :root 的「经典暖橘」，
+           再闪一下变成「墨金学术」——这就是主题闪烁。
+           本脚本在 <head> 内**同步执行**，早于任何渲染，直接把皮肤变量写进
+           documentElement 的内联样式 + 类名，首帧即正确。
+         数据来源：localStorage['zg_theme_active']（由 theme store 在成功拉取后写入）。
+         容错：try/catch 全包，任何异常都静默降级到 :root 默认皮肤，绝不影响页面加载。
+         与 theme.ts 的 applyTheme() 保持同源逻辑（改一处必须同步改另一处）。
+         ⚠️ 仅做「经典/墨金 + 色板 + 圆角/模糊」的最小必要集，其余交给 theme.ts 补齐。
+         ========================================================================== -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('zg_theme_active')
+          if (!raw) return
+          var o = JSON.parse(raw)
+          var c = o && o.config
+          if (!c) return
+          var r = document.documentElement
+          var hexRgb = function (hex) {
+            var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim())
+            if (!m) return null
+            var n = parseInt(m[1], 16)
+            return ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255)
+          }
+          var ink = c.designMode === 'inkgold'
+          if (ink) {
+            // 墨金：写 --zg-custom-* 供 .zg-inkgold 类规则读取；清掉直接值防经典残留击穿
+            if (c.primary) r.style.setProperty('--zg-custom-primary', c.primary)
+            if (c.primary2) r.style.setProperty('--zg-custom-primary-2', c.primary2)
+            if (c.accent) r.style.setProperty('--zg-custom-accent', c.accent)
+          } else {
+            if (c.primary) r.style.setProperty('--zg-primary', c.primary)
+            if (c.primary2) r.style.setProperty('--zg-primary-2', c.primary2)
+            if (c.accent) r.style.setProperty('--zg-accent', c.accent)
+            if (c.bgFrom) r.style.setProperty('--zg-bg-from', c.bgFrom)
+            if (c.bgVia) r.style.setProperty('--zg-bg-via', c.bgVia)
+            if (c.bgTo) r.style.setProperty('--zg-bg-to', c.bgTo)
+            if (c.blur != null) r.style.setProperty('--zg-blur', c.blur + 'px')
+            if (c.radius != null) r.style.setProperty('--zg-radius', c.radius + 'px')
+          }
+          var pr = hexRgb(c.primary), p2 = hexRgb(c.primary2), ac = hexRgb(c.accent)
+          if (pr) r.style.setProperty('--zg-custom-primary-rgb', pr)
+          if (p2) r.style.setProperty('--zg-custom-primary-2-rgb', p2)
+          if (ac) r.style.setProperty('--zg-custom-accent-rgb', ac)
+          if (!ink) {
+            if (pr) r.style.setProperty('--zg-primary-rgb', pr)
+            if (p2) r.style.setProperty('--zg-primary-2-rgb', p2)
+            if (ac) r.style.setProperty('--zg-accent-rgb', ac)
+          }
+          r.classList.toggle('zg-inkgold', ink)
+          r.classList.toggle('zg-inkgold-dark', ink && (c.inkgoldTone || 'light') === 'dark')
+          r.classList.toggle('zg-inkgold-bright', ink && (c.bright || 'soft') === 'bright')
+          // favicon / 地址栏配色跟随皮肤（与 theme.ts 的 applyFavicon 同源）
+          var tone = (c.inkgoldTone || 'light') === 'dark' ? 'dark' : 'light'
+          var href = ink ? '/favicon-inkgold.svg' : '/favicon-classic.svg'
+          var f = document.getElementById('zg-favicon')
+          var ft = document.getElementById('zg-favicon-touch')
+          if (f) f.setAttribute('href', href)
+          if (ft) ft.setAttribute('href', href)
+          var tc = document.getElementById('zg-theme-color')
+          if (tc && c.primary) tc.setAttribute('content', c.primary)
+        } catch (e) { /* 缓存损坏/隐私模式：静默走 :root 默认皮肤 */ }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import router from './router'
 import App from './App.vue'
+import { useThemeStore } from './store/theme'
 import './styles/main.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
@@ -11,6 +12,15 @@ import { zgCover } from '@/utils/helpers'
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+
+// 【v4.8.28-fix 主题必须在首帧生效】
+//   把「读本地主题缓存并应用」提到 mount **之前** 同步执行：
+//   首帧就带着正确皮肤，不会先渲染经典暖橘再闪成墨金，
+//   也不受 /api/themes/active 网络耗时影响（该接口实测可达 11s）。
+//   无缓存时是 no-op，走 :root 默认；随后 App.vue 在后台拉最新并覆盖+回写。
+try {
+  useThemeStore().applyCachedSync()
+} catch { /* pinia 未就绪/缓存损坏：忽略，走默认皮肤 */ }
 
 // 全局图片兜底：任何外链图（picsum/supabase 等境外图床）加载失败时，
 // 换成 Bing 高清美图，避免破图/空白。一个元素只处理一次，且新图与旧图相同则跳过（防死循环）。
