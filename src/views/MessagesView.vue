@@ -117,9 +117,14 @@ function isAdminMine(m: any) {
 }
 
 onMounted(async () => {
-  await loadSessions()
+  // 【v4.8.28 性能专项】会话列表 与 打开指定会话（?peerId）互不依赖
+  //   （openPeer 内部自行 findUser 拿对方信息，不读 sessions 结果）→ 改为并行。
+  //   两者各自失败互不影响，与原串行实现的可见结果一致。
   const pid = Number(route.params.peerId)
-  if (pid) await openPeer(pid)
+  await Promise.all([
+    loadSessions(),
+    pid ? openPeer(pid) : Promise.resolve(),
+  ])
 })
 
 watch(() => route.params.peerId, async (pid) => {

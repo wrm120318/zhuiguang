@@ -44,34 +44,41 @@ async function loadProfileUser() {
 }
 
 async function load() {
-  try {
-    expLogs.value = (await api.expLogs()) as any
-  } catch { /* */ }
-  try {
-    const all = (await api.articles({ mine: '1', limit: 10 })) as any
-    myArticles.value = all
-  } catch { /* */ }
-  try {
-    myResources.value = (await api.resources({ mine: '1', userId: user.current?.id })) as any
-  } catch { /* */ }
+  // 【v4.8.28 性能专项】原实现是 4 段**串行 await**（经验日志 → 我的美文 → 我的资料 →
+  //   待确认美文），彼此完全独立，却把 4 个 RTT 相加。改为一次性并行。
+  //   对 `user.isStudent` 的分支判断保持原样（仅决定是否发第 4 个请求）。
+  const tasks: Promise<any>[] = [
+    (async () => { expLogs.value = (await api.expLogs()) as any })().catch(() => { /* */ }),
+    (async () => { myArticles.value = (await api.articles({ mine: '1', limit: 10 })) as any })().catch(() => { /* */ }),
+    (async () => { myResources.value = (await api.resources({ mine: '1', userId: user.current?.id })) as any })().catch(() => { /* */ }),
+  ]
   // 需求3：学生账号加载「待我确认的代发美文」
   if (user.isStudent) {
-    try {
-      pendingStudentArticles.value = (await api.pendingStudentArticles()) as any
-    } catch { /* */ }
+    tasks.push(
+      (async () => { pendingStudentArticles.value = (await api.pendingStudentArticles()) as any })().catch(() => { /* */ })
+    )
   }
+  await Promise.all(tasks)
 }
 
 // 当前展示用户：是他人则用 profileUser，否则用 user.current
 const viewUser = computed<any>(() => profileUser.value || user.current)
 
 onMounted(async () => {
-  await user.fetchProfile()
-  await loadProfileUser()
+  // 【v4.8.28 性能专项】原实现 `await user.fetchProfile()` → `await loadProfileUser()`
+  //   → `await load()` 三重串行。三者互不依赖，改为并行：
+  //   · fetchProfile：用户资料（App 启动已拉过一次，命中缓存时这里是零请求）
+  //   · loadProfileUser：仅 ?uid=xxx 他人模式才真发请求，自己模式是同步 no-op
+  //   · load：本页 经验日志 / 我的美文 / 我的资料
+  //   表单初始化依赖 user.current → 必须等 fetchProfile 落地，故放在其后（语义不变）。
+  await Promise.all([
+    user.fetchProfile(),
+    loadProfileUser(),
+    load(),
+  ])
   // 编辑表单只在自己模式初始化（避免覆盖）
   if (!isOthersProfile.value) {
     form.value = { realName: user.current?.realName || '', email: user.current?.email || '', phone: user.current?.phone || '', avatar: user.current?.avatar || '' }
-    await load()
   }
 })
 

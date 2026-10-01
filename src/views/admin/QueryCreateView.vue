@@ -39,6 +39,12 @@ const subjectOptions = computed(() => {
 })
 
 async function load() {
+  // 【v4.8.28】fetchProfile 已改为「不阻塞首屏」——myClasses（班级+任教科目）
+  //   在后台异步落地。本函数的「教师默认学科」逻辑依赖 teachingSubjects，
+  //   因此这里显式确保它已就绪，保证与优化前完全一致的默认值（不会选错学科）。
+  if (user.isTeacher && !user.teachingSubjects?.length) {
+    await user.fetchMyClasses().catch(() => {})
+  }
   if (!data.subjects.length) await data.fetchSubjects()
   if (!data.classes.length) await data.fetchClasses()
   // 需求1：如果是教师，默认学科设为自己任教学科

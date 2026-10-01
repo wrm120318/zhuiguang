@@ -72,13 +72,57 @@ onMounted(async () => {
   //   修复：给整段初始化套一个**总超时兜底**（6s）。到点无论成败都放行首屏，
   //   后续数据由各页面自己的加载态接管——绝不让"皮肤/统计"这类非关键数据挡住整站。
   const BOOT_TIMEOUT = 6000
+  // ==========================================================================
+  // 【v4.8.28 性能专项】启动路径三重串行 → 全并行 + 主题移出首屏栅栏
+  //
+  // 原实现（每个页面首屏都要付这个代价）：
+  //   await theme.load()                                     ← 串行 1
+  //   await user.fetchProfile()                              ← 串行 2
+  //   await Promise.all([loadCommon(), settings.fetchAll()]) ← 串行 3
+  //   即：主题 → 用户 → 公共数据，三段耗时**相加**。
+  //
+  // 改动一（并行）：三组请求**同时**发出，只把「NavBar 真正依赖的」留作栅栏。
+  // 改动二（主题不再阻塞，用户确认的取舍）：`theme.load()` 移出栅栏。
+  //   理由：主题是纯皮肤（原本就有 3.5s 自愈超时，失败即用默认皮肤）；
+  //   实测冷启动时它会撞上 6s 总兜底 —— 让整站首屏白等 6 秒，代价远大于收益。
+  //   现在：首屏立即放行（约 1s），主题请求在后台继续，到货后 `applyTheme`
+  //   自动应用（通常 100~300ms 内完成，视觉上是一次轻微渐变）。
+  //
+  // 保留在栅栏里的只有 `user.fetchProfile()`：
+  //   NavBar 渲染依赖 `user.current`（头像/姓名/角色/等级）。
+  //   注：fetchProfile 内部已把慢的 `myClasses` 剥离到后台（见 store/user.ts），
+  //   所以栅栏实际只等 `api.me()`（中位 1.1s）。
+  //
+  // 其它保证（与原实现一致）：
+  //   · 各组独立 catch，任一失败不连坐；
+  //   · 未登录时不发 profile / common 请求；
+  //   · 6s 总超时兜底（v4.8.25 加的防永久白屏）原样保留。
+  // ==========================================================================
+  // 主题：后台加载，不阻塞首屏（到货自动应用）
+  theme.load().catch((e: any) => {
+    console.warn('[boot] theme 加载异常（已忽略）：', e?.message || e)
+  })
+  const login = user.isLogin
+  const profilePromise = login
+    ? user.fetchProfile().catch((e: any) => {
+        console.warn('[boot] profile 加载异常（已忽略）：', e?.message || e)
+      })
+    : Promise.resolve()
+  // 公共数据（学科/班级）与设置（功能开关/经验规则/站点配置）在 profile 之外、
+  //   彼此之间**完全独立**，一并并行发出。
+  const commonPromise = login
+    ? Promise.all([
+        data.loadCommon().catch((e: any) => console.warn('[boot] 公共数据异常（已忽略）：', e?.message || e)),
+        settings.fetchAll().catch((e: any) => console.warn('[boot] 设置加载异常（已忽略）：', e?.message || e)),
+      ]).then(() => undefined)
+    : Promise.resolve()
+
   const boot = (async () => {
     try {
-      await theme.load()
-      if (user.isLogin) {
-        await user.fetchProfile().catch(() => {})
-        await Promise.all([data.loadCommon(), settings.fetchAll().catch(() => {})])
-      }
+      // 栅栏：只等 NavBar 渲染依赖的 profile（与原串行顺序的完成条件等价）
+      await profilePromise
+      // 公共数据/设置不阻塞首屏（NavBar 与路由页均不依赖；各页面自身有 loading 态兜底）
+      await commonPromise
     } catch (e: any) {
       console.warn('[boot] 初始化异常（已忽略，放行首屏）：', e?.message || e)
     }

@@ -15,26 +15,50 @@ const loading = ref(false)
 async function load() {
   loading.value = true
   try {
+    // 【v4.8.28 性能专项】原实现两处串行：
+    //   ① `favorites` → `articles`：后者需要前者算出的 artIds，属**真依赖**，保留串行；
+    //   ② `for (const s of data.subjects) await api.resources(s.id)` —— **N+1 请求**：
+    //      有几个学科就串行发几次，每多一个学科首屏就多等一个 RTT。
+    //      改为 `Promise.all` 并发（学科数通常 3~8 个），并去重、过滤空结果。
+    //   行为完全不变：仍是「先拿收藏 id，再按学科拉资料并筛出收藏的那些」，
+    //   只是把循环里的等待重叠起来，结果集合与顺序由 filter 保证一致。
     favorites.value = (await api.favorites()) as any
     const artIds = favorites.value.filter(f => f.target_type === 'fav_article').map(f => f.target_id)
     const resIds = favorites.value.filter(f => f.target_type === 'fav_resource').map(f => f.target_id)
+
+    const jobs: Promise<any>[] = []
+    // 美文：与资料并行（两者都只依赖上面算出的 id 列表）
     if (artIds.length) {
-      const all = (await api.articles({ limit: 100 })) as any
-      articles.value = all.filter((a: any) => artIds.includes(a.id))
+      jobs.push(
+        (api.articles({ limit: 100 }) as any).then((all: any) => {
+          articles.value = Array.isArray(all) ? all.filter((a: any) => artIds.includes(a.id)) : []
+        })
+      )
     }
+    // 资料：按学科并发拉取（原来是串行 for-await）
     if (resIds.length) {
-      // Fetch resources from subjects
-      for (const s of data.subjects) {
-        const list = (await api.resources(s.id)) as any
-        const matched = list.filter((r: any) => resIds.includes(r.id))
-        resources.value.push(...matched)
-      }
+      const subjList = (data.subjects || []) as any[]
+      jobs.push(
+        Promise.all(subjList.map(s => (api.resources(s.id) as any).catch(() => [])))
+          .then((lists: any[][]) => {
+            const out: any[] = []
+            for (const list of lists) {
+              if (!Array.isArray(list)) continue
+              out.push(...list.filter((r: any) => resIds.includes(r.id)))
+            }
+            resources.value = out
+          })
+      )
     }
+    await Promise.all(jobs)
   } finally { loading.value = false }
 }
 onMounted(async () => {
-  if (!data.subjects.length) await data.fetchSubjects()
-  await load()
+  // 【v4.8.28】学科字典与收藏数据互不依赖 → 并行；学科走 store（会话缓存 + 去重）。
+  //   load() 内部会遍历 data.subjects 拉资料，因此必须先保证学科已就绪 → 这里保持
+  //   「先确保学科，再 load」，但把「学科已在内存」的常见路径变成零等待。
+  if (data.subjects.length) { await load() }
+  else { await data.fetchSubjects(); await load() }
 })
 
 async function removeFav(type: string, id: number) {

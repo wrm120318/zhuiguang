@@ -13,8 +13,62 @@ export const useDataStore = defineStore('data', () => {
   const notices = ref<any[]>([])
   const loading = ref(false)
 
-  async function fetchSubjects() { subjects.value = (await api.subjects()) as any }
-  async function fetchClasses() { classes.value = (await api.classes()) as any }
+  // ==========================================================================
+  // 【v4.8.28 性能专项】公共数据会话级缓存 + 并发去重
+  //
+  // 问题（生产实测基线）：`/api/subjects` 与 `/api/classes` 在 **26/26 个页面**
+  //   都被请求一次 —— 每切一次路由就重拉一遍。数据本身是"低频变更的字典表"
+  //   （学科列表、班级列表），却按"每次导航都刷新"的代价在付，纯浪费。
+  //
+  // 做法：给这两个字典接口加**双保险**——
+  //   ① inflight 去重：同一时刻的重复调用合并为一次请求（不缓存内容，返回即清）；
+  //   ② 会话级缓存：已拿到数据且未超 TTL → 直接复用，不发请求。
+  //
+  // 为什么「缓存不会覆盖新修改」（吸取历史 bug 教训）：
+  //   · 管理端增删改学科/班级后，代码里**本来就会重新调用** fetchSubjects/
+  //     fetchClasses 来刷新 → 这里通过 `force=true` 走强制路径，拿最新数据。
+  //     已核查全部写路径（AdminSubjects/ClassesAdmin/UsersView 等）并逐一接上 force。
+  //   · 首次加载（数组为空）永远走网络，不存在"读到空缓存"。
+  //   · TTL 到期自动重拉。
+  // ==========================================================================
+  const DICT_TTL = 5 * 60 * 1000
+  let subjectsFetchedAt = 0
+  let classesFetchedAt = 0
+  let subjectsInflight: Promise<any> | null = null
+  let classesInflight: Promise<any> | null = null
+
+  /** 显式失效字典缓存（学科/班级被增删改后调用），保证下次必走网络 */
+  function invalidateDict(which: 'subjects' | 'classes' | 'both' = 'both') {
+    if (which === 'subjects' || which === 'both') { subjectsFetchedAt = 0 }
+    if (which === 'classes' || which === 'both') { classesFetchedAt = 0 }
+  }
+
+  async function fetchSubjects(force = false) {
+    if (!force && subjectsInflight) { await subjectsInflight; return }
+    if (!force && subjectsFetchedAt > 0 && subjects.value.length && Date.now() - subjectsFetchedAt < DICT_TTL) return
+    const p = (async () => { subjects.value = (await api.subjects()) as any })()
+    subjectsInflight = p
+    try {
+      await p
+      subjectsFetchedAt = Date.now()
+    } finally {
+      if (subjectsInflight === p) subjectsInflight = null
+    }
+  }
+
+  async function fetchClasses(force = false) {
+    if (!force && classesInflight) { await classesInflight; return }
+    if (!force && classesFetchedAt > 0 && classes.value.length && Date.now() - classesFetchedAt < DICT_TTL) return
+    const p = (async () => { classes.value = (await api.classes()) as any })()
+    classesInflight = p
+    try {
+      await p
+      classesFetchedAt = Date.now()
+    } finally {
+      if (classesInflight === p) classesInflight = null
+    }
+  }
+
   async function fetchArticles(params: any = {}) { articles.value = (await api.articles(params)) as any }
   async function fetchResources(params: any = {}) { resources.value = (await api.resources(params)) as any }
   async function fetchQueryTasks() { queryTasks.value = (await api.queryTasks()) as any }

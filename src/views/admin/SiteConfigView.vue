@@ -127,7 +127,17 @@ function formSnapshot(): SiteConfig {
 
 onMounted(async () => {
   try {
-    const cfg: any = await api.getSiteConfig()
+    // 【v4.8.28 性能专项】原实现直接 `api.getSiteConfig()`，与 store（NavBar/App 触发）
+    //   的同一接口请求重复 —— 基线实测本页 `/api/settings/site_config` ×2。
+    //   改走 store 的**非 force** 路径：复用已有 inflight 或会话缓存 → 零重复请求。
+    //
+    //   为什么非 force 也能保证「看到最新配置」：
+    //     · 站点配置的修改**必然经过** saveSiteConfig()，它会同步 siteConfig 并刷新新鲜度；
+    //     · store 的 TTL 为 5 分钟，超期自动重拉；
+    //     · 若 store 尚未加载（siteConfigLoaded=false），fetchSiteConfig 本就会走网络。
+    //   下面 `await` 后再取 settings.siteConfig，拿到的就是与全站一致的那一份。
+    await settings.fetchSiteConfig()
+    const cfg: any = settings.siteConfig
     // 兼容：后端已双主题化 → 直接用；仍是旧单份结构 → 两套均以现值为初值（不丢数据）
     if (cfg && (cfg.classic || cfg.inkgold)) {
       rawConfig.value = { classic: cfg.classic || null, inkgold: cfg.inkgold || null }
@@ -162,7 +172,8 @@ async function save() {
     }
     await api.saveSiteConfig(next)
     // 重新拉取 → store 本地同步（前台立即生效 + 后台回显一致，全链路闭环）
-    await settings.fetchSiteConfig()
+    // 【v4.8.28】force=true：刚保存完，必须拿服务端最新值回显，绝不读缓存
+    await settings.fetchSiteConfig(true)
     ElMessage.success(`已保存「${editMode.value === 'inkgold' ? '墨金学术' : '经典暖橘'}」那一套配置，全站立即生效`)
   } catch (e: any) {
     ElMessage.error('保存失败：' + (e?.message || '请稍后重试'))

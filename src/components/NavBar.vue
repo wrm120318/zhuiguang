@@ -25,10 +25,33 @@ const showNotice = computed(() => siteConfig.value?.showNavNotice !== false)
 
 const messageUnread = ref(0)
 
-async function refreshUnread() {
+// 【v4.8.28 性能专项】未读消息数去重（并发 + 短窗口）。
+//   基线实测：后台经验日志页 `/api/messages/unread/count` 被请求 **2 次** ——
+//   根因是 `onMounted` 的 refreshUnread() 与 `watch(route.fullPath)` 的触发
+//   分属**不同 tick**（不是严格同时刻），单纯 inflight 去重盖不住。
+//   做法：① 进行中 Promise 合并（严格同时刻）；
+//        ② 1.5s 短窗口内的重复调用直接复用结果 —— 路由刚切完再刷一次未读数
+//           属于「同一轮导航」的重复，1.5s 内不可能发生"未读状态真的变了"。
+//   窗口外的调用（真正切到别的路由、收到 messages-read 事件）照常发新请求，
+//   所以「已读后红点即时消失」等行为完全不受影响。
+const UNREAD_DEDUP_MS = 1500
+let unreadInflight: Promise<void> | null = null
+let unreadFetchedAt = 0
+async function refreshUnread(force = false) {
   if (!user.isLogin) return
-  try { const r: any = await api.messageUnreadCount(); messageUnread.value = r?.count || 0 } catch { /* */ }
+  if (!force && unreadInflight) return unreadInflight
+  if (!force && unreadFetchedAt > 0 && Date.now() - unreadFetchedAt < UNREAD_DEDUP_MS) return
+  const p = (async () => {
+    try { const r: any = await api.messageUnreadCount(); messageUnread.value = r?.count || 0 }
+    catch { /* */ }
+    finally { unreadInflight = null; unreadFetchedAt = Date.now() }
+  })()
+  unreadInflight = p
+  return p
 }
+
+/** 站内信已读事件（来自 MessagesView）→ 强制刷新未读数，绕过 1.5s 去重窗口 */
+function onMessagesRead() { refreshUnread(true) }
 
 const noticeVisible = ref(false)
 const drawerVisible = ref(false)
@@ -94,7 +117,9 @@ onMounted(() => {
   applyFontScale(); refreshUnread()
   if (!settings.siteConfigLoaded) settings.fetchSiteConfig()
   // 站内信已读后即时刷新未读数
-  window.addEventListener('messages-read', refreshUnread)
+  // 【v4.8.28】显式包一层：事件对象会被当成 force 参数（truthy）→ 语义正确但不够清晰，
+  //   这里明确传 true，保证「站内信已读 → 红点立即消失」不受 1.5s 去重窗口影响。
+  window.addEventListener('messages-read', onMessagesRead)
   // 手机端底栏「通知中心」按钮 → 打开通知抽屉
   window.addEventListener('zg-open-notice', openNoticeFromBar)
   // v4.4.29 手机端底栏「更多」按钮 → 打开主导航抽屉（博客/公告/题库/经验榜等全页面一键可达）
@@ -106,7 +131,7 @@ function openNoticeFromBar() { noticeVisible.value = true }
 // v4.4.29 手机端底栏「更多」→ 打开主导航抽屉
 function openMenuFromBar() { drawerVisible.value = true }
 onUnmounted(() => {
-  window.removeEventListener('messages-read', refreshUnread)
+  window.removeEventListener('messages-read', onMessagesRead)
   window.removeEventListener('zg-open-notice', openNoticeFromBar)
   window.removeEventListener('zg-open-menu', openMenuFromBar)
   stopNoticePolling()

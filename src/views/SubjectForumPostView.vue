@@ -156,25 +156,47 @@ function canDelComment(c: any) {
   return false
 }
 
+// 【v4.8.28 性能专项】`onMounted(load)` + `watch(route.params.id, load)` 双入口，
+//   首次导航时 params 的响应式跳变会让两者各触发一次 → 帖子详情整条链拉两遍。
+//   记录「正在加载 / 已加载」的 key（slug+id）做去重；key 真变（换帖子）才重载。
+let loadingKey = ''
+let loadedKey = ''
+let loadInflight: Promise<void> | null = null
+
 async function load() {
-  loading.value = true
+  const slug = route.params.slug as string
+  const pid = Number(route.params.id)
+  const key = `${slug}#${pid}`
+  if (loadInflight && loadingKey === key) return loadInflight
+  if (loadedKey === key && post.value) return
+  loadingKey = key
+  const p = (async () => {
+    loading.value = true
+    try {
+      subject.value = await api.subject(slug)
+      if (!subject.value) { ElMessage.error('学科不存在'); return }
+      const [p2, t] = await Promise.all([
+        api.forumPost(subject.value.id, pid),
+        api.forumTopics(subject.value.id),
+      ])
+      post.value = p2
+      topics.value = t as any
+      // 【v4.8.28】评论与相关推荐互不依赖 → 并行（原来串行两段）
+      const rest: Promise<any>[] = [loadRelated()]
+      if (post.value?.id) rest.push(loadComments())
+      await Promise.all(rest)
+      loadedKey = key
+    } catch (e: any) {
+      if (e?.response?.status === 403) ElMessage.error('无权查看此帖')
+      else if (e?.response?.status === 404) ElMessage.error('帖子不存在')
+    } finally { loading.value = false }
+  })()
+  loadInflight = p
   try {
-    const slug = route.params.slug as string
-    const pid = Number(route.params.id)
-    subject.value = await api.subject(slug)
-    if (!subject.value) { ElMessage.error('学科不存在'); return }
-    const [p, t] = await Promise.all([
-      api.forumPost(subject.value.id, pid),
-      api.forumTopics(subject.value.id),
-    ])
-    post.value = p
-    topics.value = t as any
-    if (post.value?.id) await loadComments()
-    await loadRelated()
-  } catch (e: any) {
-    if (e?.response?.status === 403) ElMessage.error('无权查看此帖')
-    else if (e?.response?.status === 404) ElMessage.error('帖子不存在')
-  } finally { loading.value = false }
+    await p
+  } finally {
+    if (loadInflight === p) { loadInflight = null; loadingKey = '' }
+  }
 }
 
 async function loadComments() {

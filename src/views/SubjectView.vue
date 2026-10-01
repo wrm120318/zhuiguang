@@ -22,28 +22,67 @@ const subjectQuizzes = ref<any[]>([])
 const subjectQuestions = ref<any[]>([])
 const contributors = ref<any[]>([])
 
+// 【v4.8.28 性能专项】`onMounted(load)` + `watch(route.params.slug, load)` 双入口，
+//   首次导航时 slug 的「空 → 实际值」响应式跳变会让两者**各触发一次 load**，
+//   于是本页会把学科详情及其下游资源全部拉两遍。
+//   这里记录「正在加载 / 已加载」的 slug 做去重：同 slug 复用 / 跳过，slug 真变才重载。
+let loadingSlug = ''
+let loadedSlug = ''
+let loadInflight: Promise<void> | null = null
+
 async function load() {
   const slug = route.params.slug as string
-  subject.value = await api.subject(slug)
-  if (!subject.value) return
-  activeTab.value = 'announcement'
-  const sid = subject.value.id
-  // 加载已审核通过的资料
-  subjectResources.value = (await api.resources({ subjectId: sid, status: 'approved' })) as any
-  // 如果已登录，也加载自己上传的待审核资料，合并显示
-  if (user.isLogin && user.current?.id) {
-    const mine = (await api.resources({ subjectId: sid, mine: '1', userId: user.current.id })) as any
-    const existingIds = new Set(subjectResources.value.map((r: any) => r.id))
-    const myPending = (mine || []).filter((r: any) => r.status !== 'approved' && !existingIds.has(r.id))
-    if (myPending.length) subjectResources.value = [...subjectResources.value, ...myPending]
+  if (loadInflight && loadingSlug === slug) return loadInflight
+  if (loadedSlug === slug && subject.value) return
+  loadingSlug = slug
+  const p = (async () => {
+    subject.value = await api.subject(slug)
+    if (!subject.value) return
+    activeTab.value = 'announcement'
+    const sid = subject.value.id
+
+    // 【v4.8.28 性能专项】原实现是 4 段串行（资料 → 美文 → 我的查询/题库/题目 → 贡献榜），
+    //   彼此互不依赖，却把 4 个 RTT 相加。改为三路并行 + 组内并行。
+    //   赋值目标与结果内容与原实现完全一致。
+    const jobs: Promise<any>[] = [
+      // ① 已审核通过的资料（原第 1 段）
+      (api.resources({ subjectId: sid, status: 'approved' }) as any)
+        .then((v: any) => { subjectResources.value = v }),
+      // ② 已审核通过的美文（原第 3 段）
+      (api.articles({ subjectId: sid, status: 'approved' }) as any)
+        .then((v: any) => { subjectArticles.value = v }),
+      // ③ 贡献榜（原第 5 段）
+      (api.leaderboard({ scope: 'subject', subjectId: sid, period: 'total' }) as any)
+        .then((v: any) => { contributors.value = v }),
+    ]
+    // ④ 已登录才拉的「自己的待审资料 + 查询/题库/题目」（原第 2、4 段，组内原本就是并行）
+    const myId = user.current?.id
+    if (user.isLogin && myId) {
+      jobs.push((async () => {
+        try {
+          const mine = (await api.resources({ subjectId: sid, mine: '1', userId: myId })) as any
+          const existingIds = new Set(subjectResources.value.map((r: any) => r.id))
+          const myPending = (mine || []).filter((r: any) => r.status !== 'approved' && !existingIds.has(r.id))
+          if (myPending.length) subjectResources.value = [...subjectResources.value, ...myPending]
+        } catch { /* 原实现同样静默 */ }
+      })())
+      if (user.isLogin) {
+        jobs.push(
+          (api.queryTasks() as any).then((all: any) => { subjectQueries.value = (all || []).filter((t: any) => t.subject_id === sid) }).catch(() => {}),
+          (api.quizzes({ subjectId: sid }) as any).then((v: any) => { subjectQuizzes.value = v }).catch(() => {}),
+          (api.subjectQuestions(sid) as any).then((v: any) => { subjectQuestions.value = v }).catch(() => {}),
+        )
+      }
+    }
+    await Promise.all(jobs)
+    loadedSlug = slug
+  })()
+  loadInflight = p
+  try {
+    await p
+  } finally {
+    if (loadInflight === p) { loadInflight = null; loadingSlug = '' }
   }
-  subjectArticles.value = (await api.articles({ subjectId: sid, status: 'approved' })) as any
-  if (user.isLogin) {
-    try { const all = (await api.queryTasks()) as any; subjectQueries.value = (all || []).filter((t: any) => t.subject_id === sid) } catch {}
-    try { subjectQuizzes.value = (await api.quizzes({ subjectId: sid })) as any } catch {}
-    try { subjectQuestions.value = (await api.subjectQuestions(sid)) as any } catch {}
-  }
-  contributors.value = (await api.leaderboard({ scope: 'subject', subjectId: sid, period: 'total' })) as any
 }
 async function reloadQuestions() {
   if (subject.value) subjectQuestions.value = (await api.subjectQuestions(subject.value.id)) as any

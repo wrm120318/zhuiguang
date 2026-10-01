@@ -3,6 +3,12 @@ import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ZgStepper from '@/components/ZgStepper.vue'
+import { useDataStore } from '@/store/data'
+
+// 【v4.8.28 性能专项】学科列表改走 data store 的 fetchSubjects(force)：
+//   · 消灭本页与 store 各拉一份 `/api/subjects` 的重复（基线：本页 2 次）；
+//   · 增删改后的刷新统一走 force=true，绝不读会话缓存 → 不覆盖新修改。
+const data = useDataStore()
 
 const subjects = ref<any[]>([])
 const loading = ref(false)
@@ -12,10 +18,12 @@ const editForm = ref<any>({})
 const step = ref(0)
 const steps = ['基本信息', '模块配置', '确认发布']
 
-async function load() {
+async function load(force = true) {
   loading.value = true
   try {
-    subjects.value = (await api.subjects()) as any
+    // 【v4.8.28】本页是学科唯一写入口，一律 force，保证增删改后拿到服务端最新列表
+    await data.fetchSubjects(force)
+    subjects.value = data.subjects
   } finally { loading.value = false }
 }
 onMounted(load)

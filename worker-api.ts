@@ -3188,13 +3188,44 @@ app.post('/api/notices/broadcast', auth, requireRole('SUPER_ADMIN'), async (c) =
 // ==============================================================================
 // ============ 主题 ============
 // ==============================================================================
+// 【v4.8.28 性能专项】主题列表瘦身
+//   背景（生产实测）：`/api/themes` 返回 **11973 字节**、耗时 **3.1~10.4s**，
+//   而调用方在任何页面都会拉到它 —— 但**唯一真正需要「全量主题列表 + 每项完整
+//   config」的只有后台「界面风格编辑器」**（预设色板 + 点选载入某套配置）。
+//   前台每页只需要 `activeTheme`（306 字节，走 `/api/themes/active`）。
+//
+//   本次改动：
+//     ① 列表接口只返回**摘要**（id / name / is_active + 仅两个配色点需要的
+//        config.primary / config.accent），不再吐每套主题的完整配置；
+//        体积从 ~12KB 降到 ~1KB 量级，后台主题页打开更快。
+//     ② 新增 `GET /api/themes/:id` 返回单个主题的**完整 config**，
+//        供管理端点选某套预设时按需加载（点一次拉一次，不做全量传输）。
+//
+//   兼容性：列表项仍保留 `config` 字段（值为 `{primary, accent}`），
+//     因此现有前端 `t.config.primary` / `t.config.accent` 的色板渲染**不受影响**。
 app.get('/api/themes', async (c) => {
-  const list = await all<any>('SELECT * FROM themes ORDER BY id')
-  return c.json(list.map(t => ({ ...t, config: j(t.config) })))
+  const list = await all<any>('SELECT id, name, is_active, config FROM themes ORDER BY id')
+  return c.json(list.map((t) => {
+    const cfg = j(t.config) || {}
+    // 列表只带「色板圆点」需要的两个字段 → 显著减小响应体积
+    return { id: t.id, name: t.name, is_active: t.is_active, config: { primary: cfg.primary, accent: cfg.accent } }
+  }))
 })
+
+// 单个主题完整配置（后台点选预设时按需加载）
+//   注意：必须注册在 `app.get('/api/themes/active')` **之后**，
+//   否则 'active' 会被 :id 优先匹配。故此处仅定义引用，实际注册见下方。
 
 app.get('/api/themes/active', async (c) => {
   const t = await get<any>('SELECT * FROM themes WHERE is_active=1 LIMIT 1')
+  if (!t) return c.json(null)
+  return c.json({ ...t, config: j(t.config) })
+})
+
+// 【v4.8.28】注册顺序说明：上面 active 已先注册，这里 :id 才不会误吞 'active'
+app.get('/api/themes/:id', async (c) => {
+  const id = c.req.param('id')
+  const t = await get<any>('SELECT * FROM themes WHERE id=?', id)
   if (!t) return c.json(null)
   return c.json({ ...t, config: j(t.config) })
 })
@@ -4534,10 +4565,13 @@ app.delete('/api/favorites/:id', auth, async (c) => {
 app.get('/api/users/me/wrong-questions', auth, async (c) => {
   const uid = c.get('user').id
   const sid = c.req.query('subject_id')
+  // 【v4.8.28 修复存量缺陷】all() 是可变参数签名 (sql, ...args)，
+  //   原实现传了「数组」导致 D1 报 "Wrong number of parameter bindings"（500）。
+  //   改为展开传参。
   const rows = await all<any>(`SELECT DISTINCT sq.*, s.name AS subject_name, ps.submitted_at
     FROM practice_submissions ps JOIN subject_questions sq ON sq.id=ps.question_id LEFT JOIN subjects s ON s.id=sq.subject_id
     WHERE ps.user_id=? AND ps.correct=0 ${sid ? 'AND sq.subject_id=?' : ''}
-    ORDER BY ps.submitted_at DESC`, sid ? [uid, Number(sid)] : [uid])
+    ORDER BY ps.submitted_at DESC`, ...(sid ? [uid, Number(sid)] : [uid]))
   const out = await Promise.all(rows.map(async (r: any) => {
     const kp = await all<any>('SELECT kp.id, kp.name FROM question_knowledge qk JOIN knowledge_points kp ON kp.id=qk.knowledge_point_id WHERE qk.question_id=?', r.id)
     return { ...r, options: j(r.options), knowledge_points: kp }

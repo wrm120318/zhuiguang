@@ -49,10 +49,15 @@ function statusType(s: string) {
 }
 
 async function load() {
+  // 【v4.8.28】fetchProfile 改为不阻塞首屏后，teachingSubjects 由后台异步落地；
+  //   本函数在教师场景下必须等它就绪，否则会把本学科内容过滤成空列表
+  //   （用户看到"没有待审"的假象）。这里与三个数据请求**并行等待**，不额外增加耗时。
+  const needClasses = user.isTeacher && !user.isSuperAdmin && !user.teachingSubjects?.length
   const [arts, ress, fps] = await Promise.all([
     api.articles({}) as any,
     api.resources({}) as any,
     api.adminAuditForumPosts() as any,
+    needClasses ? user.fetchMyClasses().catch(() => {}) : Promise.resolve(),
   ])
   let artList = arts || []
   let resList = ress || []

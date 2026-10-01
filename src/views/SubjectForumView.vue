@@ -233,14 +233,43 @@ const hotPosts = computed(() =>
 )
 const threshold = computed(() => Number(subject.value?.forum_auto_approve_threshold || 0))
 
+// 【v4.8.28 性能专项】消除「首屏重复请求同一学科」。
+//   现象（基线实测）：本页 `/api/subjects/4` 被请求 **2 次** ——
+//   根因是本页同时挂了 `onMounted(load)` 与 `watch(() => route.params.slug, load)`。
+//   Vue Router 首次导航时 `route.params.slug` 存在一个「空 → 实际值」的响应式跳变，
+//   于是 onMounted 与 watch 会**各触发一次 load**，而两次拿到的是同一个 slug。
+//
+//   修法：记录「正在加载的 slug」与「已加载完成的 slug」——
+//     · 同一 slug 的并发调用直接复用（inflight 去重）；
+//     · 同一组件实例内已成功加载过该 slug → 本轮跳过（正是 onMounted/watch 双触发的那次）；
+//     · slug 真正变化（用户在学科间切换）→ `loadedSlug !== slug`，照常重新加载，行为不变。
+//   注：`loadedSlug` 是组件实例内的变量，组件重建（路由切走再回来）时归零，不受影响。
+let loadingSlug = ''
+let loadedSlug = ''
+let loadInflight: Promise<void> | null = null
+
 async function load() {
-  loading.value = true
+  const slug = route.params.slug as string
+  // 并发去重：同一 slug 的重复调用复用同一次请求
+  if (loadInflight && loadingSlug === slug) return loadInflight
+  // 已加载过同一 slug（且不是强制刷新）→ 跳过这一轮
+  if (loadedSlug === slug && subject.value) return
+  loadingSlug = slug
+  const p = (async () => {
+    loading.value = true
+    try {
+      subject.value = await api.subject(slug)
+      if (!subject.value) { ElMessage.error('学科不存在'); return }
+      await Promise.all([loadTopics(), loadPosts()])
+      loadedSlug = slug
+    } finally { loading.value = false }
+  })()
+  loadInflight = p
   try {
-    const slug = route.params.slug as string
-    subject.value = await api.subject(slug)
-    if (!subject.value) { ElMessage.error('学科不存在'); return }
-    await Promise.all([loadTopics(), loadPosts()])
-  } finally { loading.value = false }
+    await p
+  } finally {
+    if (loadInflight === p) { loadInflight = null; loadingSlug = '' }
+  }
 }
 async function loadTopics() { topics.value = (await api.forumTopics(subject.value.id)) as any }
 async function loadPosts() { posts.value = (await api.forumPosts(subject.value.id)) as any }

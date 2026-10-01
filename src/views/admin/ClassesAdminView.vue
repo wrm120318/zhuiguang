@@ -10,10 +10,12 @@ const loading = ref(false)
 const editVisible = ref(false)
 const editForm = ref<any>({})
 
-async function load() {
+async function load(force = true) {
   loading.value = true
   try {
-    await data.fetchClasses()
+    // 【v4.8.28】管理端 load 一律 force：本页是班级唯一写入口，
+    //   增删改后必须拿到服务端最新列表，绝不读会话缓存
+    await data.fetchClasses(force)
     classes.value = data.classes
   } finally { loading.value = false }
 }

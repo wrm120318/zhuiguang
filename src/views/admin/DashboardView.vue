@@ -5,9 +5,13 @@ import { api } from '@/api'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useThemeStore } from '@/store/theme'
+import { useDataStore } from '@/store/data'
 
 const router = useRouter()
 const theme = useThemeStore()
+// 【v4.8.28 性能专项】学科列表改走 store（inflight 去重 + 会话级缓存），
+//   消除与 NavBar 触发的同一接口并发重复请求
+const data = useDataStore()
 const features = [
   { name: '用户管理', icon: '👥', desc: '添加/删除/禁用用户、调整经验等级、重置密码', color: '#F59E0B', to: () => router.push('/admin/users') },
   { name: '学科管理', icon: '📚', desc: '创建/编辑/删除学科，配置模块，发布公告', color: '#FBBF24', to: () => router.push('/admin/subjects') },
@@ -112,16 +116,22 @@ watch(() => theme.activeTheme?.config?.designMode, () => {
 })
 
 onMounted(async () => {
-  const [us, ss, arts, ress, qs] = await Promise.all([
-    api.users() as any, api.subjects() as any,
+  // 【v4.8.28 性能专项】`/api/subjects` 原实现直接 `api.subjects()`，与 NavBar/App
+  //   触发的 store 请求并发重复（基线本页 ×2）。改为走 store 的 fetchSubjects()：
+  //   它有 inflight 去重 + 会话缓存 → 同一时刻的重复调用合并为一次请求。
+  //   五路请求保持**并行**（原来就是 Promise.all，未劣化）。
+  const [us, arts, ress, qs] = await Promise.all([
+    api.users() as any,
     api.articles({}) as any, api.resources({}) as any,
     api.queryTasks() as any,
+    data.fetchSubjects(),   // ← 学科改走 store（去重 + 缓存），不额外增加耗时
   ])
   users.value = us || []
-  subjects.value = ss || []
   articles.value = arts || []
   resources.value = ress || []
   queryTasks.value = qs || []
+  // 学科：复用 store（并发去重 + 会话缓存），后台概览非写入口 → 不 force
+  subjects.value = data.subjects
   setTimeout(renderCharts, 50)
   window.addEventListener('resize', resize)
 })

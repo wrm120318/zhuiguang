@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
+import { useDataStore } from '@/store/data'
 import { renderMarkdown } from '@/utils/markdown'
 import { ElMessage } from 'element-plus'
 import ZgGlyph from '@/components/ZgGlyph.vue'
@@ -11,6 +12,8 @@ import ZgGlyph from '@/components/ZgGlyph.vue'
 const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
+// 【v4.8.28 性能专项】学科列表走 store（去重 + 缓存），消除本页重复请求
+const data = useDataStore()
 const slug = route.params.slug as string | undefined
 
 const subject = ref<any>(null)
@@ -25,8 +28,11 @@ async function load() {
     if (slug) { subject.value = await api.subject(slug); sid = subject.value.id }
     else if (!user.isStudent) {
       // 教师全局视图：可切换学科
-      const subs = (await api.subjects()) as any
-      subject.value = subs[0] || null
+      // 【v4.8.28 性能专项】原实现直接 `api.subjects()`，与 NavBar/App 触发的
+      //   store 请求并发重复（基线本页 `/api/subjects` ×2）。
+      //   改走 store：inflight 去重 + 会话缓存 → 同一时刻只真发一次。
+      await data.fetchSubjects()
+      subject.value = (data.subjects[0] as any) || null
       sid = subject.value?.id
     }
     list.value = (await api.myWrongQuestions(sid)) as any

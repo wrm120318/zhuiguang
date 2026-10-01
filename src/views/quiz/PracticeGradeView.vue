@@ -24,6 +24,12 @@ onMounted(async () => {
   try {
     sub.value = await api.practiceSubmission(id)
     question.value = await api.subjectQuestion(sub.value.question_id)
+    // 【v4.8.28】fetchProfile 改为不阻塞首屏后，teachingSubjects 由后台异步落地；
+    //   canManageSubject 依赖它 —— 若此处未就绪会把教师误判为「无权批改」。
+    //   因此在判定前确保任教学科已加载（通常已落地，未落地时才补一次）。
+    if (user.isTeacher && !user.isSuperAdmin && !user.teachingSubjects?.length) {
+      await user.fetchMyClasses().catch(() => {})
+    }
     if (!user.canManageSubject(question.value.subject_id)) { noAuth.value = true; return }
     score.value = sub.value.score || 0
     comment.value = sub.value.comment || ''

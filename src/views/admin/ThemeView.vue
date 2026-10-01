@@ -6,7 +6,11 @@ import { ElMessage } from 'element-plus'
 const theme = useThemeStore()
 const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', inkgoldTone: 'light', bright: 'soft', name: '我的主题', isActive: false, id: null })
 
-onMounted(() => {
+onMounted(async () => {
+  // 【v4.8.28 性能专项】全量主题列表（预设色板）由本页**按需加载** ——
+  //   前台其余页面不再拉 `/api/themes`（实测 12KB / 3~10s），只拉 `/api/themes/active`（306B）。
+  //   列表尚未就绪时先拉一次（已就绪则直接复用，避免重复）。
+  if (!theme.themes.length) await theme.loadList().catch(() => {})
   if (theme.draft) Object.assign(d, JSON.parse(JSON.stringify(theme.draft)))
 })
 
@@ -17,10 +21,18 @@ const classicSwatches = ['#f59e0b', '#eab308', '#f97316', '#fbbf24', '#d97706', 
 const inkgoldSwatches = ['#BA7517', '#C8922E', '#D4AF37', '#A66B11', '#8C6414', '#E6C66E', '#9C7A2A', '#B8905A', '#6B4423', '#A0784A', '#D9B777', '#F0DCA8']
 const presetColors = computed(() => (d.designMode === 'inkgold' ? inkgoldSwatches : classicSwatches))
 
-function pickTheme(id: number) {
+async function pickTheme(id: number) {
+  // 【v4.8.28 性能专项】列表接口已瘦身为摘要（只带 primary/accent 供色板圆点用），
+  //   点选某套预设时**按需**拉取它的完整 config —— 避免前台/后台一次性传输全部主题配置。
   const t = theme.themes.find((x: any) => x.id === id)
   if (!t) return
-  Object.assign(d, JSON.parse(JSON.stringify(t.config)), { id: t.id, name: t.name })
+  let full: any = t
+  // 摘要里只有 primary/accent，判断「是否完整」：缺任一关键字段就补拉
+  const needFetch = !t.config || t.config.blur === undefined || t.config.bgFrom === undefined
+  if (needFetch) {
+    try { full = (await theme.loadOne(id)) || t } catch { full = t }
+  }
+  Object.assign(d, JSON.parse(JSON.stringify(full.config || {})), { id: full.id, name: full.name })
 }
 
 async function publish() {

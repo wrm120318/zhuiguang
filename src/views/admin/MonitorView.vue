@@ -503,14 +503,35 @@ function formatBytes(b: number): string {
 
 function resize() { c1?.resize(); c2?.resize() }
 
+// 【v4.8.28 性能专项】轮询在页面隐藏（切标签页/锁屏）时暂停。
+//   与 App.vue 状态轮询（v4.4.29）同一套做法：避免后台标签页无谓拉取，省配额也省电。
+//   business 行为不变 —— 回到前台立即恢复，且恢复时立刻拉一次（数据不长时间陈旧）。
+let monitorPolling = false
+function startMonitorPolling() {
+  if (monitorPolling) return
+  monitorPolling = true
+  timer = setInterval(() => { if (!document.hidden) load() }, 15000)
+}
+function stopMonitorPolling() {
+  if (timer) { clearInterval(timer); timer = null }
+  monitorPolling = false
+}
+function handleMonitorVisibility() {
+  if (document.hidden) stopMonitorPolling()
+  else { load(); startMonitorPolling() }   // 回前台立刻补一次，再恢复轮询
+}
+
 onMounted(async () => {
-  await load()
-  await loadStorage()
-  timer = setInterval(load, 15000)
+  // 【v4.8.28 性能专项】`load()`（监控数据）与 `loadStorage()`（存储监控）互不依赖，
+  //   原实现串行 await → 改为并行，首屏省一个 RTT。轮询仍只刷 load()（存储数据量大、变动慢）。
+  await Promise.all([load(), loadStorage()])
+  startMonitorPolling()
   window.addEventListener('resize', resize)
+  document.addEventListener('visibilitychange', handleMonitorVisibility)
 })
 onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
+  stopMonitorPolling()
+  document.removeEventListener('visibilitychange', handleMonitorVisibility)
   if (renderRetryTimer) clearTimeout(renderRetryTimer)
   window.removeEventListener('resize', resize)
   c1?.dispose(); c2?.dispose()

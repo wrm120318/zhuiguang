@@ -25,9 +25,15 @@ async function load() {
   } finally { loading.value = false }
 }
 onMounted(async () => {
-  if (!data.subjects.length) await data.fetchSubjects()
-  if (!data.classes.length) await data.fetchClasses()
-  await load()
+  // 【v4.8.28 性能专项】原实现三重串行（fetchSubjects → fetchClasses → load），
+  //   三者互不依赖（load 用的是当前的 scope/period/subjectId 初值，不依赖字典数据）。
+  //   改为并行 → 首屏只花「最慢那一个」的时间而不是三者相加。
+  //   fetchSubjects/fetchClasses 走 store 的会话缓存，二次进入本页为零请求。
+  await Promise.all([
+    data.subjects.length ? Promise.resolve() : data.fetchSubjects(),
+    data.classes.length ? Promise.resolve() : data.fetchClasses(),
+    load(),
+  ])
 })
 watch([scope, period, classId, subjectId], load)
 

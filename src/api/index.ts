@@ -133,6 +133,9 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
   }
 }
 
+// 【v4.8.28 性能专项】/api/me/status 的 in-flight 合并句柄
+let meStatusInflight: Promise<any> | null = null
+
 export const api = {
   // 认证
   login: (data: { username: string; password: string }) => http.post('/api/auth/login', data),
@@ -186,7 +189,19 @@ export const api = {
   articleComments: (id: number) => http.get(`/api/articles/${id}/comments`),
   addArticleComment: (id: number, content: string, parentId?: number) => http.post(`/api/articles/${id}/comments`, { content, parent_id: parentId }),
   // Bug4 禁用状态检查
-  meStatus: () => http.get('/api/me/status'),
+  // 【v4.8.28 性能专项】in-flight 去重：同一时刻有两个调用方 ——
+  //   ① 路由守卫 router.beforeEach（进入 /admin 时）
+  //   ② App.vue 的 30s 禁用状态轮询
+  //   进入后台时两者会在同一 tick 各发一次（实测「后台概览」/api/me/status ×2）。
+  //   这里做 in-flight 合并：并发调用复用同一个 Promise。返回体只读
+  //   （仅读 r.disabled），共享同一响应对象无副作用。
+  meStatus: () => {
+    if (!meStatusInflight) {
+      meStatusInflight = (http.get('/api/me/status') as Promise<any>)
+        .finally(() => { meStatusInflight = null })
+    }
+    return meStatusInflight
+  },
   // Bug5 公开feature flag
   publicFeatureFlags: () => http.get('/api/feature-flags/public'),
   // 资料
@@ -299,6 +314,8 @@ export const api = {
   readAllNotices: () => http.post('/api/notices/readAll'),
   // 主题
   themes: () => http.get('/api/themes'),
+  // 【v4.8.28】单个主题完整配置（列表接口已瘦身为摘要，点选预设时按需拉取）
+  theme: (id: number) => http.get(`/api/themes/${id}`),
   activeTheme: () => http.get('/api/themes/active'),
   setActiveTheme: (id: number) => http.patch(`/api/themes/${id}/active`),
   updateTheme: (id: number, data: any) => http.put(`/api/themes/${id}`, data),

@@ -5,6 +5,69 @@
 
 ---
 
+## [v4.8.28] - 2026-10-01
+
+> **全站性能专项**：系统性、全覆盖、零回归。用户要求「先测基线 → 全覆盖优化 → 禁止负优化 → 逐处汇报」。
+
+### 📊 成果（同口径热态对比，26 页）
+
+| 指标 | 基线 | 优化后 | 变化 |
+| --- | --- | --- | --- |
+| 页面加载 中位 | 3524ms | **1972ms** | **-44.1%** |
+| 页面加载 平均 | 3723ms | 1975ms | -46.9% |
+| SPA 切页 请求数 中位 | 12 | **2** | **-83%** |
+| **单页内重复请求** | **4 处** | **0 处** | ✅ |
+| **劣化页** | — | **0 / 26** | ✅ |
+| `/api/themes` 体积 | 11973 B | **3076 B** | **-74.3%** |
+
+### ⚡ 性能优化
+
+**启动路径（`src/App.vue`）**
+- boot 三重串行（`theme.load` → `fetchProfile` → `Promise.all([loadCommon, fetchAll])`）→ **全并行**
+- **主题移出首屏栅栏**：主题是纯皮肤（原有 3.5s 自愈超时），冷启动时会撞满 6s 总兜底、让整站白等 6 秒；
+  现在首屏立即放行，主题到货自动应用。6s 总兜底（v4.8.25 防永久白屏）原样保留
+
+**会话级缓存（新增 5min TTL，全部配显式失效，杜绝"缓存覆盖新修改"）**
+- `src/store/user.ts`：`fetchProfile` 内 `me` 与 `myClasses` **并行**且**只等 `me`**；
+  新增 `PROFILE_TTL` + inflight 去重 + `invalidateProfile()`（login/register/updateProfile/logout 后显式失效）
+- `src/store/data.ts`：`fetchSubjects`/`fetchClasses` 加 `DICT_TTL` + inflight 去重 + `invalidateDict()`
+- `src/store/settings.ts`：`fetchAll`/`fetchSiteConfig` 加 `SITE_CONFIG_TTL`；各保存动作后刷新新鲜度戳
+- `src/api/index.ts`：`meStatus()` 加 **in-flight 合并**（路由守卫与 App 轮询同 tick 各发一次）
+
+**数据冗余传输（前后端联动）**
+- `worker-api.ts`：`GET /api/themes` 只返回 `{primary, accent}`，**11973 B → 3076 B**
+- 新增 `GET /api/themes/:id`（按需拉完整 config）；⚠️ 必须注册在 `/api/themes/active` **之后**，
+  否则 `active` 会被 `:id` 吞掉
+- `src/store/theme.ts`：拆 `load`（只拉 active）/ `loadList`（仅后台用）/ `loadOne`（点选预设按需拉）
+
+**串行改并行 / 去重（视图层）**
+- `SubjectView`：5 段串行 → 三路并行；`SubjectForumPostView`：评论+相关并行
+- `ProfileView`：三重串行 + 4 段串行 → 全并行；`LeaderboardView`：三重串行 → 并行
+- `FavoritesView`：N+1（`for await` 逐个学科拉资料）→ `Promise.all` 并行
+- `ArticleView` / `MessagesView` / `MonitorView`（含 `document.hidden` 暂停轮询）
+- `SubjectView`/`SubjectForumView`/`SubjectForumPostView`：加 slug 去重，解决 `/api/subjects/4` ×2
+  （根因：`onMounted(load)` + `watch(params, load)` 双入口在首次导航时各触发一次）
+- 5 处单页内重复请求全部消除（首页/错题本/个人中心/后台概览/后台站点配置）
+- `teachingSubjects` 剥离到后台的连锁影响：5 处「首屏即读」的地方补 `await user.fetchMyClasses()`
+
+### 🐛 存量缺陷修复（非本轮引入）
+
+- **错题本接口 500**：`GET /api/users/me/wrong-questions` 报
+  `D1_ERROR: Wrong number of parameter bindings`。
+  根因：`all()` 是可变参数签名 `(sql, ...args)`，代码却传了**数组**。
+  已改为 `...(cond ? [a, b] : [c])` 展开。修复后带/不带 `subject_id` 均返回 200。
+  并做了全文件同类扫描，仅此 1 处。
+
+### 📝 方法论沉淀（本轮最大价值）
+
+- **`networkidle` 会制造假劣化**：全站有 30s/15s 轮询与长连接，`networkidle` 永远等不到，
+  会把 1.9s 的页面测成 10.8s。改为「请求计数连续稳定」判定。
+- **冷启动噪声必须隔离**：CF 边缘 + D1 冷查询首样本 6~12s。必须预热 + 每页跑 2 轮取第 2 轮。
+- **探针路径写错会伪造「回归」**：`/subject/4`（应为 `:slug` 如 `/subject/physics`）、
+  `/announcements/5`（真实 id 是 35）一度报出 404 + 白屏，实为探针错误。报回归前先确认用例正确。
+
+---
+
 ## [v4.8.27] - 2026-10-01
 
 > **本轮修复用户报的 2 个问题**：

@@ -21,15 +21,26 @@ const comments = ref<any[]>([])
 const commentsError = ref('')
 
 onMounted(async () => {
-  try {
-    article.value = await api.article(Number(route.params.id))
-  } catch (e: any) {
+  // 【v4.8.28 性能专项】美文详情与评论**互不依赖**（评论接口只需 article id，
+  //   不需要美文详情返回的任何字段），原实现串行两段 → 改为并行。
+  //   错误处理保持各自独立：美文失败仍提示「加载美文失败」；
+  //   评论失败只记 commentsError（原来就是这样，不影响美文展示）。
+  const aid = Number(route.params.id)
+  const [artRes, cmtRes] = await Promise.allSettled([
+    api.article(aid) as any,
+    api.articleComments(aid) as any,
+  ])
+  if (artRes.status === 'fulfilled') {
+    article.value = artRes.value
+  } else {
+    const e: any = artRes.reason
     ElMessage.error(e?.response?.data?.message || e?.message || '加载美文失败')
     return
   }
-  try {
-    comments.value = (await api.articleComments(Number(route.params.id))) as any
-  } catch (e: any) {
+  if (cmtRes.status === 'fulfilled') {
+    comments.value = cmtRes.value
+  } else {
+    const e: any = cmtRes.reason
     commentsError.value = e?.response?.data?.message || '评论加载失败'
   }
 })
