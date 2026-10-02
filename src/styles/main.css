@@ -3084,6 +3084,46 @@ html, body { overflow-x: clip; }
   font-weight: 700;
 }
 .markdown-body table tr:nth-child(even) { background: rgba(var(--zg-primary-rgb), 0.03); }
+
+/* ---------------------------------------------------------------------------
+   【v4.9.0 表格保真】合并单元格（rowspan / colspan）表格的渲染规则。
+   GFM 语法表达不了合并单元格，因此这类表格在入库时被保留为 **HTML 片段**。
+   上面的 .markdown-body table 规则对 HTML 表格本就生效，这里只补两点：
+     ① 「把 thead/tbody/tr/td 恢复成 table 布局」的规则里，缺了 tfoot 之外的部分选择器；
+        实测 `.q-ref table` / `.q-answer table` 的 td 未在恢复列表里 → 单元格变回 inline
+        → 合并单元格表格在这些容器里会塌掉。这里统一补齐。
+     ② 合并单元格里的 <p>（Word 常见）需要去掉默认大边距，否则行高被撑开。
+   --------------------------------------------------------------------------- */
+.markdown-body table tfoot,
+.q-answer table tfoot,
+.q-ref table tfoot { display: table-footer-group; }
+.markdown-body table tbody,
+.q-answer table tbody,
+.q-ref table tbody { display: table-row-group; }
+.markdown-body table thead,
+.q-answer table thead,
+.q-ref table thead { display: table-header-group; }
+.markdown-body table th,
+.q-answer table th,
+.q-ref table th,
+.markdown-body table td,
+.q-answer table td,
+.q-ref table td {
+  display: table-cell;
+  vertical-align: top;
+}
+/* 合并单元格里的 <p>（Word 粘贴常见）：去掉外间距，避免行高虚高 */
+.markdown-body table td > p:only-child,
+.markdown-body table th > p:only-child,
+.q-content table td > p:only-child,
+.q-answer table td > p:only-child,
+.q-ref table td > p:only-child {
+  margin: 0;
+}
+/* rowspan 跨行时，被合并的续格不应再画上边框（视觉上与起始格连成一体） */
+.markdown-body table td[vmerge="continue"],
+.markdown-body table td[vertical-merge="continue"] { border-top: 0; }
+
 .markdown-body hr {
   border: 0;
   height: 1px;

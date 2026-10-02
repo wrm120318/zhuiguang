@@ -79,10 +79,65 @@ const BLOCK_TAGS = new Set([
 ])
 
 /**
+ * 【v4.9.0 表格保真】判断表格是否含**合并单元格**（rowspan / colspan）。
+ *
+ * 【为什么必须单独判】
+ *   GFM 表格**语法上不支持** rowspan / colspan —— 这是规范硬限制，不是实现缺陷。
+ *   用户原话「粘进去之后 合并的单元格等都无法正确显示 直接格式错乱」正是这个原因：
+ *   一张 `| A | B |` 形式的表格**无法表达**「A 跨两行」这件事，
+ *   任何"压成 GFM"的做法都必然丢信息。
+ *
+ * 【本项目的解法 —— 混合存储】
+ *   · 无合并 → 照常转 GFM 表格（可被 marked 渲染、可全文搜索、体积小）✅
+ *   · 有合并 → **整表原样保留为 HTML 片段**，交给渲染端直出。
+ *     `sanitizeHtml` 的白名单里 `colspan` / `rowspan` 都是**放行**的，
+ *     全站 `.markdown-body table` 样式对 HTML 表格同样生效，渲染侧零改动。
+ *     导出端（DocxExportPanel）再把这层 HTML 解析回 Word 的 vMerge / gridSpan。
+ *
+ * 这样「传进去什么 = 渲染什么 = 导出什么」在表格上才真正成立。
+ */
+export function hasMergedCells(table: HTMLElement): boolean {
+  return table.querySelector('td[rowspan], th[rowspan], td[colspan], th[colspan]') !== null
+}
+
+/**
+ * 把表格序列化成**干净 HTML 片段**（用于合并单元格表格的保真存储）。
+ *
+ * ⚠️ 只保留白名单属性（rowspan / colspan / valign / align），
+ *    并剔除 Word 的垃圾属性（`class`、`mso-*`、`width` 之类会撑破版心的属性）。
+ *    否则一张 Word 表格能带出几 KB 的冗余属性，既撑大存储又破坏全站样式。
+ *
+ * ⚠️ **根元素（table 自身）也必须洗** —— `querySelectorAll('*')` 只返回后代，
+ *    不含自身。早期版本漏了这一点，导致 `<table class="MsoNormal" width="800">`
+ *    的脏属性全部漏网（实测：class / width / mso-* 都还在）。
+ */
+function tableToHtml(table: HTMLElement): string {
+  const clone = table.cloneNode(true) as HTMLElement
+  // 自身 + 所有后代一起洗（clone 是根，querySelectorAll 只给后代）
+  const all: HTMLElement[] = [clone, ...Array.from(clone.querySelectorAll('*')) as HTMLElement[]]
+  for (const e of all) {
+    for (const a of Array.from(e.attributes)) {
+      const n = a.name.toLowerCase()
+      // 保留：结构属性（合并）+ 对齐（Word 的居中/顶对齐是有语义的排版意图）
+      const keep = n === 'rowspan' || n === 'colspan' || n === 'valign' || n === 'align'
+      if (!keep) e.removeAttribute(a.name)
+    }
+  }
+  // Word 常塞 <p> 到单元格里，保留（渲染端样式已适配，且保住了段内结构）
+  return clone.outerHTML
+}
+
+/**
  * 解析 HTML 表格 → GFM 表格
  * Word 粘贴的表格常见嵌套 <p>，需先去标签再取文本。
+ *
+ * 【v4.9.0】含合并单元格时**不转 GFM**，改为原样输出 HTML 片段
+ *   （GFM 语法无法表达 rowspan/colspan，转换必然丢信息）。
  */
 function tableToMd(table: HTMLElement): string {
+  // 合并单元格 → 保真优先，直接存 HTML
+  if (hasMergedCells(table)) return tableToHtml(table)
+
   const rows: string[][] = []
   const trs = table.querySelectorAll('tr')
   trs.forEach(tr => {
@@ -438,7 +493,6 @@ export function isMostlyMarkdown(s: string): boolean {
   const hasBlock = /<\s*(table|tbody|thead|tr|td|th|div|p|h[1-6]|ul|ol|li|blockquote|pre|section|article)\b[^>]*>/i.test(s)
   return !hasBlock
 }
-
 /**
  * 【v4.8.18】混合内容的"局部标签替换"：
  * 只把散落在 Markdown 里的 HTML 标签翻译成等价 Markdown，不去解析整篇文档。

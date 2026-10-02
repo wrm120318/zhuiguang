@@ -9,11 +9,11 @@
 import { ref, reactive } from 'vue'
 // 【v4.5.3】docx 的 Math 组件必须重命名导入：它叫 Math，会覆盖全局 Math 对象，
 // 导致 Math.max/min/round/floor 全部报错（TS2339）。统一别名 MathOMML。
-import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, PageBreak, Table, TableRow, TableCell, WidthType, BorderStyle, Math as MathOMML, MathRun, MathFraction, MathRadical, MathSubScript, MathSuperScript, MathSubSuperScript } from 'docx'
+import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, HeadingLevel, PageBreak, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalMergeType, Math as MathOMML, MathRun, MathFraction, MathRadical, MathSubScript, MathSuperScript, MathSubSuperScript } from 'docx'
 import { saveAs } from 'file-saver'
 import katex from 'katex'
 import { API_BASE } from '@/utils/helpers'
-import { htmlToMarkdown, looksLikeHtml } from '@/utils/html-to-md'
+import { htmlToMarkdown, looksLikeHtml, hasMergedCells as hasMergedCellsIn } from '@/utils/html-to-md'
 // 【v4.9.0】行内 Markdown 扫描器 —— 替代被 base64 截断的 INLINE_RE（「导出全是乱码」的根因）
 import { scanInlineMd, decodeDataImageUrl, isLocalDiskImageUrl } from '@/utils/md-rich'
 import { ElMessage } from 'element-plus'
@@ -499,6 +499,25 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
  */
 async function mdToParagraphs(md: string, size: number, opts: { indent?: number; spacingAfter?: number } = {}): Promise<any[]> {
   let src = md || ''
+  // 【v4.9.0 表格保真】含合并单元格的表格在入库时被保留为 **HTML 片段**
+  //   （GFM 语法表达不了 rowspan/colspan）。这里必须在行级切分**之前**把它摘出来，
+  //   否则整段 `<table>…</table>` 会被当普通文本写进 Word → 用户看到的"格式错乱"。
+  //   摘出来的表格由 buildWordTableFromHtml 还原成带 vMerge / gridSpan 的 Word 真表格。
+  const htmlTables: { token: string; el: HTMLTableElement }[] = []
+  if (/<table\b/i.test(src) && typeof document !== 'undefined') {
+    try {
+      const holder = document.createElement('div')
+      holder.innerHTML = src
+      const tables = Array.from(holder.querySelectorAll('table')) as HTMLTableElement[]
+      tables.forEach(el => {
+        if (!hasMergedCellsIn(el)) return          // 无合并的交给 GFM 那条路，保持一致
+        const token = `\u0000ZGTBL${htmlTables.length}\u0000`
+        htmlTables.push({ token, el })
+        el.replaceWith(document.createTextNode(token))
+      })
+      if (htmlTables.length) src = holder.innerHTML
+    } catch { /* DOM 不可用 / 解析失败 → 退回原逻辑 */ }
+  }
   // 格式嗅探：HTML → Markdown（Markdown 自身合法出现 < 的场景由 looksLikeHtml 的标签白名单排除）
   if (looksLikeHtml(src)) {
     try { src = htmlToMarkdown(src) } catch { /* 转换失败则按原文继续，至少不抛错 */ }
@@ -510,6 +529,26 @@ async function mdToParagraphs(md: string, size: number, opts: { indent?: number;
   while (i < lines.length) {
     const line = lines[i]
     if (!line.trim()) { i++; continue }
+    // 【v4.9.0】还原被摘出的 HTML 合并表格
+    if (htmlTables.length && /\u0000ZGTBL\d+\u0000/.test(line)) {
+      const re = /\u0000ZGTBL(\d+)\u0000/g
+      let m: RegExpExecArray | null
+      let rest = line
+      const chunks: any[] = []
+      let cursor = 0
+      while ((m = re.exec(line))) {
+        if (m.index > cursor) chunks.push(null) // 占位：表格前后的文字（极少见，忽略即可）
+        const hit = htmlTables[Number(m[1])]
+        if (hit) {
+          const t = await buildWordTableFromHtml(hit.el, size)
+          if (t) chunks.push(t)
+        }
+        cursor = re.lastIndex
+      }
+      if (chunks.length) { out.push(...chunks.filter(Boolean)); i++; continue }
+      rest = rest.replace(re, '').trim()
+      if (!rest) { i++; continue }
+    }
     // GFM 表格：连续的 | 开头行 → 还原为 Word 真表格
     if (/^\s*\|.*\|\s*$/.test(line)) {
       const tbl: string[] = []
@@ -564,6 +603,86 @@ function mdPlain(md: string): string {
     .replace(/==([^=]+)==/g, '$1')
     .replace(/\$\$*([^$]+)\$\$*/g, '$1')
     .replace(/\n{2,}/g, '\n').trim()
+}
+
+// ===== 【v4.9.0】HTML 表格（含合并单元格）→ Word 真表格 =====
+/**
+ * 把保真存储的 HTML 表格片段还原成 Word 表格，**保留 rowspan / colspan**。
+ *
+ * 【为什么必须单开一条路】
+ *   GFM 表格语法上表达不了合并单元格（规范硬限制），所以入库时含合并的表格被
+ *   原样存成了 HTML 片段（见 html-to-md.ts 的 tableToMd）。导出时若只认 GFM，
+ *   这段 HTML 会被当普通文本写进 Word —— 用户看到的就是「格式错乱」。
+ *
+ * 【rowspan → vMerge 的 Word 规则】
+ *   docx 里纵向合并是「起始格 vMerge:'restart' + 后续被合并格 vMerge:'continue'」。
+ *   因此要维护一个**跨行的待补队列**：遇到 rowspan:n 的单元格，就把它后面 n-1 行
+ *   的同一列位置标记为需要继续合并。colspan 则直接映射为 gridSpan（同一行内合并）。
+ *
+ * 时间/空间复杂度都是 O(单元格数)，与表格规模线性相关。
+ */
+async function buildWordTableFromHtml(tableEl: HTMLTableElement, size: number): Promise<Table | null> {
+  // 把 thead/tbody/tfoot 里的 tr 按文档顺序摊平
+  const trs = Array.from(tableEl.querySelectorAll('tr'))
+  if (!trs.length) return null
+
+  const maxRows = trs.length
+  // vMergeQueue[col] = 该逻辑列还需要在后续多少行里输出 vMerge:'continue' 的剩余行数
+  const vMergeQueue: Record<number, number> = {}
+
+  const rows: any[] = []
+  for (let r = 0; r < maxRows; r++) {
+    const tr = trs[r] as HTMLTableRowElement
+    const tds = Array.from(tr.querySelectorAll('th,td')) as HTMLTableCellElement[]
+    const cells: any[] = []
+    // 当前行在"逻辑列"里的游标：每遇到一个显式单元格就按 colspan 推进
+    let col = 0
+
+    for (const td of tds) {
+      const colspan = Number(td.getAttribute('colspan')) || 1
+      const rowspan = Number(td.getAttribute('rowspan')) || 1
+      // 先补齐：本行此列已被**上方**的纵向合并占用 → 输出 continue 格并跳过
+      //   （Word 要求被合并的位置必须显式写出 vMerge:'continue'）
+      while (vMergeQueue[col] > 0) { cells.push(wordCell([], { vMerge: 'continue' })); vMergeQueue[col]--; col++ }
+
+      const runs = await inlineRuns(htmlCellToMd(td), size - 1)
+      const isHeader = td.tagName.toLowerCase() === 'th'
+      const opts: any = {
+        columnSpan: colspan > 1 ? colspan : undefined,
+        vMerge: rowspan > 1 ? 'restart' : undefined,
+      }
+      const ps = [new Paragraph({ children: runs.map((x: any) => { if (isHeader) x.bold = true; return x }) })]
+      cells.push(wordCell(ps, opts))
+      // 登记纵向合并：后续 (rowspan-1) 行在**同一逻辑列**需要补 continue 格
+      if (rowspan > 1) {
+        for (let k = 0; k < colspan; k++) vMergeQueue[col + k] = Math.max(vMergeQueue[col + k] || 0, rowspan - 1)
+      }
+      col += colspan
+    }
+    // 本行剩余列的续格
+    while (vMergeQueue[col] > 0) { cells.push(wordCell([], { vMerge: 'continue' })); vMergeQueue[col]--; col++ }
+
+    rows.push(new TableRow({ tableHeader: r === 0, children: cells }))
+  }
+  if (!rows.length) return null
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows })
+}
+
+/** 表格单元格（可带 colspan / vMerge） */
+function wordCell(children: any[], opts: { columnSpan?: number; vMerge?: 'restart' | 'continue' } = {}): TableCell {
+  return new TableCell({
+    borders: cellBorder(),
+    children: children.length ? children : [new Paragraph({ children: [] })],
+    ...(opts.columnSpan ? { columnSpan: opts.columnSpan } : {}),
+    ...(opts.vMerge
+      ? { verticalMerge: opts.vMerge === 'restart' ? VerticalMergeType.RESTART : VerticalMergeType.CONTINUE }
+      : {}),
+  })
+}
+
+/** 把 HTML 单元格内容转成本导出器认识的 Markdown（图片/公式/加粗都要保留） */
+function htmlCellToMd(td: HTMLTableCellElement): string {
+  try { return htmlToMarkdown(td.innerHTML) } catch { return td.textContent || '' }
 }
 
 // ===== 【v4.8.16】Markdown 表格 → Word 真表格 =====

@@ -4418,6 +4418,167 @@ app.patch('/api/subject-questions/:id', auth, async (c) => {
 })
 
 // ==============================================================================
+// ============ 【v4.9.0】智能题库批量操作 + 去重 + 知识点推荐 ============
+//
+// 【背景】用户要求「补充智能题库功能」，澄清后明确「多多益善」。
+//   组卷网/智学网在这一块的能力是：批量改题型、批量打知识点、批量删除、
+//   题目去重、知识点自动标注。这里一次性补齐。
+//
+// 【设计原则：单条权限校验的复用】
+//   批量端点**不重写**权限判断，而是复用与单条 PATCH/DELETE 完全相同的规则，
+//   避免"单条拦得住、批量绕过"这种最危险的安全漏洞。
+// ==============================================================================
+
+/** 判断当前用户能否编辑/删除某道题（与单条端点同一套规则） */
+async function canEditQuestion(u: any, q: any): Promise<boolean> {
+  if (!u || !q) return false
+  if (u.role === 'SUPER_ADMIN') return true
+  const isStaff = u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, q.subject_id)
+  if (isStaff) return true
+  return Number(q.creator_id) === Number(u.id)
+}
+
+/** 把 id 列表切成 SQL IN 的占位符（D1 单语句参数上限 100，这里保守取 90） */
+const BATCH_MAX = 90
+
+app.post('/api/subject-questions/batch-update', auth, async (c) => {
+  const u = c.get('user') as any
+  const b = await c.req.json().catch(() => ({}))
+  const ids: number[] = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, BATCH_MAX) : []
+  if (!ids.length) return c.json({ message: '请至少选择一道题' }, 400)
+
+  // 逐条校验权限：不做"先过滤再更新"的黑盒操作，保证能精确回报被拒绝的题
+  const ph = ids.map(() => '?').join(',')
+  const rows = await all<any>(`SELECT id, subject_id, creator_id FROM subject_questions WHERE id IN (${ph})`, ...ids)
+  const allowed: number[] = []
+  const denied: number[] = []
+  for (const r of rows) (await canEditQuestion(u, r)) ? allowed.push(r.id) : denied.push(r.id)
+  if (!allowed.length) return c.json({ message: '没有可操作的题目（权限不足）', denied }, 403)
+
+  // 支持的批量字段（白名单，杜绝任意列注入）
+  const FIELD_MAP: Record<string, string> = {
+    qtype: 'qtype', difficulty: 'difficulty', score: 'score', status: 'status',
+    textbook_version: 'textbook_version', region: 'region', chapter: 'chapter',
+    year: 'year', source: 'source',
+  }
+  const sets: string[] = []
+  const vals: any[] = []
+  for (const [k, col] of Object.entries(FIELD_MAP)) {
+    if (b[k] !== undefined && b[k] !== null && b[k] !== '') { sets.push(`${col}=?`); vals.push(b[k]) }
+  }
+  const ph2 = allowed.map(() => '?').join(',')
+  if (sets.length) {
+    await run(`UPDATE subject_questions SET ${sets.join(', ')} WHERE id IN (${ph2})`, ...vals, ...allowed)
+  }
+
+  // 知识点：批量「追加」而非覆盖 —— 批量场景下覆盖会误删原有标注，风险太高
+  const kpIds: number[] = Array.isArray(b.add_knowledge_point_ids) ? b.add_knowledge_point_ids.map(Number).filter(Boolean) : []
+  if (kpIds.length) {
+    for (const qid of allowed) {
+      for (const kid of kpIds) {
+        // 幂等：已存在的关系不重复插入（依赖 UNIQUE 索引 + INSERT OR IGNORE）
+        await run('INSERT OR IGNORE INTO question_knowledge (question_id, knowledge_point_id) VALUES (?,?)', qid, kid)
+      }
+    }
+  }
+
+  clearAllCache()
+  return c.json({ ok: true, updated: allowed.length, denied })
+})
+
+app.post('/api/subject-questions/batch-delete', auth, async (c) => {
+  const u = c.get('user') as any
+  const b = await c.req.json().catch(() => ({}))
+  const ids: number[] = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, BATCH_MAX) : []
+  if (!ids.length) return c.json({ message: '请至少选择一道题' }, 400)
+
+  const ph = ids.map(() => '?').join(',')
+  const rows = await all<any>(`SELECT id, subject_id, creator_id FROM subject_questions WHERE id IN (${ph})`, ...ids)
+  const allowed: number[] = []
+  const denied: number[] = []
+  // 删除比编辑更严格：与单条 DELETE 一致，教师只能删**自己创建**的题
+  for (const r of rows) {
+    const isSuper = u.role === 'SUPER_ADMIN'
+    const own = Number(r.creator_id) === Number(u.id)
+    const canStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, r.subject_id)
+    if (isSuper || (canStaff && own)) allowed.push(r.id)
+    else denied.push(r.id)
+  }
+  if (!allowed.length) return c.json({ message: '没有可删除的题目（仅创建者可删除）', denied }, 403)
+
+  const ph2 = allowed.map(() => '?').join(',')
+  await run(`DELETE FROM practice_submissions WHERE question_id IN (${ph2})`, ...allowed)
+  await run(`DELETE FROM subject_questions WHERE id IN (${ph2})`, ...allowed)
+  clearAllCache()
+  return c.json({ ok: true, deleted: allowed.length, denied })
+})
+
+/**
+ * 题目去重检测。
+ * 判据：题面归一化后（去空白 / 去标点 / 去 HTML）**前 N 字**相同，即视为疑似重复。
+ * 不追求 100% 精确（那需要向量检索），但足以覆盖"同一道题被老师导入两次"这个最常见场景。
+ */
+app.get('/api/subjects/:subjectId/questions/duplicates', auth, requireStaff, async (c) => {
+  const subjectId = Number(c.req.param('subjectId'))
+  const rows = await all<any>(
+    `SELECT id, qtype, content, answer, creator_id, created_at
+     FROM subject_questions WHERE subject_id=? ORDER BY id ASC`, subjectId)
+  const norm = (s: string) => String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, '')
+    .replace(/[\s\u00a0\u3000]/g, '')
+    .replace(/[。．.，,、；;：:！!？?"'“”‘’()（）\[\]【】]/g, '')
+    .trim()
+  const groups: Record<string, any[]> = {}
+  for (const r of rows) {
+    const key = norm(r.content).slice(0, 60)      // 前 60 字足以识别同题
+    if (!key || key.length < 8) continue          // 太短的不参与（避免误判"如图"这类）
+    ;(groups[key] ||= []).push({ id: r.id, qtype: r.qtype, preview: norm(r.content).slice(0, 80), answer: r.answer || '' })
+  }
+  const dupGroups = Object.values(groups).filter(g => g.length > 1)
+  return c.json({ groups: dupGroups, total: dupGroups.reduce((s, g) => s + g.length, 0), scanned: rows.length })
+})
+
+/**
+ * 知识点自动标注推荐。
+ * 用「知识点名称在题面中出现的字面命中」做推荐 —— 简单、可解释、零额外成本。
+ * 组卷网的"智能标注"本质也是关键词命中 + 人工确认，这里对齐同一语义。
+ */
+app.post('/api/subject-questions/:id/suggest-kp', auth, requireStaff, async (c) => {
+  const id = Number(c.req.param('id'))
+  const q = await get<any>('SELECT id, subject_id, content, options FROM subject_questions WHERE id=?', id)
+  if (!q) return c.json({ message: '题目不存在' }, 404)
+  const kps = await all<any>('SELECT id, name, parent_id FROM knowledge_points WHERE subject_id=?', q.subject_id)
+  const text = String(q.content || '').replace(/<[^>]+>/g, '') + ' ' + String(q.options || '')
+  const hits = kps
+    .filter(k => {
+      const name = String(k.name || '').trim()
+      return name.length >= 2 && text.includes(name)   // 单字知识点不参与，误报率太高
+    })
+    .map(k => ({ id: k.id, name: k.name, parent_id: k.parent_id, score: 1 }))
+  return c.json({ suggestions: hits })
+})
+
+/** 批量版知识点推荐：一次给一页题做标注建议（前端批量勾选后调 batch-update 落库） */
+app.post('/api/subjects/:subjectId/suggest-kp-batch', auth, requireStaff, async (c) => {
+  const subjectId = Number(c.req.param('subjectId'))
+  const b = await c.req.json().catch(() => ({}))
+  const ids: number[] = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 50) : []
+  if (!ids.length) return c.json({ suggestions: {} })
+  const kps = await all<any>('SELECT id, name, parent_id FROM knowledge_points WHERE subject_id=?', subjectId)
+  const ph = ids.map(() => '?').join(',')
+  const rows = await all<any>(`SELECT id, content, options FROM subject_questions WHERE id IN (${ph})`, ...ids)
+  const out: Record<string, any[]> = {}
+  for (const r of rows) {
+    const text = String(r.content || '').replace(/<[^>]+>/g, '') + ' ' + String(r.options || '')
+    out[String(r.id)] = kps
+      .filter(k => { const n = String(k.name || '').trim(); return n.length >= 2 && text.includes(n) })
+      .map(k => ({ id: k.id, name: k.name, parent_id: k.parent_id }))
+  }
+  return c.json({ suggestions: out })
+})
+
+// ==============================================================================
 // ============ 【v4.5.0】知识点（层级树）============
 // 【v4.8.25 对齐组卷网】本项目知识点层级**固定 2 级封顶**：
 //   · 一级 = 章 / 模块（如「力学」），作聚合标签，不再挂子级

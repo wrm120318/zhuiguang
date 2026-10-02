@@ -368,6 +368,13 @@ export const api = {
   practiceStats: (questionId: number) => http.get(`/api/practice/stats/${questionId}`),
   // ===== 【v4.5.0】智能题库：题目二次编辑 =====
   updateSubjectQuestion: (id: number, data: any) => http.patch(`/api/subject-questions/${id}`, data),
+  // ===== 【v4.9.0】智能题库批量操作 / 去重 / 知识点推荐 =====
+  batchUpdateQuestions: (data: { ids: number[]; [k: string]: any }) =>
+    http.post('/api/subject-questions/batch-update', data),
+  batchDeleteQuestions: (ids: number[]) => http.post('/api/subject-questions/batch-delete', { ids }),
+  findDuplicateQuestions: (subjectId: number) => http.get(`/api/subjects/${subjectId}/questions/duplicates`),
+  suggestKp: (qid: number) => http.post(`/api/subject-questions/${qid}/suggest-kp`, {}),
+  suggestKpBatch: (subjectId: number, ids: number[]) => http.post(`/api/subjects/${subjectId}/suggest-kp-batch`, { ids }),
   // ===== 【v4.5.0】知识点 =====
   knowledgePoints: (subjectId: number) => http.get(`/api/subjects/${subjectId}/knowledge-points`),
   createKnowledgePoint: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/knowledge-points`, data),

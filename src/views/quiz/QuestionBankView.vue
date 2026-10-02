@@ -9,6 +9,8 @@ import { renderMarkdown } from '@/utils/markdown'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
 import WordImportPanel from '@/components/WordImportPanel.vue'
+// 【v4.9.0】Word 原卷分栏编辑（左侧保真原卷 + 自动分割线，右侧复用添加题目的编辑器）
+import WordPaperSplitEditor from '@/components/WordPaperSplitEditor.vue'
 import CardsPanel from '@/components/CardsPanel.vue'
 
 const route = useRoute()
@@ -25,6 +27,103 @@ const showKpManager = ref(false)
 const showBasket = ref(false)
 const showExport = ref(false)
 const showImport = ref(false)
+const showPaperEdit = ref(false)
+
+// ===== 【v4.9.0】智能题库批量工具 =====
+const selected = ref<number[]>([])
+const showBatch = ref(false)
+const batchBusy = ref(false)
+const batchForm = reactive({
+  qtype: '', difficulty: undefined as number | undefined, score: undefined as number | undefined,
+  status: '', textbook_version: '', region: '', chapter: '', year: '', source: '',
+  add_knowledge_point_ids: [] as number[],
+})
+// 去重结果
+const dupGroups = ref<any[]>([])
+const dupScanned = ref(0)
+
+function toggleSelect(id: number, on: boolean) {
+  if (on) { if (!selected.value.includes(id)) selected.value.push(id) }
+  else selected.value = selected.value.filter(x => x !== id)
+}
+function clearSelection() { selected.value = [] }
+function selectAll() { selected.value = questions.value.map((q: any) => q.id) }
+
+function openBatchTools() {
+  if (!selected.value.length) { ElMessage.info('请先勾选要批量处理的题目'); return }
+  showBatch.value = true
+}
+
+async function runBatchUpdate() {
+  if (!selected.value.length) return
+  batchBusy.value = true
+  try {
+    // 只提交用户真正填了的字段（留空 = 不改动）
+    const payload: any = { ids: selected.value }
+    for (const k of ['qtype', 'difficulty', 'score', 'status', 'textbook_version', 'region', 'chapter', 'year', 'source'] as const) {
+      const v = (batchForm as any)[k]
+      if (v !== '' && v !== undefined && v !== null) payload[k] = v
+    }
+    if (batchForm.add_knowledge_point_ids.length) payload.add_knowledge_point_ids = batchForm.add_knowledge_point_ids
+    if (Object.keys(payload).length <= 1) { ElMessage.warning('请至少修改一个字段'); return }
+    const r: any = await api.batchUpdateQuestions(payload)
+    ElMessage.success(`已更新 ${r?.updated ?? selected.value.length} 道题${r?.denied?.length ? `，${r.denied.length} 道权限不足已跳过` : ''}`)
+    clearSelection()
+    await loadQuestions()
+  } catch (e: any) {
+    ElMessage.error('批量更新失败：' + (e?.response?.data?.message || e?.message || e))
+  } finally { batchBusy.value = false }
+}
+
+async function runBatchDelete() {
+  if (!selected.value.length) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 道题？此操作不可恢复（仅自己创建的题可删）。`, '批量删除', { type: 'warning' })
+  } catch { return }
+  batchBusy.value = true
+  try {
+    const r: any = await api.batchDeleteQuestions(selected.value)
+    ElMessage.success(`已删除 ${r?.deleted ?? 0} 道题${r?.denied?.length ? `，${r.denied.length} 道无权限已跳过` : ''}`)
+    clearSelection()
+    await loadQuestions()
+  } catch (e: any) {
+    ElMessage.error('批量删除失败：' + (e?.response?.data?.message || e?.message || e))
+  } finally { batchBusy.value = false }
+}
+
+/** 一键给选中题目推荐并追加知识点 */
+async function runAutoTag() {
+  if (!selected.value.length) return
+  batchBusy.value = true
+  try {
+    const r: any = await api.suggestKpBatch(subject.value.id, selected.value)
+    const sug = r?.suggestions || {}
+    const all = new Set<number>()
+    Object.values(sug).forEach((arr: any) => (arr || []).forEach((k: any) => all.add(Number(k.id))))
+    if (!all.size) { ElMessage.info('未在题面里匹配到现有知识点，可先补充知识点名称'); return }
+    const r2: any = await api.batchUpdateQuestions({ ids: selected.value, add_knowledge_point_ids: Array.from(all) })
+    ElMessage.success(`已按题面自动标注 ${all.size} 个知识点（覆盖 ${r2?.updated ?? selected.value.length} 题），请在题目里核对`)
+    clearSelection()
+    await loadQuestions()
+  } catch (e: any) {
+    ElMessage.error('自动标注失败：' + (e?.response?.data?.message || e?.message || e))
+  } finally { batchBusy.value = false }
+}
+
+/** 题目去重检测 */
+async function runDedupe() {
+  batchBusy.value = true
+  dupGroups.value = []
+  try {
+    const r: any = await api.findDuplicateQuestions(subject.value.id)
+    dupGroups.value = r?.groups || []
+    dupScanned.value = r?.scanned || 0
+    if (!dupGroups.value.length) ElMessage.success(`已扫描 ${dupScanned.value} 道题，未发现疑似重复`)
+    else ElMessage.warning(`发现 ${dupGroups.value.length} 组疑似重复（共 ${r.total} 题），请人工确认`)
+  } catch (e: any) {
+    ElMessage.error('去重检测失败：' + (e?.response?.data?.message || e?.message || e))
+  } finally { batchBusy.value = false }
+}
 const showCards = ref(false)
 // 题目列表内联展开答案/解析
 const showAnswer = ref(false)
@@ -313,6 +412,8 @@ async function smartAssemble() {
         <el-button type="success" @click="showSmart = true" icon="MagicStick">智能组卷</el-button>
         <el-button @click="showCards = true" icon="Postcard">制卡</el-button>
         <el-button v-if="isStaff" @click="showImport = true" icon="Upload">Word 导入</el-button>
+        <el-button v-if="isStaff" @click="showPaperEdit = true" icon="Document">原卷分栏编辑</el-button>
+        <el-button v-if="isStaff" @click="openBatchTools" icon="Operation">批量工具</el-button>
         <el-badge :value="subject ? basket.count(subject.id) : 0" :hidden="!subject || basket.count(subject.id) === 0">
           <el-button @click="showBasket = true" icon="Files">试题篮</el-button>
         </el-badge>
@@ -420,7 +521,15 @@ async function smartAssemble() {
 
         <!-- 题目卡片 -->
         <div v-loading="loading" class="q-list">
-          <div v-for="q in questions" :key="q.id" class="q-card glass" @click="openDetail(q)">
+          <div v-for="q in questions" :key="q.id" class="q-card glass" :class="{ 'q-selected': selected.includes(q.id) }" @click="openDetail(q)">
+            <!-- 【v4.9.0】批量操作勾选框（仅教师/超管可见） -->
+            <el-checkbox
+              v-if="isStaff"
+              class="q-pick"
+              :model-value="selected.includes(q.id)"
+              @click.stop
+              @change="(v: any) => toggleSelect(q.id, v)"
+            />
             <span class="q-bar" :style="{ background: qtypeColor[q.qtype] || '#f59e0b' }" />
             <div class="q-meta">
               <el-tag size="small" :style="{ borderColor: qtypeColor[q.qtype], color: qtypeColor[q.qtype] }" effect="plain">{{ qtypeLabels[q.qtype] || q.qtype }}</el-tag>
@@ -490,6 +599,98 @@ async function smartAssemble() {
 
     <el-dialog v-model="showImport" title="Word 试卷导入（自动拆分）" width="720px" append-to-body>
       <WordImportPanel v-if="subject" :subject-id="subject.id" @imported="() => { showImport=false; loadQuestions(); loadKp() }" />
+    </el-dialog>
+
+    <!-- 【v4.9.0】原卷分栏编辑：左保真原卷 + 分割线，右逐题编辑（编辑器与「添加题目」一致）-->
+    <el-dialog v-model="showPaperEdit" title="Word 原卷分栏编辑" width="96%" top="3vh" append-to-body destroy-on-close>
+      <WordPaperSplitEditor
+        v-if="subject"
+        :subject-id="subject.id"
+        :subject-name="subject.name"
+        @imported="loadQuestions(); loadKp()"
+      />
+    </el-dialog>
+
+    <!-- 【v4.9.0】智能题库批量工具 -->
+    <el-dialog v-model="showBatch" title="批量工具" width="640px" append-to-body>
+      <div class="batch-bar">
+        <span>已选 <b>{{ selected.length }}</b> / {{ questions.length }} 题</span>
+        <div>
+          <el-button size="small" @click="selectAll">全选本页</el-button>
+          <el-button size="small" @click="clearSelection">清空</el-button>
+        </div>
+      </div>
+
+      <el-tabs>
+        <el-tab-pane label="批量修改">
+          <el-form label-width="92px" size="small">
+            <el-row :gutter="12">
+              <el-col :span="12"><el-form-item label="题型">
+                <el-select v-model="batchForm.qtype" clearable placeholder="不改动" style="width:100%">
+                  <el-option v-for="(l, k) in qtypeLabels" :key="k" :label="l" :value="k" />
+                </el-select>
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="难度">
+                <el-select v-model="batchForm.difficulty" clearable placeholder="不改动" style="width:100%">
+                  <el-option v-for="d in [1,2,3,4,5]" :key="d" :label="'难度 ' + d" :value="d" />
+                </el-select>
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="分值">
+                <el-input-number v-model="batchForm.score" :min="1" :max="100" placeholder="不改动" style="width:100%" />
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="教材版本">
+                <el-input v-model="batchForm.textbook_version" placeholder="不改动" />
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="地区">
+                <el-input v-model="batchForm.region" placeholder="不改动" />
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="章节">
+                <el-input v-model="batchForm.chapter" placeholder="不改动" />
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="年份">
+                <el-input v-model="batchForm.year" placeholder="不改动" />
+              </el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="来源">
+                <el-input v-model="batchForm.source" placeholder="不改动" />
+              </el-form-item></el-col>
+            </el-row>
+            <el-form-item label="追加知识点">
+              <el-select v-model="batchForm.add_knowledge_point_ids" multiple filterable clearable placeholder="选填，批量追加（不覆盖原有）" style="width:100%">
+                <el-option v-for="k in kpList" :key="k.id" :label="(k.parent_id ? '　' : '') + k.name" :value="k.id" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+          <div class="batch-actions">
+            <el-button type="primary" :loading="batchBusy" @click="runBatchUpdate">应用到选中题目</el-button>
+            <el-button :loading="batchBusy" @click="runAutoTag">按题面自动标注知识点</el-button>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="去重检测">
+          <div class="batch-actions">
+            <el-button :loading="batchBusy" @click="runDedupe">扫描本学科重复题</el-button>
+            <span v-if="dupScanned" class="dup-meta">已扫描 {{ dupScanned }} 题</span>
+          </div>
+          <div v-if="dupGroups.length" class="dup-list">
+            <div v-for="(g, gi) in dupGroups" :key="gi" class="dup-group">
+              <div class="dup-head">第 {{ gi + 1 }} 组 · {{ g.length }} 题疑似重复</div>
+              <div v-for="q in g" :key="q.id" class="dup-item">
+                <el-tag size="small" effect="plain">{{ qtypeLabels[q.qtype] || q.qtype }}</el-tag>
+                <span class="dup-txt">{{ q.preview }}</span>
+                <span class="dup-id">#{{ q.id }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="dup-empty">点上方按钮开始扫描；命中的题目请自行判断是否删除（不自动删，避免误伤）</div>
+        </el-tab-pane>
+
+        <el-tab-pane label="危险操作">
+          <el-alert type="error" :closable="false" title="删除不可恢复" description="仅「自己创建」的题目会被删除，他人的题目会被自动跳过。" show-icon />
+          <div class="batch-actions">
+            <el-button type="danger" :loading="batchBusy" @click="runBatchDelete">删除选中的 {{ selected.length }} 道题</el-button>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-dialog>
 
     <el-dialog v-model="showCards" title="制卡（试题卡 / 错题卡 / 知识点卡）" width="760px" append-to-body>
@@ -631,6 +832,22 @@ async function smartAssemble() {
 /* 题目卡 */
 .q-list { display: flex; flex-direction: column; gap: 12px; }
 .q-card { position: relative; padding: 14px 16px 14px 22px; border-radius: 14px; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+/* 【v4.9.0】批量勾选 */
+.q-card .q-pick { position: absolute; top: 12px; right: 12px; z-index: 3; }
+.q-card.q-selected { box-shadow: 0 0 0 2px var(--zg-primary) inset, 0 8px 24px rgba(245,158,11,0.14); }
+
+/* 【v4.9.0】批量工具 */
+.batch-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+.batch-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.dup-meta { font-size: 12px; color: var(--zg-text-dim, #888); }
+.dup-list { max-height: 320px; overflow: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.dup-group { border: 1px solid rgba(0,0,0,0.09); border-radius: 10px; padding: 8px 10px; }
+.dup-head { font-size: 12px; font-weight: 700; color: #d97706; margin-bottom: 6px; }
+.dup-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-top: 1px dashed rgba(0,0,0,0.07); }
+.dup-item:first-of-type { border-top: 0; }
+.dup-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup-id { color: var(--zg-text-dim, #999); flex: 0 0 auto; }
+.dup-empty { font-size: 12px; color: var(--zg-text-dim, #999); padding: 14px 4px; }
 .q-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.12); }
 .q-bar { position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 4px; }
 .q-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
