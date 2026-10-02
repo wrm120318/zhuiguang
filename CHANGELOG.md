@@ -5,6 +5,41 @@
 
 ---
 
+## [v4.9.4] - 2026-10-02
+
+> **本轮主题：智能题库表格导出嵌套根治 + 渲染侧多余空白间隙剥离 + 首页 hero 6 项合一高速拉取。**
+> 用户三连反馈：① 表格题导出 Word 乱套；② 用 HTML 时段落/标题间仍有多余空行；③ 首页经验值/等级/学科/美文/资料/收藏能否同时高速拉取。
+
+### 🐛 修复一：智能题库表格导出 Word 乱套（含嵌套表）
+
+- **根因**：GFM 表格语法无法表达「合并单元格 / 嵌套表格」。历史题库里既有纯 GFM 表（math57 数学纯表）、也有嵌套表（hist62 历史嵌套表）、还有损坏的源数据（hist61）。旧 `docx-kit` 一律按 GFM 走，遇到嵌套表会把内层表拆成几十个 1×1 单元格 + 大量 `|`，整页错乱。
+- **修复**：`html-to-md.ts` 新增 `needsHtmlFidelity()`——**合并单元格或存在嵌套表格时走 HTML 保真**，否则仍是紧凑 GFM；`docx-kit.ts` 的 `buildWordTableFromHtml()` 只取**本层**行列（`closest('table') === tableEl` 过滤），单元格内的嵌套表还原为子表，GFM 单元格内的 `<br>` 还原为真实换行。
+- **验证**：浏览器内 `buildPaperDocx` 生成 docx → 解压 `word/document.xml` 按嵌套深度解析校验：math57 顶层 1 表 10×4 完全一致；hist62 外层 2×3(含 1 嵌套表) + 嵌套 4×2 + 独立 3×2 无泄漏；hist61 源数据本身 11 列损坏（转换器忠实处），结论 **ALL_PASS**。
+
+### 🐛 修复二：渲染侧段落 / 标题间多余空白间隙
+
+- **根因**：与导出侧 v4.9.3 对称——Word / 富文本 HTML 的 `style="margin-top/bottom:10pt"` 经 `sanitizeHtml` 的 `style` 属性**原样保留**，在渲染端变成可见空白间隙（并非用户手打的空行，故 `restoreBlankLines()` 无法识别）。
+- **修复**：`marked-extensions.ts` 的 `sanitizeAttrValue()` 对 `style` 分支**剥离 `margin/padding/mso-*`**（正则剔除 `margin*:.../padding*:.../mso-*`），**保留** `color/font/text-align/width` 等真实样式；`zg-br` 仍按用户实际空行 1:1 还原。
+- **验证**：Word 风格 HTML 的 `margin` 出现次数由修复前 6 降为 0，且 `color/font-size/text-align` 均正确保留；MD 标题/段落/列表/表格正常。
+
+### ⚡ 修复三：首页 hero 6 项数据同时高速拉取
+
+- **根因**：首页 hero（经验值/等级/学科/美文/资料/收藏）此前分散在多次请求 + `/api/auth/me` 启动调用，而 `/api/auth/me` 实测方差极大（P95 8.4s，单次最高 8.4s），且 `/api/home` 此前 `cfHIT=0`（边缘缓存未命中），首屏被拖累。
+- **修复**：
+  - 后端 `worker-api.ts` 的 `/api/home` **一次性聚合返回 6 项**（新增 `subjects` 计数 + 由 `parseOptionalAuth` 同源取 `exp`/`level`）；并把 `/api/home` 纳入边缘缓存——**匿名 60s 共享分片 / 登录 30s 按用户隔离**（写后 CACHE_VERSION 递增 + purgeEdgeCache 保证一致性）。
+  - 前端 `HomeView.vue` 的 `heroStats` 统一从单次 `/api/home` 响应取数，不再等待 App.vue 启动的 `/api/auth/me`；缺省回退到 `data.subjects` / 文章列表长度，任何一路失败仍有兜底数字。
+- **验证（生产实测）**：`/api/home` 匿名 MISS→**HIT-59s**、登录 MISS→**HIT-29s**；登录态返回 `exp=365, level=7, subjects=7, articles=6, resources=3, favoritesCount=4`；无头浏览器登录后首页 hero 实际渲染 `经验值=365 / 等级=7 / 学科=7 / 美文=6 / 资料=3 / 收藏=4`，与接口完全一致。
+
+### 修改文件
+
+- `src/utils/html-to-md.ts` —— 表格保真判定与单元格文本提取
+- `src/utils/docx-kit.ts` —— HTML 保真表格构建、嵌套表还原、GFM 换行
+- `src/utils/marked-extensions.ts` —— `sanitizeAttrValue` 剥离 inline margin/padding/mso-*
+- `src/views/HomeView.vue` —— hero 6 项统一从 `/api/home` 取数
+- `worker-api.ts` —— `/api/home` 聚合 6 项 + 边缘缓存分级
+
+---
+
 ## [v4.9.3] - 2026-10-02
 
 > **本轮主题：段落间 / 标题间多余空行彻底根治（v4.9.2 的补完）。**
