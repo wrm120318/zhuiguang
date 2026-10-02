@@ -312,7 +312,19 @@ function sanitizeAttrValue(name: string, value: string): string {
   if (n === 'style') {
     // 拦截可触发脚本的 CSS 表达式 / javascript:
     if (/expression\s*\(|javascript:|url\(\s*javascript:/i.test(value)) return ''
-    return value
+    // 【v4.9.4】剥离「段前 / 段后间距」类样式（margin / padding / mso-*）。
+    //   这些是 Word / 富文本编辑器带来的**排版行距**，并非用户敲的空行；
+    //   原样保留会在渲染时变成可见的空白间隙，被误认为"多出的空行"
+    //   （与 v4.9.3 导出侧移除 margin 判据、只认真正空段落的逻辑完全对称）。
+    //   保留 color / font / font-size / text-align / width / line-height 等真实有意义的样式。
+    //   ⚠️ 只删 spacing declaration，绝不删整个 style —— 否则用户设的颜色 / 字号会一起丢。
+    //   先剥掉调用方传进来的引号（val 可能带 " 或 '），否则首尾引号会残留在结果里。
+    const cleaned = value
+      .replace(/^["']|["']$/g, '')
+      .replace(/\s*(?:(?:margin|padding)(?:-[a-z]+)?|mso-[a-z0-9-]*)\s*:[^;]*;?/gi, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+    return cleaned
   }
   if (n === 'href' || n === 'src' || n === 'srcdoc' || n === 'xlink:href') {
     // value 可能带引号（"..."、'...'），先剥掉再判断，避免带引号的 data: 被漏判

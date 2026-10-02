@@ -22,6 +22,8 @@ const settings = useSettingsStore()
 const theme = useThemeStore()
 const articles = ref<any[]>([])
 const stats = ref<any>({})
+// 【v4.9.4】/api/home 聚合响应（hero 6 项合一），作为 hero 数据的单一来源
+const homeData = ref<any>(null)
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -86,18 +88,24 @@ const showAnnouncement = computed(() => {
 // 【v4.8.27】原为 `ref<any[]>` 且拉取整张收藏表，实际只用到 `.length`。
 //   现改为直接存**数量**（后端 /api/home 已算好 COUNT），少传一次全量数据。
 const favoritesCount = ref(0)
+// 【v4.9.4】hero 6 项全部来自单次 /api/home 聚合响应，无需再等 App.vue 启动的 /api/auth/me，
+//   真正「同时高速拉取」：学科/美文/资料来自 stats，经验值/等级/收藏来自登录态聚合。
+//   缺省回退到 data.subjects / articles 列表长度，保证任何一路失败时 hero 仍有兜底数字。
 const heroStats = computed(() => {
+  const h = homeData.value
+  const loggedIn = !!h?.loggedIn || user.isLogin
   const list: { k: string; v: number }[] = [
-    { k: '学科', v: data.subjects.length || 0 },
-    { k: '美文', v: stats.value.articles || articles.value.length || 0 },
-    { k: '资料', v: stats.value.resources || 0 },
+    { k: '学科', v: h?.stats?.subjects ?? (data.subjects.length || 0) },
+    { k: '美文', v: h?.stats?.articles ?? (articles.value.length || 0) },
+    { k: '资料', v: h?.stats?.resources ?? 0 },
   ]
-  if (user.isLogin) {
+  if (loggedIn) {
+    // 经验值/等级优先取 /api/home 聚合值（与 /api/auth/me 同源），缺省回退到 user store
     list.unshift(
-      { k: '经验值', v: user.current?.exp || 0 },
-      { k: '等级', v: user.current?.level || 1 },
+      { k: '经验值', v: (h?.exp ?? user.current?.exp) || 0 },
+      { k: '等级', v: (h?.level ?? user.current?.level) || 1 },
     )
-    list.push({ k: '收藏', v: favoritesCount.value || 0 })
+    list.push({ k: '收藏', v: h?.favoritesCount ?? 0 })
   }
   return list
 })
@@ -131,6 +139,8 @@ async function load() {
     if (artsRes.status === 'fulfilled') articles.value = (artsRes.value as any) || []
     if (homeRes.status === 'fulfilled') {
       const r: any = homeRes.value || {}
+      // 【v4.9.4】整包存下，hero 6 项统一从这里取（学科/美文/资料/经验值/等级/收藏）
+      homeData.value = r
       stats.value = r.stats || {}
       // 收藏：后端已算好数量，前端不再拉全量列表（原实现拉了整表却只用 .length）
       favoritesCount.value = r.favoritesCount || 0

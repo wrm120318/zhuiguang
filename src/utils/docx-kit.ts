@@ -24,7 +24,7 @@ import {
 } from 'docx'
 import katex from 'katex'
 import { API_BASE } from './helpers'
-import { htmlToMarkdown, looksLikeHtml, hasMergedCells } from './html-to-md'
+import { htmlToMarkdown, looksLikeHtml, needsHtmlFidelity } from './html-to-md'
 import { scanInlineMd, decodeDataImageUrl, isLocalDiskImageUrl } from './md-rich'
 
 // ===== 通用小工具 =====
@@ -228,6 +228,7 @@ export function cleanText(s: string): string {
   // 去掉零宽字符与不可见控制符（Word 粘贴常带入），保留正常空白
   return (s || '').replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
 }
+
 export function textRuns(s: string, size: number): any[] {
   const t = cleanText(s)
   if (!t) return []
@@ -305,6 +306,13 @@ export async function inlineRuns(text: string, size: number, boldPrefix = ''): P
     runs.push(new TextRun({ text: boldPrefix, bold: true, size }))
     text = text.slice(boldPrefix.length)
   }
+  // 【v4.9.4】GFM 表格单元格用 `<br>` 表达换行（`tableToGfm` 的既定约定），
+  //   但 `<br>` 到了这里还是**字面字符串**，会被当普通文字写进 Word
+  //   （实测 hist62 的单元格里出现 `&lt;br&gt;伯里克利主政时期…`）。
+  //   在**唯一的行内消费点**统一还原成真实换行 —— textRuns 会把 `\n` 变成
+  //   `TextRun({ break: 1 })`，即 Word 里的软换行。这样 GFM 表格与
+  //   历史遗留数据都能正确换行。
+  text = (text || '').replace(/<br\s*\/?>/gi, '\n')
   const tokens = scanInlineMd(text)
   let last = 0
   for (const tk of tokens) {
@@ -349,8 +357,59 @@ export async function inlineRuns(text: string, size: number, boldPrefix = ''): P
 }
 
 // ===== HTML 合并表格 → Word 真表格（保留 rowspan / colspan）=====
-function htmlCellToMd(td: HTMLTableCellElement): string {
-  try { return htmlToMarkdown(td.innerHTML) } catch { return td.textContent || '' }
+/**
+ * 【v4.9.4】单元格内容 → docx 段落。
+ *
+ * ⚠️ 关键：若单元格里**又套了一张表**，必须先把它摘出来单独生成 Word 子表格，
+ *    再和其余文本段落一起塞进外层单元格 —— Word **支持**单元格内嵌表格。
+ *
+ *    早期版本直接 `htmlToMarkdown(td.innerHTML)`，会把内层表的 `tr/td` 全部
+ *    拍平成一行文字（实测 hist62 的单元格里出现 `\| --- \| --- \|` 字面量）。
+ */
+async function htmlCellToChildren(td: HTMLTableCellElement, size: number): Promise<any[]> {
+  // 摘出单元格内的嵌套表（可能多个），换成占位符
+  const hasNested = td.querySelector('table') !== null
+  const slots: { token: string; el: HTMLTableElement }[] = []
+  if (hasNested) {
+    const holder = document.createElement('div')
+    holder.innerHTML = td.innerHTML
+    const innerTables = Array.from(holder.querySelectorAll('table')) as HTMLTableElement[]
+    innerTables.forEach(el => {
+      const token = `\u0000ZGNEST${slots.length}\u0000`
+      slots.push({ token, el })
+      el.replaceWith(document.createTextNode(token))
+    })
+    td = holder as unknown as HTMLTableCellElement
+  }
+
+  const md = (() => {
+    try { return htmlToMarkdown(td.innerHTML) } catch { return td.textContent || '' }
+  })()
+
+  // 按行拆开，把占位符所在行还原成子表格
+  const lines = md.split('\n')
+  const out: any[] = []
+  const hasSlot = /\u0000ZGNEST\d+\u0000/
+  if (!slots.length) {
+    return await mdToParagraphs(md, size, { spacingAfter: 20 })
+  }
+  for (const line of lines) {
+    if (hasSlot.test(line)) {
+      const re = /\u0000ZGNEST(\d+)\u0000/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(line))) {
+        const hit = slots[Number(m[1])]
+        if (!hit) continue
+        const sub = await buildWordTableFromHtml(hit.el, size)
+        if (sub) out.push(sub)
+      }
+      const rest = line.replace(re, '').trim()
+      if (rest) out.push(...await mdToParagraphs(rest, size, { spacingAfter: 20 }))
+    } else {
+      out.push(...await mdToParagraphs(line || ' ', size, { spacingAfter: 20 }))
+    }
+  }
+  return out.length ? out : [new Paragraph({ children: [] })]
 }
 
 /**
@@ -362,7 +421,9 @@ function htmlCellToMd(td: HTMLTableCellElement): string {
  *   的同一列位置标记为需要继续合并。colspan 则直接映射为 gridSpan（同一行内合并）。
  */
 export async function buildWordTableFromHtml(tableEl: HTMLTableElement, size: number): Promise<Table | null> {
-  const trs = Array.from(tableEl.querySelectorAll('tr'))
+  // 【v4.9.4】只取**本层**的行 —— `querySelectorAll('tr')` 会把嵌套子表的行也捞进来，
+  //   导致外层行数翻倍、列错位。用 closest('table') === tableEl 精确限定本层。
+  const trs = Array.from(tableEl.querySelectorAll('tr')).filter(tr => tr.closest('table') === tableEl)
   if (!trs.length) return null
 
   const rows: TableRow[] = []
@@ -370,6 +431,7 @@ export async function buildWordTableFromHtml(tableEl: HTMLTableElement, size: nu
   const vMergeQueue: Record<number, number> = {}
 
   for (const tr of trs) {
+    // 同样只取本层单元格
     const tds = Array.from(tr.children).filter(c => /^t[dh]$/i.test(c.tagName)) as HTMLTableCellElement[]
     const cells: TableCell[] = []
     let col = 0
@@ -383,9 +445,7 @@ export async function buildWordTableFromHtml(tableEl: HTMLTableElement, size: nu
       }
       const colspan = Math.max(1, Number(td.getAttribute('colspan') || 1))
       const rowspan = Math.max(1, Number(td.getAttribute('rowspan') || 1))
-      const md = htmlCellToMd(td)
-      const paras = await mdToParagraphs(md, size, { spacingAfter: 20 })
-      const children = paras.length ? paras : [new Paragraph({ children: [] })]
+      const children = await htmlCellToChildren(td, size)
       if (rowspan > 1) {
         cells.push(wordCell(children, { columnSpan: colspan > 1 ? colspan : undefined, vMerge: 'restart' }))
         for (let c = 0; c < colspan; c++) vMergeQueue[col + c] = rowspan - 1
@@ -440,7 +500,10 @@ export async function mdToParagraphs(
       holder.innerHTML = src
       const tables = Array.from(holder.querySelectorAll('table')) as HTMLTableElement[]
       tables.forEach(el => {
-        if (!hasMergedCells(el)) return          // 无合并的交给 GFM 那条路，保持一致
+        // 【v4.9.4】含合并单元格**或嵌套表格** → 走 HTML 保真通道。
+        //   嵌套表在 GFM 里无法表达（单元格内的 | 会被当外层列分隔符），
+        //   必须整体降级为 HTML，再由 buildWordTableFromHtml 还原成 Word 真表格。
+        if (!needsHtmlFidelity(el)) return   // 无合并无嵌套的交给 GFM 那条路，保持一致
         const token = `\u0000ZGTBL${htmlTables.length}\u0000`
         htmlTables.push({ token, el })
         el.replaceWith(document.createTextNode(token))

@@ -101,6 +101,32 @@ export function hasMergedCells(table: HTMLElement): boolean {
 }
 
 /**
+ * 【v4.9.4 嵌套表格】判断表格内部是否**再嵌了表格**。
+ *
+ * 【为什么嵌套表也必须走 HTML 保真】
+ *   GFM 表格语法**无法表达嵌套表格** —— 单元格里的 `|` 会被当作外层表的列分隔符。
+ *   实测（真实题库 hist62 / id=62）：
+ *     外层 3 列，某单元格内嵌一个 2×2 表格
+ *     → 内层表的 GFM 源码 `\| 内1 \| 内2 \|` 被**字面写进外层单元格**
+ *     → 内层的 `内1 内2 内3 内4` **泄漏成外层列**，列数从 3 炸到 26
+ *     → Word 里整个表格完全错位（用户说的「直接乱套」）
+ *
+ *   注意：判定必须只看**真正的后代 table**，不能把自己算进去。
+ *   `table.querySelector('table')` 恰好只查后代，符合要求。
+ */
+export function hasNestedTable(table: HTMLElement): boolean {
+  return table.querySelector('table') !== null
+}
+
+/**
+ * 判断一张表是否需要走 **HTML 保真**（而非压成 GFM）。
+ * 二者之一成立即保真：含合并单元格 / 含嵌套表格。
+ */
+export function needsHtmlFidelity(table: HTMLElement): boolean {
+  return hasMergedCells(table) || hasNestedTable(table)
+}
+
+/**
  * 把表格序列化成**干净 HTML 片段**（用于合并单元格表格的保真存储）。
  *
  * ⚠️ 只保留白名单属性（rowspan / colspan / valign / align），
@@ -128,27 +154,116 @@ function tableToHtml(table: HTMLElement): string {
 }
 
 /**
+ * 【v4.9.4】表格单元格 → 纯文本（**不产出任何 Markdown/GFM 表格语法**）。
+ *
+ * 【为什么必须单独写一个，不能复用 inlineToMd】
+ *   1. `inlineToMd` 的 `case 'table'` 会递归 `tableToMd()` → 产出 `\| a \| b \|`，
+ *      这些竖线随后被外层转义成 `\|`，**内表源码就变成了可见文字**写进文档。
+ *   2. `inlineToMd` 的 `escMd()` 会把 `_` 转义成 `\_`。
+ *      实测：题库 math57 的填空题 `填空___` 导出后在 Word 里显示 `\_\_\_` ❌
+ *      单元格是纯文本上下文，`_` 在这里不构成 Markdown 语法，**不该转义**。
+ *
+ *   本函数保留「粗体 / 斜体 / 换行」这些**有意义**的行内标记，
+ *   但丢弃表格结构语法 —— 因为外层单元格无法承载一张表。
+ *   含表格的单元格会由 `needsHtmlFidelity()` 提前拦截走 HTML 保真路径，
+ *   正常情况下不会走到这里的内表分支。
+ */
+function cellText(el: HTMLElement): string {
+  const walk = (n: ChildNode): string => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      // 单元格内不转义 `_` / `*` / `[` / `]` / 反引号 —— 它们是字面量
+      return (n.textContent || '').replace(/\s+/g, ' ')
+    }
+    if (n.nodeType !== Node.ELEMENT_NODE) return ''
+    const e = n as HTMLElement
+    const tag = e.tagName.toLowerCase()
+    const kids = () => Array.from(e.childNodes).map(walk).join('')
+    switch (tag) {
+      case 'br': return '\n'
+      case 'strong': case 'b': {
+        const inner = kids().trim()
+        return inner ? `**${inner}**` : ''
+      }
+      case 'em': case 'i': {
+        const inner = kids().trim()
+        return inner ? `*${inner}*` : ''
+      }
+      case 'del': case 's': case 'strike': {
+        const inner = kids().trim()
+        return inner ? `~~${inner}~~` : ''
+      }
+      case 'sup': {
+        const inner = kids().trim()
+        return inner ? `^${inner}^` : ''
+      }
+      case 'sub': {
+        const inner = kids().trim()
+        return inner ? `~${inner}~` : ''
+      }
+      case 'img': {
+        const src = e.getAttribute('src') || ''
+        if (!src || isLocalDiskSrc(src)) {
+          if (src) _noteIssue('localImageDropped')
+          return ''
+        }
+        const alt = e.getAttribute('alt') || '图片'
+        const w = Number(e.getAttribute('width')) || 0
+        const h = Number(e.getAttribute('height')) || 0
+        return (w && h) ? `![${alt}](${src} =${w}x${h})` : `![${alt}](${src})`
+      }
+      case 'span': case 'font': case 'p': case 'div': {
+        // 容器：子块之间用换行衔接，保留原段落结构
+        const parts: string[] = []
+        Array.from(e.childNodes).forEach(c => {
+          const t = walk(c)
+          if (t) parts.push(t)
+        })
+        return parts.join('\n')
+      }
+      default: return kids()
+    }
+  }
+  return walk(el)
+}
+
+/**
  * 解析 HTML 表格 → GFM 表格
  * Word 粘贴的表格常见嵌套 <p>，需先去标签再取文本。
  *
  * 【v4.9.0】含合并单元格时**不转 GFM**，改为原样输出 HTML 片段
  *   （GFM 语法无法表达 rowspan/colspan，转换必然丢信息）。
+ * 【v4.9.4】含**嵌套表格**时同样不转 GFM —— GFM 里单元格中的 `|` 会被
+ *   当成外层列分隔符，导致内表语法泄漏 + 列数爆炸（详见 hasNestedTable 注释）。
  */
 function tableToMd(table: HTMLElement): string {
-  // 合并单元格 → 保真优先，直接存 HTML
-  if (hasMergedCells(table)) return tableToHtml(table)
+  // 合并单元格 / 嵌套表格 → 保真优先，直接存 HTML
+  if (needsHtmlFidelity(table)) return tableToHtml(table)
+  return tableToGfm(table)
+}
 
+/**
+ * 纯 GFM 路径 —— **只在确保无合并、无嵌套时调用**。
+ *
+ * ⚠️ 单元格取值**不能**走 `inlineToMd()`：
+ *   `inlineToMd` 的 `case 'table'` 会递归调用 `tableToMd`，产出 GFM 语法文本，
+ *   再被外层 `.replace(/\|/g,'\\|')` 转义成 `\|`，最终把内表源码当普通文字写进文档。
+ *   （v4.9.4 起已由 needsHtmlFidelity 提前拦截嵌套表；此处再用 cellText 兜底。）
+ */
+function tableToGfm(table: HTMLElement): string {
   const rows: string[][] = []
-  const trs = table.querySelectorAll('tr')
+  // 只取**本层**的行，避免把内层表的 tr 也算进来
+  const trs = Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table)
   trs.forEach(tr => {
     const cells: string[] = []
-    tr.querySelectorAll('th,td').forEach(td => {
-      // 单元格内可能有 <p><strong>文字</strong></p>，取纯文本 + 保留粗体标记
-      let txt = inlineToMd(td as HTMLElement)
+    // 只取**本层**的单元格
+    const tds = Array.from(tr.querySelectorAll('th,td')).filter(td => td.closest('table') === table)
+    tds.forEach(td => {
+      // 单元格是**纯文本上下文**：取带行内标记的文本，但**不递归表格**
+      let txt = cellText(td as HTMLElement)
       // 【v4.8.25 修复「表格单元格内容被压成一行」】
       //   原写法 `replace(/\n+/g, ' ')` 把单元格里的**所有换行**（含显式 <br>）
       //   压成空格 —— 用户从 Excel/Word 粘贴的多行单元格内容全部塌成一行。
-      //   GFM 表格支持在单元格内用 `<br>` 表达换行（pandoc / GitHub / 组卷网一致做法），
+      //   GFM 表格支持在单元格内用 `<br>` 表达换行（pandoc / GitHub / 组网一致做法），
       //   故这里把换行折叠成 `<br>`，而不是空格。
       //   注意：必须先折叠「空行 / 连续换行」，再统一替换为单个 <br>，避免出现 <br><br> 堆叠。
       txt = txt
