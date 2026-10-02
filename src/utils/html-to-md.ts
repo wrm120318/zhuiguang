@@ -179,7 +179,11 @@ function tableToMd(table: HTMLElement): string {
   // 无 <th> 时，把首行也作为数据行重复一次（GFM 必须有分隔行）
   if (!hasTh) { /* 首行已作表头，保留原样 */ }
   body.forEach(r => lines.push(`| ${r.join(' | ')} |`))
-  return '\n\n' + lines.join('\n') + '\n\n'
+  // ⚠️ 这里**不再**自带前后 `\n\n`。
+  //   `joinBlocks` 是分隔符的**唯一决定方**（见其注释）—— 本函数若也加一份，
+  //   拼接处就翻倍。实测证据：`<p>说明如下</p><table>…</table><p>结论</p>`
+  //   曾经输出 `说明如下\n\n\n| 甲 | 乙 |\n…\n\n\n结论`（表格前后各多一行空行）。
+  return lines.join('\n')
 }
 
 /** 行内元素 → Markdown（递归处理子节点） */
@@ -342,34 +346,111 @@ function blockToMd(e: HTMLElement, _prev?: HTMLElement | null): string {
  *
  * 规则（依据用户原话「我留了多少空行就是多少。我 word 只是换了个行，
  * 就不应该出现空行」）：
- *   · 当前块为空（Word 里的空段落 `<p></p>` / `<p>&nbsp;</p>`）→ 产生**一个空行**
+ *   · 当前块为空（Word 里的空段落 `<p></p>` / `<p>&nbsp;</p>`）
+ *     → **累积计数**，在下一个非空块之前精确补出对应条数的空行
  *   · 当前块「紧贴」前一块（`isTightParagraph`：margin 为 0，或前一块以 `<br>` 结尾）
  *     → 用**单个 `\n`** 连接（只换行，不空行）
- *   · 其余 → 用 **`\n\n`** 连接（标准 Markdown 分段 = 一个空行）
+ *   · 其余 → 多个相邻非空块之间，用 **`\n\n`** 连接（标准 Markdown 分段 = 一个空行）
  *
  * ⚠️ 为什么「紧贴」判据要读 margin：
  *     Word 里「换行」与「分段」的视觉差异**不是靠标签区分的**（都是 `<p>`），
  *     而是靠**段落间距**表达的：`margin:0` 视觉紧贴、`margin-bottom:12pt` 才有空行。
  *     原实现只看标签名，于是把「紧贴的换行」也当成了「分段」→ 凭空多空行。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.9.1 修正 · 空行数量必须精确累加，不能"补齐即止"】
+ *
+ * 上一版对每个空块只做 `if (out && !/\n\n$/.test(out)) out += '\n\n'` ——
+ * 也就是「已经以空行结尾就不再叠加」。后果是**连续多个空段落被压成一个空行**：
+ *
+ *   实测证据（浏览器内真实转换）：
+ *     `<p>甲</p><p></p><p>乙</p>`         → `甲\n\n\n乙`（3 个换行 = 2 个空行 ❌ 应为 1 个）
+ *     `<p>甲</p><p></p><p></p><p>乙</p>`  → `甲\n\n\n乙`（与上一条**完全相同** ❌ 应为 2 个）
+ *   用户视角：「我留了多少空行就是多少」彻底失效 —— 留 1 行和留 2 行看起来一样。
+ *
+ * 修法：把空块**累积成计数 `pendingBlanks`**，等遇到下一个非空块时，
+ *   一次性在它前面补出 `pendingBlanks` 条空行。
+ *   这样「N 个空段落」严格对应「N 个空行」。
+ *
+ * ⚠️ 同时修正「空块与紧贴」的交互：空块之后的第一个非空块，
+ *    其连接符**已经由空行承担**，不能再叠加「分段」或「紧贴」的换行。
+ * ────────────────────────────────────────────────────────────────────────────
  */
 function joinBlocks(parts: string[], els: (HTMLElement | null)[]): string {
   let out = ''
+  /** 已累积但尚未输出的空行条数 */
+  let pendingBlanks = 0
+
   for (let i = 0; i < parts.length; i++) {
     const cur = parts[i]
     const curEl = els[i]
-    const isBlankBlock = curEl !== null && isBlankElement(curEl)
-    // 空块：作为「空行」输出（等价于用户真的留了一个空行）
-    if (isBlankBlock) {
-      if (out && !/\n\n$/.test(out)) out += '\n\n'
+
+    // ① 空块 → 只累加，不立刻输出（数量要精确保留）
+    if (curEl !== null && isBlankElement(curEl)) { pendingBlanks++; continue }
+    if (!cur.trim()) continue
+
+    // ② 第一个非空块
+    if (!out) {
+      out = cur
+      pendingBlanks = 0   // 首部的空行无意义（会被 tidy 清掉），直接丢弃
       continue
     }
-    if (!cur.trim()) continue
-    if (!out) { out = cur; continue }
+
+    // ③ 有空块待结算 → 精确补出对应条数的空行
+    //
+    //    【换算关系（务必别改错）】
+    //      markdown 里的换行数 → 视觉空行数：
+    //        1 个 `\n`   = 0 个空行（紧贴，只换行）
+    //        2 个 `\n`   = 1 个空行
+    //        N+1 个 `\n` = N 个空行
+    //      而「N 个空段落」= 用户留了 N 个空行。故：
+    //        `'\n'.repeat(pendingBlanks + 1)`
+    //
+    //    ⚠️ 不能写 `2 * pendingBlanks`：那会让 1 个空段落变成 2 个换行（对）
+    //       但 2 个空段落变成 4 个换行 = 3 个空行（**多了 1 个**，实测踩过）。
+    if (pendingBlanks > 0) {
+      out += '\n'.repeat(pendingBlanks + 1) + cur
+      pendingBlanks = 0
+      continue
+    }
+
+    // ④ 无空块 → 按「紧贴 / 分段」决定连接符
+    //
+    //    ⚠️ 特例：**「有块内结构的块」必须用空行隔离**。
+    //
+    //      这些语法在 Markdown 里是「多行构成一个整体」，行与行之间有强依赖：
+    //        · table        —— 表头 + 分隔行 + 数据行必须连续
+    //        · ul / ol      —— 列表项必须连续（且不能与前后段落粘连）
+    //        · pre          —— 代码块围栏
+    //        · blockquote   —— 引用行前缀
+    //
+    //      一旦与相邻段落**紧贴**（只用一个 `\n`），marked 会把它们当成
+    //      **同一个段落/同一个列表项的一部分**，结构直接被吃：
+    //
+    //      实测证据（浏览器内真实转换 + 渲染）：
+    //        · `<p>说明</p><table>…</table><p>结论</p>`
+    //            → 紧贴时 `结论` 被当成表格的第二行数据（表格错位）❌
+    //        · `<p>条件：</p><ul><li>甲</li><li>乙</li></ul><p>结论</p>`
+    //            → 紧贴时渲染成 `<li>乙<br>结论</li>`（`结论` 被吞进列表项）❌
+    //
+    //      这也解释了为什么 `tableToMd` 早期版本会**自带**前后 `\n\n`
+    //      —— 当时的意图是对的，只是它与 `joinBlocks` 的 `\n\n` 叠加成了三连换行。
+    //      现在把「哪些块需要空行隔离」这条语义**收到 joinBlocks 一处**，
+    //      既不叠加（不会出现 `\n\n\n`）也不会漏（不会出现粘连）。
+    //
+    //    ⚠️ 判定必须用 **DOM 元素**（curEl / prevEl），不能用 `parts[i]` 的字符串 ——
+    //      `blockToMd` 返回的是**转换后的 Markdown**（`| 甲 | 乙 |\n| --- |…`），
+    //      里面已经没有 `<table` 前缀了。用字符串判断会全部漏判。
+    const prevEl = els[i - 1]
+    const NEEDS_GAP = new Set(['table', 'ul', 'ol', 'pre', 'blockquote'])
+    const curNeedsGap = curEl !== null && NEEDS_GAP.has(curEl.tagName.toLowerCase())
+    const prevNeedsGap = prevEl !== null && NEEDS_GAP.has(prevEl.tagName.toLowerCase())
+    if (curNeedsGap || prevNeedsGap) { out += '\n\n' + cur; continue }
     const tight = curEl ? isTightParagraph(curEl, els[i - 1]) : false
-    // 紧贴 → 单换行；分段 → 空行（若 out 已经以空行结尾则不再叠加）
-    if (tight) out += '\n' + cur
-    else out += (/\n\n$/.test(out) ? '' : '\n\n') + cur
+    out += (tight ? '\n' : '\n\n') + cur
   }
+
+  // 尾部残留的空块：无意义（会被 tidy 清掉），无需补出
   return out
 }
 
@@ -384,56 +465,107 @@ function isBlankElement(e: HTMLElement): boolean {
 /**
  * 【v4.9.0】判断该段落与上一段落之间**应不应该有空行**。
  *
- * 这是本轮「空行 1:1 忠实还原」的核心判据 —— 读 Word 的**真实排版意图**，
+ * 这是「空行 1:1 忠实还原」的核心判据 —— 读真实的**排版意图**，
  * 而不是机械按标签名加空行。
  *
- * 三条判据（任一命中即视为"紧贴"，即用户只是换了个行）：
- *   ① 显式零间距：`margin:0` / `margin-bottom:0` / `margin-top:0`
- *      —— Word 默认段落样式 `margin:0cm;margin-bottom:.0001pt` 就是这种，
- *         用户在 Word 里看到的是**紧贴的两行**。
- *   ② `<br>` 直接结尾：上一段的最后一个元素是 `<br>`（用户敲了 Shift+Enter/回车）
- *   ③ 前一段落是「空段落」的逆：本段是纯 `<br>` 或只有空白
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.9.1 修正 · 全站「渲染后莫名多出很多空行」回归】
  *
- * ⚠️ 必须**保守**：任何判据不成立时一律按「有空行」处理（标准 Markdown 分段），
- *    否则会破坏正常的段落层次 —— 宁可多一个空行，也不要把两段粘成一段。
+ * 上一版的默认分支是「判据不成立 → 按分段（一个空行）」。这在 Word 导入场景没问题，
+ * 但对**全站其它入口是灾难**：HTML 编辑器 / 富文本粘贴出来的 `<p>甲</p><p>乙</p>`
+ * 是**极其普通**的结构（就是敲了一次回车），它既没有 `margin:0` 也没有 `<br>`，
+ * 于是每一对相邻段落都被判成「分段」，全部插进一个空行。
+ * 而全站展示容器（`.zg-rich`）带 `white-space: pre-wrap` —— `\n\n` 会被渲染成
+ * **一条真实的空行**。用户看到的就是「全站使用 HTML 编辑器渲染之后都莫名其妙多出很多空行」。
+ *
+ * 实测证据（浏览器内真实转换）：
+ *   `<p>甲</p><p>乙</p>` → `甲\n\n乙`  ← 凭空多一个空行
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【修正后的判据 —— 改为「有明确排版证据才空行」】
+ *
+ * 「空行」在结构化 HTML 里本就不是默认语义：`<p>` 只是段落边界。
+ * 真正表达「空段（= 用户刻意留的空行）」只有两种证据：
+ *   ① 上一块是**空块** —— 由 `joinBlocks` 的 `isBlankElement` 分支处理，落到这里时
+ *      `out` 已以 `\n\n` 结尾，下面的「不叠加」逻辑自然保证只空一行
+ *   ② 本段有**明确的段前间距**（`margin-top` / `padding-top` 为正）或 `mso-para-margin-top`
+ *
+ * 因此「紧贴（单个 `\n`）」成为默认，只有下列情况才升级为「空行（`\n\n`）」：
+ *   ① `margin-top` / `padding-top` 明确为正     —— 段前有间距 = 视觉空行
+ *   ② `margin-bottom` 明确为正（且本段非最后）   —— 段后有间距 = 视觉空行
+ *      ⚠️ Word 常见的 `margin:0cm;margin-bottom:.0001pt` **不算**（0.0001pt 视觉等同 0）
+ *   ③ 上一段以 `<br>` 结尾                       —— 用户用换行结束上一段 = 空一行
+ *
+ * 这样两边的诉求同时满足：
+ *   · Word 导入：`margin-bottom:12pt` 仍是空行、`.0001pt` 仍是紧贴（S2 的 21 条断言不变）
+ *   · 全站 HTML/MD：普通 `<p>` 恢复「一次回车 = 一行」，不再凭空多空行
  */
 function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
-  const style = (e.getAttribute('style') || '').toLowerCase()
+  const styleAttr = e.getAttribute('style') || ''
+  const style = styleAttr.toLowerCase()
 
-  // ── 判据 ①：显式零间距 ──
-  // ⚠️ **CSS 优先级**：`margin-bottom` 会覆盖简写 `margin`。
-  //   Word 常见写法 `margin:0cm;margin-bottom:12.0pt` —— 视觉上**是有空行的**，
-  //   若只匹配到前面的 `margin:0cm` 就判成紧贴，会出现「该空行的地方没空行」。
-  //   因此**必须优先检查 margin-bottom / margin-top**，只有它们不存在时才看简写 margin。
-  const mb = e.getAttribute('style')?.match(/(?:^|;)\s*margin-bottom\s*:\s*([^;]+)/i)
-  const mt = e.getAttribute('style')?.match(/(?:^|;)\s*margin-top\s*:\s*([^;]+)/i)
-  const mShorthand = e.getAttribute('style')?.match(/(?:^|;)\s*margin\s*:\s*([^;]+)/i)
-
-  const isZero = (v?: string) => {
+  // 取值工具：优先长属性（margin-top 会覆盖简写 margin 的对应分量）
+  const val = (name: string) => {
+    const m = styleAttr.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'))
+    return m ? m[1].trim().toLowerCase() : ''
+  }
+  /** 「视觉上等于 0」：0 / 0px / 0cm / .0001pt 这类 */
+  const isZero = (v: string) => {
     if (!v) return false
-    const s = v.trim().toLowerCase()
-    // 0 / 0px / 0cm / .0001pt（约 0.0001 磅，视觉等同 0）
-    return /^0(?:\.0+)?(?:[a-z%]*)$/.test(s) || /^\.?0{3,}1pt$/.test(s)
+    return /^0(?:\.0+)?(?:[a-z%]*)$/.test(v) || /^\.?0{3,}1pt$/.test(v)
   }
-
-  if (mb) {
-    // 显式声明了 margin-bottom → 以它为准（这是最精确的信号）
-    if (isZero(mb[1])) {
-      // 若同时 margin-top 明确大于 0，则仍应有空行
-      if (mt && !isZero(mt[1])) return false
-      return true
-    }
-    // 明确的大于 0 的段后间距 → 一定有空行
-    return false
-  }
-  if (mShorthand && isZero(mShorthand[1])) {
-    if (mt && !isZero(mt[1])) return false
+  /** 「明确为正」：只有显式带单位的正值才算，避免把 `auto` / `inherit` 误判 */
+  const isPositive = (v: string) => {
+    if (!v) return false
+    const m = /^(\d*\.?\d+)(pt|px|em|rem|cm|mm|in|%)$/.exec(v)
+    if (!m) return false
+    const n = parseFloat(m[1])
+    if (!(n > 0)) return false
+    // 0.0001pt 这类「Word 用来占位但视觉为 0」的值不算正间距
+    if (m[2] === 'pt' && n < 0.01) return false
     return true
   }
-  // Word 的 mso 段落间距样式（值为 0 表示紧贴）
-  if (/mso-para-margin(?:-bottom)?\s*:\s*0(?:\.0+)?(?:[a-z%]*)/.test(style)) return true
 
-  // ── 判据 ③：上一段以 <br> 结尾（用户在 Word 里敲了换行） ──
+  const mt = val('margin-top')
+  const pt = val('padding-top')
+  const mb = val('margin-bottom')
+  const pb = val('padding-bottom')
+  const mShort = styleAttr.match(/(?:^|;)\s*margin\s*:\s*([^;]+)/i)?.[1].trim().toLowerCase() || ''
+
+  // ── 证据 ①：段前有间距 → 视觉空行（不紧贴）──
+  const msoBefore = /mso-para-margin-top\s*:\s*(?!0(?:\.0+)?(?:[a-z%]*)\b)[^;]+/.test(style)
+  if (isPositive(mt) || isPositive(pt) || msoBefore) return false
+  // 简写 margin 的第一个分量（上）为正 → 段前有间距
+  if (mShort) {
+    const first = mShort.split(/\s+/)[0]
+    const isShorthandZero = isZero(mShort)
+    if (!isShorthandZero && isPositive(first)) return false
+  }
+
+  // ── 证据 ②：段后有间距 → 视觉空行（不紧贴）──
+  const msoAfter = /mso-para-margin-bottom\s*:\s*(?!0(?:\.0+)?(?:[a-z%]*)\b)[^;]+/.test(style)
+  if (isPositive(mb) || isPositive(pb) || msoAfter) return false
+  if (mShort && !isZero(mShort)) {
+    const parts = mShort.split(/\s+/)
+    // margin: 上 右 下 左 —— 只有 1 个值时上下同值（已在上面处理），
+    // 这里看第 3 个分量（下）；2 值写法时第 1 个分量是上下同值
+    const bottom = parts.length >= 3 ? parts[2] : (parts.length === 2 ? parts[0] : '')
+    if (isPositive(bottom)) return false
+  }
+
+  // ── 证据 ③：上一段以 <br> 结尾 → **紧贴**（只换行，不空行）──
+  //
+  // 【v4.9.1 修正 · 这条的方向原来搞反了】
+  //   上一版把它当成「有空行」的证据，理由是「用户敲了换行结束上一段」。
+  //   但 `<br>` 的语义就是**一次换行**，它已经把「换行」这件事表达完了；
+  //   若在它之后再加一个空行，用户看到的就比预期的多一行。
+  //
+  //   实测证据（浏览器内真实转换）：
+  //     `<p>第一段文字<br></p><p>第二段文字</p>` → `第一段文字\n\n第二段文字`（1 个空行 ❌）
+  //     期望 → `第一段文字\n第二段文字`（0 个空行 ✅）
+  //
+  //   ⚠️ 这正是用户抱怨「我 word 只是换了个行，就不应该出现空行，但是现在就冒出来了」
+  //      的**直接原因之一** —— Word 里用 Shift+Enter 换行时，段落末尾就带 `<br>`。
   if (prev) {
     const last = prev.lastElementChild
     if (last && last.tagName && last.tagName.toLowerCase() === 'br') return true
@@ -442,9 +574,12 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
         (lastNode as HTMLElement).tagName.toLowerCase() === 'br') return true
   }
 
-  // ── 默认：按「分段」处理（保有空行）──
-  // 保守策略：判据不成立时宁可保留空行，也不要把两段粘成一段（那会破坏段落层次）
-  return false
+  // ── 默认：紧贴（单个换行）──
+  // ⚠️ 这是与上一版**相反的默认值**，也是修掉「全站莫名多空行」的关键。
+  //    「空行」必须由**空块**（isBlankElement）或**明确的段间距**来表达，
+  //    而不是由「没找到证据」来兜底 —— 否则任何普通 `<p>甲</p><p>乙</p>`
+  //    都会被塞进一条空行。
+  return true
 }
 
 /** 清理转换结果里多余的换行/空格
@@ -461,14 +596,48 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
  * 做法：把 3+ 换行折叠为 **2 个**（= 1 个空行），这正是 Markdown 里
  *   「分段」的标准表达；用户真的要多个空行时，Word 里一定有对应的空段落，
  *   那些空段落会被 `blockToMd` 的 `case 'p'` 保留下来（返回 `\n\n`）。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.9.1 修正 · `\n{3,}` 折叠必须删掉】
+ *
+ * 上一版保留了 `.replace(/\n{3,}/g, '\n\n')`，理由是「归一化拼接副产物」。
+ * 但 `joinBlocks` 重写之后**已经没有拼接副产物了** —— 分隔符只由它一处产出：
+ *   · 紧贴 → 单个 `\n`
+ *   · 分段 → `\n\n`
+ *   · 空块 → 追加一组 `\n\n`
+ * 也就是说，`\n\n\n` 这种形态**只可能来自用户的空块**（真的留了 2 个空行）。
+ * 此时再折叠成 `\n\n` 就变成了「用户留了 N 个空行，最后只剩 1 个」——
+ * 直接违背用户原话「我留了多少空行就是多少」。
+ *
+ * 实测证据（浏览器内真实转换）：
+ *   `<p>甲</p><p></p><p></p><p>乙</p>` → 折叠前 `甲\n\n\n\n乙`、折叠后 `甲\n\n乙`
+ *   渲染后前者 = 2 个空行（正确），后者 = 0 个空行（用户丢了两行）。
+ *
+ * 因此这里**只做首尾清理**，中间的连续换行（= 用户刻意留的空行）**原样保留**。
+ * ⚠️ 但保留一个「安全上限」：连续换行最多 40 个（20 个空行），
+ *    防止极端脏 HTML（几千个空段落）撑爆存储与渲染性能。
  */
 function tidy(md: string): string {
   return md
     .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')      // 行尾空格
-    .replace(/\n{3,}/g, '\n\n')      // 3+ 空行 → 1 空行（仅归一化拼接副产物）
-    .replace(/^\n+/, '')             // 首部空行
-    .replace(/\n+$/, '')             // 尾部空行
+    .replace(/[ \t]+\n/g, '\n')        // 行尾空格
+    // 【v4.9.1】行首空格也要清。
+    //   实测证据：`<p>甲</p>\n\n后续说明` 转出来是 `甲\n\n 后续说明`
+    //   （第二行多一个前导空格）—— 来源是 `inlineToMd` 对文本节点做的
+    //   `.replace(/\s+/g,' ')` 把原本作为「块间分隔」的换行符留成了一个空格。
+    //   保留它会让 `.zg-rich` 的 `pre-wrap` 渲染出一格缩进（用户看到"莫名多了缩进"），
+    //   也会让 Markdown 里出现 4 空格起首时被误判成**缩进代码块**。
+    //   ⚠️ 只清**「纯文字行」**的行首空格：若该行以 Markdown 结构符号起首
+    //      （列表 `-` / `1.`、引用 `>`、代码围栏 ``` / ~~~、表格 `|`），
+    //      则缩进可能是**语义性的**（嵌套列表、缩进代码块），必须原样保留。
+    .replace(/^[ \t]+(?=[^\s\-*+>|`~#\d])/gm, '')
+    //   数值型有序列表（`1. x`）的行首缩进也要保留 —— 上面的否定字符类里的 \d
+    //   只能挡住"数字紧跟文字"，挡不住 `1.`。这里单独兜一层：
+    //   若行首缩进之后是 `数字.` 或 `数字)` 形式，同样不动。
+    .replace(/^([ \t]+)(?=\d+[.)]\s)/gm, '$1')
+    .replace(/\n{41,}/g, '\n'.repeat(40)) // 安全上限：≥20 个空行折叠（防脏数据）
+    .replace(/^\n+/, '')               // 首部空行
+    .replace(/\n+$/, '')               // 尾部空行
     .trim()
 }
 

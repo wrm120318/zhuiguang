@@ -5,6 +5,82 @@
 
 ---
 
+## [v4.9.1] - 2026-10-02
+
+> **本轮主题：v4.9.0 上线后的三项回归修复。**
+> 用户反馈原话：「1.无法拖动；2.Word 试卷导入 · 原卷分栏编辑 左栏的网站渲染有严重问题
+> 完全混乱；3.因为之前你修了编辑器的空行问题 现在全站使用 HTML 的编辑器渲染之后都
+> 莫名其妙多出了很多空行 md 也是 你修复一下这些内容」
+
+### 🐛 修复 1：原卷分栏编辑「无法拖动」
+
+三个根因叠加，逐个修掉：
+
+| # | 根因 | 修法 |
+|---|---|---|
+| 1 | `tagDocxBlocks()` 取 `section.children` —— 该层每页只有 1 个无类名 div，导致所有块拿到同一个 idx | 下沉取真正的 `p/table/ul/ol/h1-6` 内容块；实测 **1 个重复 idx → 11 个唯一 idx** |
+| 2 | `.zs-overlay` 没写 `z-index`，被 `article{z-index:1}` 压住 → `document.elementFromPoint()` 返回的是 `<p>` 而不是把手 | `.zs-overlay` 补 `z-index:20`；改用 overlay 事件代理；`::after` 伪元素扩大把手热区 |
+| 3 | 点击把手没位移就被判成拖动，`onDragEnd` 拿不到目标 | 加 4px 位移阈值；`onDragEnd` 用松手位置 `nearestBlockByY()` 兜底重算 |
+
+新增 `settleOverlay()`：`renderAsync` resolve 时浏览器还没完成分页/字体布局，
+用双 `requestAnimationFrame` + 空结果再补一次，保证叠加层一定落在正确位置。
+
+### 🐛 修复 2：左栏「网站渲染」完全混乱
+
+根因：预览走的是一套**自拼链路**（`htmlToMarkdown` → `renderMarkdown`），
+与导出的 `mdToParagraphs` + `inlineRuns` 是两套实现，必然漂移。
+
+修法：抽出唯一内核 **`@/utils/docx-kit`**（`buildPaperDocx`），
+预览直接「**同一个内核**生成 docx → `docx-preview` 渲染」，
+顺带彻底落实用户要求「传进去是什么、渲染的是什么、导出 word 就是什么」。
+
+同时 `rebuildFromContent()` 从手搓 `Document/Paragraph/TextRun` 改为调用 `buildPaperDocx`，
+公式（KaTeX→SVG/OMML）、图片、合并表格、列表版式不再丢失。
+
+### 🐛 修复 3：全站编辑器渲染后多出大量空行（HTML 与 Markdown 都有）
+
+五个根因，逐一修正：
+
+| # | 根因 | 修法 |
+|---|---|---|
+| A | `isTightParagraph()` 默认分支是「判据不成立 → 按分段插空行」 | **默认值反转**：找不到证据 → 按紧贴（单换行） |
+| B | `tidy()` 的 `\n{3,} → \n\n` 把用户刻意留的多个空行压成 1 个 | 删掉该折叠，改 `\n{41,}` 安全上限；只做首尾清理 |
+| C | `joinBlocks()` 空块逻辑「已以空行结尾就不再叠加」 | 改 `pendingBlanks` 累积计数，精确保留连续空块数量 |
+| D | 上一段以 `<br>` 结尾被当成「不紧贴」 | 改判为紧贴 —— `<br>` 本身就是一次换行，不该再多一个空行 |
+| E | `marked` `breaks:true` 下 `\n\n` 与 `\n\n\n` 都渲染成 `<p>甲</p><p>乙</p>`，空行数量彻底丢失 | 新增 `restoreBlankLines()`：从源 Markdown 数出空行数，在 `</p>` 之后补 `<p class="zg-br"></p>` 占位，配 `.zg-br` 样式恰好一行高 |
+
+配套修正：
+- `tableToMd()` 去掉自带的 `\n\n`，分隔符统一由 `joinBlocks` 决定（原先双重加导致表格前后 `\n\n\n`）
+- 新增 `NEEDS_GAP = ['table','ul','ol','pre','blockquote']`：有块内结构的块与相邻块用空行隔离
+  （修掉「表格被上段吞成第二行」「`- 甲/- 乙` 把下段吞进 `<li>`」）
+- 新增 `insideBlockContainer()` 栈配对扫描，禁止 `<p class="zg-br">` 插进 `<ul>/<ol>/<table>` 内部
+- `<p class="zg-br">` 定位到 `</p>` **之后**再插，避免 `<p>甲<p class="zg-br"></p></p>` 的非法嵌套
+- `tidy()` 新增行首空格清理（带 Markdown 语义缩进保护）
+
+### 🐛 修复 4：题号重复输出
+
+`docx-kit.questionParagraphs()` 无条件输出 `${idx}.（题型，分值）`，
+与题目原文自带的 `1.` 撞车，输出成 `1.（单项选择题，5分）1. 下列说法正确的是（ ）`。
+
+修法：检测 `content` 是否已以题号开头（`/^\s*\d+\s*[.、)）．]/`），已带则不重复输出数字；
+顺带把混用的 `（… )` 统一为全角 `（…，…分）`。
+
+### ✅ 验证
+
+| 套件 | 结果 |
+|---|---|
+| htmlToMarkdown 全站回归 | **21 / 21** |
+| Word 导入场景回归 | **21 / 21** |
+| 渲染端空行 DOM 实测回归 | **10 / 10** |
+| 编辑器 HTML 回归 | **7 / 7** |
+| 端到端 · 原卷分栏编辑 | **13 / 13** |
+| `npx vue-tsc --noEmit` | **零错误** |
+
+端到端关键断言：拖动分割线位置 `[365,460,582,630] → [365,508,582,630]`、
+把手 `elementFromPoint` 命中 `SPAN.zs-mark-grip`、网站渲染 3 题无 Markdown 残留、非法嵌套 0 处。
+
+---
+
 ## [v4.9.0] - 2026-10-02
 
 > **本轮主题：「传进去什么 = 渲染什么 = 导出什么」的全链路格式保真。**

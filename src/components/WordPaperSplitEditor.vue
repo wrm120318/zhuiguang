@@ -29,6 +29,8 @@ type ViewMode = 'word' | 'site'
 const viewMode = ref<ViewMode>('word')
 const leftPane = ref<HTMLElement | null>(null)
 const docxHost = ref<HTMLElement | null>(null)
+/** 叠加层根节点（mousedown 事件代理挂在它身上，见 onOverlayMouseDown） */
+const overlayRef = ref<HTMLElement | null>(null)
 const stage = ref<'pick' | 'split' | 'edit'>('pick')
 const busy = ref(false)
 const progressText = ref('')
@@ -97,6 +99,47 @@ function toText(html: string): string {
     .trim()
 }
 
+/** 选项行判据（A. / A． / (A) / A、） */
+const optLineRe = /^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/i
+
+/**
+ * 从题干 HTML 里剥掉「选项行 / 答案行 / 解析行」。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.9.1 修正 · 「选项重复输出两遍」】
+ *
+ * 上一版 `inferDraft` 返回的 `content` 用的是**完整 html**，
+ * 而 `options` 字段又从同一段文字里提取了一份。于是输出时：
+ *   content（已含选项段落 A. 甲 / B. 乙 …）+ options（再来一遍）→ **选项出现两遍**。
+ * 实测证据：「A. 甲\nB. 乙\nC. 丙\nA. 甲\nB. 乙…」
+ *
+ * 修法：`content` 只用**剥掉选项/答案/解析后**的题干 HTML。
+ *   ⚠️ 表格与图片必须保留（它们常是题干的一部分，且不可拆），
+ *      所以「含 table 的元素」一律跳过不删。
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+function stripOptionsFromHtml(html: string): string {
+  if (typeof document === 'undefined') return html
+  try {
+    const holder = document.createElement('div')
+    holder.innerHTML = html
+    Array.from(holder.children).forEach(el => {
+      const tag = el.tagName.toLowerCase()
+      // 表格 / 含表格的容器 → 保留（合并单元格表格是题干结构，不能删）
+      if (tag === 'table' || el.querySelector('table')) return
+      const t = (el.textContent || '').replace(/[\s\u00a0\u3000]+/g, ' ').trim()
+      if (!t) return
+      // 选项行
+      if (optLineRe.test(t)) { el.remove(); return }
+      // 答案行
+      if (/^(?:答案|参考答案|解答|答)\s*[:：]?/.test(t)) { el.remove(); return }
+      // 解析行
+      if (/^(?:答案解析|解析|【解析】|【答案】)/.test(t)) el.remove()
+    })
+    return holder.innerHTML
+  } catch { return html }
+}
+
 /**
  * 用一个 HTML 片段推断题型。
  * 与 WordImportPanel.parseBlock 保持同一套判据 —— 这样「导入」与「原卷编辑」
@@ -128,10 +171,13 @@ function inferDraft(html: string): DraftQuestion {
 
   return {
     qtype,
-    content: html,
+    // 【v4.9.1】content 必须剥掉选项/答案/解析段 —— 否则 content 与 options 各输出一遍，
+    //   用户看到「选项重复两遍」（实测已复现）。表格/图片会被保留。
+    content: stripOptionsFromHtml(html),
     options: opts,
     answer: answer.trim(),
-    analysis: '',
+    // rest 是除选项/答案外的其它文字（常是「解析」「说明」），归到 analysis
+    analysis: rest.filter(Boolean).join('\n'),
     score: 5,
     difficulty: 3,
     knowledge_point_ids: [],
@@ -181,6 +227,8 @@ async function onPick(e: Event) {
     ElMessage.success(`已识别 ${drafts.value.length} 道题，请核对分割线后进入编辑`)
     await nextTick()
     await renderWordView()
+    // 网站渲染视图也要有一份初始内容（用户切过去时不必等 350ms debounce）
+    scheduleSitePreview()
   } catch (err: any) {
     console.error(err)
     ElMessage.error('Word 解析失败：' + (err?.message || err))
@@ -236,10 +284,22 @@ function autoSplit(bs: Block[]): number[] {
     if (MINOR_RE.test(line) && i > 0) cuts.push(i)
   })
   if (!cuts.length) return [0, bs.length]
-  const b = [0, ...cuts.filter((c, i, a) => a.indexOf(c) === i), bs.length]
-  // 去重 + 保证严格递增
-  const uniq = Array.from(new Set(b)).sort((x, y) => x - y)
-  return uniq[0] === 0 ? uniq : [0, ...uniq]
+  const uniqCuts = Array.from(new Set(cuts)).sort((a, b) => a - b)
+  // ──────────────────────────────────────────────────────────────────────────
+  // 【v4.9.1 修正 · 卷头不能混进第 1 题】
+  //
+  // 上一版返回的是 `[0, ...cuts, bs.length]` —— 也就是**第 0 块永远是一道题**。
+  // 但试卷的第 0 块通常是**卷头**（标题 / 考试说明 / 姓名班级栏），
+  // 它根本没写题号，于是被凭空当成「第 1 题」，把真正的第 1 题挤成了第 2 题。
+  //
+  // 实测证据：某物理卷 → 识别出「1.（主观题）(5分) 物理试卷」，即卷头成了第 1 题。
+  //
+  // 修法：以**第一个切点**作为第 1 题的起点；第 1 个切点之前的块全部算卷头，
+  //       不生成题目（用户仍可通过「＋」按钮在任意位置手动加分割线）。
+  // ──────────────────────────────────────────────────────────────────────────
+  const start = uniqCuts[0]
+  const list = [start, ...uniqCuts.filter(c => c > start), bs.length]
+  return Array.from(new Set(list)).sort((x, y) => x - y)
 }
 
 // ===== Word 原卷视图（docx-preview 保真渲染）=====
@@ -265,22 +325,60 @@ function normForMatch(s: string): string {
     .replace(/[。．.，,、；;：:！!？?"'“”‘’()（）\[\]【】]/g, '')
 }
 
-/** 在原卷 DOM 上标注 data-block-idx，返回成功标注的数量 */
+/**
+ * 在原卷 DOM 上标注 data-block-idx，返回成功标注的数量。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.9.1 修正 · 「无法拖动」的根因之一：取错了 DOM 层级】
+ *
+ * docx-preview 真实渲染出来的结构是**四层**：
+ *   `host > div.docx-wrapper > section.docx > div/article > p|table`
+ * 其中 `article` 那一层带 `z-index:1`，是真正的「内容块」容器。
+ *
+ * 上一版取的是 `section.children` —— 也就是那层**没有类名的第二层 div**，
+ * 而它**每页只有一个**（它把整页所有段落都包在里面）。
+ * 结果：所有标注都打在同一个元素上，`data-block-idx` 反复被覆盖，
+ * `host.querySelectorAll('[data-block-idx]')` 永远只返回 1 个元素
+ * （实测：11 个块 → 去重后 1 个）。
+ * 拖拽时 `elementFromPoint(...).closest('[data-block-idx]')` 命中的 idx
+ * 也就永远是那一个值 → 拖了没反应。
+ *
+ * 修法：**下沉一层**取真正的内容块（p / table / ul / ol / h1-6 / li），
+ * 并处理 docx-preview 把多个段落塞进一个 div 的情况（再下沉一层）。
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+const CONTENT_TAGS = /^(p|table|ul|ol|h[1-6]|dl|blockquote|pre)$/i
+/** docx-preview 用来包内容的容器类名（这些层的子元素才是真正的内容块） */
+const WRAPPER_CLASSES = /^(docx-wrapper|docx|article|docx-wrapper-section)$/i
+
 function tagDocxBlocks(): number {
   const host = docxHost.value
   if (!host || !blocks.value.length) return 0
-  // docx-preview 的顶层结构：wrapper > section（每页）> p/table/…
-  // 这里统一取「section 的直接子元素」，没有 section 就退回 wrapper 的直接子元素
-  let tops: HTMLElement[] = Array.from(host.querySelectorAll('section')) as HTMLElement[]
-  if (!tops.length) tops = [host]
-  const candidates: HTMLElement[] = []
-  tops.forEach(sec => {
-    Array.from(sec.children).forEach(ch => candidates.push(ch as HTMLElement))
-  })
-  if (!candidates.length) return 0
-  // 清掉上一次的标注（重新渲染后旧标注会失效）
-  candidates.forEach(c => c.removeAttribute(BLOCK_IDX_ATTR))
 
+  // ① 先清掉上一次的标注（重新渲染后旧标注会失效，也会干扰下面的候选收集）
+  host.querySelectorAll(`[${BLOCK_IDX_ATTR}]`).forEach(el => el.removeAttribute(BLOCK_IDX_ATTR))
+
+  // ② 收集**真正的内容块**：优先找 p/table/ul/ol/h1-6，且不能嵌在 table 里
+  let candidates: HTMLElement[] = Array.from(host.querySelectorAll('p, table, ul, ol, h1, h2, h3, h4, h5, h6'))
+    .filter(el => el.tagName.toLowerCase() !== 'p' || !el.closest('table')) as HTMLElement[]
+
+  // ③ 兜底：如果一段 p 都找不到（极端结构），退回「wrapper 层的有 class 的容器」
+  if (!candidates.length) {
+    const wrappers = Array.from(host.querySelectorAll('section, div, article'))
+      .filter(el => WRAPPER_CLASSES.test(el.className || '')) as HTMLElement[]
+    const pool: HTMLElement[] = []
+    const push = (el: HTMLElement) => {
+      const inner = Array.from(el.children).filter(c => CONTENT_TAGS.test((c as HTMLElement).tagName)) as HTMLElement[]
+      if (inner.length > 1) inner.forEach(c => pool.push(c))
+      else pool.push(el)
+    }
+    if (wrappers.length) wrappers.forEach(push)
+    else push(host)
+    candidates = pool
+  }
+  if (!candidates.length) return 0
+
+  // ④ 文本前缀配对（保留上一版的稳健策略：校验 → 顺延 → 硬配三级兜底）
   let bi = 0
   let tagged = 0
   for (const el of candidates) {
@@ -309,6 +407,29 @@ function tagDocxBlocks(): number {
   return tagged
 }
 
+/**
+ * 【v4.9.1】把「渲染完成 → 标注 → 布局」的时序做稳。
+ *
+ * 为什么需要单独一个函数：docx-preview 的 `renderAsync` resolve 之后，
+ * 浏览器**还没完成布局**（尤其是 `breakPages` 分页与字体加载）。
+ * 此时立刻 `getBoundingClientRect()` 拿到的位置可能是 0 或旧值，
+ * 叠加层就会画在错误的位置（用户看到「分割线全挤在最上面」）。
+ *
+ * 采用**双 rAF**（等两个绘制帧）后测量；若首轮没标注到任何块，
+ * 再补一轮 rAF 重试（字体/分页可能在更晚的帧里才稳定）。
+ */
+function settleOverlay() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const n = tagDocxBlocks()
+      layoutOverlay()
+      if (!marks.value.length && n > 0) {
+        requestAnimationFrame(() => { tagDocxBlocks(); layoutOverlay() })
+      }
+    })
+  })
+}
+
 async function renderWordView() {
   if (!docxHost.value || !srcArrayBuffer) return
   try {
@@ -323,11 +444,17 @@ async function renderWordView() {
       renderHeaders: true,
       renderFooters: true,
     })
-    // 渲染完成后立刻对齐块编号，并叠加可视分割线
+    // 渲染完成后对齐块编号，并叠加可视分割线。
+    // 【v4.9.1】改用 settleOverlay：双 rAF 等布局稳定后再测量，
+    //   否则 renderAsync resolve 时浏览器还没完成分页/字体布局，
+    //   量到的块位置是 0 或旧值 → 分割线全挤在最上面。
     await nextTick()
-    const n = tagDocxBlocks()
-    if (!n) console.warn('[原卷编辑] 未能对齐任何块，拖拽吸附将不可用')
-    layoutOverlay()
+    settleOverlay()
+    requestAnimationFrame(() => {
+      if (!docxHost.value?.querySelector(`[${BLOCK_IDX_ATTR}]`)) {
+        console.warn('[原卷编辑] 未能对齐任何块，拖拽吸附将不可用')
+      }
+    })
   } catch (e: any) {
     console.warn('[docx-preview] 渲染失败，退回网站视图:', e?.message)
     viewMode.value = 'site'
@@ -386,8 +513,14 @@ watch(boundaries, () => { nextTick(() => layoutOverlay()) })
 function onResize() { layoutOverlay() }
 
 // 切换视图时按需渲染
+//
+// 【v4.9.1】`word` 分支走 renderWordView（内含 settleOverlay，双 rAF 等布局稳定）；
+//   `site` 分支触发网站预览重算（见 renderSitePreview / scheduleSitePreview）。
+//   ⚠️ v-show 切换时元素只是 display 变了，DOM 尺寸需要一帧才更新，
+//     所以两种视图都必须在 nextTick 之后再测量/渲染。
 watch(viewMode, async (m) => {
   if (m === 'word') { await nextTick(); await renderWordView() }
+  else if (m === 'site') { scheduleSitePreview() }
 })
 
 /** 「按当前内容重新渲染 docx」—— 把编辑后的题目重新生成 Word 预览 */
@@ -396,25 +529,32 @@ async function rebuildFromContent() {
   busy.value = true
   progressText.value = '正在按当前内容重新排版…'
   try {
-    // 用编辑后的内容拼一份新的 docx（复用导出器的能力：Markdown → docx）
-    const { Document, Packer, Paragraph, TextRun } = await import('docx')
-    const paras: any[] = []
-    chunks.value.forEach((c, i) => {
+    // 【v4.9.1 修正】改用**唯一的 Word 构建器** buildPaperDocx（@/utils/docx-kit）。
+    //
+    // 上一版在这里手搓 `Document/Paragraph/TextRun` 并把每行文字 `replace(/<[^>]+>/g,'')`
+    // 拍扁成纯文本 —— 后果：**公式、图片、合并表格、列表版式全部丢失**，
+    // 重排出来的「原卷」和最终导出的 Word 完全是两个样子。
+    // 现在与导出、网站预览共用同一套实现，三者天然一致。
+    const { buildPaperDocx } = await import('@/utils/docx-kit')
+    const questions = chunks.value.map((c, i) => {
       const d = drafts.value[i]
-      paras.push(new Paragraph({ children: [new TextRun({ text: `${i + 1}.（${qtypeLabel(d?.qtype || 'subjective')}）(${d?.score ?? 5}分)`, bold: true })] }))
-      const body = d?.content ?? c.html
-      body.split('\n').forEach(ln => {
-        const t = ln.replace(/<[^>]+>/g, '').trim()
-        if (t) paras.push(new Paragraph({ children: [new TextRun({ text: t })] }))
-      })
-      ;(d?.options || []).forEach((o, k) => paras.push(new Paragraph({ children: [new TextRun({ text: `${'ABCDEFGH'[k] || '?'}. ${o}` })] })))
-      if (d?.answer) paras.push(new Paragraph({ children: [new TextRun({ text: `【答案】${d.answer}` })] }))
+      return {
+        qtype: d?.qtype || 'subjective',
+        content: d?.content ?? c.html,
+        options: d?.options || [],
+        answer: d?.answer || '',
+        analysis: d?.analysis || '',
+        score: d?.score ?? 5,
+      }
     })
-    const blob = await Packer.toBlob(new Document({ sections: [{ children: paras }] }))
+    const blob = await buildPaperDocx(questions, { showTypeHeading: false, withAnswers: false, fontSize: 21 })
     const buf = await blob.arrayBuffer()
     const { renderAsync } = await import('docx-preview')
     docxHost.value.innerHTML = ''
     await renderAsync(buf, docxHost.value, undefined, { className: 'docx', inWrapper: true, breakPages: true })
+    // 重排后 DOM 全新 → 必须重新标注块 + 重画分割线
+    await nextTick()
+    settleOverlay()
     ElMessage.success('已按当前内容重新渲染')
   } catch (e: any) {
     ElMessage.error('重新渲染失败：' + (e?.message || e))
@@ -471,6 +611,60 @@ let lastBoundarySnapshot: number[] = []
 //   3) mouseup → 吸附到目标块边界，重算 boundaries
 //
 // 首尾分割线不可拖（它们定义了全卷范围），UI 上把手的 cursor 也会变成 not-allowed。
+/**
+ * 【v4.9.1 修正 · 「无法拖动」的根本原因：叠加层被压在原卷文字之下】
+ *
+ * 上一版的 `.zs-overlay` 只有 `position:absolute; inset:0; pointer-events:none`，
+ * **没有 z-index**。而 docx-preview 渲染出的 `article` 自带 `z-index:1`
+ * （它自己的一套层叠上下文），于是 overlay 落到了原卷文字**下面**。
+ *
+ * 实测证据（浏览器内真实探测）：
+ *   `document.elementFromPoint(把手中心 x, y)` 返回的是 `<p>`，**不是** `.zs-mark-grip`
+ *   → mousedown 事件根本没打到把手上 → 拖动完全没反应。
+ *
+ * 修法三件套：
+ *   ① CSS 给 `.zs-overlay` 补 `z-index: 20`（详见 <style> 里的注释）
+ *   ② 把手/横线用 `::after` **向外扩热区**（±6~7px），否则 2px 高的横线
+ *      和 16px 高的图标在触控/快速拖动下极难命中
+ *   ③ mousedown 由叠加层**统一代理**（见下方 onOverlayMouseDown）：
+ *      不再依赖「点中把手」这种脆弱前提，而是按**鼠标 Y 与分割线的距离**判定
+ */
+
+/** 距分割线多少 px 以内算「抓到了这条线」 */
+const LINE_HOT_Y = 12
+
+/**
+ * 叠加层统一 mousedown 代理。
+ *
+ * 逻辑：
+ *   · 点在「合并/删除」小按钮上 → 交给按钮自己的 click（不管）
+ *   · 找与鼠标 Y 最近的一条分割线；超过 LINE_HOT_Y 视为没抓到 → 不管
+ *   · 点在**横线本体**上 → 走「点线合并」语义（由 @click 处理），不起拖
+ *   · 其余（把手、徽标、或分割线附近的任意位置）→ 起拖
+ *
+ * 这样即使把手只有十几个像素，用户「在分割线附近按下去拖」也能成功，
+ * 交互容错大幅提升。
+ */
+function onOverlayMouseDown(e: MouseEvent) {
+  const overlay = overlayRef.value
+  if (!overlay || e.button !== 0) return
+  const t = e.target as HTMLElement
+  // 小按钮（合并/删除）自己处理点击
+  if (t.closest('.zs-mini')) return
+  const ovRect = overlay.getBoundingClientRect()
+  const y = e.clientY - ovRect.top
+  let bestI = -1
+  let bestD = Infinity
+  marks.value.forEach((m, i) => {
+    const d = Math.abs(m.top - y)
+    if (d < bestD) { bestD = d; bestI = i }
+  })
+  if (bestI < 0 || bestD > LINE_HOT_Y) return
+  // 点线身 → 走「点线合并」语义（横线自己的 @click）
+  if (t.closest('.zs-mark-line')) return
+  onSplitMouseDown(marks.value[bestI].bi, e)
+}
+
 function onSplitMouseDown(i: number, e: MouseEvent) {
   if (e.button !== 0) return
   const mark = marks.value.find(m => m.bi === i)
@@ -479,13 +673,28 @@ function onSplitMouseDown(i: number, e: MouseEvent) {
   e.stopPropagation()
   dragging.value = i
   hoverBlockIdx.value = null
+  dragStartY = e.clientY
+  dragMoved = false
   window.addEventListener('mousemove', onDragMove)
   window.addEventListener('mouseup', onDragEnd)
 }
 
+/**
+ * 【v4.9.1】4px 位移阈值。
+ *
+ * 为什么需要：mousedown 之后用户可能只是「点了一下」就松手（没打算拖）。
+ * 若没有阈值，这一点会被当成「拖到当前位置」→ 分割线被移动到自己身上，
+ * 用户看到的是「莫名其妙跳了一下」。
+ * 加阈值后：位移 < 4px 视为点击，什么都不做。
+ */
+let dragStartY = 0
+let dragMoved = false
+
 function onDragMove(e: MouseEvent) {
   if (dragging.value === null) return
-  // 命中原卷里带标注的块（叠加层本身 pointer-events:none，不会挡住 elementFromPoint）
+  if (!dragMoved && Math.abs(e.clientY - dragStartY) < 4) return
+  dragMoved = true
+  // 命中原卷里带标注的块
   const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
   const host = el?.closest(`[${BLOCK_IDX_ATTR}]`) as HTMLElement | null
   if (host) {
@@ -514,20 +723,29 @@ function nearestBlockByY(clientY: number): number | null {
 }
 
 let pendingDragTarget: number | null = null
-function onDragEnd() {
+function onDragEnd(e?: MouseEvent) {
   const i = dragging.value
   dragging.value = null
   hoverBlockIdx.value = null
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
-  if (i === null || pendingDragTarget === null) { pendingDragTarget = null; return }
-  const target = pendingDragTarget
+  // 位移不足 4px → 视为「点了一下把手」，不改变任何东西
+  if (!dragMoved) { pendingDragTarget = null; dragMoved = false; return }
+  dragMoved = false
+  if (i === null) { pendingDragTarget = null; return }
+  let target = pendingDragTarget
   pendingDragTarget = null
+  // 【v4.9.1 兜底】onDragMove 只在「确实移动过」时更新 pendingDragTarget。
+  //   若用户在最后一刻移动很快、mousemove 没来得及派发就松手，
+  //   用松手位置**重算一次**，避免"拖了却没反应"。
+  if (target === null && e) target = nearestBlockByY(e.clientY)
+  if (target === null) return
   // 合法区间：不能贴到文档最开头（那是第 1 题起点），也不能越界
   if (target <= 0 || target >= blocks.value.length) return
   const next = boundaries.value.slice()
   // 与其它分割线重合 → 视为无变化，不动（避免把两条线并成一条的意外合并）
   if (next.includes(target) && next[i] !== target) { ElMessage.info('此处已有分割线'); return }
+  if (next[i] === target) return   // 没真正移动 → 静默返回，不弹成功提示
   next[i] = target
   const uniq = Array.from(new Set(next)).sort((a, b) => a - b)
   if (uniq.length !== next.length) return
@@ -545,14 +763,99 @@ function onMarkClick(i: number) {
 }
 
 // ===== 网站渲染视图（实时跟随右侧编辑）=====
-const sitePreviewHtml = computed(() => {
-  return chunks.value.map((c, i) => {
-    const d = drafts.value[i]
-    const body = d?.content || c.html
-    const md = /<[a-z][^>]*>/i.test(body) ? htmlToMarkdown(body) : body
-    return renderMarkdown(md || '')
-  })
-})
+//
+// ────────────────────────────────────────────────────────────────────────────
+// 【v4.9.1 重写 · 修「左栏网站渲染完全混乱」】
+//
+// 用户原话：「左栏的网站渲染有严重问题 完全混乱」
+//            「我必须要传进去是什么 渲染的是什么 最后导出 word 就是什么！」
+//
+// 上一版的做法是**自拼一套链路**：
+//   `htmlToMarkdown(body)` → `renderMarkdown(md)` → v-html
+// 而导出 Word 走的是**另一套链路**：
+//   `mdToParagraphs()` → `inlineRuns()` → docx
+//
+// 两套实现处理同一份内容，**必然漂移**。实测见到的问题：
+//   · 题目里残留 `#` / `**` 等 Markdown 源码（渲染器不认某些语法时原样吐出）
+//   · 选项被输出两遍（content 里含选项段 + options 字段各来一次）
+//   · 列表 / 公式 / 合并表格的版式与最终 Word 完全不同 → 用户看到「完全混乱」
+//
+// 修法：**预览直接调用最终导出的同一套构建器** —— `buildPaperDocx()`（@/utils/docx-kit），
+//   把生成的 docx 用 docx-preview 在离屏容器里渲染成 HTML，再贴进左栏。
+//   这样「传进去 = 网站渲染 = 导出 Word」在**实现层面**就成立了，
+//   不是靠两套代码"对齐"，而是**根本只有一套代码**。
+//
+// 代价与对策：docx 生成 + 渲染是异步且较慢（每题约 40~120ms），
+//   因此用 debounce（350ms）+ 序号（previewSeq）防竞态，
+//   并给出 previewRendering 状态让 UI 显示"渲染中"。
+// ────────────────────────────────────────────────────────────────────────────
+const sitePreviewHtml = ref<string[]>([])
+const previewRendering = ref(false)
+let previewTimer: any = null
+let previewSeq = 0
+
+async function renderSitePreview() {
+  if (!chunks.value.length) { sitePreviewHtml.value = []; return }
+  const seq = ++previewSeq
+  previewRendering.value = true
+  const host = document.createElement('div')
+  host.style.cssText = 'position:fixed;left:-99999px;top:0;width:900px;visibility:hidden'
+  document.body.appendChild(host)
+  const out: string[] = []
+  try {
+    const { buildPaperDocx } = await import('@/utils/docx-kit')
+    const { renderAsync } = await import('docx-preview')
+    for (let i = 0; i < chunks.value.length; i++) {
+      const d = drafts.value[i] || inferDraft(chunks.value[i].html)
+      const q = {
+        qtype: d.qtype || 'subjective',
+        content: d.content || '',
+        options: d.options || [],
+        answer: d.answer || '',
+        analysis: d.analysis || '',
+        score: d.score ?? 5,
+      }
+      // 每题单独构建一份 docx：这样「网站渲染」的分块与右侧「第 N 题」严格一一对应，
+      // 且渲染失败只影响单题，不会整块白屏
+      const blob = await buildPaperDocx([q], { showTypeHeading: false, withAnswers: false, fontSize: 21 })
+      const buf = await blob.arrayBuffer()
+      if (seq !== previewSeq) { host.remove(); return }
+      host.innerHTML = ''
+      await renderAsync(buf, host, undefined, { className: 'docx', inWrapper: true, breakPages: false })
+      const sec = host.querySelector('section')
+      out.push(sec ? sec.innerHTML : '')
+      if (seq !== previewSeq) { host.remove(); return }
+    }
+    host.remove()
+    if (seq === previewSeq) sitePreviewHtml.value = out
+  } catch (e: any) {
+    host.remove()
+    console.warn('[原卷编辑] 网站预览渲染失败，降级为 Markdown 渲染:', e?.message)
+    if (seq === previewSeq) {
+      // 降级：退回 Markdown 渲染（保证左栏永远有内容，不白屏）
+      sitePreviewHtml.value = chunks.value.map((c, i) => {
+        const d = drafts.value[i]
+        const body = d?.content || c.html
+        const md = /<[a-z][^>]*>/i.test(body) ? htmlToMarkdown(body) : body
+        return renderMarkdown(md || '')
+      })
+    }
+  } finally {
+    if (seq === previewSeq) previewRendering.value = false
+  }
+}
+
+/** debounce 触发重算（右侧编辑每敲一个字都会触发 watch，必须防抖） */
+function scheduleSitePreview() {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => { renderSitePreview() }, 350)
+}
+
+// 右侧编辑内容变化 → 重算网站预览（仅在 site 视图下才真的渲染，省算力）
+watch(
+  () => drafts.value.map(d => `${d?.qtype}|${d?.content}|${(d?.options || []).join('\u0001')}|${d?.answer}|${d?.analysis}|${d?.score}`).join('\u0002'),
+  () => { if (viewMode.value === 'site') scheduleSitePreview() }
+)
 
 // ===== 保存（逐题暂存 / 更新）=====
 function onFormSubmit(payload: any) {
@@ -669,21 +972,23 @@ onUnmounted(() => {
         <div v-show="viewMode === 'word'" ref="leftPane" class="zs-pane">
           <div class="zs-docx-wrap">
             <div ref="docxHost" class="zs-docx" />
-            <!-- 【v4.9.0 补全】叠加在原卷上的可视分割线 -->
-            <div class="zs-overlay">
+            <!-- 【v4.9.0 补全 / v4.9.1 修可拖】叠加在原卷上的可视分割线 -->
+            <!--   mousedown 由叠加层**统一代理**（onOverlayMouseDown）：按 Y 距离判定抓哪条线，
+                 不再依赖"必须精确点在把手上" —— 这是「无法拖动」的最终修法。 -->
+            <div ref="overlayRef" class="zs-overlay" @mousedown="onOverlayMouseDown">
               <div
                 v-for="m in marks"
                 :key="m.bi"
                 class="zs-mark"
                 :class="{ dragging: dragging === m.bi, locked: !m.draggable }"
                 :style="{ top: m.top + 'px' }"
+                :data-split-index="m.bi"
               >
                 <span class="zs-mark-badge">{{ m.bi === 0 ? '开始' : (m.bi === boundaries.length - 1 ? '结束' : '第 ' + m.bi + ' 题 ▸') }}</span>
-                <span class="zs-mark-line" @click="onMarkClick(m.bi)" />
+                <span class="zs-mark-line" @click.stop="onMarkClick(m.bi)" />
                 <span
                   class="zs-mark-grip"
-                  :title="m.draggable ? '拖动调整分割位置' : '首尾分割线不可拖动'"
-                  @mousedown="onSplitMouseDown(m.bi, $event)"
+                  :title="m.draggable ? '按住拖动调整分割位置' : '首尾分割线不可拖动'"
                 >⠿</span>
                 <span v-if="m.draggable" class="zs-mark-btns">
                   <button class="zs-mini" title="与下一题合并" @click.stop="removeSplit(m.bi)">－</button>
@@ -699,17 +1004,19 @@ onUnmounted(() => {
           <div class="zs-hint">分割线已自动插入 · 拖动 ⠿ 可调整 · 点横线可合并相邻两题</div>
         </div>
 
-        <!-- 网站渲染视图（实时跟随右侧编辑） -->
+        <!-- 网站渲染视图（【v4.9.1 重写】直接渲染最终导出的同一份 docx → 与 Word 严格一致） -->
         <div v-show="viewMode === 'site'" class="zs-pane">
+          <div v-if="previewRendering" class="zs-site-loading">正在生成与 Word 一致的预览…</div>
           <div v-for="(c, i) in chunks" :key="i" class="zs-site-chunk">
             <div class="zs-site-head">
               第 {{ i + 1 }} 题
               <el-tag size="small">{{ qtypeLabel(drafts[i]?.qtype || 'subjective') }}</el-tag>
+              <span class="zs-site-score">{{ drafts[i]?.score ?? 5 }} 分</span>
             </div>
-            <div class="markdown-body zg-rich" v-html="sitePreviewHtml[i]" />
-            <div v-if="drafts[i]?.options?.length" class="zs-site-opts">
-              <div v-for="(o, k) in drafts[i].options" :key="k">{{ 'ABCDEFGH'[k] }}. {{ o }}</div>
-            </div>
+            <!-- 这里的内容是 buildPaperDocx 产出的真实 Word 文档渲染结果，
+                 不是另写一套 Markdown 渲染 —— 所以「网站看到的 = 导出的 Word」 -->
+            <div class="zs-docx zs-site-docx" v-html="sitePreviewHtml[i]" />
+            <div v-if="!sitePreviewHtml[i] && !previewRendering" class="zs-site-empty">（本题暂无内容）</div>
           </div>
         </div>
 
@@ -782,8 +1089,14 @@ onUnmounted(() => {
 /* ---- 原卷 + 叠加分割线 ---- */
 .zs-docx-wrap { position: relative; }
 .zs-docx { min-width: 0; }
-/* 叠加层：铺满原卷但本身不吃鼠标事件，只有子元素把手可交互 */
-.zs-overlay { position: absolute; inset: 0; pointer-events: none; }
+/* 叠加层：铺满原卷，本身不吃鼠标事件，只有子元素可交互。
+   ⚠️⚠️ `z-index: 20` 是**必需**的，不是可选项 —— 这是「无法拖动」的根本原因：
+     docx-preview 渲染出的 `article` 元素自带 `z-index:1`，
+     overlay 没有 z-index 时会被压到原卷文字**之下**，
+     于是 `document.elementFromPoint()` 返回的是 `<p>` 而不是把手，
+     mousedown 永远收不到 → 拖动完全没反应（实测已复现并确认）。
+   写死 20 是为了稳赢 `article` 的 1，同时远低于全站浮层（抽屉/弹窗 ≥1000）。 */
+.zs-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
 .zs-mark { position: absolute; left: 0; right: 0; height: 0; display: flex; align-items: center; gap: 6px; }
 .zs-mark-badge {
   flex: 0 0 auto; transform: translateY(-50%);
@@ -791,19 +1104,23 @@ onUnmounted(() => {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   white-space: nowrap; pointer-events: none; opacity: .92;
 }
+/* 横线：2px 太细，用 ::after 上下各扩 7px 热区（视觉不变，手感大幅提升） */
 .zs-mark-line {
-  flex: 1 1 auto; height: 2px; transform: translateY(-50%);
+  flex: 1 1 auto; position: relative; height: 2px; transform: translateY(-50%);
   background: repeating-linear-gradient(to right, var(--zg-primary, #f59e0b) 0 8px, transparent 8px 14px);
   cursor: pointer; pointer-events: auto; opacity: .75;
 }
+.zs-mark-line::after { content: ''; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }
 .zs-mark-line:hover { opacity: 1; height: 3px; }
+/* 把手：同样用 ::after 四周扩 6px（16px 的图标在快速拖动下很难精确命中） */
 .zs-mark-grip {
-  flex: 0 0 auto; transform: translateY(-50%);
+  flex: 0 0 auto; position: relative; transform: translateY(-50%);
   pointer-events: auto; cursor: grab; user-select: none;
   background: #fff; border: 1px solid var(--zg-primary, #f59e0b); color: var(--zg-primary, #f59e0b);
   border-radius: 5px; padding: 0 4px; font-size: 12px; line-height: 16px;
   box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
+.zs-mark-grip::after { content: ''; position: absolute; inset: -6px; }
 .zs-mark-grip:active { cursor: grabbing; }
 .zs-mark.locked .zs-mark-grip { cursor: not-allowed; opacity: .45; }
 .zs-mark.dragging .zs-mark-line { height: 3px; opacity: 1; background: #ef4444; }
@@ -818,7 +1135,28 @@ onUnmounted(() => {
 .zs-site-chunk { padding: 10px 12px; border-bottom: 1px dashed rgba(0,0,0,0.12); }
 .zs-site-chunk:last-child { border-bottom: 0; }
 .zs-site-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; margin-bottom: 6px; color: var(--zg-primary); }
-.zs-site-opts { font-size: 13px; padding: 4px 0 0 8px; }
+.zs-site-score { font-size: 11px; font-weight: 400; color: var(--zg-text-dim, #888); margin-left: auto; }
+.zs-site-loading { font-size: 12px; color: var(--zg-primary); padding: 6px 2px; }
+.zs-site-empty { font-size: 12px; color: var(--zg-text-dim, #999); padding: 4px 2px; }
+
+/* ---- 网站渲染区：把 docx-preview 的「Word 纸张」还原成卡片内自适应 ----
+   docx-preview 默认按 A4 固定版心渲染（自带灰底、阴影、左右 30px 内边距），
+   贴进左栏卡片里会显得"错位、出框"。这里统一抹掉纸张外观，
+   只保留内容版式本身 —— 这样左栏看起来就是「网站上的样子」，
+   而内容仍是 Word 的真实排版，做到「看到的 = 导出的」。 */
+.zs-site-docx { min-width: 0; font-size: 14px; line-height: 1.75; color: var(--zg-text, #1e293b); }
+.zs-site-docx :deep(.docx-wrapper) { background: transparent; padding: 0; display: block; }
+.zs-site-docx :deep(section.docx) {
+  width: auto !important; min-width: 0 !important; padding: 0 !important;
+  margin: 0 !important; box-shadow: none !important; background: transparent !important;
+  transform: none !important;
+}
+.zs-site-docx :deep(section.docx > article) { position: static; z-index: auto; }
+.zs-site-docx :deep(p) { margin: 0.5em 0; }
+.zs-site-docx :deep(img) { max-width: 100%; height: auto; }
+.zs-site-docx :deep(table) { border-collapse: collapse; max-width: 100%; }
+.zs-site-docx :deep(td), .zs-site-docx :deep(th) { border: 1px solid rgba(0,0,0,0.18); padding: 4px 8px; }
+.zs-site-docx :deep(.katex), .zs-site-docx :deep(.katex-html) { font-size: 1em; }
 
 /* ---- 分割线列表 ---- */
 .zs-splits { border: 1px solid rgba(0,0,0,0.09); border-radius: 12px; padding: 8px 10px; }
