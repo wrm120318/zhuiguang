@@ -441,8 +441,15 @@ function joinBlocks(parts: string[], els: (HTMLElement | null)[]): string {
     //    ⚠️ 判定必须用 **DOM 元素**（curEl / prevEl），不能用 `parts[i]` 的字符串 ——
     //      `blockToMd` 返回的是**转换后的 Markdown**（`| 甲 | 乙 |\n| --- |…`），
     //      里面已经没有 `<table` 前缀了。用字符串判断会全部漏判。
+    //
+    //    【v4.9.2 收窄】原集合是 `table/ul/ol/pre/blockquote` 五种，实测 `pre`
+    //      与 `blockquote` **紧贴也完全正常**（围栏/引用前缀自带行边界，不会被吞）：
+    //        `代码如下：\n```\nint x;\n```\n以上就是实现。` → 段落/代码块/段落 三段结构正确 ✅
+    //      无条件给它们加空行 = 凭空多出两处空行（用户抱怨的「多出空行」之一）。
+    //      现在只保留**真的会被吞**的三种：table / ul / ol。
+    //      （列表项与表格行都是「行依赖」语法，紧贴时后继段落会被吃进最后一项。）
     const prevEl = els[i - 1]
-    const NEEDS_GAP = new Set(['table', 'ul', 'ol', 'pre', 'blockquote'])
+    const NEEDS_GAP = new Set(['table', 'ul', 'ol'])
     const curNeedsGap = curEl !== null && NEEDS_GAP.has(curEl.tagName.toLowerCase())
     const prevNeedsGap = prevEl !== null && NEEDS_GAP.has(prevEl.tagName.toLowerCase())
     if (curNeedsGap || prevNeedsGap) { out += '\n\n' + cur; continue }
@@ -542,16 +549,23 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
     if (!isShorthandZero && isPositive(first)) return false
   }
 
-  // ── 证据 ②：段后有间距 → 视觉空行（不紧贴）──
-  const msoAfter = /mso-para-margin-bottom\s*:\s*(?!0(?:\.0+)?(?:[a-z%]*)\b)[^;]+/.test(style)
-  if (isPositive(mb) || isPositive(pb) || msoAfter) return false
-  if (mShort && !isZero(mShort)) {
-    const parts = mShort.split(/\s+/)
-    // margin: 上 右 下 左 —— 只有 1 个值时上下同值（已在上面处理），
-    // 这里看第 3 个分量（下）；2 值写法时第 1 个分量是上下同值
-    const bottom = parts.length >= 3 ? parts[2] : (parts.length === 2 ? parts[0] : '')
-    if (isPositive(bottom)) return false
-  }
+  // ── 证据 ②（【v4.9.2 已**移除**】段后间距不再作为「空行」证据）──
+  //
+  //   上一版在这里：`mb` / `pb` / `mso-para-margin-bottom` 为正值 → return false（不紧贴）。
+  //   实测证明这是一条**大面积误判**的规则：
+  //
+  //     · Word 的 `MsoNormal` 段落**默认**就带 `margin-bottom:10.0pt`（或
+  //       `mso-para-margin-bottom`），几乎每一个从 Word 复制出来的 `<p>` 都有；
+  //     · 但那是 Word 的**段落间距（行距排版）**，两段在 Word 里视觉上是紧邻的，
+  //       **不是**用户敲出来的空行。
+  //
+  //   结果：每一对相邻段落都被塞进一条空行 —— 正是用户说的
+  //   「从 word 直接往编辑器里面粘的时候 会自动多出空行」。
+  //
+  //   现在「空行」只由**真正的空段落**（`isBlankElement`）表达，
+  //   段间距不再参与判定。注意：段**前**间距（证据 ①）仍然保留 ——
+  //   它同样是排版属性，但保留它是为了兼容「用 margin-top 表达分节」的少数文档，
+  //   且它只影响「是否多一个空行」的宽松方向，风险远小于证据 ②。
 
   // ── 证据 ③：上一段以 <br> 结尾 → **紧贴**（只换行，不空行）──
   //
@@ -618,23 +632,45 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
  *    防止极端脏 HTML（几千个空段落）撑爆存储与渲染性能。
  */
 function tidy(md: string): string {
-  return md
+  let s = md
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')        // 行尾空格
-    // 【v4.9.1】行首空格也要清。
-    //   实测证据：`<p>甲</p>\n\n后续说明` 转出来是 `甲\n\n 后续说明`
-    //   （第二行多一个前导空格）—— 来源是 `inlineToMd` 对文本节点做的
-    //   `.replace(/\s+/g,' ')` 把原本作为「块间分隔」的换行符留成了一个空格。
-    //   保留它会让 `.zg-rich` 的 `pre-wrap` 渲染出一格缩进（用户看到"莫名多了缩进"），
-    //   也会让 Markdown 里出现 4 空格起首时被误判成**缩进代码块**。
-    //   ⚠️ 只清**「纯文字行」**的行首空格：若该行以 Markdown 结构符号起首
-    //      （列表 `-` / `1.`、引用 `>`、代码围栏 ``` / ~~~、表格 `|`），
-    //      则缩进可能是**语义性的**（嵌套列表、缩进代码块），必须原样保留。
-    .replace(/^[ \t]+(?=[^\s\-*+>|`~#\d])/gm, '')
-    //   数值型有序列表（`1. x`）的行首缩进也要保留 —— 上面的否定字符类里的 \d
-    //   只能挡住"数字紧跟文字"，挡不住 `1.`。这里单独兜一层：
-    //   若行首缩进之后是 `数字.` 或 `数字)` 形式，同样不动。
-    .replace(/^([ \t]+)(?=\d+[.)]\s)/gm, '$1')
+
+  // 【v4.9.1】行首空格清理 —— 【v4.9.2 修正：必须跳过代码围栏内部】
+  //
+  //   实测证据（v4.9.2 发现的回归）：
+  //     `<pre>int main() {\n  return 0;\n}</pre>` 转出来的 Markdown 是
+  //     ```` ```\nint main() {\n  return 0;\n}\n``` ````
+  //     而原先的 `/^[ \t]+(?=...)/gm` 会把 `  return 0;` 的缩进也清掉，
+  //     变成 `return 0;` —— **代码块的缩进被破坏**，用户粘过来贴回去就不一样了。
+  //
+  //   修法：用**围栏状态机**逐行处理，只有「围栏之外」的行才做行首清理。
+  //     围栏起止：``` 或 ~~~（允许 3 个以上、允许缩进 ≤3 空格）。
+  const lines = s.split('\n')
+  let inFence = false
+  let fenceChar = ''
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const fenceOpen = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (fenceOpen) {
+      const ch = fenceOpen[1][0]
+      if (!inFence) { inFence = true; fenceChar = ch }
+      else if (ch === fenceChar) { inFence = false; fenceChar = '' }
+      continue   // 围栏行本身（``` 前的缩进是语义性的）不动
+    }
+    if (inFence) continue   // 围栏内部：原样保留（含缩进）
+    // 围栏之外：清「纯文字行」的行首空格。
+    //   ⚠️ 若该行以 Markdown 结构符号起首（列表 `-` / `*` / `+`、引用 `>`、
+    //      表格 `|`、标题 `#`），缩进可能是**语义性的**（嵌套列表 / 引用嵌套），
+    //      必须原样保留。
+    lines[i] = line
+      .replace(/^[ \t]+(?=[^\s\-*+>|`~#\d])/, '')
+      // 数值型有序列表（`1. x`）的缩进同样保留
+      .replace(/^([ \t]+)(?=\d+[.)]\s)/, '$1')
+  }
+  s = lines.join('\n')
+
+  return s
     .replace(/\n{41,}/g, '\n'.repeat(40)) // 安全上限：≥20 个空行折叠（防脏数据）
     .replace(/^\n+/, '')               // 首部空行
     .replace(/\n+$/, '')               // 尾部空行

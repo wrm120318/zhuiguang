@@ -3,6 +3,7 @@
 // 所有 marked-extensions 中的扩展已默认启用
 
 import { renderExtendedMarkdown, ensureKatexCss, extractMentions } from './marked-extensions'
+import { signFileLinks } from './helpers'
 
 // 加载 KaTeX CSS（确保公式样式生效）
 if (typeof window !== 'undefined') {
@@ -14,16 +15,19 @@ if (typeof window !== 'undefined') {
  * - 兼容 CommonMark / GFM / HTML 子集
  * - 支持 KaTeX 公式、@提及、==高亮==、视频、PDF、B站、file://附件
  * - 渲染后自动 XSS 过滤（保留白名单 HTML）
+ * - 【v4.9.2】出口自动给 `/api/file/{id}` 链接补当前用户 token，
+ *   修「编辑器里上传的附件点了提示『请先登录后下载』」。
  */
 export function renderMarkdown(src: string): string {
-  return renderExtendedMarkdown(src, true)
+  return signFileLinks(renderExtendedMarkdown(src, true))
 }
 
 /**
  * 不做 XSS 过滤的版本（用于受信内容，如后台预览）
+ * 【v4.9.2】同样补 token，保证预览里附件也能点
  */
 export function renderMarkdownRaw(src: string): string {
-  return renderExtendedMarkdown(src, false)
+  return signFileLinks(renderExtendedMarkdown(src, false))
 }
 
 /**

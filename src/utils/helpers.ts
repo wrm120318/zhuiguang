@@ -98,6 +98,44 @@ export function attachmentUrl(a?: any): string {
   return `${API_BASE}/api/file/${fileId}?token=${encodeURIComponent(token)}`
 }
 
+/**
+ * 【v4.9.2 修复「编辑器里的附件点了提示『请先登录后下载』」】
+ *
+ * 背景：编辑器上传的附件经 `/api/upload/file` 落库时 `file_meta.is_public=0`（私有），
+ * `/api/file/:fileId` 强制鉴权；而浏览器点击裸 `<a href>` **不会**自动附带
+ * JWT（token 存在 localStorage，不在 Cookie 里）→ 后端返回 401
+ * `{"message":"请先登录后下载","needLogin":true}`。
+ *
+ * 修法：把渲染结果里所有指向 `/api/file/{id}` 的链接（`<a href>` 与 `<img src>`）
+ * 在**渲染出口**动态补上当前用户的 token。
+ *  · token 不落库 —— 内容里存的始终是干净地址，不同用户/不同时间打开都会用「自己当前的 token」
+ *  · 图片（is_public=1）带上 token 也无副作用，后端公开文件直接放行
+ *  · 已经是绝对地址的保持域名不变，只补 query；相对地址补全为 API_BASE
+ */
+export function signFileLinks(html: string): string {
+  if (!html || typeof html !== 'string') return html
+  if (!html.includes('/api/file/')) return html
+  const token =
+    (typeof localStorage !== 'undefined' && localStorage.getItem('zg_token')) || ''
+  // 未登录时不改动：公开文件照常可看，私有文件本就应该提示登录
+  if (!token) return html
+
+  // 匹配 href="..." / src="..." 里含 /api/file/ 的地址（同时覆盖相对与绝对形式）
+  return html.replace(
+    /\b(href|src)=("|')((?:(?:https?:)?\/\/[^"'\s]*)?\/api\/file\/[^"'\s]*)\2/gi,
+    (m, attr: string, quote: string, url: string) => {
+      // 已带 token 的不重复追加
+      if (/[?&]token=/.test(url)) return m
+      // 相对地址补全成 API_BASE 绝对地址（Pages 域下相对路径会落到 SPA 兜底）
+      const abs = /^(?:https?:)?\/\//.test(url) ? url : API_BASE + url
+      const sep = abs.includes('?') ? '&' : '?'
+      const signed = `${abs}${sep}token=${encodeURIComponent(token)}`
+      // 原地址是 http(s) 协议时保留原样（等价改写为绝对地址）
+      return `${attr}=${quote}${signed}${quote}`
+    }
+  )
+}
+
 
 // 经验值获得粒子特效
 export function burstParticles(x: number, y: number, color = '#a5b4fc') {

@@ -464,7 +464,9 @@ function insertBilibili() {
   insertAtCursor(`@[bilibili](${bvid})\n\n`)
 }
 function insertFile() {
-  const name = window.prompt('请输入附件文件名（用于 file:// 引用）：', '资料.pdf')
+  // 【v4.9.2】这里只插入「附件名标记」，用于在正文里点名一个附件；
+  //   真正可下载的附件请用「📎 上传附件」按钮（会插入带真实地址的链接）。
+  const name = window.prompt('请输入附件名称（仅作文本标记，不含真实文件）：', '资料.pdf')
   if (!name) return
   insertAtCursor(`[${name}](file://${name})\n\n`)
 }
@@ -569,8 +571,17 @@ async function uploadFile(file: File, type: 'image' | 'file') {
       insertAtCursor(`\n![${file.name}](${url})${imgSizeAttrs(r)}\n\n`)
       ElMessage.success('图片已上传并插入')
     } else {
-      insertAtCursor(`\n[${file.name}](file://${file.name})\n\n实际链接：${url}\n\n`)
-      ElMessage.success('附件已上传')
+      // 【v4.9.2 修复「上传统附件后点击提示『请先登录后下载』」】
+      //   旧实现插入 `[名](file://名)` + 一行纯文本「实际链接：<url>」：
+      //     · `file://名` 是本地伪协议，点了浏览器必然打不开；
+      //     · 旁边那行真实 URL 只是**纯文本**，且**没带 token**，
+      //       而 /api/upload/file 上传的附件是私有文件（is_public=0），
+      //       裸访问 /api/file/:id 一定 401。
+      //   现在直接插入**真实的、可点击的**链接（地址为 /api/file/{id}）。
+      //   token 不写进内容里 —— 渲染出口（renderMarkdown → signFileLinks）
+      //   会按当前用户动态补 token，换账号/换时间打开都能正常下载。
+      insertAtCursor(`\n📎 [${file.name}](${url})\n\n`)
+      ElMessage.success('附件已上传并插入（点击即可下载）')
     }
     emit('upload', { url, type })
   } catch (e: any) {
