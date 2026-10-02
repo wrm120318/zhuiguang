@@ -508,46 +508,36 @@ function isBlankElement(e: HTMLElement): boolean {
  *   · 全站 HTML/MD：普通 `<p>` 恢复「一次回车 = 一行」，不再凭空多空行
  */
 function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
-  const styleAttr = e.getAttribute('style') || ''
-  const style = styleAttr.toLowerCase()
-
-  // 取值工具：优先长属性（margin-top 会覆盖简写 margin 的对应分量）
-  const val = (name: string) => {
-    const m = styleAttr.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'))
-    return m ? m[1].trim().toLowerCase() : ''
-  }
-  /** 「视觉上等于 0」：0 / 0px / 0cm / .0001pt 这类 */
-  const isZero = (v: string) => {
-    if (!v) return false
-    return /^0(?:\.0+)?(?:[a-z%]*)$/.test(v) || /^\.?0{3,}1pt$/.test(v)
-  }
-  /** 「明确为正」：只有显式带单位的正值才算，避免把 `auto` / `inherit` 误判 */
-  const isPositive = (v: string) => {
-    if (!v) return false
-    const m = /^(\d*\.?\d+)(pt|px|em|rem|cm|mm|in|%)$/.exec(v)
-    if (!m) return false
-    const n = parseFloat(m[1])
-    if (!(n > 0)) return false
-    // 0.0001pt 这类「Word 用来占位但视觉为 0」的值不算正间距
-    if (m[2] === 'pt' && n < 0.01) return false
-    return true
-  }
-
-  const mt = val('margin-top')
-  const pt = val('padding-top')
-  const mb = val('margin-bottom')
-  const pb = val('padding-bottom')
-  const mShort = styleAttr.match(/(?:^|;)\s*margin\s*:\s*([^;]+)/i)?.[1].trim().toLowerCase() || ''
-
-  // ── 证据 ①：段前有间距 → 视觉空行（不紧贴）──
-  const msoBefore = /mso-para-margin-top\s*:\s*(?!0(?:\.0+)?(?:[a-z%]*)\b)[^;]+/.test(style)
-  if (isPositive(mt) || isPositive(pt) || msoBefore) return false
-  // 简写 margin 的第一个分量（上）为正 → 段前有间距
-  if (mShort) {
-    const first = mShort.split(/\s+/)[0]
-    const isShorthandZero = isZero(mShort)
-    if (!isShorthandZero && isPositive(first)) return false
-  }
+  // ── 证据 ①（【v4.9.2 已**移除**】段前间距不再作为「空行」证据）──
+  //
+  //   【v4.9.2 第二轮修正 · 用户反馈「段落间 / 标题间好像还是有多余的空行」】
+  //
+  //   上一版只删了「证据②（段后间距）」却留下了「证据①（段前间距）」，
+  //   属于**修了一半** —— 段前间距与段后间距**本质完全一样**，都是 Word 的排版行距：
+  //
+  //     · Word 的**标题**（`h1`~`h6` / `MsoHeading*`）默认就带 `margin-top:12~17pt`，
+  //       用于与上文拉开距离；`MsoNormal` 正文段落也常见 `margin-top:10.0pt`。
+  //     · 但那是「段落间距」这类**样式属性**，两段在 Word 里视觉上是紧邻的，
+  //       **不是**用户敲出来的空行。
+  //
+  //   实测证据（浏览器内真实转换，v4.9.2 探针）：
+  //     `<h2 style="margin-top:12.0pt">一、题目大意</h2><p>正文</p>`
+  //       → `## 一、题目大意\n\n正文`（多一个空行 ❌）
+  //     `<p>前言</p><h2 style="margin-top:12.0pt">标题</h2><p>后记</p>`
+  //       → `前言\n\n## 标题\n后记`（标题前多一个空行 ❌）
+  //     `<p style="margin-top:10.0pt">甲</p><p>乙</p>`
+  //       → `甲\n\n乙`（多一个空行 ❌）
+  //
+  //   这正是用户说的「段落间 / 标题间 好像还是有多余的空行」的**唯一残留根因**。
+  //
+  //   ── 移除后会不会丢失「真实空行」的还原能力？不会 ──
+  //     「用户真的敲了空行」在 HTML 里表现为**空段落**
+  //     （`<p></p>` / `<p><br></p>` / `<p>&nbsp;</p>` / `<p><o:p>&nbsp;</o:p></p>`），
+  //     由 `isBlankElement()` 精确捕捉，再由 `joinBlocks` 的 `pendingBlanks`
+  //     按数量 1:1 补出。这条路径与时序/间距属性完全无关，是更可靠的判据。
+  //
+  //   ⚠️ 结论：**「空行」只由真正的空段落表达**，任何 margin/padding 都不参与判定。
+  //      这也是本函数最终收敛成的唯一语义。
 
   // ── 证据 ②（【v4.9.2 已**移除**】段后间距不再作为「空行」证据）──
   //
@@ -563,9 +553,7 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
   //   「从 word 直接往编辑器里面粘的时候 会自动多出空行」。
   //
   //   现在「空行」只由**真正的空段落**（`isBlankElement`）表达，
-  //   段间距不再参与判定。注意：段**前**间距（证据 ①）仍然保留 ——
-  //   它同样是排版属性，但保留它是为了兼容「用 margin-top 表达分节」的少数文档，
-  //   且它只影响「是否多一个空行」的宽松方向，风险远小于证据 ②。
+  //   **任何** margin / padding 都不再参与判定。
 
   // ── 证据 ③：上一段以 <br> 结尾 → **紧贴**（只换行，不空行）──
   //
@@ -589,10 +577,10 @@ function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
   }
 
   // ── 默认：紧贴（单个换行）──
-  // ⚠️ 这是与上一版**相反的默认值**，也是修掉「全站莫名多空行」的关键。
-  //    「空行」必须由**空块**（isBlankElement）或**明确的段间距**来表达，
-  //    而不是由「没找到证据」来兜底 —— 否则任何普通 `<p>甲</p><p>乙</p>`
-  //    都会被塞进一条空行。
+  // 收敛后的唯一语义：**找不到「空段落」证据 → 一律紧贴（只换行）**。
+  //   「空行」必须由**空块**（`isBlankElement`）表达，而不是由「没找到证据」来兜底 ——
+  //   否则任何普通 `<p>甲</p><p>乙</p>` 都会被塞进一条空行。
+  //   （v4.9.0 起默认值反转，v4.9.2 起彻底移除 margin/padding 判据。）
   return true
 }
 
