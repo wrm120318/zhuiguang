@@ -6134,4 +6134,61 @@ app.onError((err, c) => {
 // ==============================================================================
 // Workers 入口
 // ==============================================================================
-export default app
+// 【v4.9.0 性能专项】Cron 预热 —— 消除「冷启动 8 秒」
+//
+// 现象（生产实测，curl 连打同一接口）：
+//   home:      1.55s / 9.44s / 0.79s
+//   exp_rules: 7.68s / 0.72s / 0.49s
+//   themes/active: 0.63s / 11.15s / 9.07s / ...
+//   → **同一个接口**耗时在 0.7s ~ 11s 之间剧烈跳动。
+//
+// 根因：Cloudflare 会在无流量时回收 Worker isolate / D1 连接。
+//   下一个请求需要重建隔离环境 + 重新建立 D1 连接，这一跳就是 7~10s。
+//   （D1 查询本身的 sql_duration_ms 只有 0.16~0.29ms，慢的不是 SQL。）
+//
+// 修法：用 Cron Trigger 每 **4 分钟**主动打一次关键接口，
+//   让 isolate 与 D1 连接始终保持温热 → 用户永远遇不到冷启动。
+//
+// 为什么是 4 分钟：CF 对 Worker isolate 的保活窗口通常在数分钟量级，
+//   4 分钟足够覆盖；且每 4 分钟 1 次 × 1440 分钟 = 每天 360 次调用，
+//   相对免费版 10 万次/日额度可忽略不计。
+//
+// ⚠️ 免费版限制：每账户最多 5 个 Cron Trigger，最小粒度 1 分钟。
+//   本配置只占 1 个，符合「全免费、不绑卡」铁律。
+// ⚠️ Cron Trigger **没有重试与告警**，失败就等下一次 —— 对"预热"这类
+//   幂等且低价值的任务完全可接受。
+async function warmupCriticalPaths(env: any, origin: string) {
+  // 只预热「公共只读且首屏必需」的接口；带个人数据的接口不适合预热（需要 token）
+  const paths = [
+    '/api/themes/active',          // 主题：首屏皮肤，实测最不稳（0.6~11.8s）
+    '/api/settings/site_config',   // 站点配置：首页/导航依赖
+    '/api/settings/exp_rules',     // 经验规则：实测最慢（8s）
+    '/api/subjects',               // 学科列表
+    '/api/feature-flags/public',   // 功能开关
+  ]
+  const results = await Promise.allSettled(
+    paths.map(async (p) => {
+      const res = await fetch(origin + p, {
+        headers: { 'User-Agent': 'zg-warmup/1.0' },
+        // 预热请求应当**真的回源**，因此带上 no-cache 语义
+        cf: { cacheTtl: 0, cacheEverything: false },
+      } as any)
+      return `${p}=${res.status}`
+    })
+  )
+  const summary = results
+    .map((r) => (r.status === 'fulfilled' ? r.value : 'ERR'))
+    .join(' ')
+  console.log('[warmup] ' + summary)
+}
+
+const workerHandler = {
+  fetch: app.fetch,
+  async scheduled(event: any, env: any, ctx: any) {
+    // 预热用的 origin 从请求本身推导（Cron 事件的 event 不带 URL）
+    const origin = (env && env.PUBLIC_ORIGIN) || 'https://api.xkzg.de5.net'
+    ctx.waitUntil(warmupCriticalPaths(env, origin))
+  },
+}
+
+export default workerHandler

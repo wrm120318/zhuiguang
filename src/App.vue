@@ -119,19 +119,24 @@ onMounted(async () => {
     : Promise.resolve()
   // 公共数据（学科/班级）与设置（功能开关/经验规则/站点配置）在 profile 之外、
   //   彼此之间**完全独立**，一并并行发出。
-  const commonPromise = login
-    ? Promise.all([
-        data.loadCommon().catch((e: any) => console.warn('[boot] 公共数据异常（已忽略）：', e?.message || e)),
-        settings.fetchAll().catch((e: any) => console.warn('[boot] 设置加载异常（已忽略）：', e?.message || e)),
-      ]).then(() => undefined)
-    : Promise.resolve()
+  //
+  // 【v4.9.0 性能专项】这一组从栅栏里**彻底摘除**。
+  //   原实现 `await commonPromise` 在栅栏内，而 `settings.fetchAll()` 包含
+  //   `/api/settings/site_config` 与 `/api/settings/exp_rules` —— 这两个接口
+  //   在 Worker 冷启动时实测 **7~10s**（curl 连打可见 8s/0.7s 交替）。
+  //   后果：`ready` 被拖到 7s+ → 首页路由晚渲染 → 首页的「美文/资料/收藏」
+  //   要等到 7s 后才开始发请求（实测 /api/articles 在 7465ms 才发出）。
+  //   它们对 NavBar 渲染**毫无贡献**，页面各自都有 loading 态与可选链兜底，
+  //   因此改为纯后台加载，成功与否都不影响 ready。
+  if (login) {
+    data.loadCommon().catch((e: any) => console.warn('[boot] 公共数据异常（已忽略）：', e?.message || e))
+    settings.fetchAll().catch((e: any) => console.warn('[boot] 设置加载异常（已忽略）：', e?.message || e))
+  }
 
   const boot = (async () => {
     try {
-      // 栅栏：只等 NavBar 渲染依赖的 profile（与原串行顺序的完成条件等价）
+      // 栅栏：**只**等 NavBar 渲染依赖的 profile（`api.me()`，中位 1.1s）
       await profilePromise
-      // 公共数据/设置不阻塞首屏（NavBar 与路由页均不依赖；各页面自身有 loading 态兜底）
-      await commonPromise
     } catch (e: any) {
       console.warn('[boot] 初始化异常（已忽略，放行首屏）：', e?.message || e)
     }
@@ -169,13 +174,20 @@ onBeforeUnmount(() => {
     <!-- 非公开页面 -->
     <template v-if="!isPublicPage">
       <NavBar v-if="ready" />
+      <!-- 【v4.9.0】NavBar 未就绪时的顶部细进度条占位：不挡内容，仅告知「还在初始化导航」 -->
+      <div v-else class="zg-topbar-skeleton"><div class="zg-splash-bar"><span></span></div></div>
       <main class="app-main" :class="{ 'has-tabbar': ready && user.isLogin && !isAdminRoute }">
-        <div v-if="!ready" class="zg-splash">
-          <LogoMark class="zg-splash-logo" />
-          <div class="zg-splash-name zg-grad-text">追光</div>
-          <div class="zg-splash-bar"><span></span></div>
-        </div>
-        <router-view v-else v-slot="{ Component }">
+        <!-- 【v4.9.0 性能专项】页面不再被 ready 门控 -->
+        <!--   原实现：v-if="!ready" 显示 splash、v-else 渲染 router-view。
+        <!--   后果：首页 HomeView 的 onMounted(load) 必须等 ready=true 才执行，
+        <!--   而 ready 要等 App.vue 的启动栅栏（profile + loadCommon + settings.fetchAll），
+        <!--   其中 settings.fetchAll 含 /api/settings/site_config 与 /api/settings/exp_rules，
+        <!--   这两个接口冷启动实测 7~10s → 首页的「美文/资料/收藏」被白白拖到 7s 后才发请求。
+        <!--   实测时间线（首访）：/api/subjects 1188ms 就回来了，
+        <!--   而 /api/articles 7465ms 才发出 —— 它不是自己慢，是根本没被允许早发。
+        <!--   修法：router-view 立即渲染（各页面自身都有 loading 态与可选链兜底），
+        <!--   splash 改为「只在 NavBar 还没就绪时」作为顶部占位显示，不阻塞内容区。 -->
+        <router-view v-slot="{ Component }">
           <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
           </transition>
@@ -187,12 +199,7 @@ onBeforeUnmount(() => {
     <!-- 公开页面 -->
     <template v-else>
       <main class="app-main public-page">
-        <div v-if="!ready" class="zg-splash">
-          <LogoMark class="zg-splash-logo" />
-          <div class="zg-splash-name zg-grad-text">追光</div>
-          <div class="zg-splash-bar"><span></span></div>
-        </div>
-        <router-view v-else v-slot="{ Component }">
+        <router-view v-slot="{ Component }">
           <transition :name="designMode === 'inkgold' ? 'zg-page' : 'fade'" mode="out-in">
             <component :is="Component" :key="route.fullPath" />
           </transition>
@@ -215,6 +222,11 @@ onBeforeUnmount(() => {
 .zg-splash-name { font-size:26px; font-weight:800; letter-spacing:3px; }
 .zg-splash-bar { width:140px; height:3px; border-radius:3px; background: rgba(var(--zg-primary-rgb),0.18); overflow:hidden; }
 .zg-splash-bar span { display:block; height:100%; width:40%; border-radius:3px; background: linear-gradient(90deg, transparent, var(--zg-primary), transparent); animation: zgSplashMove 1.3s ease-in-out infinite; }
+/* 【v4.9.0】NavBar 未就绪时的顶部占位细条 —— 只在「NavBar 还没出来」的极短窗口内显示，
+   不遮挡内容区（页面此时已可交互）。高度与 NavBar 对齐，避免加载完成后布局跳动。 */
+.zg-topbar-skeleton { height: 60px; display:flex; align-items:center; justify-content:center; }
+.zg-topbar-skeleton .zg-splash-bar { width: 120px; height: 2px; }
+@media (max-width: 720px) { .zg-topbar-skeleton { height: 52px; } }
 @keyframes zgSplashMove { 0% { transform: translateX(-120%); } 100% { transform: translateX(360%); } }
 @media (max-width: 768px) {
   .app-main:not(.public-page) { min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }

@@ -14,6 +14,8 @@ import { saveAs } from 'file-saver'
 import katex from 'katex'
 import { API_BASE } from '@/utils/helpers'
 import { htmlToMarkdown, looksLikeHtml } from '@/utils/html-to-md'
+// 【v4.9.0】行内 Markdown 扫描器 —— 替代被 base64 截断的 INLINE_RE（「导出全是乱码」的根因）
+import { scanInlineMd, decodeDataImageUrl, isLocalDiskImageUrl } from '@/utils/md-rich'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps<{ subjectName: string; items: any[] }>()
@@ -66,24 +68,22 @@ async function fetchImage(url: string): Promise<{ data: ArrayBuffer; width: numb
     // 【v4.8.16 修复「导出 Word 里图片变成一长串 base64 文字」】
     // data: URL 不以 http / // 开头，会被下面的相对路径分支拼成 API_BASE + 'data:image/png;base64,…'
     // → fetch 必然失败返回 null → 图片降级成 `[图片]` 文字，甚至整串 base64 落进 Word。
-    // 这里先把 data URL 单独接住：直接 atob 解出二进制，不经过网络。
-    const raw = String(url).replace(/\s+/g, '')
+    // 这里先把 data URL 单独接住：直接解出二进制，不经过网络。
+    // 【v4.9.0】改用 decodeDataImageUrl 统一解码 —— 它用 indexOf(',') 定位数据起点，
+    //   不会像 split(',') 那样被 base64 内容里偶发的逗号切断。
+    const raw = String(url).replace(/^\s+|\s+$/g, '')
     let buf: ArrayBuffer
     if (/^data:image\//i.test(raw)) {
-      const comma = raw.indexOf(',')
-      if (comma < 0) return null
-      const meta = raw.slice(5, comma)           // image/png;base64
-      const body = raw.slice(comma + 1)
-      if (/;base64/i.test(meta)) {
-        const bin = atob(body)
-        const u8 = new Uint8Array(bin.length)
-        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
-        buf = u8.buffer
+      const dec = decodeDataImageUrl(raw)
+      if (!dec) {
+        // 非 base64 的 data URL（含 %XX 转义 / svg utf8）→ 退回 URL 解码
+        try {
+          const r = await fetch(raw)
+          if (!r.ok) return null
+          buf = await r.arrayBuffer()
+        } catch { return null }
       } else {
-        // 非 base64 的 data URL（含 %XX 转义）→ 用 fetch 解
-        const r = await fetch(raw)
-        if (!r.ok) return null
-        buf = await r.arrayBuffer()
+        buf = dec.bytes.buffer.slice(dec.bytes.byteOffset, dec.bytes.byteOffset + dec.bytes.byteLength) as ArrayBuffer
       }
     } else {
       const isExternal = /^https?:\/\//i.test(raw) || raw.startsWith('//')
@@ -373,7 +373,19 @@ async function katexToImage(tex: string): Promise<{ data: ArrayBuffer; type: 'pn
   } catch (e) { console.warn('[katexToImage] 异常:', tex, String(e)); return null }
 }
 
-const INLINE_RE = /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\!\[[^\]]*\]\([^)]*\))|(\*\*[^*]+\*\*)/g
+// 【v4.9.0 真修「导出 Word 全是乱码」—— 根因是这条正则】
+//
+// 旧写法：/(\$\$…\$\$)|(\$…\$)|(\!\[[^\]]*\]\([^)]*\))|(\*\*…\*\*)/g
+//   · 图片分支里的 `\([^)]*\)` 用「第一个右括号」当结束 —— 而 base64 数据、
+//     svg data URL（`data:image/svg+xml;utf8,<svg …(…)…>`）都**可能含 `)`**，
+//     于是匹配在这里被截断：图片语法只吃到一半，**剩下几十 KB 的 base64**
+//     落进下面的普通文本分支 → 原样写进 Word → 用户看到的"乱码"。
+//   · 公式分支 `\$[^$\n]+?\$` 与图片分支靠"谁先匹配"决定优先级，嵌套时行为不确定。
+//
+// 现在改为「扫描器 + 位置遍历」（见 utils/md-rich.ts 的 scanInlineMd）：
+//   · 图片 URL 用括号配平扫描，base64 里的 `)` 不再截断
+//   · 三类语法按出现位置统一排序，不再有优先级歧义
+//   · 扫描器同时返回 alt / 尺寸，天然支持平台的 `![alt](url =WxH)` 语法
 // 清理 file:// 附件裸引用（网页端是蓝色链接，Word 里应转成可读性文本，避免导出出一堆 file://xxx）
 // 【v4.8.16】同时兜掉「漏网的 data:image base64 长串」——图片行若因正则未命中而落进普通文本，
 // 会把几十 KB 的 base64 原样写进 Word（表现为"乱码"）。这里统一降级为 [图片]。
@@ -413,13 +425,14 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
     runs.push(new TextRun({ text: boldPrefix, bold: true, size }))
     text = text.slice(boldPrefix.length)
   }
-  let last = 0, m: RegExpExecArray | null
-  INLINE_RE.lastIndex = 0
-  while ((m = INLINE_RE.exec(text))) {
-    if (m.index > last) { runs.push(...textRuns(cleanText(text.slice(last, m.index)), size)) }
-    const t = m[0]
-    if (t.startsWith('$') && t.length > 2) {
-      const tex = t.replace(/^\$\$?|\$\$?$/g, '').trim()
+  // 【v4.9.0】用扫描器切分，替代旧的 INLINE_RE（旧正则被 base64 里的 `)` 截断 → 乱码）
+  const tokens = scanInlineMd(text)
+  let last = 0
+  for (const tk of tokens) {
+    if (tk.start > last) runs.push(...textRuns(cleanText(text.slice(last, tk.start)), size))
+
+    if (tk.kind === 'math') {
+      const tex = (tk.tex || '').trim()
       // 【v4.5.3】优先 OMML 原生公式（矢量、Word 内可编辑，不依赖 KaTeX 字体）
       let omml: any = null
       try { omml = latexToOmml(tex) } catch (e) { console.warn('[omml] 转换失败，回退图片:', tex, String(e)); omml = null }
@@ -430,18 +443,42 @@ async function inlineRuns(text: string, size: number, boldPrefix = ''): Promise<
         if (img) runs.push(new ImageRun({ data: img.data, type: 'png', transformation: { width: img.w, height: img.h } }))
         else runs.push(new TextRun({ text: ` ${tex} `, size, italics: true }))
       }
-    } else if (t.startsWith('![')) {
-      const url = (t.match(/\(([^)]+)\)/) || [])[1]
+    } else if (tk.kind === 'image') {
+      const url = (tk.url || '').trim()
       if (url) {
-        const img = await fetchImage(url)
-        if (img) runs.push(new ImageRun({ data: img.data, type: 'png', transformation: { width: img.width, height: img.height } }))
-        else runs.push(new TextRun({ text: ' [图片] ', size }))
+        // 【v4.9.0】本地磁盘路径（C:\…、file:///…）永远取不到图 —— 直接给可读占位，
+        //   绝不把路径字符串写进 Word（这正是用户反馈的"C 盘绝对路径"）。
+        if (isLocalDiskImageUrl(url)) {
+          runs.push(new TextRun({ text: ' [图片：本地路径，请重新插入] ', size }))
+        } else {
+          const img = await fetchImage(url)
+          if (img) {
+            // 【v4.9.0】内容里显式标注了尺寸（`![alt](url =WxH)`）时优先采用，
+            //   否则 fetchImage 的自动三档宽度策略生效 —— 用户所见即所得。
+            const requested = tk.width && tk.height ? tk.width : 0
+            const scale = requested ? requested / img.width : 1
+            runs.push(new ImageRun({
+              data: img.data,
+              type: 'png',
+              transformation: {
+                width: requested || img.width,
+                height: Math.max(20, Math.round(img.height * scale)),
+              },
+            }))
+          } else {
+            runs.push(new TextRun({ text: ' [图片] ', size }))
+          }
+        }
       }
-    } else if (t.startsWith('**')) {
+    } else if (tk.kind === 'bold') {
       // 【v4.8.20】加粗内容同样要走 unescapeMd，否则 `**\_\_\_\_\_**` 会导出成一堆 `\_`
-      runs.push(new TextRun({ text: unescapeMd(t.slice(2, -2)), size, bold: true }))
+      runs.push(new TextRun({ text: unescapeMd(tk.text || ''), size, bold: true }))
+    } else if (tk.kind === 'link') {
+      // 【v4.9.0】链接：显示文案（超链接关系由 docx 段落层的 link 处理，这里至少不吐出裸 URL）
+      runs.push(new TextRun({ text: unescapeMd(tk.label || tk.href || ''), size, color: '0563C1', underline: {} }))
     }
-    last = INLINE_RE.lastIndex
+
+    last = tk.end
   }
   if (last < text.length) { runs.push(...textRuns(cleanText(text.slice(last)), size)) }
   return runs.length ? runs : [new TextRun({ text: cleanText(text), size })]

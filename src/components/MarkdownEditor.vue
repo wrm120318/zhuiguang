@@ -14,7 +14,9 @@ import { ensureKatexCss } from '@/utils/markdown'
 import { api } from '@/api'
 // 【v4.8.16】从 Word / 网页粘贴的富文本统一转 Markdown 后入库，
 // 让下游（题库卡片、Word 导出、组卷）只处理一种格式
-import { htmlToMarkdown } from '@/utils/html-to-md'
+import { htmlToMarkdown, takeHtmlToMdIssues, isLocalDiskSrc } from '@/utils/html-to-md'
+// 【v4.9.0】图片路径分流 / data URL 解码 —— 「传进去什么 = 导出什么」的基础设施
+import { decodeDataImageUrl } from '@/utils/md-rich'
 
 // ===== props =====
 const props = withDefaults(defineProps<{
@@ -634,19 +636,30 @@ async function onPaste(e: ClipboardEvent) {
   //      · 题库卡片：HTML 表格无列宽约束 → 列被压成"竖排单字"；样式与 Markdown 题目不一致
   //      · Word 导出：导出器只认 Markdown，遇到 `<table><tbody><tr><td>` 原样写进文档 = 乱码
   //      · base64 图片：一段 Word 题面可达 60KB，撑爆存储与卡片布局
-  //    现在统一走 htmlToMarkdown() 收敛成 Markdown，并在转换前把 base64 图上传成真实 URL。
+  //    现在统一走 htmlToMarkdown() 收敛成 Markdown，并在转换前把图片规整成可入库的 URL。
   if (html && html.trim()) {
     const cleaned = sanitizeHtml(html)
     if (isMeaningfulHtml(cleaned)) {
       e.preventDefault()
       try {
-        // ① 先把内联 base64 图片（Word 粘贴的图都是这种）上传，换成短 URL
-        const withUrls = await uploadInlineDataImages(cleaned)
+        // ① 图片路径分流：
+        //    · base64 内联图 → 上传成短 URL（Word 粘贴的图都是这种）
+        //    · 本地盘符路径（C:\…、file:///…）→ **丢弃**（浏览器读不到，落库就是乱码）
+        const { html: withUrls, droppedLocal } = await normalizeInlineImages(cleaned)
         // ② HTML → Markdown（表格转 GFM 表格，strong→**，KaTeX span→$..$ 等）
         let md = htmlToMarkdown(withUrls)
         if (!md.trim()) md = htmlToMarkdown(cleaned)
+        // ③ 取走转换器收集到的问题（如转换阶段又发现的本地盘符图）
+        const issues = takeHtmlToMdIssues()
+        const droppedInConvert = issues.find(i => i.type === 'localImageDropped')?.count || 0
         insertAtCursor(md)
-        ElMessage.success('已粘贴并转为标准格式')
+        const dropped = droppedLocal + droppedInConvert
+        if (dropped) {
+          // 明确告知，而不是让用户几天后在 Word 里发现一堆路径文字
+          ElMessage.warning(`已粘贴，但有 ${dropped} 张图片指向本地磁盘路径（浏览器无法读取），已自动移除。请用「上传图片」或截图后直接粘贴重新插入。`)
+        } else {
+          ElMessage.success('已粘贴并转为标准格式')
+        }
       } catch (err: any) {
         // 转换失败不阻塞用户：退回纯文本粘贴，避免"粘贴后什么都没有"
         ElMessage.warning('粘贴内容解析失败，已按纯文本插入')
@@ -821,37 +834,68 @@ function tabGridToMd(text: string): string {
 }
 
 /**
- * 【v4.8.16】把 HTML 里的内联 base64 图片上传成真实 URL。
- * Word 复制出来的图片全部是 `src="data:image/png;base64,..."`（单张可达数百 KB），
- * 直接入库会让 D1 单行超限、且每次列表渲染都要解析巨型字符串。
- * 这里逐张上传，失败则保留原 base64（宁可图大，不能丢图）。
+ * 【v4.9.0 重写】把 HTML 里的内联 base64 / 本地盘符图片规整成可入库的 URL。
+ *
+ * 【旧实现的两个硬伤】
+ *   ① 正则 `<img\b[^>]*\bsrc="data:image/([a-zA-Z0-9.+-]+);base64,([^"]+)"[^>]*>`：
+ *      · `[^>]*` 在 src **之前**是贪婪匹配，一旦前面的属性里含 `>`（或 `/>` 写法）
+ *        就整体失配 → **整批 base64 图片一张都上传不了**，全部原样落库 →
+ *        用户在 Word 导出时看到的就是几十 KB 的 base64 "乱码"。
+ *      · 只认双引号 src，单引号 / 无引号的 Word 变体漏掉。
+ *   ② 完全没处理**本地磁盘路径**（`file:///C:/…`、`C:\…`）—— 这是用户反馈的
+ *      「图片成了带着 C 盘绝对路径的」来源。这种 URL 浏览器永远读不到，必须丢弃。
+ *
+ * 【新实现】交给 DOMParser 解析 DOM 再按属性判断，不再和 HTML 属性语法搏斗：
+ *   · `data:image/*`   → 上传成真实 URL（失败则保留原 base64，宁可图大不可丢图）
+ *   · 本地磁盘路径      → **删除该 <img>** 并计数（由调用方提示用户）
+ *   · 其它 URL 原样保留（http/https/相对路径，交后续逻辑处理）
+ *
+ * @returns 规整后的 HTML 与丢弃的本地图片数
  */
-async function uploadInlineDataImages(html: string): Promise<string> {
-  const re = /<img\b[^>]*\bsrc\s*=\s*"data:image\/([a-zA-Z0-9.+-]+);base64,([^"]+)"[^>]*>/gi
-  const matches = [...html.matchAll(re)]
-  if (!matches.length) return html
+async function normalizeInlineImages(html: string): Promise<{ html: string; droppedLocal: number }> {
+  if (typeof document === 'undefined') return { html, droppedLocal: 0 }
+  const host = document.createElement('div')
+  host.innerHTML = html
+  const imgs = Array.from(host.querySelectorAll('img'))
+  if (!imgs.length) return { html, droppedLocal: 0 }
 
-  let out = html
-  for (const m of matches) {
-    const ext = (m[1] || 'png').toLowerCase().replace('jpeg', 'jpg')
-    const b64 = m[2]
-    // 粗略估算体积，超过 12MB 的单图跳过（避免浏览器卡死 / 请求体超限）
-    if (b64.length * 0.75 > 12 * 1024 * 1024) continue
-    try {
-      const bin = atob(b64)
-      const arr = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
-      const file = new File([arr], `paste-${Date.now()}.${ext}`, { type: `image/${ext}` })
-      const r: any = await api.uploadImage(file)
-      if (r?.url) {
-        // 用上传后的短 URL 替换该张 base64
-        out = out.replace(m[0], m[0].replace(m[0].match(/src\s*=\s*"[^"]*"/i)![0], `src="${r.url}"`))
-      }
-    } catch {
-      // 单张失败不影响其它图片与整体转换
+  let droppedLocal = 0
+  // 逐张串行上传：并发上传长 base64 容易触发浏览器连接数排队，反而更慢；
+  // 且串行能保证「哪张失败就保留哪张」的对应关系不串。
+  let seq = 0
+  for (const img of imgs) {
+    const src = (img.getAttribute('src') || '').trim()
+    if (!src) continue
+
+    // ① 本地磁盘路径：浏览器读不到 → 丢弃（这是用户看到「C 盘路径」的元凶）
+    if (isLocalDiskSrc(src)) {
+      droppedLocal++
+      img.remove()
+      continue
     }
+
+    // ② base64 内联图：上传成短 URL
+    if (/^data:image\//i.test(src)) {
+      const decoded = decodeDataImageUrl(src)
+      if (!decoded) continue
+      // 单图超过 12MB 跳过（浏览器端 canvas/请求体都会吃力）
+      if (decoded.bytes.byteLength > 12 * 1024 * 1024) continue
+      const ext = (decoded.mime.split('/')[1] || 'png').replace('+xml', '').replace('jpeg', 'jpg')
+      const mime = `image/${ext === 'svg' ? 'svg+xml' : ext}`
+      try {
+        seq++
+        const file = new File([decoded.bytes as any], `paste-${Date.now()}-${seq}.${ext}`, { type: mime })
+        const r: any = await api.uploadImage(file)
+        if (r?.url) { img.setAttribute('src', r.url); img.removeAttribute('srcset') }
+      } catch {
+        // 单张失败不影响其它图片与整体转换（保留 base64，至少不丢图）
+      }
+      continue
+    }
+    // ③ blob: / http(s) / 相对路径 → 原样保留
   }
-  return out
+
+  return { html: host.innerHTML, droppedLocal }
 }
 
 // 判断清理后的 HTML 是否“有意义”：避免把单个 <div>文字</div> 平凡包裹误当 HTML 插入

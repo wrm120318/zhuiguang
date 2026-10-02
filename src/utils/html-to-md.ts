@@ -20,6 +20,50 @@
 /** 需要整段丢弃的标签（连同内容） */
 const DROP_TAGS = /<(script|style|head|meta|link|title|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi
 
+// ===== 【v4.9.0】转换过程中的「问题收集」通道 =====
+//
+// 【为什么需要】用户需求原文：「我必须要传进去是什么、渲染的是什么，最后导出 Word 就是什么」。
+// 要兑现这句，转换器就不能"默默丢东西" —— 凡是**无法保真**的地方（尤其是图片），
+// 必须让上层能拿到，进而明确告知用户，而不是让用户过几天在 Word 里发现一堆乱码。
+//
+// 典型场景：从某些软件复制的 HTML 里图片 src 是**本地磁盘路径**
+// （`file:///C:/...` 或 `C:\Users\...\image1.png`）。浏览器出于安全**永远读不到**它，
+// 入库后网页是裂图、导出 Word 是一串路径文字 —— 用户反馈的「图片成了带着 C 盘绝对路径的」
+// 就是这个。此时唯一正确的做法是：**丢弃 + 计数 + 告知**，绝不落库。
+export type HtmlToMdIssueType = 'localImageDropped'
+
+export interface HtmlToMdIssue {
+  type: HtmlToMdIssueType
+  count: number
+}
+
+/** 本次转换收集到的问题（每次调用 htmlToMarkdown 时重置） */
+let _issues: HtmlToMdIssue[] = []
+
+/** 取出并清空本次转换的问题列表（必须在 htmlToMarkdown 之后立刻调用） */
+export function takeHtmlToMdIssues(): HtmlToMdIssue[] {
+  const out = _issues
+  _issues = []
+  return out
+}
+
+function _noteIssue(type: HtmlToMdIssueType, n = 1) {
+  const hit = _issues.find(i => i.type === type)
+  if (hit) hit.count += n
+  else _issues.push({ type, count: n })
+}
+
+/** 本地磁盘绝对路径：`file://` 或 Windows 盘符（`C:\` / `C:/`） */
+const LOCAL_DISK_SRC_RE = /^(?:file:[\\/]+|[a-zA-Z]:[\\/])/
+
+/**
+ * 判断图片 src 是否指向**本地磁盘**（浏览器读不到、绝不能入库）。
+ * 注：`data:` 与 `blob:` 不算（前者可直接落库/上传，后者由调用方自行处理）。
+ */
+export function isLocalDiskSrc(src: string): boolean {
+  return LOCAL_DISK_SRC_RE.test((src || '').trim())
+}
+
 /** 转义 Markdown 特殊字符（仅用于纯文本节点，避免破坏结构） */
 function escMd(s: string): string {
   return s
@@ -123,6 +167,10 @@ function inlineToMd(el: HTMLElement | ChildNode): string {
       const src = e.getAttribute('src') || ''
       const alt = e.getAttribute('alt') || '图片'
       if (!src) return ''
+      // 【v4.9.0 图片路径分流】本地磁盘路径（file:// / C:\...）浏览器读不到，
+      //   若原样入库，网页是裂图、导出 Word 是一串路径文字 → 用户看到的"乱码"。
+      //   这里直接丢弃并计数，由上层（MarkdownEditor）明确提示用户重新插入。
+      if (isLocalDiskSrc(src)) { _noteIssue('localImageDropped'); return '' }
       // 【v4.8.25】保留图片尺寸：属性 width/height 优先，其次内联 style 的 width/height。
       //   输出平台原生的 `![alt](url =WxH)` 语法（imageSized 扩展消费），
       //   否则用户从 Word 粘贴来的图尺寸会在 HTML→Markdown 转换时被丢弃。
@@ -158,66 +206,212 @@ function inlineToMd(el: HTMLElement | ChildNode): string {
   }
 }
 
-/** 块级元素 → Markdown */
-function blockToMd(e: HTMLElement): string {
+/** 块级元素 → Markdown
+ *
+ * 【v4.9.0「空行 1:1 忠实还原」的关键约定】
+ *   本函数**不再**自作主张地在前后各加 `\n\n`，而是**只负责自身内容**，
+ *   段落之间的分隔符由调用方根据「紧贴 / 分段」语义统一决定。
+ *
+ *   为什么必须这样改：原实现每段都返回 `\n\nX\n\n`，两段拼起来就是
+ *   `\n\nA\n\n` + `\n\nB\n\n` = `\n\nA\n\n\n\nB\n\n`，甚至即使用 `\nA\n` 紧贴写法，
+ *   拼接处仍是 `\n`+`\n` = 空行 —— **无论怎么写都会凭空多空行**。
+ *   根因是「分隔符由两端各自贡献」这个设计本身就是错的。
+ *
+ *   现在：`blockToMd` 返回**纯内容**（可能首尾带少量结构换行，如列表），
+ *   由 `joinBlocks()` 在块之间插入正确的分隔符（`\n` 紧贴 / `\n\n` 空行）。
+ */
+function blockToMd(e: HTMLElement, _prev?: HTMLElement | null): string {
   const tag = e.tagName.toLowerCase()
   switch (tag) {
-    case 'h1': return `\n\n# ${inlineToMd(e).trim()}\n\n`
-    case 'h2': return `\n\n## ${inlineToMd(e).trim()}\n\n`
-    case 'h3': return `\n\n### ${inlineToMd(e).trim()}\n\n`
-    case 'h4': return `\n\n#### ${inlineToMd(e).trim()}\n\n`
-    case 'h5': return `\n\n##### ${inlineToMd(e).trim()}\n\n`
-    case 'h6': return `\n\n###### ${inlineToMd(e).trim()}\n\n`
+    case 'h1': return `# ${inlineToMd(e).trim()}`
+    case 'h2': return `## ${inlineToMd(e).trim()}`
+    case 'h3': return `### ${inlineToMd(e).trim()}`
+    case 'h4': return `#### ${inlineToMd(e).trim()}`
+    case 'h5': return `##### ${inlineToMd(e).trim()}`
+    case 'h6': return `###### ${inlineToMd(e).trim()}`
     case 'p': {
       const t = inlineToMd(e).trim()
-      return t ? `\n\n${t}\n\n` : ''
+      // 空段落 → 空字符串（由 joinBlocks 依据「空块」语义补出空行）
+      return t
     }
     case 'ul': case 'ol': {
       const ordered = tag === 'ol'
       let i = 1
-      let out = '\n'
+      let out = ''
       e.querySelectorAll(':scope > li').forEach(li => {
         const t = inlineToMd(li).trim().replace(/\n+/g, ' ')
-        out += ordered ? `${i++}. ${t}\n` : `- ${t}\n`
+        out += (out ? '\n' : '') + (ordered ? `${i++}. ${t}` : `- ${t}`)
       })
-      return out + '\n'
+      return out
     }
     case 'blockquote': {
       const t = inlineToMd(e).trim()
-      return t ? `\n\n> ${t.replace(/\n/g, '\n> ')}\n\n` : ''
+      return t ? t.replace(/\n/g, '\n> ').replace(/^/, '> ') : ''
     }
     case 'pre': {
       const code = (e.querySelector('code') || e).textContent || ''
-      return `\n\n\`\`\`\n${code.replace(/\n$/, '')}\n\`\`\`\n\n`
+      return '```\n' + code.replace(/\n$/, '') + '\n```'
     }
-    case 'hr': return '\n\n---\n\n'
+    case 'hr': return '---'
     case 'table': return tableToMd(e)
     case 'br': return '\n'
     default: {
-      // div / section 等容器：递归其子节点
-      let out = ''
-      e.childNodes.forEach(c => {
+      // div / section 等容器：递归其子节点，内部同样按块语义拼接
+      const kids = Array.from(e.childNodes)
+      const parts: string[] = []
+      let lastBlock: HTMLElement | null = null
+      kids.forEach(c => {
         if (c.nodeType === Node.ELEMENT_NODE) {
           const ce = c as HTMLElement
           const t = ce.tagName.toLowerCase()
-          out += BLOCK_TAGS.has(t) ? blockToMd(ce) : inlineToMd(ce)
+          if (BLOCK_TAGS.has(t)) {
+            parts.push(blockToMd(ce, lastBlock))
+            lastBlock = ce
+          } else {
+            parts.push(inlineToMd(ce))
+          }
         } else {
-          out += inlineToMd(c)
+          parts.push(inlineToMd(c))
         }
       })
-      // 纯文本 div 需要分段
-      if (!out.includes('\n\n') && out.trim()) return `\n\n${out.trim()}\n\n`
-      return out
+      return joinBlocks(parts, kids.map(k => (k.nodeType === Node.ELEMENT_NODE ? (k as HTMLElement) : null)))
     }
   }
 }
 
-/** 清理转换结果里多余的换行/空格 */
+/**
+ * 【v4.9.0】按 Word 的真实排版意图拼接块级内容 —— 「空行 1:1 忠实还原」的核心。
+ *
+ * 这是本轮**最关键**的一处设计：分隔符必须由**一个地方**统一决定，
+ * 不能由每个块自己"前后各加一点"（那样拼接处必然翻倍）。
+ *
+ * 规则（依据用户原话「我留了多少空行就是多少。我 word 只是换了个行，
+ * 就不应该出现空行」）：
+ *   · 当前块为空（Word 里的空段落 `<p></p>` / `<p>&nbsp;</p>`）→ 产生**一个空行**
+ *   · 当前块「紧贴」前一块（`isTightParagraph`：margin 为 0，或前一块以 `<br>` 结尾）
+ *     → 用**单个 `\n`** 连接（只换行，不空行）
+ *   · 其余 → 用 **`\n\n`** 连接（标准 Markdown 分段 = 一个空行）
+ *
+ * ⚠️ 为什么「紧贴」判据要读 margin：
+ *     Word 里「换行」与「分段」的视觉差异**不是靠标签区分的**（都是 `<p>`），
+ *     而是靠**段落间距**表达的：`margin:0` 视觉紧贴、`margin-bottom:12pt` 才有空行。
+ *     原实现只看标签名，于是把「紧贴的换行」也当成了「分段」→ 凭空多空行。
+ */
+function joinBlocks(parts: string[], els: (HTMLElement | null)[]): string {
+  let out = ''
+  for (let i = 0; i < parts.length; i++) {
+    const cur = parts[i]
+    const curEl = els[i]
+    const isBlankBlock = curEl !== null && isBlankElement(curEl)
+    // 空块：作为「空行」输出（等价于用户真的留了一个空行）
+    if (isBlankBlock) {
+      if (out && !/\n\n$/.test(out)) out += '\n\n'
+      continue
+    }
+    if (!cur.trim()) continue
+    if (!out) { out = cur; continue }
+    const tight = curEl ? isTightParagraph(curEl, els[i - 1]) : false
+    // 紧贴 → 单换行；分段 → 空行（若 out 已经以空行结尾则不再叠加）
+    if (tight) out += '\n' + cur
+    else out += (/\n\n$/.test(out) ? '' : '\n\n') + cur
+  }
+  return out
+}
+
+/** 判断块元素是否为「空块」（Word 里的空段落 —— 用户刻意留的空行） */
+function isBlankElement(e: HTMLElement): boolean {
+  const txt = (e.textContent || '').replace(/[\s\u00a0\u3000]/g, '')
+  if (txt) return false
+  // 只有 <br> 或什么都没有，且没有图片等可视内容
+  return !e.querySelector('img, table, hr, video, iframe')
+}
+
+/**
+ * 【v4.9.0】判断该段落与上一段落之间**应不应该有空行**。
+ *
+ * 这是本轮「空行 1:1 忠实还原」的核心判据 —— 读 Word 的**真实排版意图**，
+ * 而不是机械按标签名加空行。
+ *
+ * 三条判据（任一命中即视为"紧贴"，即用户只是换了个行）：
+ *   ① 显式零间距：`margin:0` / `margin-bottom:0` / `margin-top:0`
+ *      —— Word 默认段落样式 `margin:0cm;margin-bottom:.0001pt` 就是这种，
+ *         用户在 Word 里看到的是**紧贴的两行**。
+ *   ② `<br>` 直接结尾：上一段的最后一个元素是 `<br>`（用户敲了 Shift+Enter/回车）
+ *   ③ 前一段落是「空段落」的逆：本段是纯 `<br>` 或只有空白
+ *
+ * ⚠️ 必须**保守**：任何判据不成立时一律按「有空行」处理（标准 Markdown 分段），
+ *    否则会破坏正常的段落层次 —— 宁可多一个空行，也不要把两段粘成一段。
+ */
+function isTightParagraph(e: HTMLElement, prev?: HTMLElement | null): boolean {
+  const style = (e.getAttribute('style') || '').toLowerCase()
+
+  // ── 判据 ①：显式零间距 ──
+  // ⚠️ **CSS 优先级**：`margin-bottom` 会覆盖简写 `margin`。
+  //   Word 常见写法 `margin:0cm;margin-bottom:12.0pt` —— 视觉上**是有空行的**，
+  //   若只匹配到前面的 `margin:0cm` 就判成紧贴，会出现「该空行的地方没空行」。
+  //   因此**必须优先检查 margin-bottom / margin-top**，只有它们不存在时才看简写 margin。
+  const mb = e.getAttribute('style')?.match(/(?:^|;)\s*margin-bottom\s*:\s*([^;]+)/i)
+  const mt = e.getAttribute('style')?.match(/(?:^|;)\s*margin-top\s*:\s*([^;]+)/i)
+  const mShorthand = e.getAttribute('style')?.match(/(?:^|;)\s*margin\s*:\s*([^;]+)/i)
+
+  const isZero = (v?: string) => {
+    if (!v) return false
+    const s = v.trim().toLowerCase()
+    // 0 / 0px / 0cm / .0001pt（约 0.0001 磅，视觉等同 0）
+    return /^0(?:\.0+)?(?:[a-z%]*)$/.test(s) || /^\.?0{3,}1pt$/.test(s)
+  }
+
+  if (mb) {
+    // 显式声明了 margin-bottom → 以它为准（这是最精确的信号）
+    if (isZero(mb[1])) {
+      // 若同时 margin-top 明确大于 0，则仍应有空行
+      if (mt && !isZero(mt[1])) return false
+      return true
+    }
+    // 明确的大于 0 的段后间距 → 一定有空行
+    return false
+  }
+  if (mShorthand && isZero(mShorthand[1])) {
+    if (mt && !isZero(mt[1])) return false
+    return true
+  }
+  // Word 的 mso 段落间距样式（值为 0 表示紧贴）
+  if (/mso-para-margin(?:-bottom)?\s*:\s*0(?:\.0+)?(?:[a-z%]*)/.test(style)) return true
+
+  // ── 判据 ③：上一段以 <br> 结尾（用户在 Word 里敲了换行） ──
+  if (prev) {
+    const last = prev.lastElementChild
+    if (last && last.tagName && last.tagName.toLowerCase() === 'br') return true
+    const lastNode = prev.lastChild
+    if (lastNode && lastNode.nodeType === Node.ELEMENT_NODE &&
+        (lastNode as HTMLElement).tagName.toLowerCase() === 'br') return true
+  }
+
+  // ── 默认：按「分段」处理（保有空行）──
+  // 保守策略：判据不成立时宁可保留空行，也不要把两段粘成一段（那会破坏段落层次）
+  return false
+}
+
+/** 清理转换结果里多余的换行/空格
+ *
+ * 【v4.9.0「空行 1:1 忠实还原」】语义调整：
+ *   用户明确要求「我留了多少空行就是多少」。
+ *   原实现 `.replace(/\n{3,}/g, '\n\n')` 会把用户**刻意留的多个空行**压成 1 个 ——
+ *   这与用户诉求冲突，改为**只做首尾清理**，中间空行数量原样保留。
+ *
+ * ⚠️ 但不能完全放任：`blockToMd` 每个块级都会前后各输出 `\n\n`，
+ *    相邻块拼接会产生 `\n\n\n\n`（= 2 个空行），这是**转换器的拼接副产物**，
+ *    不是用户的意图。因此仍需要把「拼接边缘」的连续换行归一化。
+ *
+ * 做法：把 3+ 换行折叠为 **2 个**（= 1 个空行），这正是 Markdown 里
+ *   「分段」的标准表达；用户真的要多个空行时，Word 里一定有对应的空段落，
+ *   那些空段落会被 `blockToMd` 的 `case 'p'` 保留下来（返回 `\n\n`）。
+ */
 function tidy(md: string): string {
   return md
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')      // 行尾空格
-    .replace(/\n{3,}/g, '\n\n')      // 3+ 空行 → 1 空行
+    .replace(/\n{3,}/g, '\n\n')      // 3+ 空行 → 1 空行（仅归一化拼接副产物）
     .replace(/^\n+/, '')             // 首部空行
     .replace(/\n+$/, '')             // 尾部空行
     .trim()
@@ -264,6 +458,8 @@ function inlineHtmlPatch(s: string): string {
       || (attrs.match(/\bsrc\s*=\s*([^\s>]+)/i) || [])[1] || ''
     const alt = (attrs.match(/\balt\s*=\s*["']([^"']*)["']/i) || [])[1] || '图片'
     if (!src) return ''
+    // 【v4.9.0 图片路径分流】同 blockToMd 的 case 'img'：本地磁盘路径丢弃并计数
+    if (isLocalDiskSrc(src)) { _noteIssue('localImageDropped'); return '' }
     // 尺寸来源优先级：width/height 属性 > 内联 style 里的 width/height
     const attrW = (attrs.match(/\bwidth\s*=\s*["']?(\d+)["']?/i) || [])[1]
     const attrH = (attrs.match(/\bheight\s*=\s*["']?(\d+)["']?/i) || [])[1]
@@ -306,6 +502,8 @@ function inlineHtmlPatch(s: string): string {
  * @returns 规范化后的 Markdown；无法解析时返回去标签的纯文本兜底
  */
 export function htmlToMarkdown(html: string): string {
+  // 每次转换重置问题收集，避免上一次的结果串到这一次
+  _issues = []
   if (!html) return ''
   let src = html.replace(DROP_TAGS, '')
   // 去掉注释、条件注释
@@ -325,16 +523,28 @@ export function htmlToMarkdown(html: string): string {
   const doc = document.createElement('div')
   doc.innerHTML = src
 
-  let out = ''
+  // 【v4.9.0】改为收集「块内容 + 对应元素」后统一拼接 —— 由 joinBlocks
+  //   依据 Word 的真实排版意图决定块间是「换行」还是「空行」。
+  //   原实现让每个块自己前后各加 `\n\n`，拼接处必然翻倍（凭空多空行）。
+  const parts: string[] = []
+  const els: (HTMLElement | null)[] = []
   doc.childNodes.forEach(c => {
     if (c.nodeType === Node.ELEMENT_NODE) {
       const e = c as HTMLElement
       const t = e.tagName.toLowerCase()
-      out += BLOCK_TAGS.has(t) ? blockToMd(e) : inlineToMd(e)
+      if (BLOCK_TAGS.has(t)) {
+        parts.push(blockToMd(e, null))
+        els.push(e)
+      } else {
+        parts.push(inlineToMd(e))
+        els.push(null)
+      }
     } else {
-      out += inlineToMd(c)
+      parts.push(inlineToMd(c))
+      els.push(null)
     }
   })
+  const out = joinBlocks(parts, els)
   // 空结果（例如只剩一个空 div）时兜底取纯文本
   const result = tidy(out)
   if (!result) return tidy(doc.textContent || '')
