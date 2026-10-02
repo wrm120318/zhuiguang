@@ -243,6 +243,72 @@ function autoSplit(bs: Block[]): number[] {
 }
 
 // ===== Word 原卷视图（docx-preview 保真渲染）=====
+//
+// 【v4.9.0 补全 · 拖拽吸附的关键一环】
+//   docx-preview 渲染出的是它自己的 DOM（<section><p>…），和我们用 mammoth 切出的
+//   `blocks` 是**两套独立的结构**。要让「在原卷上直接拖分割线」成立，
+//   必须先把两者**对齐**：给原卷里每个顶层块打上 `data-block-idx`，
+//   这样 onDragMove 里的 `elementFromPoint(...).closest('[data-block-idx]')` 才能命中。
+//
+//   对齐策略（稳健优先）：
+//     ① 按**文档顺序**逐个配对 docx 的顶层块与我们的 blocks
+//     ② 用归一化后的**文本前缀**校验；文本对不上就顺延查找，避免个别块增删导致整体错位
+//     ③ 实在对不上的块退化为「按顺序硬配」——宁可错位一格，也不能整条链路失效
+const BLOCK_IDX_ATTR = 'data-block-idx'
+
+/** 归一化文本（与原卷比对用）：去标签、去空白、去常见标点 */
+function normForMatch(s: string): string {
+  return String(s || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, '')
+    .replace(/[\s\u00a0\u3000]/g, '')
+    .replace(/[。．.，,、；;：:！!？?"'“”‘’()（）\[\]【】]/g, '')
+}
+
+/** 在原卷 DOM 上标注 data-block-idx，返回成功标注的数量 */
+function tagDocxBlocks(): number {
+  const host = docxHost.value
+  if (!host || !blocks.value.length) return 0
+  // docx-preview 的顶层结构：wrapper > section（每页）> p/table/…
+  // 这里统一取「section 的直接子元素」，没有 section 就退回 wrapper 的直接子元素
+  let tops: HTMLElement[] = Array.from(host.querySelectorAll('section')) as HTMLElement[]
+  if (!tops.length) tops = [host]
+  const candidates: HTMLElement[] = []
+  tops.forEach(sec => {
+    Array.from(sec.children).forEach(ch => candidates.push(ch as HTMLElement))
+  })
+  if (!candidates.length) return 0
+  // 清掉上一次的标注（重新渲染后旧标注会失效）
+  candidates.forEach(c => c.removeAttribute(BLOCK_IDX_ATTR))
+
+  let bi = 0
+  let tagged = 0
+  for (const el of candidates) {
+    if (bi >= blocks.value.length) break
+    const target = normForMatch(blocks.value[bi].text).slice(0, 20)
+    const here = normForMatch(el.textContent || '').slice(0, 20)
+    if (!target) { bi++; continue }
+    if (here && (here === target || here.startsWith(target) || target.startsWith(here))) {
+      el.setAttribute(BLOCK_IDX_ATTR, String(bi))
+      bi++; tagged++
+    } else {
+      // 文本对不上 → 往后顺延最多 3 个块找一找（容忍块被合并/拆分的轻微差异）
+      let found = -1
+      for (let k = bi + 1; k < Math.min(bi + 4, blocks.value.length); k++) {
+        const t = normForMatch(blocks.value[k].text).slice(0, 20)
+        if (t && (here === t || here.startsWith(t) || t.startsWith(here))) { found = k; break }
+      }
+      if (found > -1) { bi = found; el.setAttribute(BLOCK_IDX_ATTR, String(bi)); bi++; tagged++ }
+      else {
+        // 兜底：按顺序硬配（保证拖拽链路不整体失效）
+        el.setAttribute(BLOCK_IDX_ATTR, String(bi))
+        bi++; tagged++
+      }
+    }
+  }
+  return tagged
+}
+
 async function renderWordView() {
   if (!docxHost.value || !srcArrayBuffer) return
   try {
@@ -257,12 +323,67 @@ async function renderWordView() {
       renderHeaders: true,
       renderFooters: true,
     })
+    // 渲染完成后立刻对齐块编号，并叠加可视分割线
+    await nextTick()
+    const n = tagDocxBlocks()
+    if (!n) console.warn('[原卷编辑] 未能对齐任何块，拖拽吸附将不可用')
+    layoutOverlay()
   } catch (e: any) {
     console.warn('[docx-preview] 渲染失败，退回网站视图:', e?.message)
     viewMode.value = 'site'
     ElMessage.warning('Word 原卷渲染失败，已切换到网站视图')
   }
 }
+
+// ===== 【v4.9.0 补全】原卷可视分割线（叠加层）=====
+//
+// 用户要的是「原卷上直接拖」。前面 tagDocxBlocks 解决了「拖到哪一块」的识别，
+// 这里解决「分割线画在哪、怎么抓」：
+//   · 每条分割线是一个绝对定位的横条，覆盖在对应块的**上边缘**
+//   · 横条左侧有题号徽标，右侧有拖拽把手与 ＋/－ 按钮
+//   · 拖动横条 → 实时高亮目标块 → 松手吸附到该块边界
+interface SplitMark {
+  /** 分割线序号（对应 boundaries 的下标） */
+  bi: number
+  /** 该分割线所属的 block 下标 */
+  blockIdx: number
+  /** 相对原卷容器的 top 像素 */
+  top: number
+  /** 是否可拖拽（首尾不可拖） */
+  draggable: boolean
+}
+const marks = ref<SplitMark[]>([])
+const hoverBlockIdx = ref<number | null>(null)
+
+/** 重算所有分割线的位置（原卷滚动/缩放/重排后都要调） */
+function layoutOverlay() {
+  const host = docxHost.value
+  if (!host || viewMode.value !== 'word') { marks.value = []; return }
+  const hostRect = host.getBoundingClientRect()
+  const out: SplitMark[] = []
+  boundaries.value.forEach((blockIdx, i) => {
+    // 首条分割线（题目开头）与末条（文档结尾）不可拖，但仍显示
+    const el = host.querySelector(`[${BLOCK_IDX_ATTR}="${blockIdx}"]`) as HTMLElement | null
+    let top: number
+    if (el) {
+      top = el.getBoundingClientRect().top - hostRect.top
+    } else if (blockIdx >= blocks.value.length) {
+      // 末条：贴在最后一个已标注块的下方
+      const last = host.querySelector(`[${BLOCK_IDX_ATTR}="${blocks.value.length - 1}"]`) as HTMLElement | null
+      top = last ? last.getBoundingClientRect().bottom - hostRect.top : host.scrollHeight
+    } else {
+      return   // 找不到对应块 → 跳过这一条（不画错的线）
+    }
+    out.push({ bi: i, blockIdx, top, draggable: i > 0 && i < boundaries.value.length - 1 })
+  })
+  marks.value = out
+}
+
+// 视图切换 / 分割线变化 → 重算叠加层
+watch(boundaries, () => { nextTick(() => layoutOverlay()) })
+// 原卷滚动时同步（叠加层是绝对定位在内容坐标系里，滚动不需要重算；
+// 但窗口尺寸变化会让 docx 重排，必须重算）
+function onResize() { layoutOverlay() }
 
 // 切换视图时按需渲染
 watch(viewMode, async (m) => {
@@ -341,42 +462,86 @@ function syncDrafts() {
 }
 let lastBoundarySnapshot: number[] = []
 
-// ===== 拖拽分割线 =====
+// ===== 拖拽分割线（【v4.9.0 补全】真正可用版）=====
+//
+// 三个阶段：
+//   1) mousedown 在叠加层把手上 → 记录 dragging 序号，进入拖拽态
+//   2) mousemove → 用 elementFromPoint 命中带 data-block-idx 的原卷块 → 高亮预览
+//      （这条链路依赖 renderWordView 里的 tagDocxBlocks 已经打好标注）
+//   3) mouseup → 吸附到目标块边界，重算 boundaries
+//
+// 首尾分割线不可拖（它们定义了全卷范围），UI 上把手的 cursor 也会变成 not-allowed。
 function onSplitMouseDown(i: number, e: MouseEvent) {
   if (e.button !== 0) return
+  const mark = marks.value.find(m => m.bi === i)
+  if (mark && !mark.draggable) { ElMessage.info('首尾分割线不可拖动（它们定义了整卷范围）'); return }
   e.preventDefault()
+  e.stopPropagation()
   dragging.value = i
+  hoverBlockIdx.value = null
   window.addEventListener('mousemove', onDragMove)
   window.addEventListener('mouseup', onDragEnd)
 }
+
 function onDragMove(e: MouseEvent) {
-  if (dragging.value === null || !leftPane.value) return
-  // 找到鼠标下的块（用于把分割线吸附到最近块边界）
-  const el = document.elementFromPoint(e.clientX, e.clientY)
-  const host = el?.closest('[data-block-idx]') as HTMLElement | null
-  if (!host) return
-  const idx = Number(host.dataset.blockIdx)
-  if (!Number.isFinite(idx)) return
-  pendingDragTarget = idx
+  if (dragging.value === null) return
+  // 命中原卷里带标注的块（叠加层本身 pointer-events:none，不会挡住 elementFromPoint）
+  const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+  const host = el?.closest(`[${BLOCK_IDX_ATTR}]`) as HTMLElement | null
+  if (host) {
+    const idx = Number(host.getAttribute(BLOCK_IDX_ATTR))
+    if (Number.isFinite(idx)) { pendingDragTarget = idx; hoverBlockIdx.value = idx; return }
+  }
+  // 落在块与块之间的空隙 → 用几何距离找最近的块（避免"缝隙里拖不动"的挫败感）
+  const near = nearestBlockByY(e.clientY)
+  if (near !== null) { pendingDragTarget = near; hoverBlockIdx.value = near }
 }
+
+/** 按 Y 坐标找最近的块下标（拖到页边距/空隙时兜底） */
+function nearestBlockByY(clientY: number): number | null {
+  const host = docxHost.value
+  if (!host) return null
+  let best: number | null = null
+  let bestDist = Infinity
+  host.querySelectorAll(`[${BLOCK_IDX_ATTR}]`).forEach(el => {
+    const idx = Number((el as HTMLElement).getAttribute(BLOCK_IDX_ATTR))
+    if (!Number.isFinite(idx)) return
+    const r = (el as HTMLElement).getBoundingClientRect()
+    const d = Math.abs((r.top + r.bottom) / 2 - clientY)
+    if (d < bestDist) { bestDist = d; best = idx }
+  })
+  return best
+}
+
 let pendingDragTarget: number | null = null
 function onDragEnd() {
   const i = dragging.value
   dragging.value = null
+  hoverBlockIdx.value = null
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
   if (i === null || pendingDragTarget === null) { pendingDragTarget = null; return }
   const target = pendingDragTarget
   pendingDragTarget = null
-  // 首尾不可动；不能与相邻分割线重合
+  // 合法区间：不能贴到文档最开头（那是第 1 题起点），也不能越界
   if (target <= 0 || target >= blocks.value.length) return
   const next = boundaries.value.slice()
-  if (next.includes(target) && next[i] !== target) return
+  // 与其它分割线重合 → 视为无变化，不动（避免把两条线并成一条的意外合并）
+  if (next.includes(target) && next[i] !== target) { ElMessage.info('此处已有分割线'); return }
   next[i] = target
   const uniq = Array.from(new Set(next)).sort((a, b) => a - b)
   if (uniq.length !== next.length) return
   boundaries.value = uniq
   syncDrafts()
+  nextTick(() => layoutOverlay())
+  ElMessage.success('分割线已移动')
+}
+
+// ===== 叠加层交互：点分割线本体 =====
+function onMarkClick(i: number) {
+  // 点线身 = 删除该分割线（= 与下一题合并）；首尾不可删
+  if (i <= 0 || i >= boundaries.value.length - 1) return
+  removeSplit(i)
 }
 
 // ===== 网站渲染视图（实时跟随右侧编辑）=====
@@ -451,10 +616,22 @@ async function saveAll() {
 onMounted(() => {
   // 初始快照，供 syncDrafts 判断"结构是否变化"
   lastBoundarySnapshot = boundaries.value.slice()
+  // 【v4.9.0 补全】原卷会随窗口宽度重排（docx 是固定版心，缩放后块位置全变），
+  //   叠加层必须跟着重算，否则分割线会「飘」在错误位置。
+  window.addEventListener('resize', onResize)
+  // 原卷容器自身尺寸变化（切视图 / 侧栏展开）也要重算
+  if (typeof ResizeObserver !== 'undefined' && leftPane.value) {
+    paneObserver = new ResizeObserver(() => layoutOverlay())
+    paneObserver.observe(leftPane.value)
+  }
 })
+let paneObserver: ResizeObserver | null = null
 onUnmounted(() => {
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
+  window.removeEventListener('resize', onResize)
+  paneObserver?.disconnect()
+  paneObserver = null
 })
 </script>
 
@@ -490,8 +667,36 @@ onUnmounted(() => {
 
         <!-- Word 保真视图 -->
         <div v-show="viewMode === 'word'" ref="leftPane" class="zs-pane">
-          <div ref="docxHost" class="zs-docx" />
-          <div class="zs-hint">分割线已自动插入 · 拖动分割线可调整 · 点 ▸ 可加/删分割线</div>
+          <div class="zs-docx-wrap">
+            <div ref="docxHost" class="zs-docx" />
+            <!-- 【v4.9.0 补全】叠加在原卷上的可视分割线 -->
+            <div class="zs-overlay">
+              <div
+                v-for="m in marks"
+                :key="m.bi"
+                class="zs-mark"
+                :class="{ dragging: dragging === m.bi, locked: !m.draggable }"
+                :style="{ top: m.top + 'px' }"
+              >
+                <span class="zs-mark-badge">{{ m.bi === 0 ? '开始' : (m.bi === boundaries.length - 1 ? '结束' : '第 ' + m.bi + ' 题 ▸') }}</span>
+                <span class="zs-mark-line" @click="onMarkClick(m.bi)" />
+                <span
+                  class="zs-mark-grip"
+                  :title="m.draggable ? '拖动调整分割位置' : '首尾分割线不可拖动'"
+                  @mousedown="onSplitMouseDown(m.bi, $event)"
+                >⠿</span>
+                <span v-if="m.draggable" class="zs-mark-btns">
+                  <button class="zs-mini" title="与下一题合并" @click.stop="removeSplit(m.bi)">－</button>
+                </span>
+              </div>
+            </div>
+            <!-- 拖拽时高亮目标块 -->
+            <div
+              v-if="hoverBlockIdx !== null && dragging !== null"
+              class="zs-hover-hint"
+            >拖到此处：分割线将落在第 {{ hoverBlockIdx + 1 }} 个块前</div>
+          </div>
+          <div class="zs-hint">分割线已自动插入 · 拖动 ⠿ 可调整 · 点横线可合并相邻两题</div>
         </div>
 
         <!-- 网站渲染视图（实时跟随右侧编辑） -->
@@ -574,8 +779,41 @@ onUnmounted(() => {
 .zs-left-bar, .zs-right-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .zs-left-actions { display: flex; gap: 6px; }
 .zs-pane { border: 1px solid rgba(0,0,0,0.09); border-radius: 12px; background: #fff; overflow: auto; max-height: 62vh; padding: 8px; }
+/* ---- 原卷 + 叠加分割线 ---- */
+.zs-docx-wrap { position: relative; }
 .zs-docx { min-width: 0; }
-.zs-hint { font-size: 11px; color: var(--zg-text-dim, #999); padding: 6px 2px; }
+/* 叠加层：铺满原卷但本身不吃鼠标事件，只有子元素把手可交互 */
+.zs-overlay { position: absolute; inset: 0; pointer-events: none; }
+.zs-mark { position: absolute; left: 0; right: 0; height: 0; display: flex; align-items: center; gap: 6px; }
+.zs-mark-badge {
+  flex: 0 0 auto; transform: translateY(-50%);
+  background: var(--zg-primary, #f59e0b); color: #fff;
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+  white-space: nowrap; pointer-events: none; opacity: .92;
+}
+.zs-mark-line {
+  flex: 1 1 auto; height: 2px; transform: translateY(-50%);
+  background: repeating-linear-gradient(to right, var(--zg-primary, #f59e0b) 0 8px, transparent 8px 14px);
+  cursor: pointer; pointer-events: auto; opacity: .75;
+}
+.zs-mark-line:hover { opacity: 1; height: 3px; }
+.zs-mark-grip {
+  flex: 0 0 auto; transform: translateY(-50%);
+  pointer-events: auto; cursor: grab; user-select: none;
+  background: #fff; border: 1px solid var(--zg-primary, #f59e0b); color: var(--zg-primary, #f59e0b);
+  border-radius: 5px; padding: 0 4px; font-size: 12px; line-height: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+.zs-mark-grip:active { cursor: grabbing; }
+.zs-mark.locked .zs-mark-grip { cursor: not-allowed; opacity: .45; }
+.zs-mark.dragging .zs-mark-line { height: 3px; opacity: 1; background: #ef4444; }
+.zs-mark.dragging .zs-mark-badge { background: #ef4444; }
+.zs-mark-btns { pointer-events: auto; transform: translateY(-50%); }
+.zs-hover-hint {
+  position: sticky; bottom: 0; left: 0; margin-top: -22px;
+  background: rgba(239,68,68,.92); color: #fff; font-size: 11px;
+  padding: 3px 8px; border-radius: 6px; display: inline-block;
+}
 
 .zs-site-chunk { padding: 10px 12px; border-bottom: 1px dashed rgba(0,0,0,0.12); }
 .zs-site-chunk:last-child { border-bottom: 0; }

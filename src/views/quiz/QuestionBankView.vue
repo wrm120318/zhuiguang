@@ -27,11 +27,19 @@ const showKpManager = ref(false)
 const showBasket = ref(false)
 const showExport = ref(false)
 const showImport = ref(false)
-const showPaperEdit = ref(false)
+/**
+ * 【v4.9.0 修正入口语义】
+ * 原卷分栏编辑**属于 Word 导入场景**，不该是一个独立的一级按钮。
+ * 现在统一收进「Word 导入」弹窗，用模式切换区分两种用法：
+ *   · flow  —— 原卷分栏编辑（默认，推荐）：左原卷 + 分割线，右逐题编辑
+ *   · quick —— 快速拆分：原来的 WordImportPanel，一键入库待校对
+ */
+const importMode = ref<'flow' | 'quick'>('flow')
 
 // ===== 【v4.9.0】智能题库批量工具 =====
 const selected = ref<number[]>([])
 const showBatch = ref(false)
+const batchDiff = ref('')
 const batchBusy = ref(false)
 const batchForm = reactive({
   qtype: '', difficulty: undefined as number | undefined, score: undefined as number | undefined,
@@ -50,12 +58,25 @@ function clearSelection() { selected.value = [] }
 function selectAll() { selected.value = questions.value.map((q: any) => q.id) }
 
 function openBatchTools() {
-  if (!selected.value.length) { ElMessage.info('请先勾选要批量处理的题目'); return }
+  // 【v4.9.0 修复「批量编辑按钮点不动」】
+  //   原写法：未勾选时直接 `return` —— 用户看到的是"按钮没反应"，
+  //   不知道是为什么（没有提示，因为 ElMessage 在那次 build 里被 tree-shaking 掉了，
+  //   实际上很多用户连"要先勾选"这个前提都不知道）。
+  //   正确做法：**永远打开面板**，面板内部自己处理"还没选题目"的状态，
+  //   并在面板里直接提供「全选本页」，让用户不必先回列表勾选。
+  batchDiff.value = ''            // 打开时先清掉上一次的对比残留
   showBatch.value = true
 }
 
+// 【v4.9.0】统一的前置校验：未选题目时给出**明确原因**，而不是静默 return
+function requireSelection(): boolean {
+  if (selected.value.length) return true
+  ElMessage.warning('请先勾选题目（可点「全选本页」）')
+  return false
+}
+
 async function runBatchUpdate() {
-  if (!selected.value.length) return
+  if (!requireSelection()) return
   batchBusy.value = true
   try {
     // 只提交用户真正填了的字段（留空 = 不改动）
@@ -76,7 +97,7 @@ async function runBatchUpdate() {
 }
 
 async function runBatchDelete() {
-  if (!selected.value.length) return
+  if (!requireSelection()) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 道题？此操作不可恢复（仅自己创建的题可删）。`, '批量删除', { type: 'warning' })
   } catch { return }
@@ -93,7 +114,7 @@ async function runBatchDelete() {
 
 /** 一键给选中题目推荐并追加知识点 */
 async function runAutoTag() {
-  if (!selected.value.length) return
+  if (!requireSelection()) return
   batchBusy.value = true
   try {
     const r: any = await api.suggestKpBatch(subject.value.id, selected.value)
@@ -412,7 +433,6 @@ async function smartAssemble() {
         <el-button type="success" @click="showSmart = true" icon="MagicStick">智能组卷</el-button>
         <el-button @click="showCards = true" icon="Postcard">制卡</el-button>
         <el-button v-if="isStaff" @click="showImport = true" icon="Upload">Word 导入</el-button>
-        <el-button v-if="isStaff" @click="showPaperEdit = true" icon="Document">原卷分栏编辑</el-button>
         <el-button v-if="isStaff" @click="openBatchTools" icon="Operation">批量工具</el-button>
         <el-badge :value="subject ? basket.count(subject.id) : 0" :hidden="!subject || basket.count(subject.id) === 0">
           <el-button @click="showBasket = true" icon="Files">试题篮</el-button>
@@ -597,29 +617,60 @@ async function smartAssemble() {
       <DocxExportPanel v-if="subject" :subject-name="subject.name" :items="basket.items(subject.id)" @done="showExport=false" />
     </el-dialog>
 
-    <el-dialog v-model="showImport" title="Word 试卷导入（自动拆分）" width="720px" append-to-body>
-      <WordImportPanel v-if="subject" :subject-id="subject.id" @imported="() => { showImport=false; loadQuestions(); loadKp() }" />
-    </el-dialog>
+    <!-- 【v4.9.0】Word 导入 = 一个完整流程，两种模式 -->
+    <el-dialog
+      v-model="showImport"
+      :title="importMode === 'flow' ? 'Word 试卷导入 · 原卷分栏编辑' : 'Word 试卷导入（快速拆分）'"
+      :width="importMode === 'flow' ? '96%' : '720px'"
+      :top="importMode === 'flow' ? '3vh' : '15vh'"
+      append-to-body destroy-on-close
+    >
+      <!-- 模式切换：默认走「原卷分栏编辑」（用户要的就是这个场景） -->
+      <div class="import-mode-bar">
+        <el-radio-group v-model="importMode" size="small">
+          <el-radio-button value="flow">原卷分栏编辑（推荐）</el-radio-button>
+          <el-radio-button value="quick">快速拆分</el-radio-button>
+        </el-radio-group>
+        <span class="import-mode-tip">
+          {{ importMode === 'flow'
+            ? '左侧显示完整原卷并自动插入分割线，可拖动调整；右侧逐题编辑（与「添加题目」同一个编辑器）'
+            : '按题号自动切分后直接入库为「待校对」，适合卷面规整、不需要逐题调整的卷子' }}
+        </span>
+      </div>
 
-    <!-- 【v4.9.0】原卷分栏编辑：左保真原卷 + 分割线，右逐题编辑（编辑器与「添加题目」一致）-->
-    <el-dialog v-model="showPaperEdit" title="Word 原卷分栏编辑" width="96%" top="3vh" append-to-body destroy-on-close>
+      <!-- 模式一：原卷分栏编辑（主流程）-->
       <WordPaperSplitEditor
-        v-if="subject"
+        v-if="subject && importMode === 'flow'"
         :subject-id="subject.id"
         :subject-name="subject.name"
         @imported="loadQuestions(); loadKp()"
+      />
+
+      <!-- 模式二：快速拆分（原 WordImportPanel，保留给熟练用户）-->
+      <WordImportPanel
+        v-else-if="subject"
+        :subject-id="subject.id"
+        @imported="() => { showImport=false; loadQuestions(); loadKp() }"
       />
     </el-dialog>
 
     <!-- 【v4.9.0】智能题库批量工具 -->
     <el-dialog v-model="showBatch" title="批量工具" width="640px" append-to-body>
       <div class="batch-bar">
-        <span>已选 <b>{{ selected.length }}</b> / {{ questions.length }} 题</span>
+        <span v-if="selected.length">已选 <b>{{ selected.length }}</b> / {{ questions.length }} 题</span>
+        <span v-else class="batch-none">尚未勾选题目 —— 点右侧「全选本页」，或关闭后到列表里逐题勾选</span>
         <div>
           <el-button size="small" @click="selectAll">全选本页</el-button>
-          <el-button size="small" @click="clearSelection">清空</el-button>
+          <el-button size="small" :disabled="!selected.length" @click="clearSelection">清空</el-button>
         </div>
       </div>
+
+      <el-alert
+        v-if="!selected.length"
+        type="info" :closable="false" show-icon
+        title="先选题目再操作"
+        description="「全选本页」只选当前筛选结果里的题目。也可以先关掉本面板，在题目卡片右上角勾选。"
+      />
 
       <el-tabs>
         <el-tab-pane label="批量修改">
@@ -836,8 +887,13 @@ async function smartAssemble() {
 .q-card .q-pick { position: absolute; top: 12px; right: 12px; z-index: 3; }
 .q-card.q-selected { box-shadow: 0 0 0 2px var(--zg-primary) inset, 0 8px 24px rgba(245,158,11,0.14); }
 
+/* 【v4.9.0】Word 导入弹窗内的模式切换条 */
+.import-mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,0.07); }
+.import-mode-tip { font-size: 12px; color: var(--zg-text-dim, #888); flex: 1 1 260px; min-width: 0; }
+
 /* 【v4.9.0】批量工具 */
-.batch-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; }
+.batch-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 13px; gap: 10px; flex-wrap: wrap; }
+.batch-none { color: #d97706; font-weight: 600; }
 .batch-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .dup-meta { font-size: 12px; color: var(--zg-text-dim, #888); }
 .dup-list { max-height: 320px; overflow: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
