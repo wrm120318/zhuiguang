@@ -659,7 +659,9 @@ function apiCacheKey(c: Context): string | null {
   //     递增会立即让旧 key 失效，不会出现「取消收藏后数字不更新」。
   //   注意：此分支必须**放在其它档位判定之前**，否则 p.includes('/articles') 等规则会把它抬到 600s。
   if (p === '/api/home') {
-    ttl = authHash === 'anon' ? 60000 : 30000
+    // 注意：匿名时 auth 为空串，authHash 会被 btoa('') 覆盖为 ''（而非 'anon'），
+    //   故必须用「是否带 Authorization 头」判定匿名，不能写 authHash === 'anon'。
+    ttl = !auth ? 60000 : 30000
   }
   // ── 档位 3（30s）：实时性要求最高的接口 ──
   if (p.includes('/admin/monitor') || p.includes('/me/status') || p.includes('/online')) ttl = 30000
