@@ -511,6 +511,174 @@ console.log('\n=== 8g. dropSectionTitleBoundaries（规则 / AI 两条路径共�
   ok('没有标题块时原样返回', out3.join() === '1,4,7', JSON.stringify(out3))
 }
 
+console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数探针抓不到的那类 Bug）===')
+//
+// 【为什么必须单独有这一节】
+//   v4.13.3 上线后线上 **Word 导入界面直接消失**，控制台报：
+//     ReferenceError: Cannot access 'be' before initialization
+//   根因：`sectionHints()` 改为"逐块前缀法"后引用了 `MAJOR_RE` 与
+//   `isSectionTitleOnly()`，但这两者定义在**更靠后**的位置；
+//   `const` 在模块顶层有**暂时性死区（TDZ）**，setup 调用即抛错 → 组件渲染失败。
+//
+//   而本探针把函数抠到独立沙箱里跑，**沙箱中所有常量都已就绪**，
+//   所以 95 项断言全绿、线上白屏 —— 这是纯函数探针的**结构性盲区**。
+//
+//   本节的思路：不做"抠函数进沙箱"，而是**直接读源文件的行号**，
+//   校验"引用方必须出现在被引用方之后"。属于静态检查，但恰好能拦住 TDZ。
+{
+  const lineOf = (re) => {
+    const m = src.match(re)
+    return m ? src.slice(0, m.index).split('\n').length : -1
+  }
+  const pos = {
+    MAJOR_RE: lineOf(/^const MAJOR_RE = /m),
+    MINOR_RE: lineOf(/^const MINOR_RE = /m),
+    SUBQ_RE: lineOf(/^const SUBQ_RE = /m),
+    isSubQuestion: lineOf(/^function isSubQuestion\(/m),
+    isSectionTitleOnly: lineOf(/^function isSectionTitleOnly\(/m),
+    sectionTypeHint: lineOf(/^function sectionTypeHint\(/m),
+    sectionHints: lineOf(/^function sectionHints\(/m),
+    inferDraft: lineOf(/^function inferDraft\(/m),
+    dropSectionTitleBoundaries: lineOf(/^function dropSectionTitleBoundaries\(/m),
+    autoSplit: lineOf(/^function autoSplit\(/m),
+    Block: lineOf(/^interface Block /m) < 0 ? lineOf(/^type Block /m) : lineOf(/^interface Block /m),
+    blocks: lineOf(/^const blocks = ref/m),
+    boundaries: lineOf(/^const boundaries = ref/m),
+  }
+  // 所有被引用方都必须存在且位置为正
+  const missing = Object.entries(pos).filter(([, v]) => v <= 0).map(([k]) => k)
+  ok('所有相关顶层声明都能定位到', missing.length === 0, `缺失：${missing.join(', ')}`)
+
+  const mustBefore = [
+    ['MAJOR_RE', 'sectionHints'],
+    ['MAJOR_RE', 'isSectionTitleOnly'],
+    ['MAJOR_RE', 'inferDraft'],
+    ['MINOR_RE', 'sectionHints'],
+    ['MINOR_RE', 'autoSplit'],
+    ['SUBQ_RE', 'isSubQuestion'],
+    ['SUBQ_RE', 'autoSplit'],
+    ['isSubQuestion', 'autoSplit'],
+    ['isSectionTitleOnly', 'sectionHints'],
+    ['isSectionTitleOnly', 'dropSectionTitleBoundaries'],
+    ['isSectionTitleOnly', 'autoSplit'],
+    ['sectionTypeHint', 'sectionHints'],
+    ['sectionHints', 'inferDraft'],
+    ['dropSectionTitleBoundaries', 'autoSplit'],
+    ['Block', 'isSectionTitleOnly'],
+    ['Block', 'dropSectionTitleBoundaries'],
+    ['Block', 'autoSplit'],
+    ['blocks', 'sectionHints'],
+    ['boundaries', 'sectionHints'],
+  ]
+  for (const [a, b] of mustBefore) {
+    const okOrder = pos[a] > 0 && pos[b] > 0 && pos[a] < pos[b]
+    ok(`⚠️ 顺序：${a}(${pos[a]}) 必须在 ${b}(${pos[b]}) 之前`, okOrder)
+  }
+  ok('⚠️ 无重复定义（MAJOR_RE / MINOR_RE / SUBQ_RE 各仅一处）',
+    (src.match(/^const MAJOR_RE = /gm) || []).length === 1 &&
+    (src.match(/^const MINOR_RE = /gm) || []).length === 1 &&
+    (src.match(/^const SUBQ_RE = /gm) || []).length === 1)
+
+  // ── 8h-2. 【第二轮踩坑】watch/computed 的 body 里读取的变量也必须先声明 ──
+  //
+  // 【为什么 8h 没拦住第二次】
+  //   8h 只检查了"显式函数调用链"，但真正的第二处 TDZ 在：
+  //     const working = computed(() => busy.value || aiRunning.value)   // L1036
+  //     watch(working, (v) => { ... })                                  // L1041
+  //   而 `aiRunning` 当时声明在 L1184 —— 全在 working 之后。
+  //
+  //   **关键机制**：`watch(source, cb)` 创建时会**立即执行一次 source**
+  //   （为了建立依赖追踪），即使没有 `immediate: true`。
+  //   所以 `working` 的 getter 当场求值 → 读 `aiRunning` → TDZ 直接爆炸。
+  //
+  //   教训：`computed` 的 getter 与 `watch` 的 source 都是**求值表达式**，
+  //   它们读取的每一个顶层标识符，声明都必须在**该语句之前**。
+  //   这不是"函数引用"（惰性），而是"立即求值"（急切）—— 两者天差地别。
+  {
+    const aiState = ['aiStatus', 'aiRunning', 'aiInfo']
+    const posAI = Object.fromEntries(
+      aiState.map(n => [n, lineOf(new RegExp(`^const ${n} = `, 'm'))])
+    )
+    const posWorking = lineOf(/^const working = computed\(/m)
+    const posWatchWorking = lineOf(/^watch\(working, /m)
+    const posBusySeconds = lineOf(/^const busySeconds = ref/m)
+
+    ok('working / watch(working) / busySeconds 均能定位',
+      posWorking > 0 && posWatchWorking > 0 && posBusySeconds > 0,
+      `working=${posWorking} watch=${posWatchWorking} busySeconds=${posBusySeconds}`)
+
+    // working 的 getter 读了 aiRunning —— 必须在其之前
+    ok(`⚠️ 顺序：aiRunning(${posAI.aiRunning}) 必须在 working(${posWorking}) 之前（working getter 读取它）`,
+      posAI.aiRunning > 0 && posWorking > 0 && posAI.aiRunning < posWorking)
+
+    // watch(working) 会立即求值 working —— busySeconds / busyTimer 必须已就绪
+    ok(`⚠️ 顺序：busySeconds(${posBusySeconds}) 必须在 watch(working)(${posWatchWorking}) 之前`,
+      posBusySeconds > 0 && posWatchWorking > 0 && posBusySeconds < posWatchWorking)
+
+    // aiStatus / aiInfo 虽不在 working 里读，但被模板与 onMounted 用；
+    // 为防再被挪到后面，一并锁定"必须在 working 之前"（统一成一块）
+    for (const n of ['aiStatus', 'aiInfo']) {
+      ok(`⚠️ 顺序：${n}(${posAI[n]}) 必须在 working(${posWorking}) 之前（AI 状态三件套同进同出）`,
+        posAI[n] > 0 && posAI[n] < posWorking)
+    }
+
+    // 三件套不得重复声明
+    for (const n of aiState) {
+      const cnt = (src.match(new RegExp(`^const ${n} = `, 'gm')) || []).length
+      ok(`⚠️ ${n} 仅声明一次（实际 ${cnt}）`, cnt === 1)
+    }
+    ok('⚠️ working / busySeconds 各仅声明一次',
+      (src.match(/^const working = computed\(/gm) || []).length === 1 &&
+      (src.match(/^const busySeconds = ref/m) || []).length === 1)
+
+    // ── 通用扫描：所有 watch(source, ...) 的 source 若引用了顶层 ref，必须已声明 ──
+    //
+    // 把顶层 `const xxx = ref(...)` / `= computed(...)` 声明行号建索引，
+    // 然后逐个 watch 调用，检查其 source 表达式里出现的标识符是否都已声明。
+    //
+    // 支持三种写法：
+    //   watch(a, cb)            单行单源
+    //   watch([a, b], cb)       单行多源
+    //   watch(\n  () => a.value, cb)  多行（source 在 watch 的下一行）
+    const declLine = {}
+    for (const m of src.matchAll(/^const ([A-Za-z_$][\w$]*) = (?:ref|computed|reactive)[\s\S]{0,80}?\(/gm)) {
+      const ln = src.slice(0, m.index).split('\n').length
+      if (declLine[m[1]] === undefined) declLine[m[1]] = ln
+    }
+    // 抓 watch( 开头，然后从 `watch(` 开始做括号配平，取到**第一个顶层逗号**为止
+    // —— 那一段就是 source（支持多行写法）。
+    const watchRe = /^watch\(/gm
+    let wm
+    let wChecked = 0
+    while ((wm = watchRe.exec(src)) !== null) {
+      const line = src.slice(0, wm.index).split('\n').length
+      // 从 watch( 的 '(' 之后开始，深度 0 → 遇到 depth 0 的逗号即 source 结束
+      let i = wm.index + 'watch('.length
+      let depth = 0
+      let end = i
+      for (; i < src.length && i < wm.index + 600; i++) {
+        const c = src[i]
+        if (c === '(' || c === '[' || c === '{') depth++
+        else if (c === ')' || c === ']' || c === '}') {
+          if (depth === 0) break    // watch(...) 收尾
+          depth--
+        } else if (c === ',' && depth === 0) { end = i; break }
+      }
+      const srcExpr = src.slice(wm.index + 'watch('.length, end || i)
+
+      const ids = [...new Set(
+        [...srcExpr.matchAll(/[A-Za-z_$][\w$]*/g)].map(x => x[0])
+      )].filter(id => declLine[id] !== undefined)
+      for (const id of ids) {
+        ok(`⚠️ watch@L${line} 的 source 引用的 ${id}(L${declLine[id]}) 已在其之前声明`,
+          declLine[id] < line, `声明 L${declLine[id]} 晚于 watch L${line}`)
+        wChecked++
+      }
+    }
+    ok('⚠️ 至少检查到 4 个 watch 的 source 依赖（防扫描器失效）', wChecked >= 4, `实检 ${wChecked} 处`)
+  }
+}
+
 console.log(`\n${'─'.repeat(52)}`)
 console.log(`结果：${pass} 项通过 / ${fail} 项失败`)
 if (fail) { console.log('❌ 拖动 / 自动切割不变量被破坏'); process.exit(1) }

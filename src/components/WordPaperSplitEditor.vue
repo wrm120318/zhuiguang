@@ -30,6 +30,7 @@ import { stripQuestionNumber, hasLeadingNumber } from '@/utils/question-number'
 const props = defineProps<{ subjectId: number; subjectName?: string }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
 
+
 // ===== 视图模式 =====
 type ViewMode = 'word' | 'site'
 const viewMode = ref<ViewMode>('word')
@@ -144,6 +145,94 @@ function stripOptionsFromHtml(html: string): string {
     })
     return holder.innerHTML
   } catch { return html }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 【v4.13.3 严重修正 · 定义顺序（TDZ）】
+//
+// 下面这几个常量 / 函数**必须定义在 `sectionHints()` 与 `autoSplit()` 之前**。
+//
+// 起因：我把 `sectionHints()` 改成"逐块前缀法"后，它内部引用了 `MAJOR_RE` 与
+//   `isSectionTitleOnly()`，但这两者在原文件里定义在**更靠后**的位置。
+//   `const` 声明在模块顶层存在**暂时性死区（TDZ）** —— 组件 setup 调用
+//   `sectionHints()` 时会抛 `ReferenceError: Cannot access 'be' before initialization`，
+//   整个组件渲染失败，**Word 导入界面直接消失**（已线上复现）。
+//
+// ⚠️ 教训：探针把函数抠出来放在独立沙箱里跑，沙箱中所有常量都已就绪，
+//   所以 95 项断言全绿 —— **但线上白屏**。纯函数探针**无法**发现定义顺序问题。
+//   凡是"函数引用同文件其它顶层常量"，必须人工核对声明顺序，或用真实浏览器冒烟。
+// ══════════════════════════════════════════════════════════════════════════
+
+const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
+
+/**
+ * 二级题号（**切点**）。
+ *
+ * 【v4.13.3 修正 · 「规则识别会把小题也切开」】
+ *
+ * 上一版是 `^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])`，
+ * 第二支 `[（(]\s*\d+\s*[)）]` 把 **`(1)` `（2）` 也算成了切点** —— 这就是
+ * 用户说的「把小题也切开」的根源，同时也与 `@/utils/question-number` 里
+ * 确立的判据（**题号用「点/顿号」，小问用「括号」**）自相矛盾。
+ *
+ * 修法：**去掉括号那一支**，只认「数字 + 点/顿号」：
+ *   · `1.` `2、` `3．` → 切点 ✅
+ *   · `(1)` `（2）`    → **不是切点**，小问必须留在同一题里 ❌
+ *
+ * ⚠️ 点号后紧跟数字视为**小数**，不是题号（`1.5 倍` 不能被切成新题）。
+ *    与 `@/utils/question-number` 的判据完全一致，两处不可再漂移。
+ *    顿号 `、` 不适用此判据（顿号永远不是小数点）。
+ *
+ * 判据与 `isSubQuestion()` 保持一致，两处不可再漂移。
+ */
+const MINOR_RE = /^\s*\d{1,3}\s*(?:[.．](?![0-9０-９])|[、])/
+
+/**
+ * 小问号（**绝对不是切点**）：`(1)` `（1）` `①` `②` `(一)` `（一）`。
+ *
+ * 用途：① 显式阻止切分；② 给 `autoSplit` 的"小问语境"判断提供依据 ——
+ * 一旦某题内出现小问，其后的块在遇到**下一个真正的题号**之前都不再切。
+ */
+const SUBQ_RE = /^\s*(?:[（(]\s*(?:[0-9０-９]{1,3}|[一二三四五六七八九十]{1,3})\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]|[0-9０-９]{1,3}\s*[)）"])/
+
+/** 判断某行是否为小问号 */
+function isSubQuestion(line: string): boolean {
+  return SUBQ_RE.test(line)
+}
+
+/**
+ * 判断某个块**是否只是一个大题标题**（不含任何题目正文）。
+ *
+ * 【v4.13.3】用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
+ *   即这种块**不该单独成题** —— 它既没有题干也没有选项，切出来只会得到一个
+ *   空题目，还得用户手动删。
+ *
+ * 判据（要求同时满足，宁可漏删也不能误删真题目）：
+ *   ① 文本命中 `MAJOR_RE`（形如 `一、选择题` / `第Ⅰ卷`）
+ *   ② 去掉题号后**剩余文字很短**（≤ 12 字）—— 只有"选择题""填空题"这种标题词
+ *      真正的题目哪怕以 `一、` 开头，剥掉题号后也还剩一长串题干
+ *   ③ 不含表格、图片（这些一定是题目实体，不可能只是标题）
+ *
+ * @param text 该块的纯文本（首行）
+ * @param html 该块原始 HTML（用于 ③ 的实体检查）
+ */
+function isSectionTitleOnly(text: string, html: string): boolean {
+  const line = String(text || '').split('\n')[0].trim()
+  if (!line) return false
+  if (!MAJOR_RE.test(line)) return false
+  // ③ 含表格 / 图片 → 一定是题目实体
+  if (/<table[\s>]|<img[\s>]/i.test(html || '')) return false
+  // ② 剥掉题号后的剩余长度
+  let rest = line
+    .replace(/^[（(【\[]?\s*[一二三四五六七八九十百零\d]{1,3}\s*[)）】\]]?[\s.、．:：]*/, '')
+    .replace(/^第\s*[一二三四五六七八九十\dIVXLCDMⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[部分卷题]\s*/, '')
+    .trim()
+  // ②b 再剥掉分数/说明性括号：`一、选择题（每题 5 分，共 25 分）` →
+  //     剩下"每题 5 分，共 25 分"会让 ② 的长度判据失效，必须先去括号内容。
+  //     只去**整个尾部括号**，且要求括号内不含句子终止符（。？！）——避免把
+  //     `（1）…（2）…` 这种嵌在小问里的括号误删。
+  rest = rest.replace(/[（(【][^。？！]*[)）】]\s*$/, '').trim()
+  return rest.length <= 12
 }
 
 /**
@@ -484,78 +573,6 @@ function escapeHtml(s: string): string {
  * 同时记录每个切点的来源等级，供 UI 提示「哪些是自动推断、需要核对」。
  * ────────────────────────────────────────────────────────────────────────────
  */
-const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
-
-/**
- * 二级题号（**切点**）。
- *
- * 【v4.13.3 修正 · 「规则识别会把小题也切开」】
- *
- * 上一版是 `^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])`，
- * 第二支 `[（(]\s*\d+\s*[)）]` 把 **`(1)` `（2）` 也算成了切点** —— 这就是
- * 用户说的「把小题也切开」的根源，同时也与 `@/utils/question-number` 里
- * 确立的判据（**题号用「点/顿号」，小问用「括号」**）自相矛盾。
- *
- * 修法：**去掉括号那一支**，只认「数字 + 点/顿号」：
- *   · `1.` `2、` `3．` → 切点 ✅
- *   · `(1)` `（2）`    → **不是切点**，小问必须留在同一题里 ❌
- *
- * ⚠️ 点号后紧跟数字视为**小数**，不是题号（`1.5 倍` 不能被切成新题）。
- *    与 `@/utils/question-number` 的判据完全一致，两处不可再漂移。
- *    顿号 `、` 不适用此判据（顿号永远不是小数点）。
- *
- * 判据与 `isSubQuestion()` 保持一致，两处不可再漂移。
- */
-const MINOR_RE = /^\s*\d{1,3}\s*(?:[.．](?![0-9０-９])|[、])/
-
-/**
- * 小问号（**绝对不是切点**）：`(1)` `（1）` `①` `②` `(一)` `（一）`。
- *
- * 用途：① 显式阻止切分；② 给 `autoSplit` 的"小问语境"判断提供依据 ——
- * 一旦某题内出现小问，其后的块在遇到**下一个真正的题号**之前都不再切。
- */
-const SUBQ_RE = /^\s*(?:[（(]\s*(?:[0-9０-９]{1,3}|[一二三四五六七八九十]{1,3})\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]|[0-9０-９]{1,3}\s*[)）"])/
-
-/** 判断某行是否为小问号 */
-function isSubQuestion(line: string): boolean {
-  return SUBQ_RE.test(line)
-}
-
-/**
- * 判断某个块**是否只是一个大题标题**（不含任何题目正文）。
- *
- * 【v4.13.3】用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
- *   即这种块**不该单独成题** —— 它既没有题干也没有选项，切出来只会得到一个
- *   空题目，还得用户手动删。
- *
- * 判据（要求同时满足，宁可漏删也不能误删真题目）：
- *   ① 文本命中 `MAJOR_RE`（形如 `一、选择题` / `第Ⅰ卷`）
- *   ② 去掉题号后**剩余文字很短**（≤ 12 字）—— 只有"选择题""填空题"这种标题词
- *      真正的题目哪怕以 `一、` 开头，剥掉题号后也还剩一长串题干
- *   ③ 不含表格、图片（这些一定是题目实体，不可能只是标题）
- *
- * @param text 该块的纯文本（首行）
- * @param html 该块原始 HTML（用于 ③ 的实体检查）
- */
-function isSectionTitleOnly(text: string, html: string): boolean {
-  const line = String(text || '').split('\n')[0].trim()
-  if (!line) return false
-  if (!MAJOR_RE.test(line)) return false
-  // ③ 含表格 / 图片 → 一定是题目实体
-  if (/<table[\s>]|<img[\s>]/i.test(html || '')) return false
-  // ② 剥掉题号后的剩余长度
-  let rest = line
-    .replace(/^[（(【\[]?\s*[一二三四五六七八九十百零\d]{1,3}\s*[)）】\]]?[\s.、．:：]*/, '')
-    .replace(/^第\s*[一二三四五六七八九十\dIVXLCDMⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[部分卷题]\s*/, '')
-    .trim()
-  // ②b 再剥掉分数/说明性括号：`一、选择题（每题 5 分，共 25 分）` →
-  //     剩下"每题 5 分，共 25 分"会让 ② 的长度判据失效，必须先去括号内容。
-  //     只去**整个尾部括号**，且要求括号内不含句子终止符（。？！）——避免把
-  //     `（1）…（2）…` 这种嵌在小问里的括号误删。
-  rest = rest.replace(/[（(【][^。？！]*[)）】]\s*$/, '').trim()
-  return rest.length <= 12
-}
-
 /** 选项行（用于 L3 兜底识别） */
 const OPT_LINE_RE = /^\s*[(（]?\s*A\s*[.、)）．:：]/i
 
@@ -1005,6 +1022,21 @@ async function renderWordView() {
 //   这条经验值得记下来：**凡是可能超过 3 秒的操作，都必须有持续变化的反馈**。
 //   按钮转圈不够 —— 用户会怀疑是不是卡死了；可见的秒数增长才是有效信号。
 
+// ===== 【v4.13.3】AI 状态（必须定义在 workingComputed 之前！）=====
+//
+// 【TDZ 教训 · 第二次踩坑】
+//   `watch(working, ...)` 创建时会**立即执行一次 getter** 来建立依赖追踪，
+//   此时 `working` 的 getter 会读取 `aiRunning`。若 `aiRunning` 声明在
+//   `working` 之后（<script setup> 顶层同属一个函数作用域，const 有死区），
+//   就会抛 `ReferenceError: Cannot access 'aiRunning' before initialization`，
+//   导致整个组件 setup 失败 → 上传界面白屏。
+//
+//   第一处是 MAJOR_RE 被 sectionHints 提前引用；这是第二处。
+//   **凡是"watch/computed 的 body 里读取的变量"，其声明必须在这句话之前。**
+const aiStatus = ref<{ available: boolean; provider: string; effective?: string; cf: boolean; zhipu: boolean; modelCf: string; modelZhipu: string } | null>(null)
+const aiRunning = ref(false)
+const aiInfo = ref('')          // 上次识别结果摘要（服务商 / 题数 / 耗时）
+
 /** 是否处于任意忙碌态（上传解析 / AI 识别 / 重排） */
 const working = computed(() => busy.value || aiRunning.value)
 
@@ -1018,7 +1050,7 @@ watch(working, (v) => {
   busyTimer = setInterval(() => { busySeconds.value++ }, 1000)
 })
 
-// ===== 【v4.9.0 补全】原卷可视分割线（叠加层）=====
+// ===== 【v4.9.0】原卷可视分割线（叠加层）=====
 //
 // 用户要的是「原卷上直接拖」。前面 tagDocxBlocks 解决了「拖到哪一块」的识别，
 // 这里解决「分割线画在哪、怎么抓」：
@@ -1153,9 +1185,9 @@ function qtypeLabel(q: string): string {
 // 【v4.13.0 变更】主通道改为 Cloudflare Workers AI：**零配置、无密钥**，
 //   只要 Worker 绑定了 [ai] 就可用（免费档每天 1 万神经元）。智谱为可选备份，
 //   超管可在「管理后台 → AI 设置」里填 Key 并切换服务商。
-const aiStatus = ref<{ available: boolean; provider: string; effective?: string; cf: boolean; zhipu: boolean; modelCf: string; modelZhipu: string } | null>(null)
-const aiRunning = ref(false)
-const aiInfo = ref('')          // 上次识别结果摘要（服务商 / 题数 / 耗时）
+//
+// ⚠️ 注意：`aiStatus` / `aiRunning` / `aiInfo` 三个状态因 TDZ 原因已上移到
+//    `working` computed 之前（见上方注释），此处不再重复声明。
 
 /** 通道中文名（用于提示文案，避免用户看到裸的 "cf" / "zhipu"） */
 const AI_CHANNEL_NAME: Record<string, string> = { cf: 'Cloudflare Workers AI', zhipu: '智谱 GLM' }

@@ -85,6 +85,45 @@
 - **修法**：改为 `const finalBounds = dropSectionTitleBoundaries(uniq, bs)` 重新赋值
 - **教训**：函数"原样返回入参"的兜底分支 + 调用处"原地改写实参"= 经典别名陷阱
 
+### 修复 5（🔴 事故：Word 上传界面直接消失 —— 两处 TDZ）
+
+> 用户原话：**「你这不瞎改吗 前端上传word界面直接没了」**
+> —— 严厉但准确。v4.13.3 首次上线**确实把上传界面打没了**，是我的责任。
+
+- **现象**：打开「Word 导入」弹窗后**界面空白**，控制台报
+  `Unhandled error during execution of setup function at <WordPaperSplitEditor>`
+- **根因**：`<script setup>` 的**全部顶层代码都在同一个函数作用域里**，
+  `const` 存在**暂时性死区（TDZ）**。只要有一句顶层语句引用了
+  **声明在其后面**的 `const`，setup 当场抛 `ReferenceError` → 组件渲染失败 → 白屏。
+  本次一共踩了**两处**：
+  - **第一处（显式函数引用）**：`sectionHints()` 引用了 `MAJOR_RE` 与
+    `isSectionTitleOnly()`，而这两者定义在更靠后的位置
+  - **第二处（watch/computed 的立即求值）—— 更隐蔽**：
+    `const working = computed(() => busy.value || aiRunning.value)` 声明在 L1036，
+    而 `aiRunning` 声明在 L1184。**`watch(source, cb)` 创建时会立即执行一次 source**
+    （用于建立依赖追踪，即使没有 `immediate: true`），
+    于是 `working` 的 getter 当场求值 → 读 `aiRunning` → TDZ 爆炸
+- **修法**
+  - 第一处：`MAJOR_RE` / `MINOR_RE` / `SUBQ_RE` / `isSubQuestion` /
+    `isSectionTitleOnly` 整块**上移**到 `sectionTypeHint` / `sectionHints` / `inferDraft` 之前
+  - 第二处：`aiStatus` / `aiRunning` / `aiInfo` 三件套**上移**到 `working` computed 之前
+- **为什么 95 项探针全绿却仍然白屏**（值得记住的教训）
+  - 探针把函数**抠进独立沙箱**跑，沙箱里所有常量都已就绪
+    → **纯函数探针抓不到定义顺序问题**，这是它的**结构性盲区**
+  - 教训：**"逻辑正确" ≠ "能跑起来"**。纯函数测试必须配一份
+    **静态顺序守卫**，否则 TDZ 这类问题永远漏网
+- **新增守卫**：`probe-split-editor.mjs` 第 8h 节做**静态顺序校验**（读源码行号）
+  - 8h-1：19 组「显式函数引用」的先后顺序 + 无重复定义
+  - 8h-2（**本次新增**）：锁定 `aiRunning` 等必须在 `working` 之前；
+    并写了一个**通用扫描器** —— 遍历所有 `^watch(`，做括号配平取出 source 表达式，
+    检查其中引用的每个顶层 `ref/computed/reactive` 是否都已在该 watch 之前声明
+    （当前实检 4 个 watch，全部合规）
+  - **定位手法留档**：源码里插入 `window.__tdz` 打点数组 + `__mark()`，
+    用 dev 模式打开弹窗后读数组，看打点停在哪儿 —— **停在哪个 mark 之后、
+    下一个 mark 之前，那个区间内的顶层语句就是元凶**。
+    （注意：打点要插在 `import` 之后、`defineProps` 之前，否则组件模块
+    可能根本没被求值到）
+
 ### 修改文件
 
 - `src/components/WordPaperSplitEditor.vue`（主要改动）
@@ -94,10 +133,11 @@
   - `inferDraft` 第三参 `typeHint`；`aiRecognize` 同步剔除纯标题边界
   - `working` / `busySeconds` / 进度浮层改绑 + 秒表 + 卸载清理
   - 进度文案改为含预估时长
+  - **🔴 两处 TDZ 修复**：常量整体上移（见"修复 5"）
 
 ### 验证
 
-- `scripts/probe-split-editor.mjs` 扩展第 8 节（**+42 项断言**，总计 95 项）
+- `scripts/probe-split-editor.mjs` 扩展第 8 节（**+77 项断言**，总计 **130 项**）
   - 8a 小问号判据（含"非小问号不得误判"反向用例）
   - 8b 小问绝不被切成独立题（含 `1）` 无括号的刁钻排版）
   - 8b-2 纯标题判据的**误伤防护**（真题目/含表格/含图片均不得丢）
@@ -106,7 +146,11 @@
   - 8e AI 进度反馈的四处关键实现
   - 8f **端到端**：一份真实排版卷（选择/填空/解答三段含小问）走完全链路
   - 8g 规则 / AI 两条路径共用的边界清理
-- 全量回归 **564 项断言全部通过**（v4.13.2 为 508 项）
+  - 8h **⚠️ 顶层定义顺序（TDZ 守卫）**：19 组显式引用顺序 + `watch` source 通用扫描器
+- 全量回归 **599 项断言全部通过**（v4.13.2 为 508 项）
+- `vue-tsc --noEmit` **0 错误**
+- **真实浏览器验证**：点开「Word 导入」弹窗，确认
+  `📄 选择 Word 试卷（.docx）` 上传区域正常渲染、控制台无 setup 报错
 - `vue-tsc --noEmit` 0 错误；`vite build` 通过
 
 ---
