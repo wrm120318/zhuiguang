@@ -18,7 +18,8 @@
 
 import {
   Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell,
-  WidthType, BorderStyle, VerticalMergeType, AlignmentType, HeadingLevel,
+  WidthType, BorderStyle, VerticalMergeType, AlignmentType, HeadingLevel, Footer,
+  PageNumber, TabStopType,
   Math as MathOMML, MathRun, MathFraction, MathRadical,
   MathSubScript, MathSuperScript, MathSubSuperScript,
 } from 'docx'
@@ -591,6 +592,297 @@ export async function buildWordTable(header: string[], body: string[][], size: n
   const rows: TableRow[] = [await mkRow(header, true)]
   for (const r of body) rows.push(await mkRow(r, false))
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows })
+}
+
+// ===== 【v4.10.0】专业排版原语（对标组卷网）=====
+//
+// 本段新增的全部是**独立原语**，不改动上面任何既有导出函数的签名与行为，
+// 因此「原卷分栏编辑」预览（buildPaperDocx）不受影响，零回归。
+
+/** 页脚文案配置 */
+export interface FooterOptions {
+  /** 是否显示「第 X 页 共 Y 页」；默认 true */
+  showPageNumber?: boolean
+  /** 页脚左侧附加文字（如校名、卷标题），可空 */
+  leftText?: string
+  /** 页脚字号（half-points），默认 18 = 9pt */
+  size?: number
+}
+
+/**
+ * 生成「第 X 页 共 Y 页」页脚。
+ *
+ * 【为什么需要】正式试卷必须标明页码，否则散页后无法排序。docx 通过
+ * `PageNumber.CURRENT` / `TOTAL_PAGES` 写 Word **域（Field）**，由 Word 自动计算，
+ * 不是硬编码数字 —— 增删内容后页码自动更新。
+ */
+export function buildFooter(opts: FooterOptions = {}): Footer {
+  const size = opts.size ?? 18
+  const kids: any[] = []
+  if (opts.leftText) kids.push(new TextRun({ text: opts.leftText, size, color: '808080' }))
+  if (opts.showPageNumber !== false) {
+    kids.push(new TextRun({ text: '第 ', size, color: '808080' }))
+    kids.push(new TextRun({ children: [PageNumber.CURRENT], size, color: '808080' }))
+    kids.push(new TextRun({ text: ' 页  共 ', size, color: '808080' }))
+    kids.push(new TextRun({ children: [PageNumber.TOTAL_PAGES], size, color: '808080' }))
+    kids.push(new TextRun({ text: ' 页', size, color: '808080' }))
+  }
+  return new Footer({
+    children: [new Paragraph({ children: kids, alignment: AlignmentType.CENTER, spacing: { before: 0, after: 0 } })],
+  })
+}
+
+/** 试卷卷面参数（决定观感档位） */
+export interface PaperStyle {
+  /** 正文字号（half-points） */
+  bodySize: number
+  /** 行距倍数（240 = 单倍） */
+  line: number
+  /** 框线粗细（eighths of a point） */
+  borderSize: number
+  /** 框线颜色（十六进制，不带 #） */
+  borderColor: string
+  /** 是否显示密封线装订区 */
+  seal: boolean
+  /** 是否显示考生须知框 */
+  notice: boolean
+  /** 页脚是否显示 */
+  footer: boolean
+}
+
+/** 三套模板的**实体化**差异（此前三套模板只有「是否显示注意事项」一个分支） */
+export const PAPER_STYLES: Record<string, PaperStyle> = {
+  // 正式考试卷：标准字号、宽行距、深框线、有密封线与须知、有页脚
+  formal: { bodySize: 21, line: 360, borderSize: 8, borderColor: '595959', seal: true, notice: true, footer: true },
+  // 日常测验卷：略小字号、中等行距、常规框线、有密封线无长须知
+  test: { bodySize: 21, line: 312, borderSize: 6, borderColor: '808080', seal: true, notice: true, footer: true },
+  // 课后作业卷：紧凑、浅框线、无密封线、无须知、无页脚（作业卷常为单页）
+  homework: { bodySize: 20, line: 276, borderSize: 4, borderColor: 'BFBFBF', seal: false, notice: false, footer: false },
+}
+
+/** 取模板样式，未知模板回退 formal */
+export function paperStyle(template: string): PaperStyle {
+  return PAPER_STYLES[template] || PAPER_STYLES.formal
+}
+
+/**
+ * 「密封线」装订区。
+ *
+ * 【形态对标组卷网】正式试卷左侧有一列竖排密封区：姓名/班级/考号填写栏 + 骑缝装订线，
+ * 阅卷时沿虚线裁开以隐藏考生信息（防止串分）。
+ *
+ * 【实现取舍】Word 里真正的「竖排文字」需要 `textDirection: btLr`，但该属性在部分
+ * WPS / 旧版 Word 上渲染不稳定。这里用**单行表格 + 加粗短横线**模拟密封区，
+ * 兼容性优先，视觉上与组卷网导出件接近。
+ */
+export function buildSealBlock(style: PaperStyle, size: number): Table {
+  const mk = (label: string) => new Paragraph({
+    children: [new TextRun({ text: `${label}：_____________`, size, bold: true })],
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 20, after: 20 },
+  })
+  const lineRow = (text: string) => new TableRow({
+    children: [new TableCell({
+      borders: {
+        top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+        left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+      },
+      children: [new Paragraph({
+        children: [new TextRun({ text, size: size - 2, color: '999999' })],
+        alignment: AlignmentType.CENTER,
+      })],
+    })],
+  })
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      lineRow('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ 密 封 线 内 不 得 答 题 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄'),
+      new TableRow({
+        children: [
+          wordCell([mk('姓名')], {}),
+          wordCell([mk('班级')], {}),
+          wordCell([mk('考号')], {}),
+        ],
+      }),
+      lineRow('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄'),
+    ],
+  })
+}
+
+/**
+ * 考生信息区（表格式，对标组卷网卷头）。
+ *
+ * 形如：
+ * ```
+ * ┌────────┬────────┬────────┬────────┐
+ * │ 学校：  │ 年级：  │ 姓名：  │ 考号：  │
+ * └────────┴────────┴────────┴────────┘
+ * ```
+ */
+export function buildExamInfoTable(fields: { label: string; value: string }[], style: PaperStyle, size: number): Table {
+  const border = {
+    top: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    bottom: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    left: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    right: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+  }
+  const cellOf = (f: { label: string; value: string }) => new TableCell({
+    borders: border,
+    width: { size: Math.floor(100 / Math.max(1, fields.length)), type: WidthType.PERCENTAGE },
+    margins: { top: 60, bottom: 60, left: 100, right: 100 },
+    children: [new Paragraph({
+      children: [new TextRun({ text: `${f.label}：`, size, bold: true }), new TextRun({ text: f.value || '　', size })],
+    })],
+  })
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({ children: fields.map(cellOf) })],
+  })
+}
+
+/**
+ * 考生须知框（带边框的单格表格，对标组卷网「注意事项」区）。
+ */
+export function buildNoticeBox(lines: string[], style: PaperStyle, size: number): Table {
+  const border = {
+    top: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    bottom: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    left: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+    right: { style: BorderStyle.SINGLE, size: style.borderSize, color: style.borderColor },
+  }
+  const kids: any[] = [new Paragraph({
+    children: [new TextRun({ text: '注意事项', size, bold: true })],
+    spacing: { after: 40 },
+  })]
+  lines.forEach((t, i) => kids.push(new Paragraph({
+    children: [new TextRun({ text: `${i + 1}. ${t}`, size: size - 1 })],
+    spacing: { after: 20 },
+  })))
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({
+      children: [new TableCell({
+        borders: border,
+        margins: { top: 80, bottom: 80, left: 140, right: 140 },
+        children: kids,
+      })],
+    })],
+  })
+}
+
+// ===== 选项自动横排（v4.10.0 核心算法）=====
+export type OptionLayout = 'auto' | 'inline' | 'block'
+
+/** 计算一个选项的「视觉宽度」（中文 1.0 / ASCII 0.5 加权；公式与图片额外计入） */
+export function optionVisualWidth(opt: string): number {
+  const raw = String(opt || '')
+  // 图片 / 本地路径 → 直接判为必须独占一行
+  if (/!\[[^\]]*\]\(/.test(raw)) return Number.POSITIVE_INFINITY
+  // 明确换行 → 独占
+  if (/[\n\r]/.test(raw)) return Number.POSITIVE_INFINITY
+  // 去掉 Markdown 标记后计宽
+  const plain = unescapeMd(raw)
+    .replace(/\$[^$]+\$/g, '\u0000'.repeat(8))  // 公式按 8 个全角宽占位
+    .replace(/[#*_>`~]/g, '')
+    .replace(/==([^=]+)==/g, '$1')
+  let w = 0
+  for (const ch of plain) {
+    if (ch === '\u0000') { w += 1; continue }            // 公式占位
+    w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 1 : 0.5
+  }
+  // 「A. 」前缀约占 2 个半角宽
+  return w + 2
+}
+
+/**
+ * 决定选项如何排版，并返回可直接 push 进文档的段落数组。
+ *
+ * 【用户诉求】「按照美观的标准自动排列」——即不需要用户逐题判断，
+ * 由算法根据选项实际长度决定：短选项横排（省版面、贴近组卷网默认），
+ * 长选项或含公式/图片的选项退回逐行（避免挤成一团）。
+ *
+ * 【判定思路】一行约可容纳 `LINE_CAPACITY` 个全角宽（按字号缩放）。
+ * 选项数 2~4 且总宽不超过一行的 92%、单项不超过一行的 46% 时横排；
+ * 其余情况逐行。这样「A.甲乙  B.丙丁」会横排，而「A. 一段很长的分析文字…」会逐行。
+ *
+ * @param options 选项文本数组（不含 A./B. 前缀）
+ * @param size    docx 字号（half-points）
+ * @param mode    auto（默认算法）/ inline（强制横排）/ block（强制逐行）
+ * @param qtype   题型 key（可选）。**只有真正传 `judge` 时才启用「（  ）正确/错误」特例**。
+ *                ⚠️ 曾用 `options.length === 2` 判定判断题 —— 但那会把「恰好两个选项的
+ *                单选/多选题」误判成判断题，**把用户真正的选项文本整个丢掉**、替换成
+ *                「（  ）正确　（  ）错误」（本次探针实测抓到）。必须由调用方显式告知题型。
+ */
+export async function layoutOptions(
+  options: string[],
+  size: number,
+  mode: OptionLayout = 'auto',
+  qtype?: string,
+): Promise<any[]> {
+  const list = (options || []).filter(o => o !== undefined && o !== null)
+  if (!list.length) return []
+
+  // 仅「判断题」走特殊排版；不能只看选项个数
+  const isJudge = qtype === 'judge'
+  const width = list.map(optionVisualWidth)
+  const hasUnbreakable = width.some(w => !Number.isFinite(w))
+
+  // 一行容量：以 10.5pt（size=21）能放约 40 个全角字符为基准，随字号线性缩放
+  const capacity = 40 * (21 / Math.max(12, size))
+  const total = width.reduce((a, b) => a + b, 0)
+  const maxW = width.length ? Math.max(...width.filter(Number.isFinite)) : 0
+
+  const canInline = !hasUnbreakable
+    && list.length >= 2 && list.length <= 4
+    && total <= capacity * 0.92
+    && maxW <= capacity * 0.46
+
+  const useInline = mode === 'inline' ? !hasUnbreakable : mode === 'block' ? false : canInline
+
+  if (useInline) {
+    // 横排：单段落 + 制表位分隔。用 \t 让各选项起点对齐（Word 制表位比空格稳定）。
+    const kids: any[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (i) kids.push(new TextRun({ text: '\t', size }))
+      kids.push(new TextRun({ text: `${optLetter(i)}. `, size, bold: true }))
+      kids.push(...await inlineRuns(list[i], size))
+    }
+    // 每栏等宽制表位（占满版心），保证选项起始位置整齐
+    const col = Math.floor(9020 / list.length)   // 9020 twips ≈ A4 版心宽
+    const stops = Array.from({ length: list.length - 1 }, (_, i) => ({
+      type: TabStopType.LEFT as any,
+      position: col * (i + 1),
+    }))
+    return [new Paragraph({
+      children: kids,
+      indent: { left: 360 },
+      spacing: { after: 20 },
+      ...(stops.length ? { tabStops: stops } : {}),
+    })]
+  }
+
+  // 【判断题特例】两项且**用户未强制指定排版**时，并排成「（  ）正确　（  ）错误」，
+  // 比竖排两个选项更符合试卷惯例。
+  // ⚠️ 必须限定 `mode === 'auto'`：否则用户显式选「逐行」时会被这里吞掉
+  //   （实测 `mode='block'` + 两个长选项 → 只产出 1 段，用户的选择失效）。
+  if (mode === 'auto' && isJudge && !hasUnbreakable) {
+    return [new Paragraph({
+      children: [new TextRun({ text: '（  ）正确　　（  ）错误', size })],
+      indent: { left: 360 }, spacing: { after: 20 },
+    })]
+  }
+
+  const out: any[] = []
+  for (let i = 0; i < list.length; i++) {
+    out.push(new Paragraph({
+      children: [
+        new TextRun({ text: `${optLetter(i)}. `, size, bold: true }),
+        ...await inlineRuns(list[i], size),
+      ],
+      indent: { left: 360 }, spacing: { after: 14 },
+    }))
+  }
+  return out
 }
 
 // ===== 试卷构建：把「若干道题」拼成一份真正的 .docx =====

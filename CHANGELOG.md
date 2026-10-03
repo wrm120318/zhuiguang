@@ -5,6 +5,103 @@
 
 ---
 
+## [v4.10.0] - 2026-10-03
+
+> **本轮主题：对标组卷网，全面重构 Word 导出功能** —— 覆盖 **导出文档排版内核** 与 **导出面板 UI** 双层。
+> 用户需求原话：「现在对标组卷网 全面优化 word 导出功能 包括可用性 导出前端 UI 美观性 科学性 导出文档美观性 合理性 高级性等」
+
+### 🎯 方案决策（四项澄清）
+
+| 维度 | 决策 |
+|---|---|
+| 改造范围 | **深度重构** —— 文档排版内核（`docx-kit.ts`）+ 导出面板 UI（`DocxExportPanel.vue`）双改 |
+| 选项排版 | **按美观标准自动排列** —— 短选项横排（制表位对齐）、长选项自动逐行 |
+| 产出文件 | **面板自选** —— 勾选要导出哪几份，可合并为单一文件 |
+| 兼容性 | **完全兼容** —— props / emits / 文件名规则不变，两处调用点零改动 |
+
+### ✨ 新增 · 排版内核（`src/utils/docx-kit.ts`，+294 行）
+
+**① 真实页码页脚（Word 域，非手写文本）**
+- 新增 `FooterOptions` 接口 + `buildFooter(opts)`，使用 `PageNumber.CURRENT` / `PageNumber.TOTAL_PAGES` 生成 Word 原生域。
+- 输出为 `第 X 页 共 Y 页` 的可自动重算页脚 —— **在 Word/WPS 里编辑内容后页码自动更新**，而非导出时定死的假页码。
+- 页脚节点通过 `footerReference` 正确挂到 section，探针校验「正文引用 footerReference + 存在 3 个页脚部件」。
+
+**② 三套试卷模板实体化差异（`PAPER_STYLES`）**
+- 新增 `PaperStyle` 接口 + `PAPER_STYLES` 常量 + `paperStyle(template)` 取用函数。三套模板不再是「换个标题」，而是**字号 / 行距 / 边框粗细 / 边框颜色 / 组件开关**全维度差异：
+
+  | 模板 | 正文字号 | 行距 | 边框 | 密封线 | 考生须知 | 页脚 |
+  |---|---|---|---|---|---|---|
+  | `formal`（正式考试卷） | 21（10.5pt） | 360 | 8 / `595959` | ✅ | ✅ | ✅ |
+  | `test`（日常测验卷） | 21 | 312 | 6 / `808080` | ✅ | ✅ | ✅ |
+  | `homework`（课后作业卷） | 20 | 276 | 4 / `BFBFBF` | ❌ | ❌ | ❌ |
+
+- **差异是有意为之**：正式卷庄重、测验卷紧凑、作业卷轻量（去掉密封线与须知，减少打印负担）。
+
+**③ 卷头三件套**
+- `buildSealBlock(style, size)` —— **密封线装订区**，单行表格 + 加粗短横线模拟，兼容 WPS 渲染；含「密封线」字样与姓名 / 班级 / 考号栏。双栏排版时**自动禁用**（避免与分栏冲突）。
+- `buildExamInfoTable(fields, style, size)` —— 表格式考生信息区（姓名 / 班级 / 考号 / 得分），边框粗细随模板走。
+- `buildNoticeBox(lines, style, size)` —— 带边框的「考生须知」框。
+
+**④ 选项自动横排算法（核心）**
+- 新增 `OptionLayout` 类型（`'auto' | 'inline' | 'block'`）、`optionVisualWidth(opt)`、`layoutOptions(options, size, mode, qtype)`。
+- **视觉宽度算法**：中文按 1.0、ASCII 按 0.5 加权；含公式（LaTeX/OMML）**+8**；含图片或换行 → `Infinity`（强制逐行）。
+- **横排判定**：
+  ```ts
+  const capacity = 40 * (21 / Math.max(12, size))          // 当前字号下的单行容量
+  const canInline = !hasUnbreakable
+    && list.length >= 2 && list.length <= 4                // 2~4 个选项才考虑横排
+    && total <= capacity * 0.92                            // 总宽不超容量 92%
+    && maxW  <= capacity * 0.46                            // 单选项不超 46%（避免一个占满）
+  const useInline = mode === 'inline' ? !hasUnbreakable
+                  : mode === 'block'  ? false
+                  : canInline                              // auto
+  ```
+- 横排实现为**单个 Paragraph + `TabStopType.LEFT` 制表位**（`position: col * (i + 1)`，`col = Math.floor(9020 / list.length)`），因此**天然对齐、各选项列位一致**，不会因文字长短参差。
+- 判定采用**双重阈值**（总量 92% + 单项 46%），实测可正确识别「两选项选择题不应被误判为判断题」、「短选项 ABCD 四项横排」、「长选项自动逐行」等边界。
+
+### ✨ 新增 · 导出面板（`src/components/DocxExportPanel.vue`，完全重写）
+
+- **四套快速预设**：`正式考试卷` / `日常测验卷` / `课后作业卷`，一键套用全套参数；手动改动任一参数即切到「自定义」态（`activePreset` / `applyPreset` / `markCustom`）。
+- **配置项扩展**：`withSeal`（密封线）、`showNotice`（考生须知）、`showFooter`（页码页脚）、`lineSpacing`（行距）、`optionLayout`（选项排版）、`mergeOutput`（合并输出）。
+- **产出文件自选**：学生卷 / 教师卷 / 答案卷 / 答题卡**逐项勾选**，`outputCount` 实时计算份数；可勾选「合并为一个文件」输出单一 docx（内部为多 section）。
+- **面板 UI 重做**：四分组（快速预设 / 基本信息 / 卷面结构 / 输出设置 / 高级排版）+ `.ep-preset` / `.ep-grid` / `.ep-hint` 样式 + 移动端媒体查询；新增 `exporting` ref 防重复点击。
+- **卷头专业化**：`paperHeader()` = 标题 + 副标题行 + `buildExamInfoTable` + `buildNoticeBox` + `buildSealBlock`（双栏时自动禁用密封线）。
+- **大题标题规范化**：改为 `（本大题共 N 小题，共 M 分）`，符合主流组卷平台习惯。
+- **答题卡专业化**：考生信息填涂区 + 缺考标记 + 填涂说明 + 第一部分选择题区 + 第二部分非选择题区；非选择题作答区按分值留白 `Math.min(10, Math.max(4, Math.round(scoreOf(it) * 0.9)))` 行。
+- **合并导出**：`buildSection(mode)` / `buildSingleDoc(mode)` / `buildMergedDoc(modes)` —— docx 9.7.1 **无 `ExternalDocument`**（已核实零命中），合并改用**多 section 同一 `Document`** 实现，各 section 保留独立页脚。
+
+### 🐞 修复（真实代码 bug，探针抓到）
+
+`layoutOptions` 的**判断题误判**导致**用户选项文本丢失**：
+- **现象**：任意**两个选项的选择题**，其选项都会被替换成「（  ）正确　（  ）错误」，**原始选项文本整个消失**。
+- **根因一**：`isJudge` 用 `list.length === 2` 判定，覆盖了显式 `mode='block'` 的意图。
+- **根因二（更严重）**：特例分支未限定 `mode === 'auto'`，导致所有两选项题目都被吃进判断题分支。
+- **修复**：`layoutOptions` 新增 `qtype` 参数，改判 `const isJudge = qtype === 'judge'`；特例分支限定 `mode === 'auto' && isJudge`；调用方（`buildQuestions`）**必须传 `it.qtype`**。
+
+### ✅ 验证
+
+| 层级 | 内容 | 结果 |
+|---|---|---|
+| 排版探针 | `scripts/probe-docx-layout.mjs`（+ `.entry.ts`）—— paperStyle 差异、选项算法（短横排 / 长逐行 / 图片强制逐行 / 判断题 / 强制模式 / 边界）、页脚 PAGE+NUMPAGES 域、卷头三件套、横排落同一 `<w:p>`、逐行分多段、两选项选择题不被误判、合并多 section | **39/39 通过** |
+| 端到端探针 | `scripts/probe-docx-e2e.mjs`（+ `.entry.ts`）—— 6 道真实题模拟试题篮，复刻面板构建逻辑，解压成品 docx 断言 XML | **39/39 通过** |
+| 构建 | `npm run build`（含 `vue-tsc --noEmit`） | **通过，零错误** |
+| 兼容性 | 两处调用点（`AssembleView.vue` / `QuestionBankView.vue`）未改动；`defineProps` / `defineEmits` 未变；分开下载命名 `${cfg.title}-${name}.docx` 规则一致 | **零改动确认** |
+
+### 🔧 工程踩坑（决定性诊断）
+
+**docx 双模块实例导致序列化退化**：`vite.ssrLoadModule('docx')` 与 docx-kit 内部 `import from 'docx'` 会产生**两份模块实例**，`instanceof` 判定失败，序列化退化成 `<rootKey>w:tbl</rootKey>`（而非真实表格 XML）。
+- 尝试失败：`ssrLoadModule('docx')`、`pluginContainer.resolveId` + 原生 import、`ssr: { noExternal: [/.*/] }` 均无效。
+- **最终解法**：把断言写进 `.entry.ts`，由 `.mjs` 用 `vite.ssrLoadModule` 加载，使**探针入口与 docx-kit 共享同一模块图**（已用 `instanceof Table` 验证 `isTable: true`、`rootKey count: 0`）。
+
+### 📁 涉及文件
+
+- **修改 2**：`src/utils/docx-kit.ts`（+294 行）、`src/components/DocxExportPanel.vue`（完全重写）
+- **新增 4**：`scripts/probe-docx-layout.entry.ts`、`scripts/probe-docx-layout.mjs`、`scripts/probe-docx-e2e.entry.ts`、`scripts/probe-docx-e2e.mjs`
+
+> **纯前端改动**，不涉及 D1 迁移、不涉及后端接口；前端随 Cloudflare Pages 自动构建。
+
+---
+
 ## [v4.9.7] - 2026-10-03
 
 > **本轮主题：① 个人中心禁止自行修改姓名；② 新增「管理员（ADMIN）」角色，权限**逐人独立**、由超级管理员按模块勾选授予。**

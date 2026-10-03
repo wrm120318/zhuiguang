@@ -1,31 +1,59 @@
 <script setup lang="ts">
-// 【v4.5.1】Word 导出（客户端 docx.js，免费可靠）：对标组卷网/智学网
-//  · 卷头（校名/年级/科目/时间/满分）+ 注意事项 + 密封线
-//  · 按题型大题分组、连续编号
-//  · 双向细目表（题型/题量/分值/占比/主要知识点）
-//  · 学生卷 / 解析卷（答案+解析）分离
-//  · 专业答题卡（选择题填涂格 + 非选择作答区）
-//  · 3 套模板真正生效、字号生效、公式(KaTeX→图)/图片尽力保留
-import { ref, reactive } from 'vue'
+// 【v4.10.0】Word 导出 · 对标组卷网深度重构
+//  · 卷头：密封线装订区 + 表格式考生信息 + 独立「注意事项」框
+//  · 大题标题规范：「一、单项选择题（本大题共 N 小题，共 M 分）」
+//  · 选项智能排版：短选项横排（制表位对齐）、长选项/含公式图片自动逐行
+//  · 页脚「第 X 页 共 Y 页」（Word 域，自动计算）
+//  · 三套模板实体化差异（字号/行距/框线/密封线/须知/页脚）
+//  · 答题卡专业化：考生信息填涂区 + 选择题区 + 非选择题区 + 缺考标记
+//  · 产出面板自选：三份各自勾选，可分开下载或合并为单一 .docx
+//
+// 【兼容性承诺】props/emits 与下载文件名规则完全保持 v4.9.x 原样，
+//   两处调用点（AssembleView / QuestionBankView）无需改动。
+import { ref, reactive, computed } from 'vue'
 // 【v4.5.3】docx 的 Math 组件必须重命名导入：它叫 Math，会覆盖全局 Math 对象，
 // 导致 Math.max/min/round/floor 全部报错（TS2339）。统一别名 MathOMML。
-import { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak, Table, TableRow, TableCell, WidthType, BorderStyle, VerticalMergeType } from 'docx'
-import { saveAs } from 'file-saver'
-import { htmlToMarkdown, looksLikeHtml } from '@/utils/html-to-md'
-// 【v4.9.1 内核统一】原先本组件自带一整套「Markdown → Word」实现（fetchImage /
-//   latexToOmml / katexToImage / inlineRuns / mdToParagraphs / buildWordTableFromHtml …）。
-//   而「Word 试卷导入 · 原卷分栏编辑」的预览又自己写了一套简版 —— 两套必然漂移，
-//   正是用户抱怨「网站上看着好好的、导出就错乱」的根源。
-//   现在全部收敛到 `@/utils/docx-kit` 单一实现：导出器与预览共用同一套代码。
 import {
-  fetchImage, katexToImage, latexToOmml, mdToParagraphs,
-  buildWordTable, buildWordTableFromHtml, wordCell,
-  inlineRuns, unescapeMd, cleanText, textRuns,
+  Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak,
+  Table, TableRow, TableCell, WidthType, BorderStyle,
+} from 'docx'
+import { saveAs } from 'file-saver'
+// 【v4.9.1 内核统一】内容 → Word 的唯一实现在 `@/utils/docx-kit`，
+//   导出器与「原卷分栏编辑」预览共用，保证「网站看到的 = 导出的」。
+import {
+  // 既有原语
+  inlineRuns, mdToParagraphs, paperStyle, buildFooter, buildSealBlock,
+  buildExamInfoTable, buildNoticeBox, layoutOptions,
+  // 选项排版类型
+  type OptionLayout,
 } from '@/utils/docx-kit'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps<{ subjectName: string; items: any[] }>()
 const emit = defineEmits<{ (e: 'done'): void }>()
+
+// ===== 预设方案（点选即回填整套参数）=====
+interface Preset {
+  key: string; label: string; desc: string
+  cfg: Partial<typeof cfg>
+}
+const presets: Preset[] = [
+  {
+    key: 'formal', label: '正式考试卷', desc: '标准字号 · 密封线 · 须知 · 答题卡 · 页脚',
+    cfg: { template: 'formal', fontSize: 12, twoColumn: false, withSeal: true, withAnswerSheet: true,
+      withBlueprint: true, withAnswer: true, showNotice: true, showFooter: true, optionLayout: 'auto' },
+  },
+  {
+    key: 'test', label: '日常测验卷', desc: '紧凑排版 · 密封线 · 不含细目表',
+    cfg: { template: 'test', fontSize: 12, twoColumn: false, withSeal: true, withAnswerSheet: true,
+      withBlueprint: false, withAnswer: true, showNotice: true, showFooter: true, optionLayout: 'auto' },
+  },
+  {
+    key: 'homework', label: '课后作业卷', desc: '小字号 · 无密封线 · 无答题卡 · 无页脚',
+    cfg: { template: 'homework', fontSize: 11, twoColumn: false, withSeal: false, withAnswerSheet: false,
+      withBlueprint: false, withAnswer: true, showNotice: false, showFooter: false, optionLayout: 'auto' },
+  },
+]
 
 const templates: Record<string, string> = { formal: '正式考试卷', test: '日常测验卷', homework: '课后作业卷' }
 
@@ -35,13 +63,34 @@ const cfg = reactive({
   grade: '',
   duration: 90,
   template: 'formal' as 'formal' | 'test' | 'homework',
+  // 产出选择
   withAnswer: true,
   withAnswerSheet: true,
   withBlueprint: true,
+  // 卷面
   withSeal: true,
+  showNotice: true,
+  showFooter: true,
   twoColumn: false,
   fontSize: 12,
+  lineSpacing: 1.5,
+  optionLayout: 'auto' as OptionLayout,
+  // 输出方式
+  mergeOutput: true,
 })
+
+const activePreset = ref('formal')
+/** 导出中（防重复点击） */
+const exporting = ref(false)
+function applyPreset(p: Preset) {
+  activePreset.value = p.key
+  Object.assign(cfg, p.cfg)
+}
+function markCustom() { activePreset.value = 'custom' }
+
+/** 产出份数（用于摘要与按钮文案） */
+const outputCount = computed(() =>
+  (1) + (cfg.withAnswer ? 1 : 0) + (cfg.withAnswerSheet ? 1 : 0))
 
 const QTYPES = [
   { key: 'single', label: '单选题', short: '一、单项选择题' },
@@ -51,58 +100,25 @@ const QTYPES = [
   { key: 'subjective', label: '主观题', short: '五、主观题' },
 ]
 
-// ===== 富文本 → docx 行内内容（尽力保留 公式/图片/加粗） =====
-// 【v4.6.0 真修】题目中的图片导不出来，根因有两点：
-//   ① 题库图片存为 /api/file/{id}（私有附件），fetchImage 之前不带 token 直取 → 后端 401，
-//      被 catch 静默吞掉 → 图片整张丢失。现改为「先免 token 试取，失败再带 token 重试」。
-//   ② ImageRun 的 transformation.height 被写成 'auto'（非法值）→ 图片高度 0，Word 不渲染。
-//      现改为：拉到图片后用 canvas 归一化为 PNG，并取真实像素尺寸，按比例限制最大宽度。
-//
-// 【v4.8.19】外部图床图片（i.imgs.ovh 等）无 CORS 头 → 浏览器直连 fetch 必被拦。
-//   改为**先走本站后端代理** /api/proxy-image（服务端抓取，无 CORS 限制），
-//   代理也失败时才降级为 [图片] 占位，并把这个 url 记进 externalImageFails 供面板提示用户。
+// ===== 【v4.8.19】外部图床图片无 CORS 头 → 走后端代理，失败记入此处供提示 =====
 const externalImageFails: string[] = []
 
-function cellBorder() {
-  return { top: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, bottom: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, left: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' }, right: { style: BorderStyle.SINGLE, size: 4, color: 'BBBBBB' } }
-}
-function cell(children: any[], widthPct?: number): TableCell {
-  return new TableCell({ borders: cellBorder(), width: widthPct ? { size: widthPct, type: WidthType.PERCENTAGE } : undefined, children })
-}
-function P(text: string, size = cfg.fontSize, extra: any = {}): Paragraph {
-  const { bold, ...rest } = extra
-  return new Paragraph({ children: [new TextRun({ text, size, bold })], ...rest })
-}
 const scoreOf = (it: any) => Number(it.basketScore) || Number(it.score) || 5
 const optLetter = (i: number) => 'ABCDEFGH'[i] || '?'
 
-function mdPlain(md: string): string {
-  return (md || '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '[图片]')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[#*_>`~]/g, '')
-    .replace(/==([^=]+)==/g, '$1')
-    .replace(/\$\$*([^$]+)\$\$*/g, '$1')
-    .replace(/\n{2,}/g, '\n').trim()
-}
-
-// ===== 【v4.9.0】HTML 表格（含合并单元格）→ Word 真表格 =====
-/**
- * 把保真存储的 HTML 表格片段还原成 Word 表格，**保留 rowspan / colspan**。
- *
- * 【为什么必须单开一条路】
- *   GFM 表格语法上表达不了合并单元格（规范硬限制），所以入库时含合并的表格被
- *   原样存成了 HTML 片段（见 html-to-md.ts 的 tableToMd）。导出时若只认 GFM，
- *   这段 HTML 会被当普通文本写进 Word —— 用户看到的就是「格式错乱」。
- *
- * 【rowspan → vMerge 的 Word 规则】
- *   docx 里纵向合并是「起始格 vMerge:'restart' + 后续被合并格 vMerge:'continue'」。
- *   因此要维护一个**跨行的待补队列**：遇到 rowspan:n 的单元格，就把它后面 n-1 行
- *   的同一列位置标记为需要继续合并。colspan 则直接映射为 gridSpan（同一行内合并）。
- *
- * 时间/空间复杂度都是 O(单元格数)，与表格规模线性相关。
- */
-function buildBlueprint(items: any[]): Table {
+// ===== 双向细目表 =====
+function buildBlueprint(items: any[], st: ReturnType<typeof paperStyle>): Table {
+  const border = {
+    top: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    bottom: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    left: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    right: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+  }
+  const c = (children: any[]) => new TableCell({ borders: border, children })
+  const P = (text: string, bold = false) => new Paragraph({
+    children: [new TextRun({ text, size: 18, bold })],
+    alignment: AlignmentType.CENTER,
+  })
   const groups = QTYPES.map(q => {
     const list = items.filter(i => i.qtype === q.key)
     const pts = list.reduce((s, i) => s + scoreOf(i), 0)
@@ -111,53 +127,125 @@ function buildBlueprint(items: any[]): Table {
     return { ...q, count: list.length, pts, kps: Array.from(kps).slice(0, 3).join('、') }
   }).filter(g => g.count > 0)
   const total = items.reduce((s, i) => s + scoreOf(i), 0)
-  const header = new TableRow({ tableHeader: true, children: ['大题', '题型', '题量', '分值', '占比', '主要知识点'].map(h => cell([P(h, 9, { bold: true })])) })
-  const rows = groups.map(g => new TableRow({ children: [
-    cell([P(g.short, 9)]), cell([P(g.label, 9)]), cell([P(String(g.count), 9)]), cell([P(String(g.pts), 9)]),
-    cell([P(total ? ((g.pts / total) * 100).toFixed(0) + '%' : '0%', 9)]), cell([P(g.kps || '—', 9)]),
-  ] }))
-  rows.push(new TableRow({ children: [
-    cell([P('合计', 9, { bold: true })]), cell([P('—', 9)]), cell([P(String(items.length), 9, { bold: true })]),
-    cell([P(String(total), 9, { bold: true })]), cell([P('100%', 9)]), cell([P('—', 9)]),
-  ] }))
+  const header = new TableRow({
+    tableHeader: true,
+    children: ['大题', '题型', '题量', '分值', '占比', '主要知识点'].map(h => c([P(h, true)])),
+  })
+  const rows = groups.map(g => new TableRow({
+    children: [
+      c([P(g.short)]), c([P(g.label)]), c([P(String(g.count))]), c([P(String(g.pts))]),
+      c([P(total ? ((g.pts / total) * 100).toFixed(0) + '%' : '0%')]), c([P(g.kps || '—')]),
+    ],
+  }))
+  rows.push(new TableRow({
+    children: [
+      c([P('合计', true)]), c([P('—')]), c([P(String(items.length), true)]),
+      c([P(String(total), true)]), c([P('100%')]), c([P('—')]),
+    ],
+  }))
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [header, ...rows] })
 }
 
-// ===== 卷头 + 注意事项 + 密封线 =====
-function paperHeader(title: string): Paragraph[] {
-  const out: Paragraph[] = []
-  out.push(new Paragraph({ text: title, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 80 } }))
+// ===== 卷头（专业版：密封线 + 信息表 + 须知框）=====
+function paperHeader(title: string, st: ReturnType<typeof paperStyle>): any[] {
+  const size = Math.round(cfg.fontSize * 2)   // pt → half-points
+  const out: any[] = []
   const total = props.items.reduce((s, i) => s + scoreOf(i), 0)
-  out.push(P(`${cfg.school || '学校'}：__________　${cfg.grade || '年级/班级'}：__________　姓名：__________　学号：__________`, cfg.fontSize, { alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
-  out.push(P(`科目：${props.subjectName}　满分：${total} 分　限时：${cfg.duration} 分钟　共 ${props.items.length} 题`, cfg.fontSize, { alignment: AlignmentType.CENTER, spacing: { after: 120 } }))
-  if (cfg.template !== 'homework') {
-    out.push(P('注意事项：1. 答题前请先填写学校、班级、姓名、学号。2. 选择题用 2B 铅笔将答案填涂在答题卡对应位置。3. 非选择题用黑色签字笔在答题卡上作答。', cfg.fontSize - 1, { spacing: { after: 60 } }))
+
+  // 标题
+  out.push(new Paragraph({
+    children: [new TextRun({ text: title, bold: true, size: size + 8 })],
+    heading: HeadingLevel.HEADING_1,
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 120 },
+  }))
+
+  // 副标题行：科目 / 满分 / 限时 / 题量
+  out.push(new Paragraph({
+    children: [new TextRun({
+      text: `科目：${props.subjectName}　　满分：${total} 分　　时间：${cfg.duration} 分钟　　共 ${props.items.length} 题`,
+      size: size - 1,
+    })],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 140 },
+  }))
+
+  // 考生信息表（表格式，对标组卷网）
+  out.push(buildExamInfoTable([
+    { label: '学校', value: cfg.school },
+    { label: '年级/班级', value: cfg.grade },
+    { label: '姓名', value: '' },
+    { label: '考号', value: '' },
+  ], st, size))
+  out.push(new Paragraph({ text: '', spacing: { after: 60 } }))
+
+  // 注意事项框
+  if (cfg.showNotice && st.notice) {
+    const notice = cfg.template === 'homework'
+      ? ['请独立完成作业，书写工整。', '如有疑问请在课堂上提出。']
+      : [
+        '答题前请先填写学校、班级、姓名、考号。',
+        '选择题用 2B 铅笔将答案填涂在答题卡对应位置。',
+        '非选择题用黑色签字笔在答题卡指定区域内作答，超出答题区域无效。',
+        '考试结束后，将试卷和答题卡一并交回。',
+      ]
+    out.push(buildNoticeBox(notice, st, size))
+    out.push(new Paragraph({ text: '', spacing: { after: 80 } }))
   }
-  if (cfg.withSeal && (cfg.template === 'formal' || cfg.template === 'test')) {
-    out.push(P('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ 装 订 线 内 不 得 答 题 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄', cfg.fontSize - 2, { alignment: AlignmentType.CENTER, color: '999999', spacing: { after: 120 } }))
+
+  // 密封线装订区（双栏模式下禁用：密封区会挤压栏宽）
+  if (cfg.withSeal && st.seal && !cfg.twoColumn) {
+    out.push(buildSealBlock(st, size))
+    out.push(new Paragraph({ text: '', spacing: { after: 80 } }))
   }
+
   return out
 }
 
 // ===== 大题分组 + 连续编号 =====
-async function buildQuestions(withAnswers: boolean): Promise<Paragraph[]> {
-  const out: Paragraph[] = []
+async function buildQuestions(withAnswers: boolean): Promise<any[]> {
+  const out: any[] = []
   let idx = 0
-  const size = cfg.fontSize
+  const size = Math.round(cfg.fontSize * 2)
   for (const grp of QTYPES) {
     const list = props.items.filter(i => i.qtype === grp.key)
     if (!list.length) continue
-    out.push(P(`${grp.short}（每题 ${scoreOf(list[0])} 分，共 ${list.length} 题）`, size + 1, { bold: true, spacing: { before: 160, after: 80 } }))
+    // 【v4.10.0】大题标题规范化：「一、单项选择题（本大题共 N 小题，共 M 分）」
+    const sum = list.reduce((s, i) => s + scoreOf(i), 0)
+    out.push(new Paragraph({
+      children: [new TextRun({
+        text: `${grp.short}（本大题共 ${list.length} 小题，共 ${sum} 分）`,
+        bold: true, size: size + 1,
+      })],
+      spacing: { before: 200, after: 90 },
+    }))
     for (const it of list) {
       idx++
-      // 【v4.7.0】题干序号单独成行（加粗），题干内容用 mdToParagraphs 解析 markdown（标题/列表/换行→合理 Word 字号样式）
-      out.push(new Paragraph({ children: [new TextRun({ text: `${idx}.（${grp.label}）(${scoreOf(it)}分)`, bold: true, size })], spacing: { before: 80, after: 20 } }))
+      // 题号行：题号 + 题型 + 分值
+      out.push(new Paragraph({
+        children: [new TextRun({
+          text: `${idx}.（${grp.label}，${scoreOf(it)}分）`,
+          bold: true, size,
+        })],
+        spacing: { before: 80, after: 20 },
+      }))
       out.push(...await mdToParagraphs(it.content || '', size, { indent: 360, spacingAfter: 30 }))
-      for (const o of (it.options || [])) out.push(new Paragraph({ children: await inlineRuns(`${optLetter((it.options || []).indexOf(o))}. ${o}`, size), indent: { left: 360 }, spacing: { after: 14 } }))
+      // 【v4.10.0】选项走智能排版：短选项横排、长选项自动逐行
+      // ⚠️ 必须传 qtype：否则「恰好两个选项的选择题」会被误当判断题，
+      //   选项文本会被替换成「（  ）正确　（  ）错误」而整个丢失。
+      const opts = await layoutOptions(it.options || [], size, cfg.optionLayout, it.qtype)
+      out.push(...opts)
       if (withAnswers) {
-        // 【v4.5.3】答案/解析改用 inlineRuns：保留 KaTeX 公式（转图片）与行内图片；【v4.7.0】inlineRuns 已保留换行
-        out.push(new Paragraph({ children: await inlineRuns(`【答案】${it.answer || '（未填写）'}`, size, '【答案】'), indent: { left: 360 }, spacing: { before: 20, after: 14 } }))
-        if (it.analysis) out.push(new Paragraph({ children: await inlineRuns(`【解析】${it.analysis}`, size, '【解析】'), indent: { left: 360 }, spacing: { after: 14 } }))
+        out.push(new Paragraph({
+          children: await inlineRuns(`【答案】${it.answer || '（未填写）'}`, size, '【答案】'),
+          indent: { left: 360 }, spacing: { before: 20, after: 14 },
+        }))
+        if (it.analysis) {
+          out.push(new Paragraph({
+            children: await inlineRuns(`【解析】${it.analysis}`, size, '【解析】'),
+            indent: { left: 360 }, spacing: { after: 14 },
+          }))
+        }
       }
     }
   }
@@ -166,47 +254,194 @@ async function buildQuestions(withAnswers: boolean): Promise<Paragraph[]> {
 
 // ===== 专业答题卡 =====
 function buildAnswerSheet(): any[] {
+  const st = paperStyle(cfg.template)
+  const size = Math.round(cfg.fontSize * 2)
+  const border = {
+    top: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    bottom: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    left: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+    right: { style: BorderStyle.SINGLE, size: st.borderSize, color: st.borderColor },
+  }
   const out: any[] = []
-  out.push(new Paragraph({ text: `${cfg.title} · 答题卡`, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 60 } }))
-  out.push(P('班级：__________ 姓名：__________ 学号：__________', cfg.fontSize, { spacing: { after: 40 } }))
-  out.push(P('填涂说明：请用 2B 铅笔将对应选项方框涂满；修改时用橡皮擦净。', cfg.fontSize - 1, { spacing: { after: 120 } }))
-  const size = cfg.fontSize
+  const total = props.items.reduce((s, i) => s + scoreOf(i), 0)
+
+  // 标题
+  out.push(new Paragraph({
+    children: [new TextRun({ text: `${cfg.title} · 答题卡`, bold: true, size: size + 8 })],
+    heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, spacing: { after: 120 },
+  }))
+
+  // 考生信息填涂区（含缺考标记，对标组卷网答题卡）
+  const infoLines: any[][] = [
+    [new Paragraph({ children: [new TextRun({ text: '学校：______________　　班级：______________　　姓名：______________　　考号：______________', size })] })],
+    [new Paragraph({
+      children: [
+        new TextRun({ text: '缺考标记：', size, bold: true, color: 'C00000' }),
+        new TextRun({ text: '□', size: size + 4, color: 'C00000' }),
+        new TextRun({ text: '　（由监考员填涂，考生不得填涂）', size: size - 2, color: '808080' }),
+      ],
+    })],
+  ]
+  out.push(new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({
+      children: [new TableCell({ borders: border, margins: { top: 100, bottom: 100, left: 140, right: 140 }, children: infoLines.flat() })],
+    })],
+  }))
+  out.push(new Paragraph({ text: '', spacing: { after: 80 } }))
+
+  // 填涂说明
+  out.push(new Paragraph({
+    children: [new TextRun({
+      text: '填涂说明：请用 2B 铅笔将对应选项方框涂满、涂黑；修改时用橡皮擦净，不留痕迹。',
+      size: size - 2, color: '666666',
+    })],
+    spacing: { after: 140 },
+  }))
+
+  // ===== 第一部分：选择题 =====
+  const objective = props.items.filter(it => ['single', 'multiple', 'judge'].includes(it.qtype))
+  const subjective = props.items.filter(it => !['single', 'multiple', 'judge'].includes(it.qtype))
   let idx = 0
-  for (const it of props.items) {
-    idx++
-    if (['single', 'multiple', 'judge'].includes(it.qtype)) {
+
+  if (objective.length) {
+    const sum = objective.reduce((s, i) => s + scoreOf(i), 0)
+    out.push(new Paragraph({
+      children: [new TextRun({ text: `第一部分　选择题（本大题共 ${objective.length} 小题，共 ${sum} 分）`, bold: true, size: size + 1 })],
+      spacing: { before: 80, after: 90 },
+    }))
+    for (const it of objective) {
+      idx++
       const opts: string[] = it.qtype === 'judge' ? ['正确', '错误'] : (it.options || []).map((_: any, i: number) => optLetter(i))
-      const cells = [
-        cell([P(String(idx), 9)], 12),
-        ...opts.map(o => cell([P(String(o), 9, { alignment: AlignmentType.CENTER })], Math.floor(88 / opts.length))),
-      ]
+      const labelCell = new TableCell({
+        borders: border,
+        width: { size: 14, type: WidthType.PERCENTAGE },
+        margins: { top: 40, bottom: 40, left: 60, right: 60 },
+        children: [new Paragraph({ children: [new TextRun({ text: String(idx), size, bold: true })], alignment: AlignmentType.CENTER })],
+      })
+      const optCells = opts.map(o => new TableCell({
+        borders: border,
+        width: { size: Math.floor(86 / opts.length), type: WidthType.PERCENTAGE },
+        margins: { top: 40, bottom: 40, left: 60, right: 60 },
+        children: [new Paragraph({
+          children: [
+            new TextRun({ text: `${o} `, size }),
+            new TextRun({ text: '□', size: size + 2 }),
+          ],
+          alignment: AlignmentType.CENTER,
+        })],
+      }))
+      out.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [new TableRow({ children: [labelCell, ...optCells] })],
+      }))
       out.push(new Paragraph({ text: '', spacing: { after: 20 } }))
-      out.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: cells })] }))
-    } else {
-      out.push(P(`${idx}.（${scoreOf(it)}分）`, size, { spacing: { before: 60, after: 20 } }))
-      out.push(P('答：________________________________________________________________________', size, { spacing: { after: 80 } }))
     }
   }
+
+  // ===== 第二部分：非选择题 =====
+  if (subjective.length) {
+    const sum = subjective.reduce((s, i) => s + scoreOf(i), 0)
+    out.push(new Paragraph({
+      children: [new TextRun({ text: `第二部分　非选择题（本大题共 ${subjective.length} 小题，共 ${sum} 分）`, bold: true, size: size + 1 })],
+      spacing: { before: 200, after: 90 },
+    }))
+    for (const it of subjective) {
+      idx++
+      out.push(new Paragraph({
+        children: [new TextRun({ text: `${idx}.（${scoreOf(it)}分）`, bold: true, size })],
+        spacing: { before: 120, after: 40 },
+      }))
+      // 作答区：按分值给留白（4 分 → 4 行，8 分 → 7 行，上限 10 行）
+      const rows = Math.min(10, Math.max(4, Math.round(scoreOf(it) * 0.9)))
+      for (let r = 0; r < rows; r++) {
+        out.push(new Paragraph({
+          children: [new TextRun({ text: '　', size })],
+          border: { bottom: { style: BorderStyle.DOTTED, size: 4, color: 'BBBBBB', space: 4 } },
+          spacing: { after: 40 },
+        }))
+      }
+      out.push(new Paragraph({ text: '', spacing: { after: 60 } }))
+    }
+  }
+
+  out.push(new Paragraph({
+    children: [new TextRun({ text: `本卷满分 ${total} 分`, size: size - 2, color: '808080' })],
+    alignment: AlignmentType.RIGHT, spacing: { before: 140 },
+  }))
   return out
 }
 
 // ===== 组装文档 =====
-async function buildDoc(mode: 'student' | 'teacher' | 'sheet'): Promise<Blob> {
+type Mode = 'student' | 'teacher' | 'sheet'
+
+/** 单个交付物 → Document 实例（合并导出时作为独立 section 拼接） */
+async function buildSection(mode: Mode): Promise<{ children: any[]; props: any }> {
+  const st = paperStyle(cfg.template)
   const children: any[] = []
   if (mode === 'sheet') {
     children.push(...buildAnswerSheet())
   } else {
     const withAns = mode === 'teacher'
-    children.push(...paperHeader(cfg.title))
-    if (cfg.withBlueprint) { children.push(P('双向细目表', cfg.fontSize + 1, { bold: true, spacing: { before: 80, after: 40 } }), buildBlueprint(props.items)); children.push(new Paragraph({ children: [new PageBreak()], spacing: { before: 120 } })) }
+    children.push(...paperHeader(cfg.title, st))
+    if (cfg.withBlueprint && cfg.template !== 'homework') {
+      children.push(new Paragraph({
+        children: [new TextRun({ text: '双向细目表', bold: true, size: Math.round(cfg.fontSize * 2) + 1 })],
+        spacing: { before: 80, after: 60 },
+      }))
+      children.push(buildBlueprint(props.items, st))
+      children.push(new Paragraph({ children: [new PageBreak()], spacing: { before: 120 } }))
+    }
     children.push(...await buildQuestions(withAns))
   }
+  const propsOut: any = {}
+  if (cfg.twoColumn && mode !== 'sheet') propsOut.column = { count: 2, space: 360 }
+  return { children, props: propsOut }
+}
+
+/** 本次要导出的模式列表 */
+function activeModes(): Mode[] {
+  const m: Mode[] = ['student']
+  if (cfg.withAnswer) m.push('teacher')
+  if (cfg.withAnswerSheet) m.push('sheet')
+  return m
+}
+
+const MODE_LABEL: Record<Mode, string> = { student: '学生卷', teacher: '解析卷', sheet: '答题卡' }
+
+/** 构建单个文件（分开下载用） */
+async function buildSingleDoc(mode: Mode): Promise<Blob> {
+  const st = paperStyle(cfg.template)
+  const { children, props: secProps } = await buildSection(mode)
   const doc = new Document({
     sections: [{
-      properties: cfg.twoColumn && mode !== 'sheet' ? { column: { count: 2, space: 360 } } : {},
+      properties: secProps,
+      ...(cfg.showFooter && st.footer ? { footers: { default: buildFooter({ leftText: cfg.title }) } } : {}),
       children,
     }],
   })
+  return await Packer.toBlob(doc)
+}
+
+/**
+ * 构建合并文件（多 section 同一 Document）。
+ *
+ * 【为何不用文档拼接】docx 9.7.1 未提供 `ExternalDocument`（已核实类型定义零命中），
+ * 因此改用**多 section**方案：每个交付物作为一个 section，section 间自动分页。
+ * 这是 docx 原生支持的做法，产物是标准单文件 .docx，无兼容性风险。
+ */
+async function buildMergedDoc(modes: Mode[]): Promise<Blob> {
+  const st = paperStyle(cfg.template)
+  const sections: any[] = []
+  for (const mode of modes) {
+    const { children, props: secProps } = await buildSection(mode)
+    sections.push({
+      properties: secProps,
+      ...(cfg.showFooter && st.footer ? { footers: { default: buildFooter({ leftText: cfg.title }) } } : {}),
+      children,
+    })
+  }
+  const doc = new Document({ sections })
   return await Packer.toBlob(doc)
 }
 
@@ -214,15 +449,25 @@ async function download(blob: Blob, name: string) { saveAs(blob, `${cfg.title}-$
 
 async function onExport() {
   if (!props.items.length) { ElMessage.warning('试题篮为空'); return }
+  if (exporting.value) return
+  exporting.value = true
   try {
-    // 【v4.8.19】每次导出前清空外链图失败记录，导出后统一提示
     externalImageFails.length = 0
-    const student = await buildDoc('student'); await download(student, '学生卷')
-    if (cfg.withAnswer) { const t = await buildDoc('teacher'); await download(t, '解析卷') }
-    if (cfg.withAnswerSheet) { const s = await buildDoc('sheet'); await download(s, '答题卡') }
-    ElMessage.success('已生成 Word（学生卷/解析卷/答题卡）')
+    const modes = activeModes()
+    const label = `Word（${modes.map(m => MODE_LABEL[m]).join('/')}）`
+    if (cfg.mergeOutput) {
+      const blob = await buildMergedDoc(modes)
+      const stamp = new Date().toISOString().slice(0, 10)
+      saveAs(blob, `${cfg.title}-${stamp}.docx`)
+      ElMessage.success(`已生成 ${label}（合并为单一文件）`)
+    } else {
+      for (const mode of modes) {
+        const blob = await buildSingleDoc(mode)
+        await download(blob, MODE_LABEL[mode])
+      }
+      ElMessage.success(`已生成 ${label}`)
+    }
     if (externalImageFails.length) {
-      // 逐条提示最多 3 条，避免弹窗爆炸
       const shown = externalImageFails.slice(0, 3).map(u => {
         try { return new URL(u).host } catch { return u.slice(0, 40) }
       })
@@ -234,39 +479,163 @@ async function onExport() {
     }
     emit('done')
   } catch (e: any) { ElMessage.error('生成失败：' + (e?.message || e)) }
+  finally { exporting.value = false }
 }
 </script>
 
 <template>
   <div class="export-panel">
-    <el-form label-position="top">
-      <el-form-item label="试卷标题"><el-input v-model="cfg.title" /></el-form-item>
-      <el-row :gutter="10">
-        <el-col :span="12"><el-form-item label="学校"><el-input v-model="cfg.school" placeholder="如：XX 中学" /></el-form-item></el-col>
-        <el-col :span="12"><el-form-item label="年级/班级"><el-input v-model="cfg.grade" placeholder="如：高一(3)班" /></el-form-item></el-col>
-      </el-row>
-      <el-form-item label="考试时长（分钟）"><el-input-number v-model="cfg.duration" :min="10" :max="300" /></el-form-item>
-      <el-form-item label="试卷模板">
-        <el-radio-group v-model="cfg.template">
-          <el-radio-button v-for="(l, v) in templates" :key="v" :value="v">{{ l }}</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="导出选项">
-        <el-checkbox v-model="cfg.withAnswer">生成解析卷（含答案+解析）</el-checkbox><br />
-        <el-checkbox v-model="cfg.withAnswerSheet">附加专业答题卡</el-checkbox>
-        <el-checkbox v-model="cfg.withBlueprint">生成双向细目表</el-checkbox>
-        <el-checkbox v-model="cfg.withSeal">加密封线（正式/测验卷）</el-checkbox>
-        <el-checkbox v-model="cfg.twoColumn">双栏排版</el-checkbox>
-      </el-form-item>
-      <el-form-item label="字号"><el-slider v-model="cfg.fontSize" :min="10" :max="16" /> <span class="fs-hint">{{ cfg.fontSize }}pt</span></el-form-item>
-      <el-alert type="info" :closable="false" title="说明"
-        description="Word 导出在浏览器端完成，使用免费开源库 docx.js，零成本。公式导出为 Word 原生公式（OMML），可直接在 Word 中编辑；复杂排版建议在网页端最终校对。" />
-      <el-button type="primary" :disabled="!props.items.length" @click="onExport" icon="Download">生成并下载 Word</el-button>
-    </el-form>
+    <!-- ===== 预设方案 ===== -->
+    <div class="ep-section">
+      <div class="ep-section-title">快速预设</div>
+      <div class="ep-presets">
+        <button
+          v-for="p in presets" :key="p.key"
+          type="button" class="ep-preset"
+          :class="{ active: activePreset === p.key }"
+          @click="applyPreset(p)"
+        >
+          <span class="ep-preset-label">{{ p.label }}</span>
+          <span class="ep-preset-desc">{{ p.desc }}</span>
+        </button>
+        <div v-if="activePreset === 'custom'" class="ep-preset ep-preset-custom">
+          <span class="ep-preset-label">自定义</span>
+          <span class="ep-preset-desc">你已手动调整参数</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 基本信息 ===== -->
+    <div class="ep-section">
+      <div class="ep-section-title">基本信息</div>
+      <el-form label-position="top" @change="markCustom">
+        <el-form-item label="试卷标题">
+          <el-input v-model="cfg.title" placeholder="如：高一物理 第一次月考" />
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12"><el-form-item label="学校"><el-input v-model="cfg.school" placeholder="如：XX 中学" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="年级/班级"><el-input v-model="cfg.grade" placeholder="如：高一(3)班" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="考试时长（分钟）">
+              <el-input-number v-model="cfg.duration" :min="10" :max="300" style="width:100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="试卷模板">
+              <el-select v-model="cfg.template" style="width:100%">
+                <el-option v-for="(l, v) in templates" :key="v" :value="v" :label="l" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+    </div>
+
+    <!-- ===== 卷面结构 ===== -->
+    <div class="ep-section">
+      <div class="ep-section-title">卷面结构</div>
+      <el-form label-position="top" @change="markCustom">
+        <div class="ep-grid">
+          <el-checkbox v-model="cfg.withSeal" :disabled="cfg.twoColumn">加密封线装订区</el-checkbox>
+          <el-checkbox v-model="cfg.showNotice">加考生须知框</el-checkbox>
+          <el-checkbox v-model="cfg.showFooter">加页脚页码</el-checkbox>
+          <el-checkbox v-model="cfg.withBlueprint">生成双向细目表</el-checkbox>
+          <el-checkbox v-model="cfg.twoColumn">双栏排版</el-checkbox>
+        </div>
+        <div v-if="cfg.twoColumn" class="ep-hint">双栏模式下密封线会自动禁用（避免挤压栏宽）。</div>
+      </el-form>
+    </div>
+
+    <!-- ===== 输出设置 ===== -->
+    <div class="ep-section">
+      <div class="ep-section-title">输出设置</div>
+      <el-form label-position="top" @change="markCustom">
+        <div class="ep-grid">
+          <el-checkbox v-model="cfg.withAnswer">解析卷（含答案+解析）</el-checkbox>
+          <el-checkbox v-model="cfg.withAnswerSheet">专业答题卡</el-checkbox>
+        </div>
+        <el-form-item label="输出方式">
+          <el-radio-group v-model="cfg.mergeOutput">
+            <el-radio-button :value="true">合并为一个文件</el-radio-button>
+            <el-radio-button :value="false">分开下载</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <div class="ep-hint">
+          将生成 <b>{{ outputCount }}</b> 份内容：学生卷{{ cfg.withAnswer ? ' + 解析卷' : '' }}{{ cfg.withAnswerSheet ? ' + 答题卡' : '' }}。
+          <template v-if="cfg.mergeOutput">合并模式下自动分页，便于统一打印。</template>
+        </div>
+      </el-form>
+    </div>
+
+    <!-- ===== 高级排版 ===== -->
+    <div class="ep-section">
+      <div class="ep-section-title">高级排版</div>
+      <el-form label-position="top" @change="markCustom">
+        <el-form-item :label="`正文字号：${cfg.fontSize} pt`">
+          <el-slider v-model="cfg.fontSize" :min="10" :max="16" :step="0.5" />
+        </el-form-item>
+        <el-form-item label="选择题选项排版">
+          <el-radio-group v-model="cfg.optionLayout">
+            <el-radio-button value="auto">自动（推荐）</el-radio-button>
+            <el-radio-button value="inline">横排</el-radio-button>
+            <el-radio-button value="block">逐行</el-radio-button>
+          </el-radio-group>
+          <div class="ep-hint">自动模式：短选项横排省版面，长选项或含公式/图片时自动逐行，避免挤成一团。</div>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <el-alert
+      type="info" :closable="false" show-icon class="ep-note"
+      title="Word 导出在浏览器端完成（docx.js，零成本）"
+      description="公式导出为 Word 原生公式（可在 Word 中直接编辑）；图片自动压缩为 PNG 并等比缩放。复杂排版建议在网页端最终校对。"
+    />
+
+    <el-button
+      type="primary" size="large" class="ep-submit"
+      :disabled="!props.items.length" :loading="exporting"
+      @click="onExport" icon="Download"
+    >
+      生成并下载 Word（{{ outputCount }} 份{{ cfg.mergeOutput ? ' · 合并' : '' }}）
+    </el-button>
   </div>
 </template>
 
 <style scoped>
-.export-panel { padding: 4px; }
-.fs-hint { margin-left: 10px; color: #b06a00; font-weight: 700; }
+.export-panel { padding: 2px 4px 8px; max-height: 68vh; overflow-y: auto; }
+.ep-section { margin-bottom: 18px; }
+.ep-section-title {
+  font-size: 13px; font-weight: 700; color: var(--el-text-color-primary);
+  padding-left: 9px; margin-bottom: 10px;
+  border-left: 3px solid var(--el-color-primary); line-height: 1.2;
+}
+.ep-presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ep-preset {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer; text-align: left;
+  border: 1px solid var(--el-border-color); background: var(--el-fill-color-blank);
+  transition: all .18s;
+}
+.ep-preset:hover { border-color: var(--el-color-primary-light-5); background: var(--el-fill-color-light); }
+.ep-preset.active { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); box-shadow: 0 0 0 1px var(--el-color-primary) inset; }
+.ep-preset-custom { cursor: default; opacity: .85; }
+.ep-preset-label { font-size: 13px; font-weight: 700; color: var(--el-text-color-primary); }
+.ep-preset-desc { font-size: 11px; color: var(--el-text-color-secondary); line-height: 1.4; }
+.ep-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; margin-bottom: 6px; }
+.ep-grid :deep(.el-checkbox) { margin-right: 0; height: 26px; }
+.ep-hint { font-size: 11.5px; color: var(--el-text-color-secondary); line-height: 1.55; margin: 2px 0 8px; }
+.ep-hint b { color: var(--el-color-primary); }
+.ep-note { margin: 4px 0 14px; }
+.ep-note :deep(.el-alert__title) { font-size: 12.5px; }
+.ep-note :deep(.el-alert__description) { font-size: 11.5px; line-height: 1.6; }
+.ep-submit { width: 100%; }
+.export-panel :deep(.el-form-item) { margin-bottom: 12px; }
+.export-panel :deep(.el-form-item__label) { font-size: 12.5px; padding-bottom: 2px; }
+@media (max-width: 640px) {
+  .ep-presets { grid-template-columns: 1fr; }
+  .ep-grid { grid-template-columns: 1fr; }
+  .export-panel { max-height: 60vh; }
+}
 </style>
