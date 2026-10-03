@@ -169,9 +169,14 @@ function sliceConst(name) {
 const sandboxSrc = `
 ${toJs(sliceConst('MAJOR_RE'))}
 ${toJs(sliceConst('MINOR_RE'))}
+${toJs(sliceConst('SUBQ_RE'))}
 ${toJs(sliceConst('OPT_LINE_RE'))}
 const toText = (html) => String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\\s+/g, ' ').trim()
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+${toJs(sliceFn('isSubQuestion'))}
+${toJs(sliceFn('isSectionTitleOnly'))}
+${toJs(sliceFn('sectionTypeHint'))}
+${toJs(sliceFn('dropSectionTitleBoundaries'))}
 ${toJs(sliceFn('splitIntoBlocks'))}
 ${toJs(sliceFn('innerSplitByBr'))}
 ${toJs(sliceFn('splitSoftLines'))}
@@ -180,10 +185,10 @@ const cutSources = { value: new Map() }
 ${toJs(sliceFn('normForMatch'))}
 ${toJs(sliceFn('similarity'))}
 const MATCH_MIN = 0.34
-export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, OPT_LINE_RE, cutSources }
+export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, OPT_LINE_RE, cutSources }
 `
 const mod = await import('data:text/javascript;base64,' + Buffer.from(sandboxSrc).toString('base64'))
-const { splitIntoBlocks, autoSplit, similarity, normForMatch } = mod
+const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries } = mod
 
 // ───────────────────────────────────────────────────────────────────────────
 console.log('=== 1. 段落内按 <br> 下钻（上一版最大的缺口：一段多题切不开）===')
@@ -321,6 +326,190 @@ ok('syncDrafts 用内容指纹而非"起始块相等"',
   /function draftFingerprint/.test(src) && /oldFingerprints/.test(src))
 ok('手动编辑过的题有 dirty 保护（不被自动重推断覆盖）', /oldDirty/.test(src))
 ok('指纹取归一化文本前 40 字', /normForMatch\([\s\S]{0,60}\)\.slice\(0, 40\)/.test(src))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. 【v4.13.3】用户反馈三连的回归
+//
+// 用户原话：
+//   「1. 我点AI切题基本没有反应
+//     2. 一、选择题 这是让你判断题目类型的 最后切完题也不要保留
+//     3. 规则识别的时候 会把小题也切开 这是不被允许的」
+//
+// 第 1 点是**反馈缺失**（代码本身没坏），第 2/3 点是切分逻辑，都能用纯函数验证。
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n=== 8a. 小问号判据（SUBQ_RE）===')
+const subqShould = ['(1) 求函数的最小值', '（2）证明：AB=CD', '① 小球质量', '②第二个空',
+  '(一) 依据材料', '1）求 a 的值', '2) 计算面积']
+for (const s of subqShould) ok(`小问号：${JSON.stringify(s)}`, isSubQuestion(s))
+const subqNot = ['1. 下列正确的是', '2、已知集合', '一、选择题', 'A. 选项甲', '1.5 倍的增长']
+for (const s of subqNot) ok(`⚠️ 非小问号（不得误判）：${JSON.stringify(s)}`, !isSubQuestion(s))
+
+console.log('\n=== 8b. ⚠️ 小问绝不能被切成独立题目（用户明确底线）===')
+// 解答题：一个小问都没有左括号写得规整的情况
+const subqPaper1 = `<p>三、解答题</p>
+<p>1. 已知函数 f(x)=x^2-2x。</p>
+<p>(1) 求 f(x) 的最小值。</p>
+<p>(2) 若 f(a)=3，求 a 的值。</p>
+<p>2. 解方程 x^2-5x+6=0。</p>`
+// ⚠️ autoSplit 返回的是**边界数组**（每题的起止块号），不是原始切点索引。
+//    `[1,4,5]` 表示：题1 = blocks[1..4)、题2 = blocks[4..5)，块 0（`三、解答题`）
+//    是**纯大题标题**，已按 v4.13.3 需求剔除，不单独成题。
+//    所以断言要看「说明了几道题」，即 boundaries.length - 1。
+const bd1 = autoSplit(splitIntoBlocks(subqPaper1))
+ok('解答题 2 题（含 4 个小问）→ 恰好切出 2 道题（小问未被切）',
+  bd1.length - 1 === 2, `实际边界 ${JSON.stringify(bd1)} → ${bd1.length - 1} 道题`)
+ok('⚠️ 纯大题标题 `三、解答题` 不单独成题（首边界不在块 0）',
+  bd1[0] !== 0 || bd1.length - 1 === 1,
+  `实际首边界 ${bd1[0]}，边界 ${JSON.stringify(bd1)}`)
+ok('切点在两个真正的题号上（`1.` 与 `2.`）',
+  bd1.slice(0, -1).every(i => /^[12]\./.test(splitIntoBlocks(subqPaper1)[i].text)), JSON.stringify(bd1))
+
+// 更刁钻：小问写成 `1）`（无左括号）—— 单靠 MINOR_RE 防不住，需要小问语境守卫
+const subqPaper2 = `<p>1. 阅读下面材料，回答问题。</p>
+<p>材料一：xxx</p>
+<p>1）概括材料的主旨。</p>
+<p>2）分析作者的写作意图。</p>
+<p>2. 下列说法正确的是（  ）</p>`
+const blk2 = splitIntoBlocks(subqPaper2)
+const bd2 = autoSplit(blk2)
+ok('小问写成 `1）` 的卷子 → 仍是 2 道题（语境守卫生效）',
+  bd2.length - 1 === 2,
+  `实际 ${JSON.stringify(bd2)} → ${bd2.map(i => blk2[i]?.text.slice(0, 12))}`)
+
+// 反向：正常卷子的题号必须仍然能切，不能因为"防小问"把真题号也吞了
+const normalPaper = `<p>一、选择题</p>
+<p>1. 下列说法正确的是（  ）</p><p>A. 甲</p><p>B. 乙</p>
+<p>2. 下列错误的是（  ）</p><p>A. 甲</p><p>B. 乙</p>
+<p>3. 计算 1+1=（  ）</p><p>A. 1</p><p>B. 2</p>`
+const bd3 = autoSplit(splitIntoBlocks(normalPaper))
+ok('⚠️ 反向验证：正常 3 题仍全部切出（防小问没有误伤真题号）',
+  bd3.length - 1 === 3, `实际 ${bd3.length - 1} 道题`)
+
+console.log('\n=== 8b-2. 纯标题判据的误伤防护（宁漏不误）===')
+ok('「三、解答题」= 纯标题（丢弃）', isSectionTitleOnly('三、解答题', '<p>三、解答题</p>'))
+ok('「一、选择题（每题 5 分）」= 纯标题（丢弃）',
+  isSectionTitleOnly('一、选择题（每题 5 分）', '<p>一、选择题（每题 5 分）</p>'))
+ok('⚠️ 「一、已知函数 f(x)=x²，求最小值」= 真题目（不可丢）',
+  !isSectionTitleOnly('一、已知函数 f(x)=x²，求最小值', '<p>一、已知函数 f(x)=x²，求最小值</p>'))
+ok('⚠️ 「二、如图，在三角形 ABC 中…」= 真题目（不可丢）',
+  !isSectionTitleOnly('二、如图，在三角形 ABC 中，AB=AC，求角 B', '<p>二、如图，在三角形 ABC 中，AB=AC，求角 B</p>'))
+ok('⚠️ 含表格的 `一、阅读材料` 块 = 真题目（不可丢）',
+  !isSectionTitleOnly('一、阅读材料', '<p>一、阅读材料</p><table><tr><td>x</td></tr></table>'))
+ok('⚠️ 含图片的 `三、看图作答` 块 = 真题目（不可丢）',
+  !isSectionTitleOnly('三、看图作答', '<p>三、看图作答<img src="a.png"></p>'))
+ok('非题号开头 → 不是纯标题', !isSectionTitleOnly('2026 学年期中考试', '<p>2026 学年期中考试</p>'))
+
+console.log('\n=== 8c. 大题标题 → 题型提示（sectionTypeHint）===')
+const hintCases = [
+  ['一、选择题', 'single'], ['二、多项选择题', 'multiple'], ['三、多选题', 'multiple'],
+  ['四、填空题', 'fill'], ['五、判断题', 'judge'],
+  ['六、解答题', 'subjective'], ['七、计算题', 'subjective'],
+  ['八、证明题', 'subjective'], ['九、综合应用题', 'subjective'],
+  ['2026学年第一学期期中考试', ''],
+]
+for (const [t, want] of hintCases) {
+  const got = sectionTypeHint(t)
+  ok(`「${t}」→ ${got || '(无提示)'}`, got === want, `期望 ${want || '(空)'}`)
+}
+ok('⚠️「多项选择题」优先于「选择题」（顺序陷阱）', sectionTypeHint('多项选择题') === 'multiple')
+
+console.log('\n=== 8d. 大题提示下发给后续所有题（不丢、不串）===')
+// 直接验证 sectionHints 的算法本体：模拟 boundaries + cutSources
+const hintsSrc = sliceFn('sectionHints')
+ok('sectionHints 用「逐块前缀法」算题型（不是按题区间扫描）',
+  /hintAt\.push\(cur\)/.test(hintsSrc) && /hintAt\[b\[i\]\]/.test(hintsSrc))
+ok('sectionHints 在 inferDraft 调用点被传入',
+  /inferDraft\([^)]*sectionHints\(\)\[i\]/.test(src.replace(/\n/g, ' ')) || /sectionHints\(\)\[i\]/.test(src))
+ok('inferDraft 支持第三支：内容判据判不出时用 typeHint',
+  /else if \(typeHint\)/.test(src) || /typeHint\)\s*qtype\s*=/.test(src))
+
+console.log('\n=== 8e. AI 切题的进度反馈（用户"基本没有反应"的真因）===')
+ok('working = busy || aiRunning（统一忙碌态）',
+  /const working = computed\(\(\) => busy\.value \|\| aiRunning\.value\)/.test(src))
+ok('进度浮层绑 working（不再是只有 busy 才显示）',
+  /v-if="working && progressText"/.test(src))
+ok('有秒表 busySeconds（让用户看到"进度在动"）',
+  /const busySeconds = ref\(0\)/.test(src) && /setInterval\(\(\) => \{ busySeconds\.value\+\+ \}, 1000\)/.test(src))
+ok('短操作不闪烁：>1 秒才显示秒数', /busySeconds > 1/.test(src))
+ok('卸载时清理秒表（不留 setInterval 悬引）',
+  /onUnmounted[\s\S]{0,400}clearInterval\(busyTimer\)/.test(src))
+
+console.log('\n=== 8f. 端到端：一份真实排版的卷子走完全链路 ===')// 模拟 mammoth 产出的 HTML（顶层 <p> 各自成块），覆盖三种大题：
+//   一、选择题 → 单选；二、填空题 → 填空；三、解答题 → 主观（含小问不切）
+const e2ePaper = `<p>2026 学年第一学期期中考试  高二数学</p>
+<p>一、选择题（每题 5 分，共 25 分）</p>
+<p>1. 下列函数中为奇函数的是（  ）</p>
+<p>A. y=x²</p>
+<p>B. y=x³</p>
+<p>2. 已知集合 A={1,2}，则 A 的子集个数为（  ）</p>
+<p>A. 2</p>
+<p>B. 4</p>
+<p>二、填空题</p>
+<p>3. 若 f(x)=x+1，则 f(2)=______。</p>
+<p>4. 不等式 x²&lt;4 的解集为______。</p>
+<p>三、解答题</p>
+<p>5. 已知等差数列{aₙ}中 a₁=1，d=2。</p>
+<p>(1) 求 a₁₀。</p>
+<p>(2) 求前 10 项和 S₁₀。</p>`
+
+const e2eBlocks = splitIntoBlocks(e2ePaper)
+const e2eBounds = autoSplit(e2eBlocks)
+const nQ = e2eBounds.length - 1
+ok('端到端：切出 5 道题（三个大题标题均未单独成题）', nQ === 5, `实际 ${nQ} 道题，边界 ${JSON.stringify(e2eBounds)}`)
+
+// 复刻组件的 sectionHints 算法（与源码同构，用于验证"提示下发的正确性"）
+// 复刻组件的 sectionHints 算法（与源码同构）：
+//   先算"每个块所处的题型前缀"，再取每道题**起始块**处的值。
+const e2eHintAt = (() => {
+  const arr = []
+  let cur = ''
+  for (let k = 0; k < e2eBlocks.length; k++) {
+    const blk = e2eBlocks[k]
+    const head = blk ? (blk.text.split('\n')[0] || '').trim() : ''
+    if (head && (MAJOR_RE.test(head) || isSectionTitleOnly(head, blk.html))) {
+      const h = sectionTypeHint(head)
+      if (h) cur = h
+    }
+    arr.push(cur)
+  }
+  return arr
+})()
+const e2eHints = e2eBounds.slice(0, -1).map(i => e2eHintAt[i] || '')
+ok('端到端：题1/题2 判为单选（来自「一、选择题」）',
+  e2eHints[0] === 'single' && e2eHints[1] === 'single', JSON.stringify(e2eHints))
+ok('端到端：题3/题4 判为填空（来自「二、填空题」）',
+  e2eHints[2] === 'fill' && e2eHints[3] === 'fill', JSON.stringify(e2eHints))
+ok('端到端：题5 判为主观（来自「三、解答题」）',
+  e2eHints[4] === 'subjective', JSON.stringify(e2eHints))
+ok('端到端：题型提示数 = 题目数（一一对应，不丢不串）',
+  e2eHints.length === nQ, `hints=${e2eHints.length} 题=${nQ}`)
+
+// 验证"大题标题不残留在题干里"：每题的首块文本不应只有标题词
+const firstBlocks = e2eBounds.slice(0, -1).map(i => e2eBlocks[i].text.split('\n')[0].trim())
+ok('端到端：没有任何题以「一、选择题」这类纯标题作为自己',
+  !firstBlocks.some(t => isSectionTitleOnly(t, '')), JSON.stringify(firstBlocks))
+ok('端到端：题5 覆盖了小问块（第 5 题段包含 `(1)` 小问）',
+  e2eBounds[5] - e2eBounds[4] >= 3,
+  `题5 覆盖块 ${e2eBounds[4]}..${e2eBounds[5]}`)
+ok('端到端：小问 `(1)` `(2)` 未被切为独立题（块数 15，题数仅 5）',
+  e2eBlocks.length === 15 && nQ === 5, `块 ${e2eBlocks.length} 题 ${nQ}`)
+
+console.log('\n=== 8g. dropSectionTitleBoundaries（规则 / AI 两条路径共用）===')
+{
+  // 用一份"块 0 就是大题标题"的卷子（AI 路径最典型的排版）
+  const bs = splitIntoBlocks(`<p>一、选择题</p>
+<p>1. 下列说法正确的是（  ）</p><p>A. 甲</p><p>B. 乙</p>
+<p>2. 下列错误的是（  ）</p><p>A. 甲</p><p>B. 乙</p>`)
+  ok('块 0 确实是纯标题（前置校验）', isSectionTitleOnly(bs[0].text, bs[0].html))
+  const bnd = [0, 1, 4, 7]
+  const out = dropSectionTitleBoundaries(bnd, bs)
+  ok('AI 路径：块 0 是纯标题 → 边界 0 被剔除', out[0] === 1, JSON.stringify(out))
+  ok('AI 路径：末项（块总数）保留', out[out.length - 1] === 7, JSON.stringify(out))
+  const out2 = dropSectionTitleBoundaries([0, 7], bs)
+  ok('⚠️ 边界不足 3 项时原样返回（不把整卷删空）', out2.join() === '0,7', JSON.stringify(out2))
+  const out3 = dropSectionTitleBoundaries([1, 4, 7], bs)
+  ok('没有标题块时原样返回', out3.join() === '1,4,7', JSON.stringify(out3))
+}
 
 console.log(`\n${'─'.repeat(52)}`)
 console.log(`结果：${pass} 项通过 / ${fail} 项失败`)

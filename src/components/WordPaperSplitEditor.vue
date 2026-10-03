@@ -147,11 +147,82 @@ function stripOptionsFromHtml(html: string): string {
 }
 
 /**
+ * 用**大题标题**推断该段落的默认题型（供 `inferDraft` 的上下文提示）。
+ *
+ * 【v4.13.3】用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
+ *   即：标题本身**不单独成题、不残留在题干里**，但它携带的题型信息要传递给
+ *   它下面的每一道题 —— 这样 `一、选择题` 下的题即使格式不典型，
+ *   也能正确判为 `single`，不用等用户逐题手改。
+ *
+ * @returns 题型标识，或 ''（无法判定）
+ */
+function sectionTypeHint(titleText: string): string {
+  const t = String(titleText || '')
+  // 注意顺序：「多项选择题」必须排在「选择题」前面，否则会被后者先命中
+  if (/多项选择|多选/.test(t)) return 'multiple'
+  if (/单项选择|单选|选择/.test(t)) return 'single'
+  if (/判断/.test(t)) return 'judge'
+  if (/填空/.test(t)) return 'fill'
+  if (/解答|计算|证明|应用|简答|综合|作图|实验|操作/.test(t)) return 'subjective'
+  return ''
+}
+
+/**
+ * 按当前分割线，算出**每道题所属大题**的题型提示。
+ *
+ * 【v4.13.3】「一、选择题」这类大题标题：
+ *   · 标题块**不再单独成题**（见 `autoSplit` 里的"纯标题边界剔除"），
+ *     它现在是"下一道题的起始块"，随首题一起被吃掉
+ *   · 标题的题型信息通过本函数**下发给它之后的所有题**，直到下一个大题标题
+ *   · 标题文字本身再由 `stripQuestionNumber()` 从题干里去掉
+ *
+ * ⚠️ 实现要点：**必须扫过每一题覆盖的所有块**，不能只看题起点那一块。
+ *   因为「一、选择题」可能独占一块、也可能和第一道题挤在同一块
+ *   （Word 里 `一、选择题  1. 下列…` 常见同段），两种排版都要能识别。
+ *
+ * 返回数组长度与题目数一致，元素为题型标识或 ''。
+ */
+function sectionHints(): string[] {
+  const bs = blocks.value
+  // 逐块算出「该块所属的大题题型」：顺序扫一遍，遇到标题就更新当前值。
+  //
+  // 【为什么用"逐块前缀法"而不是"按每题区间扫描"】
+  //   同一道题可能被拆到多个块，标题块也可能紧贴在上一题的尾部；
+  //   "按区间扫描 + 遇标题收住"需要同时判断真假题号、首尾归属，极易写错
+  //   （实测踩过两次：先漏掉第一段标题，后把下一段标题算进上一题）。
+  //   前缀法把"标题生效于其后所有块"这件事**一次性**算清楚，
+  //   之后取每道题**起始块**处的值即可，逻辑单一，不会自相矛盾。
+  //
+  //   注意 `autoSplit` 已把"纯标题块"从边界里剔除（标题块随下一题一起走），
+  //   所以题 i 的起始块 `b[i]` 正好落在标题**之后**，前缀值必然正确。
+  const hintAt: string[] = []
+  let cur = ''
+  for (let k = 0; k < bs.length; k++) {
+    const blk = bs[k]
+    const head = blk ? (blk.text.split('\n')[0] || '').trim() : ''
+    if (head && (MAJOR_RE.test(head) || isSectionTitleOnly(head, blk.html))) {
+      const h = sectionTypeHint(head)
+      if (h) cur = h
+    }
+    hintAt.push(cur)
+  }
+  const b = boundaries.value
+  const out: string[] = []
+  for (let i = 0; i < b.length - 1; i++) out.push(hintAt[b[i]] || '')
+  return out
+}
+
+/**
  * 用一个 HTML 片段推断题型。
  * 与 WordImportPanel.parseBlock 保持同一套判据 —— 这样「导入」与「原卷编辑」
  * 两条入口给出的初始题型一致，不会互相打脸。
+ *
+ * @param html        题干 HTML
+ * @param typeHint    大题标题携带的题型提示（可选）。用于"格式不典型但属于
+ *                    某一大题"的题 —— 例如填空题下的题没有选项，
+ *                    仅看内容会判成主观题，有了提示就能正确判为 fill。
  */
-function inferDraft(html: string): DraftQuestion {
+function inferDraft(html: string, typeHint = ''): DraftQuestion {
   const text = toText(html)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   let first = (lines[0] || '').replace(/^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）]|[一二三四五六七八九十百]+[、.])/, '').trim()
@@ -173,6 +244,13 @@ function inferDraft(html: string): DraftQuestion {
   else if (opts.length >= 2) {
     const letters = answer.replace(/[^A-Ha-h]/g, '')
     qtype = (/(多选|多项选择题)/.test(first) || letters.length >= 2 || /[，,、]/.test(answer)) ? 'multiple' : 'single'
+  } else if (typeHint) {
+    // 【v4.13.3】**只有在前面的内容判据都判不出来时才用大题提示**（保守优先）。
+    //   为什么不让提示覆盖内容判据？因为卷子常有"大题标题与内容不符"的情况，
+    //   内容里明摆着有 4 个选项就是选择题，不该被一个写错的标题改掉。
+    //   反之，填空题/解答题这类**没有选项**的题，内容判据必然落到 subjective，
+    //   这时大题提示就是唯一可靠的信号。
+    qtype = typeHint
   }
 
   return {
@@ -232,7 +310,10 @@ async function onPick(e: Event) {
     boundaries.value = autoSplit(blocks.value)
 
     // ④ 生成每题的编辑态
-    drafts.value = chunks.value.map(c => inferDraft(c.html))
+    //   【v4.13.3】带上「大题题型提示」—— 让「一、选择题」下的题自动判为单选，
+    //   「二、填空题」下的题自动判为填空，不必用户逐题手改。
+    const hints = sectionHints()
+    drafts.value = chunks.value.map((c, i) => inferDraft(c.html, hints[i] || ''))
     activeIdx.value = 0
     stage.value = 'split'
     ElMessage.success(`已识别 ${drafts.value.length} 道题，请核对分割线后进入编辑`)
@@ -341,12 +422,18 @@ function innerSplitByBr(el: HTMLElement): { html: string; text: string }[] {
  * 段落内没有 <br>，但可能存在「软换行」写在一起的多个题号。
  * 识别方式：纯文本里出现 `…　1. xxx` / `… 2. xxx` 这类"行中题号"。
  * 只有确实切出 ≥2 段时才启用（否则保持原样，避免误伤）。
+ *
+ * 【v4.13.3 修正】上一版注释写的是「题号: 1. / (1) / 一、 等」，但正则实际只认
+ *   `\d{1,3}\s*[.、)）]`。其中 `[)）]` 会把 `… (1) 求…` 这类**小问**也当切点，
+ *   导致一个段落里的小问被拆成独立块 → 最终被切成独立题目（用户反馈的现象之一）。
+ *   现只认「数字 + 点/顿号」，与 `MINOR_RE` 判据统一：**括号 = 小问，不切**。
  */
 function splitSoftLines(el: HTMLElement): { html: string; text: string }[] | null {
   const raw = el.textContent || ''
   if (raw.length < 30) return null
-  // 匹配「空白 + 题号」的位置（题号: 1. / (1) / 一、 等）
-  const re = /[\s\u00a0\u3000]{2,}(?=\d{1,3}\s*[.、)）]\s*\S)/g
+  // 匹配「空白 + 题号」的位置（题号：**仅** `1.` `2、` 这类数字+点/顿号）
+  //   ⚠️ 不含 `(1)` `1)` —— 那是小问，切了就违背「小问不能被切开」
+  const re = /[\s\u00a0\u3000]{2,}(?=\d{1,3}\s*[.、．]\s*\S)/g
   const marks: number[] = []
   let m: RegExpExecArray | null
   while ((m = re.exec(raw)) !== null) marks.push(m.index + (m[0].length - m[0].trimStart().length) + 0)
@@ -361,6 +448,8 @@ function splitSoftLines(el: HTMLElement): { html: string; text: string }[] | nul
   if (segs.length < 2) return null
   // 极短的段（<6 字）多半是误切，放弃
   if (segs.filter(s => s.length < 6).length > 0) return null
+  // 【v4.13.3】任何一段以**小问号**开头 → 说明这里本是一道题的小问，放弃切分
+  if (segs.some(s => isSubQuestion(s))) return null
   const tag = el.tagName.toLowerCase()
   return segs.map(s => {
     const h = escapeHtml(s)
@@ -396,13 +485,109 @@ function escapeHtml(s: string): string {
  * ────────────────────────────────────────────────────────────────────────────
  */
 const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
-const MINOR_RE = /^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])/
+
+/**
+ * 二级题号（**切点**）。
+ *
+ * 【v4.13.3 修正 · 「规则识别会把小题也切开」】
+ *
+ * 上一版是 `^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])`，
+ * 第二支 `[（(]\s*\d+\s*[)）]` 把 **`(1)` `（2）` 也算成了切点** —— 这就是
+ * 用户说的「把小题也切开」的根源，同时也与 `@/utils/question-number` 里
+ * 确立的判据（**题号用「点/顿号」，小问用「括号」**）自相矛盾。
+ *
+ * 修法：**去掉括号那一支**，只认「数字 + 点/顿号」：
+ *   · `1.` `2、` `3．` → 切点 ✅
+ *   · `(1)` `（2）`    → **不是切点**，小问必须留在同一题里 ❌
+ *
+ * ⚠️ 点号后紧跟数字视为**小数**，不是题号（`1.5 倍` 不能被切成新题）。
+ *    与 `@/utils/question-number` 的判据完全一致，两处不可再漂移。
+ *    顿号 `、` 不适用此判据（顿号永远不是小数点）。
+ *
+ * 判据与 `isSubQuestion()` 保持一致，两处不可再漂移。
+ */
+const MINOR_RE = /^\s*\d{1,3}\s*(?:[.．](?![0-9０-９])|[、])/
+
+/**
+ * 小问号（**绝对不是切点**）：`(1)` `（1）` `①` `②` `(一)` `（一）`。
+ *
+ * 用途：① 显式阻止切分；② 给 `autoSplit` 的"小问语境"判断提供依据 ——
+ * 一旦某题内出现小问，其后的块在遇到**下一个真正的题号**之前都不再切。
+ */
+const SUBQ_RE = /^\s*(?:[（(]\s*(?:[0-9０-９]{1,3}|[一二三四五六七八九十]{1,3})\s*[)）]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]|[0-9０-９]{1,3}\s*[)）"])/
+
+/** 判断某行是否为小问号 */
+function isSubQuestion(line: string): boolean {
+  return SUBQ_RE.test(line)
+}
+
+/**
+ * 判断某个块**是否只是一个大题标题**（不含任何题目正文）。
+ *
+ * 【v4.13.3】用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
+ *   即这种块**不该单独成题** —— 它既没有题干也没有选项，切出来只会得到一个
+ *   空题目，还得用户手动删。
+ *
+ * 判据（要求同时满足，宁可漏删也不能误删真题目）：
+ *   ① 文本命中 `MAJOR_RE`（形如 `一、选择题` / `第Ⅰ卷`）
+ *   ② 去掉题号后**剩余文字很短**（≤ 12 字）—— 只有"选择题""填空题"这种标题词
+ *      真正的题目哪怕以 `一、` 开头，剥掉题号后也还剩一长串题干
+ *   ③ 不含表格、图片（这些一定是题目实体，不可能只是标题）
+ *
+ * @param text 该块的纯文本（首行）
+ * @param html 该块原始 HTML（用于 ③ 的实体检查）
+ */
+function isSectionTitleOnly(text: string, html: string): boolean {
+  const line = String(text || '').split('\n')[0].trim()
+  if (!line) return false
+  if (!MAJOR_RE.test(line)) return false
+  // ③ 含表格 / 图片 → 一定是题目实体
+  if (/<table[\s>]|<img[\s>]/i.test(html || '')) return false
+  // ② 剥掉题号后的剩余长度
+  let rest = line
+    .replace(/^[（(【\[]?\s*[一二三四五六七八九十百零\d]{1,3}\s*[)）】\]]?[\s.、．:：]*/, '')
+    .replace(/^第\s*[一二三四五六七八九十\dIVXLCDMⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[部分卷题]\s*/, '')
+    .trim()
+  // ②b 再剥掉分数/说明性括号：`一、选择题（每题 5 分，共 25 分）` →
+  //     剩下"每题 5 分，共 25 分"会让 ② 的长度判据失效，必须先去括号内容。
+  //     只去**整个尾部括号**，且要求括号内不含句子终止符（。？！）——避免把
+  //     `（1）…（2）…` 这种嵌在小问里的括号误删。
+  rest = rest.replace(/[（(【][^。？！]*[)）】]\s*$/, '').trim()
+  return rest.length <= 12
+}
+
 /** 选项行（用于 L3 兜底识别） */
 const OPT_LINE_RE = /^\s*[(（]?\s*A\s*[.、)）．:：]/i
 
 /** 切点来源，供 UI 标注「建议核对」 */
 type CutSource = 'minor' | 'major' | 'option' | 'fallback'
 const cutSources = ref<Map<number, CutSource>>(new Map())
+
+/**
+ * 剔除边界中的「纯大题标题」项（v4.13.3）。
+ *
+ * 用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
+ * 规则识别（`autoSplit`）与 AI 识别（`aiRecognize`）两条路径都要用，
+ * 所以抽成独立函数，避免"改了一处忘了另一处"（铁律#11：同一件事只允许一份实现）。
+ *
+ * @param bnd 边界数组（含终点 = 块总数）
+ * @param bs  块数组
+ * @returns 清理后的边界数组（至少保留 2 项）
+ */
+function dropSectionTitleBoundaries(bnd: number[], bs: Block[]): number[] {
+  if (bnd.length <= 2) return bnd
+  const kept: number[] = []
+  for (let i = 0; i < bnd.length; i++) {
+    const v = bnd[i]
+    const isLast = i === bnd.length - 1   // 末项只是"终点标记"，不对应任何块，绝不删
+    if (!isLast) {
+      const blk = bs[v]
+      if (!blk || isSectionTitleOnly(blk.text, blk.html)) continue
+    }
+    kept.push(v)
+  }
+  return kept.length >= 2 ? kept : bnd
+}
 
 function autoSplit(bs: Block[]): number[] {
   const cuts = new Map<number, CutSource>()
@@ -427,16 +612,71 @@ function autoSplit(bs: Block[]): number[] {
       return
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // 【v4.13.3 修正 · 「规则识别会把小题也切开」】
+    //
+    // 用户反馈：解答题里的 `(1)` `(2)` `(3)` 小问被当成独立题目切开了。
+    // 根因是上一版 `MINOR_RE` 把 `(1)` 这种括号编号也算作二级题号（见其定义处注释）。
+    //
+    // 现在分两步防住：
+    //   ① `MINOR_RE` 已只认「数字 + 点/顿号」，`(1)` 不再产生切点
+    //   ② 增补「**小问语境**」守卫：一旦某题内出现过小问号（`(1)` / `①`），
+    //      在遇到**下一个真正的题号/大题号**之前，一律不再切 ——
+    //      某些卷子小问写成 `1）` 而非 `(1)`，单靠 ① 仍可能漏网，这层守卫兜住。
+    // ──────────────────────────────────────────────────────────────────────
+
     // L1 二级题号（最可靠）
     if (MINOR_RE.test(line)) { cuts.set(i, 'minor'); return }
     // L2 一级题号
     if (MAJOR_RE.test(line)) { cuts.set(i, 'major'); return }
-    // L3 选项 A 行，且**上一块不是选项行** → 说明这是新题的选项（题干在更前面）
+    // 小问号：显式声明「这里不是切点」，同时开启小问语境（后续块由守卫拦住）
+    if (isSubQuestion(line)) return
+    // L3 选项 A 行 → 新题的选项（题干在更前面，这类卷子题干与选项同块）
+    //
+    // 【v4.13.3 收紧】上一版只要求「上一块不是选项行」，于是
+    //     `1. 下列说法…` ／ `A. 甲` 这种**题号与选项各自成块**的正常排版
+    //   也会在 `A.` 处产生切点 → 一道题被劈成「题干」+「选项」两题。
+    //   这与用户反馈的「规则识别会把题切开」是同一类伤害。
+    //
+    //   收紧为「上一块**不得是一个新的题号开头**」：
+    //     若上一块已以 `1.` / `一、` 开头，说明它自己就是一道题的起头，
+    //     紧跟其后的 `A.` 自然是它的选项，不是新题。
     if (OPT_LINE_RE.test(line)) {
       const prev = (bs[i - 1]?.text.split('\n')[0] || '').trim()
-      if (prev && !/^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/.test(prev)) cuts.set(i, 'option')
+      const prevIsOption = /^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/.test(prev)
+      const prevIsNumbered = MINOR_RE.test(prev) || MAJOR_RE.test(prev)
+      if (prev && !prevIsOption && !prevIsNumbered) cuts.set(i, 'option')
     }
   })
+
+  // 【v4.13.3】后置过滤：剔除"落在小问区间内"的切点。
+  //
+  //   ⚠️ 注意这里**必须扫描全部块**，不能只遍历切点。
+  //   因为小问号（`(1)` / `①`）经上面的修正后**本身已不产生切点**，
+  //   只在切点集合里找小问号等于永远找不到 —— 那样这层守卫就是死代码。
+  //   真正要防的是：某卷子小问写成 `1）`（无左括号），它会被 L3 的选项兜底
+  //   或后续规则误判为切点，把小问切出去。
+  //
+  //   算法：顺序扫块，维护 `inSubq`（小问语境）——
+  //     · 真正的题号（minor/major）→ 退出语境
+  //     · 小问号 → 进入语境
+  //     · 语境期间产生的切点 → 一律作废
+  if (cuts.size) {
+    let inSubq = false
+    for (let k = 0; k < bs.length; k++) {
+      if (k > 0) {
+        const line = (bs[k]?.text.split('\n')[0] || '').trim()
+        if (line) {
+          if (MINOR_RE.test(line) || MAJOR_RE.test(line)) inSubq = false
+          else if (isSubQuestion(line)) inSubq = true
+        }
+      }
+      // 该块是切点、且当前处于小问语境 → 作废这个切点
+      if (inSubq && cuts.has(k) && cuts.get(k) !== 'minor' && cuts.get(k) !== 'major') {
+        cuts.delete(k)
+      }
+    }
+  }
 
   let list: number[]
   if (cuts.size) {
@@ -458,15 +698,25 @@ function autoSplit(bs: Block[]): number[] {
   }
 
   const uniq = Array.from(new Set(list)).sort((a, b) => a - b)
+
+  // 【v4.13.3】剔除"纯大题标题题" —— 见 `dropSectionTitleBoundaries` 的注释。
+  //
+  // ⚠️ 这里**必须重新赋值**，不能写成 `uniq.length = 0; uniq.push(...cleaned)`。
+  //   因为 `dropSectionTitleBoundaries` 在"删过头"时会**原样返回入参**
+  //   （即 `cleaned === uniq`，同一引用），此时先清空 uniq 就等于同时清空了
+  //   cleaned，再 push 自然是空数组 —— 整卷题全没了。
+  //   这个别名坑实测踩过，且症状极隐蔽（只在"整卷都是标题"时出现）。
+  const finalBounds = dropSectionTitleBoundaries(uniq, bs)
+
   // 记录来源（首尾线无来源）
   const src = new Map<number, CutSource>()
-  uniq.forEach((v, idx) => {
-    if (idx === 0 || idx === uniq.length - 1) return
+  finalBounds.forEach((v, idx) => {
+    if (idx === 0 || idx === finalBounds.length - 1) return
     const s = cuts.get(v)
     if (s) src.set(v, s)
   })
   cutSources.value = src
-  return uniq
+  return finalBounds
 }
 
 // ===== Word 原卷视图（docx-preview 保真渲染）=====
@@ -745,6 +995,29 @@ async function renderWordView() {
   }
 }
 
+// ===== 【v4.13.3】统一的"忙碌中"状态 =====
+//
+// 【为什么需要】用户反馈「我点 AI 切题基本没有反应」。
+//   排查发现不是功能坏了 —— 长卷实测要 30~40 秒，而这期间**没有任何视觉反馈**：
+//   进度浮层绑的是 `busy`，AI 切题用的却是 `aiRunning`，两者不等 → 浮层不渲染。
+//   修法：统一成 `working`，并提供秒数计时，让用户看到"进度条在动"。
+//
+//   这条经验值得记下来：**凡是可能超过 3 秒的操作，都必须有持续变化的反馈**。
+//   按钮转圈不够 —— 用户会怀疑是不是卡死了；可见的秒数增长才是有效信号。
+
+/** 是否处于任意忙碌态（上传解析 / AI 识别 / 重排） */
+const working = computed(() => busy.value || aiRunning.value)
+
+/** 忙碌已持续秒数（>1 秒才显示，避免短操作闪烁） */
+const busySeconds = ref(0)
+let busyTimer: any = null
+watch(working, (v) => {
+  if (busyTimer) { clearInterval(busyTimer); busyTimer = null }
+  if (!v) { busySeconds.value = 0; return }
+  busySeconds.value = 0
+  busyTimer = setInterval(() => { busySeconds.value++ }, 1000)
+})
+
 // ===== 【v4.9.0 补全】原卷可视分割线（叠加层）=====
 //
 // 用户要的是「原卷上直接拖」。前面 tagDocxBlocks 解决了「拖到哪一块」的识别，
@@ -924,7 +1197,15 @@ async function aiRecognize() {
     return
   }
   aiRunning.value = true
-  progressText.value = 'AI 正在识别题目结构…'
+  // 【v4.13.3】用户反馈「我点AI切题基本没有反应」。
+  //
+  // 实测 25 题的卷子要 **38.5 秒** —— 功能没坏，是**慢**。
+  // 两个原因叠加：
+  //   ① 进度浮层绑的是 `busy`，AI 切题只置 `aiRunning` → 全程**零视觉反馈**
+  //   ② 文案只说"正在识别"，用户不知道要等多久，几十秒后以为死机了
+  // 修法：浮层改绑 `working`（= busy || aiRunning），并**明说大概要多久**，
+  //   再配秒表（见模板）让用户看到时间在走。慢不可怕，怕的是看起来卡死。
+  progressText.value = 'AI 正在识别题目结构…（整卷约需 30~60 秒，请勿关闭页面）'
   try {
     // 【v4.13.1】送 AI 的是 **HTML**（不是纯文本）。
     //
@@ -986,6 +1267,11 @@ async function aiRecognize() {
       bnd.push(nB)
       bnd = Array.from(new Set(bnd)).sort((x, y) => x - y)
     }
+    // 【v4.13.3】AI 路径也要剔除"纯大题标题题"。
+    //   上面的 `[0, ...clean, nB]` 强制保留了边界 0；若该块其实是
+    //   `一、选择题` 这类纯标题（AI 已把第 1 题定位到块 1），
+    //   就会凭空多出一道"只有标题的空题"。与规则识别的处理保持一致。
+    bnd = dropSectionTitleBoundaries(bnd, blocks.value)
     // 题目数与边界段数必须一致；不一致时以"段数"为准裁掉多余题目
     const segCount = bnd.length - 1
     const qs = r.questions.slice(0, segCount)
@@ -1002,12 +1288,13 @@ async function aiRecognize() {
     //   只从 AI 那里取「原卷里没有或不准」的元数据：
     //     题型 / 答案 / 解析 / 分值 / 分值。
     //   题干合并交给共享层的 `mergeContent()`（纯函数，前后端行为一致）。
+    const hintsAi = sectionHints()   // 【v4.13.3】大题题型提示
     drafts.value = qs.map((q: any, i: number) => {
       const orig = chunks.value[i]?.html || ''
       const mergedContent = mergeContent(orig, q.content || '', r.images || {})
       // 原卷切出来的草稿里已经带了规则识别的答案/解析（常为空或不准），
       // 优先采用 AI 的；AI 没给就保留规则结果，避免"AI 一跑反而更空"。
-      const base = orig ? inferDraft(orig) : blankDraft()
+      const base = orig ? inferDraft(orig, hintsAi[i] || '') : blankDraft()
       const aiAnswer = String(q.answer || '').trim()
       const aiAnalysis = String(q.analysis || '').trim()
       return {
@@ -1026,9 +1313,10 @@ async function aiRecognize() {
       }
     })
     // AI 题数少于分割段数时补足（避免右栏缺题）
+    const hints2 = sectionHints()
     while (drafts.value.length < segCount) {
       const c = chunks.value[drafts.value.length]
-      drafts.value.push(c ? inferDraft(c.html) : blankDraft())
+      drafts.value.push(c ? inferDraft(c.html, hints2[drafts.value.length] || '') : blankDraft())
     }
     activeIdx.value = 0
     lastBoundarySnapshot = boundaries.value.slice()
@@ -1134,9 +1422,10 @@ function removeSplit(i: number) {
  *   并且：**凡是用户手动改过的题（dirty）一律保留**，除非它被合并掉了。
  */
 function syncDrafts() {
+  const hints = sectionHints()   // 【v4.13.3】重新切分后大题归属可能变了，一并刷新
   const next = chunks.value.map((c, i) => {
     const old = drafts.value[i]
-    if (!old) return inferDraft(c.html)
+    if (!old) return inferDraft(c.html, hints[i] || '')
     // 用户手动编辑过的题：只要仍是"同一块开头"就保留
     if (old.id === null && !oldDirty.value.has(i)) {
       if (boundaries.value[i] === lastBoundarySnapshot[i]) return old
@@ -1144,7 +1433,7 @@ function syncDrafts() {
     // 内容指纹一致 → 保留
     const fp = draftFingerprint(c)
     if (oldFingerprints.value.get(i) === fp) return old
-    return inferDraft(c.html)
+    return inferDraft(c.html, hints[i] || '')
   })
   drafts.value = next
   lastBoundarySnapshot = boundaries.value.slice()
@@ -1386,7 +1675,7 @@ async function renderSitePreview() {
     const { buildPaperDocx } = await import('@/utils/docx-kit')
     const { renderAsync } = await import('docx-preview')
     for (let i = 0; i < chunks.value.length; i++) {
-      const d = drafts.value[i] || inferDraft(chunks.value[i].html)
+      const d = drafts.value[i] || inferDraft(chunks.value[i].html, sectionHints()[i] || '')
       const q = {
         qtype: d.qtype || 'subjective',
         content: d.content || '',
@@ -1517,6 +1806,8 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   paneObserver?.disconnect()
   paneObserver = null
+  // 【v4.13.3】秒表必须在卸载时清掉，否则组件销毁后 setInterval 仍持有引用
+  if (busyTimer) { clearInterval(busyTimer); busyTimer = null }
 })
 </script>
 
@@ -1683,7 +1974,18 @@ onUnmounted(() => {
             @cancel="() => {}"
           />
         </div>
-        <div v-if="busy && progressText" class="zs-progress">{{ progressText }}</div>
+        <!--
+          【v4.13.3 修正 · 「点 AI 切题基本没有反应」】
+          上一版这里是 `v-if="busy && progressText"`，而 AI 切题用的是 `aiRunning` ——
+          于是点「AI 智能识别」后：`progressText` 明明被设成了「AI 正在识别题目结构…」，
+          但因为 `busy` 是 false，**这个浮层根本不显示**。
+          用户只看到按钮转圈，而长卷实测要 30~40 秒 → 自然以为"没反应"。
+          修法：改用统一的 `working` 计算属性（busy 或 aiRunning），并显示**已用秒数**，
+          让用户确信程序在跑（长耗时任务最怕"没有任何反馈"）。
+        -->
+        <div v-if="working && progressText" class="zs-progress">
+          {{ progressText }}<span v-if="busySeconds > 1" class="zs-progress-sec">已用 {{ busySeconds }} 秒</span>
+        </div>
       </div>
     </div>
   </div>
@@ -1700,6 +2002,8 @@ onUnmounted(() => {
 .zs-drop-title { font-weight: 700; margin-top: 6px; }
 .zs-drop-sub { font-size: 12px; color: var(--zg-text-dim, #888); margin-top: 4px; }
 .zs-progress { font-size: 12px; color: var(--zg-primary); padding: 4px 2px; }
+/* 【v4.13.3】耗时秒数：等宽数字避免秒数跳动时整行抖动 */
+.zs-progress-sec { margin-left: 8px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 /* ---- 分栏 ---- */
 .zs-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
