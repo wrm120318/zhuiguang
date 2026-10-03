@@ -66,13 +66,16 @@ npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM us
 ### 第四步：部署后端 Worker
 
 ```bash
-cd /workspace
-source .env
+cd /workspace/zhuiguang
+export CLOUDFLARE_API_TOKEN=$(cat .cf_token | tr -d '\n')
+export CLOUDFLARE_ACCOUNT_ID=83a0bf5a5fec8bc8c52c5de1995c7d58
 npx wrangler deploy
 # 输出 Worker URL：https://zhuiguang-api.<子域名>.workers.dev
 ```
 
-> **注意**：`source .env` 加载 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID` 后，`wrangler deploy` 才能正常工作。Pages 不会自动部署 Worker，改了 `worker-api.ts` 必须手动执行此步。
+> **注意**：需先导出 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`，`wrangler deploy` 才能正常工作。Pages 不会自动部署 Worker，改了 `worker-api.ts` 必须手动执行此步。
+>
+> **🔑 凭证来源**：Token 已存放于仓库根目录的 **`.cf_token`**（单行纯文本，已被 `.gitignore` 排除，不会入库）。该 Token **有效期至 2026-12-31**，完整信息见 `交接文档.md` 第 2.4 节。若哪天 `wrangler` 报 `Invalid API Token`，即为 Token 过期或被吊销，需重新生成后覆盖 `.cf_token`。
 
 ### 第五步：部署前端到 Cloudflare Pages
 
@@ -152,12 +155,13 @@ curl -X POST https://<worker域名>/api/admin/storage/census \
 
 | 操作 | 命令 |
 |---|---|
-| 部署后端 | `cd /workspace && source .env && npx wrangler deploy` |
+| 部署后端 | `cd /workspace/zhuiguang && export CLOUDFLARE_API_TOKEN=$(cat .cf_token) && export CLOUDFLARE_ACCOUNT_ID=83a0bf5a5fec8bc8c52c5de1995c7d58 && npx wrangler deploy` |
 | 部署前端 | `git push origin main`（Pages 自动构建） |
-| 构建前端 | `cd /workspace && npm run build` |
+| 构建前端 | `cd /workspace/zhuiguang && npm run build` |
 | 查询 D1 | `npx wrangler d1 execute zhuiguang-db --remote --command="SQL"` |
 | 执行建表脚本 | `npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql` |
-| Workers 实时日志 | `cd /workspace && npx wrangler tail` |
+| 执行迁移 | `npx wrangler d1 execute zhuiguang-db --remote --file=migrations/xxxx.sql` |
+| Workers 实时日志 | `cd /workspace/zhuiguang && npx wrangler tail` |
 | 本地开发 | `npm run dev`（前端 5173 + 后端 3001） |
 
 ---

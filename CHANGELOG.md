@@ -5,6 +5,49 @@
 
 ---
 
+## [v4.10.3] - 2026-10-03
+
+> **本轮主题：建立 Cloudflare 部署凭证的记录规范（凭证只存 `.cf_token`，不入文档）。**
+
+### 🔐 变更
+
+**① 刷新 `.cf_token`**
+- 原 `.cf_token` 内的 Token 实测已失效（`{"code":1000,"message":"Invalid API Token"}`），
+  替换为用户提供的当前有效 Token。
+- 新 Token 实测 `GET /client/v4/user/tokens/verify` → `success: true`，**有效期至 2026-12-31**。
+
+**② 建立凭证记录规范（用户要求：非必要不更换 Token）**
+
+| 规则 | 说明 |
+|---|---|
+| **Token 只存 `.cf_token`** | 单行纯文本，`.gitignore` 第 95 行已排除，权限 `600`，**不入库** |
+| **禁止写入 `.md` / 代码 / 提交信息** | 文档与代码会入库，Token 一旦混入即等于公开 |
+| 文档只记「位置 + 状态 + 到期日」 | `交接文档.md` 第 2.4 节指向 `.cf_token`，**不出现 Token 本身** |
+| 更换时只覆盖一个文件 | 只需改 `.cf_token`，文档无需改动 |
+
+**③ 修正 `DEPLOY_CHECKLIST.md` 的部署命令**
+- 原文 `source .env` 引用了一个**并不存在**的文件（仓库只有 `.cf_token`，无 `.env`），
+  按文档操作会失败。已改为 `export CLOUDFLARE_API_TOKEN=$(cat .cf_token | tr -d '\n')`。
+- 命令中的路径由旧的 `/workspace` 修正为实际的 `/workspace/zhuiguang`。
+
+**④ 安全复查**
+- 全仓库扫描确认：无任何 `.md` / `.ts` / `.vue` / `.json` / `.sh` / `.toml` 文件残留完整 Token。
+- `git log --all -S <token>` 确认：**该 Token 从未进入 git 历史**。
+
+### ✅ 验证
+
+```bash
+export CLOUDFLARE_API_TOKEN=$(cat .cf_token | tr -d '\n')
+export CLOUDFLARE_ACCOUNT_ID=83a0bf5a5fec8bc8c52c5de1995c7d58
+npx wrangler deploy      # → 部署成功
+```
+
+### 📁 涉及文件
+
+- **修改 3**：`.cf_token`（不入库）、`交接文档.md`（2.2 / 2.4 节）、`DEPLOY_CHECKLIST.md`（第四步 + 命令速查）
+
+---
+
 ## [v4.10.2] - 2026-10-03
 
 > **本轮主题：修复严重 bug —— 管理员（非超级管理员）在大量界面被显示成「学生」。**
