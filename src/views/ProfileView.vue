@@ -89,7 +89,12 @@ watch(() => route.query.uid, async () => {
 
 async function saveProfile() {
   try {
-    await user.updateProfile(form.value)
+    // 【v4.9.7 需求①】个人中心不可自行修改姓名：
+    //   这里显式剔除 realName（后端也已删除该字段的更新分支，双保险）。
+    //   姓名只能由管理员在「用户管理」中修改。
+    const { realName, ...payload } = form.value as any
+    void realName
+    await user.updateProfile(payload)
     // 密码修改（可选）：仅当填写了新密码才触发，且必须新旧一致、原密码正确
     const { oldPassword, newPassword, confirmPassword } = pwdForm.value
     if (newPassword || oldPassword) {
@@ -270,7 +275,11 @@ const expLeftToNext = computed(() => {
     <el-dialog v-if="!isOthersProfile" v-model="editing" title="编辑个人信息" width="480px" class="profile-edit-dialog" append-to-body @closed="resetPwdForm">
       <el-form label-width="80px">
         <el-form-item label="头像URL"><el-input v-model="form.avatar" placeholder="粘贴图片链接" /></el-form-item>
-        <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
+        <!-- 【v4.9.7 需求①】姓名不可自行修改：置灰 + 提示，如需变更请联系管理员 -->
+        <el-form-item label="姓名">
+          <el-input v-model="form.realName" disabled />
+          <div class="name-lock-tip">姓名不可自行修改，如需变更请联系管理员</div>
+        </el-form-item>
         <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
         <el-form-item label="手机"><el-input v-model="form.phone" /></el-form-item>
         <el-divider content-position="left">修改密码（可选，留空则不修改）</el-divider>
@@ -293,6 +302,13 @@ const expLeftToNext = computed(() => {
 </template>
 
 <style scoped>
+/* 【v4.9.7 需求①】姓名锁定提示 */
+.name-lock-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-placeholder, #a8abb2);
+}
 .profile-hero { position: relative; overflow: hidden; margin-top: 20px; border-radius: 24px; padding: 28px 32px; }
 .ph-bg { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(var(--zg-accent-rgb),.1), rgba(var(--zg-primary-2-rgb),.06)); z-index: 0; }
 .ph-content { position: relative; z-index: 1; display: flex; gap: 20px; align-items: flex-start; }

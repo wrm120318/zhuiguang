@@ -5,6 +5,46 @@ import { get } from './db'
 const SECRET = process.env.JWT_SECRET || 'zhuiguang-secret-2026'
 export const TOKEN_EXPIRES = process.env.JWT_EXPIRES || '7d'
 
+// ==============================================================================
+// 【v4.9.7】ADMIN 角色 + 每人独立权限（与 worker-api.ts 保持完全一致）
+//   本地 Node 版与生产 Worker 版必须同源，否则「本地能跑、线上 403」难排查。
+// ==============================================================================
+export const PERM_KEYS = [
+  'dashboard', 'users', 'subjects', 'classes', 'audit', 'query', 'guide',
+  'site_config', 'exp_rules', 'exp_logs', 'feature_flags', 'theme', 'monitor',
+] as const
+export type PermKey = typeof PERM_KEYS[number]
+
+/** 把 DB 里的 permissions（TEXT/JSON）解析为合法 key 数组 */
+export function parsePerms(raw: any): PermKey[] {
+  if (Array.isArray(raw)) return raw.filter((k: any) => (PERM_KEYS as readonly string[]).includes(k)) as PermKey[]
+  if (typeof raw !== 'string' || !raw) return []
+  try {
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter((k: any) => (PERM_KEYS as readonly string[]).includes(k)) as PermKey[]
+  } catch { return [] }
+}
+
+/** 超管恒真；仅 ADMIN 读 permissions（数组或 JSON 字符串都支持） */
+export function hasPerm(u: any, key: PermKey): boolean {
+  if (!u) return false
+  if (u.role === 'SUPER_ADMIN') return true
+  if (u.role !== 'ADMIN') return false
+  const raw = u.permissions
+  if (Array.isArray(raw)) return raw.includes(key)
+  if (typeof raw === 'string' && raw) return parsePerms(raw).includes(key)
+  return false
+}
+
+/** 下发用户对象前的统一后处理：剥离密码 + permissions 规整（超管恒全部 key） */
+export function withPerms(u: any) {
+  if (!u) return u
+  const { password_hash, ...rest } = u
+  rest.permissions = rest.role === 'SUPER_ADMIN' ? [...PERM_KEYS] : parsePerms(rest.permissions)
+  return rest
+}
+
 export function signToken(payload: { id: number; role: string }) {
   return jwt.sign(payload, SECRET, { expiresIn: TOKEN_EXPIRES })
 }
@@ -16,14 +56,21 @@ export function auth(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = jwt.verify(token, SECRET) as { id: number; role: string }
     // 【v4.0.1】同时查 subject_id，供 requireSubjectStaff 兜底
-    get<{ status: string; subject_id: number | null }>('SELECT status, subject_id FROM users WHERE id=?', payload.id).then(u => {
+    // 【v4.9.7】再带上 role / permissions：管理员被改权限后立即生效
+    get<{ status: string; role: string; subject_id: number | null; permissions: string | null }>(
+      'SELECT status, role, subject_id, permissions FROM users WHERE id=?', payload.id).then(u => {
       if (u && u.status === 'disabled') {
         return res.status(401).json({ message: '账号已被禁用，请联系管理员', disabled: true })
       }
-      ;(req as any).user = { ...payload, subject_id: u?.subject_id ?? null }
+      ;(req as any).user = {
+        ...payload,
+        role: u?.role ?? payload.role,
+        subject_id: u?.subject_id ?? null,
+        permissions: parsePerms(u?.permissions),
+      }
       next()
     }).catch(() => {
-      ;(req as any).user = { ...payload, subject_id: null }
+      ;(req as any).user = { ...payload, subject_id: null, permissions: [] }
       next()
     })
   } catch {
@@ -39,6 +86,16 @@ export function requireRole(...roles: string[]) {
   }
 }
 
+/** 【v4.9.7】按模块权限 key 放行 */
+export function requirePerm(key: PermKey) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const u = (req as any).user
+    if (!u) return res.status(401).json({ message: '未登录' })
+    if (!hasPerm(u, key)) return res.status(403).json({ message: '无权限' })
+    next()
+  }
+}
+
 // 教师或超管
 export function requireStaff(req: Request, res: Response, next: NextFunction) {
   const u = (req as any).user
@@ -46,22 +103,30 @@ export function requireStaff(req: Request, res: Response, next: NextFunction) {
   next()
 }
 
+/** 【v4.9.7】教师 OR 超管 OR 拥有指定模块权限的 ADMIN */
+export function requireStaffOr(key: PermKey) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const u = (req as any).user
+    const ok = !!u && (u.role === 'TEACHER' || u.role === 'SUPER_ADMIN' || hasPerm(u, key))
+    if (!ok) return res.status(403).json({ message: '需要教师或管理员权限' })
+    next()
+  }
+}
+
 /**
  * 【v4.0.0】学科教师或超管中间件
  * 规则：
  *  - SUPER_ADMIN 永远放行
+ *  - 【v4.9.7】有 subjects 权限的管理员 = 可管全学科，放行
  *  - TEACHER 必须任教该 subject（class_members.role_in_class='TEACHER'）
  *  - 其他角色 403
- * 用法：router.post('/api/...', auth, requireSubjectStaff('id'), handler)
- *    - 'id'：取 req.params.id 当作 subjectId
- *    - 'body'：取 req.body.subjectId
- *    - 'query'：取 req.query.subjectId
  */
 export function requireSubjectStaff(source: 'params' | 'body' | 'query' = 'params', key = 'id') {
   return async (req: Request, res: Response, next: NextFunction) => {
     const u = (req as any).user
     if (!u) return res.status(401).json({ message: '未登录' })
     if (u.role === 'SUPER_ADMIN') return next()
+    if (hasPerm(u, 'subjects')) return next()
     if (u.role !== 'TEACHER') return res.status(403).json({ message: '需要教师或管理员权限' })
     let subjectId: any
     if (source === 'params') subjectId = req.params[key]

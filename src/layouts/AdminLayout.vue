@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
+import type { PermKey } from '@/constants/permissions'
 import LogoMark from '@/components/LogoMark.vue'
 
 const route = useRoute()
@@ -41,37 +42,61 @@ async function selfRepair() {
 }
 
 const menus = computed(() => {
-  const list: { name: string; label: string; icon: string; badge?: number; role?: string; teacherVisible?: boolean }[] = [
-    { name: 'admin-dashboard', label: '数据看板', icon: 'DataLine', role: 'SUPER_ADMIN' },
-    { name: 'admin-users', label: '用户管理', icon: 'UserFilled', role: 'SUPER_ADMIN' },
-    { name: 'admin-subjects', label: '学科管理', icon: 'Reading', role: 'SUPER_ADMIN' },
-    { name: 'admin-classes', label: '班级管理', icon: 'School', role: 'SUPER_ADMIN' },
-    { name: 'admin-audit', label: '内容审核', icon: 'CircleCheck', badge: data.pendingArticles.length + data.pendingResources.length, role: 'STAFF', teacherVisible: true },
-    { name: 'admin-query', label: '数据查询', icon: 'TrendCharts', role: 'STAFF', teacherVisible: true },
-    { name: 'admin-guide', label: '网站说明', icon: 'Notebook', role: 'SUPER_ADMIN' },
-    { name: 'admin-site-config', label: '网站自定义', icon: 'HomeFilled', role: 'SUPER_ADMIN' },
-    { name: 'admin-exp-rules', label: '经验设置', icon: 'Star', role: 'SUPER_ADMIN' },
-    { name: 'admin-exp-logs', label: '经验记录', icon: 'Tickets', role: 'SUPER_ADMIN' },
-    { name: 'admin-feature-flags', label: '功能开关', icon: 'Grid', role: 'SUPER_ADMIN' },
-    { name: 'admin-theme', label: '界面风格', icon: 'Brush', role: 'SUPER_ADMIN' },
-    { name: 'admin-monitor', label: '运行监控', icon: 'Monitor', role: 'SUPER_ADMIN' },
+  // 【v4.9.7】每项带 perm（对应一个权限 key）。
+  //   - 超管：全部可见（不看 perm）
+  //   - 管理员：只显示自己有 perm 的菜单
+  //   - 教师：只显示 teacherVisible 的菜单（原逻辑不变，不受权限系统影响）
+  const list: { name: string; label: string; icon: string; badge?: number; perm: PermKey; teacherVisible?: boolean }[] = [
+    { name: 'admin-dashboard', label: '数据看板', icon: 'DataLine', perm: 'dashboard' },
+    { name: 'admin-users', label: '用户管理', icon: 'UserFilled', perm: 'users' },
+    { name: 'admin-subjects', label: '学科管理', icon: 'Reading', perm: 'subjects' },
+    { name: 'admin-classes', label: '班级管理', icon: 'School', perm: 'classes' },
+    { name: 'admin-audit', label: '内容审核', icon: 'CircleCheck', badge: data.pendingArticles.length + data.pendingResources.length, perm: 'audit', teacherVisible: true },
+    { name: 'admin-query', label: '数据查询', icon: 'TrendCharts', perm: 'query', teacherVisible: true },
+    { name: 'admin-guide', label: '网站说明', icon: 'Notebook', perm: 'guide' },
+    { name: 'admin-site-config', label: '网站自定义', icon: 'HomeFilled', perm: 'site_config' },
+    { name: 'admin-exp-rules', label: '经验设置', icon: 'Star', perm: 'exp_rules' },
+    { name: 'admin-exp-logs', label: '经验记录', icon: 'Tickets', perm: 'exp_logs' },
+    { name: 'admin-feature-flags', label: '功能开关', icon: 'Grid', perm: 'feature_flags' },
+    { name: 'admin-theme', label: '界面风格', icon: 'Brush', perm: 'theme' },
+    { name: 'admin-monitor', label: '运行监控', icon: 'Monitor', perm: 'monitor' },
   ]
   return list.filter(m => {
     // 超级管理员可见全部菜单
     if (user.isSuperAdmin) return true
+    // 【v4.9.7】管理员：按「本人被勾选」的权限显示（每人独立一套）
+    if (user.isAdmin) return user.hasPerm(m.perm)
     // 教师（非超管）仅展示 teacherVisible 菜单（数据查询、内容审核）
-    if (user.isTeacher && !user.isSuperAdmin) return m.teacherVisible === true
+    if (user.isTeacher) return m.teacherVisible === true
     return false
   })
 })
 
-// 教师重定向：路由 /admin 默认重定向到 admin-users（教师无权访问），
-// 这里把非超级管理员的教师从无权限页面引导到 admin-audit（内容审核）
+// 【v4.9.7】角色显示：三档
+const roleText = computed(() => {
+  if (user.isSuperAdmin) return '超级管理员'
+  if (user.isAdmin) return '管理员'
+  if (user.isTeacher) return '学科教师'
+  return '访客'
+})
+
+// 重定向：路由 /admin 默认重定向到 admin-users。
+//   - 教师：引导到 admin-audit（内容审核）
+//   - 管理员：若当前页无权限，引导到自己有权限的第一个菜单；一个都没勾则回前台
 onMounted(() => {
-  if (user.isTeacher && !user.isSuperAdmin) {
+  if (user.isSuperAdmin) return
+  if (user.isTeacher) {
     const allowed = ['admin-audit', 'admin-query']
     if (!allowed.includes(route.name as string)) {
       router.replace({ name: 'admin-audit' })
+    }
+    return
+  }
+  if (user.isAdmin) {
+    const names = menus.value.map(m => m.name)
+    if (!names.length) { router.replace({ name: 'home' }); return }
+    if (!names.includes(route.name as string)) {
+      router.replace({ name: names[0] })
     }
   }
 })
@@ -94,7 +119,7 @@ function go(name: string) {
     <!-- 侧边栏 PC 端固定 -->
     <aside class="sidebar glass" :class="{ open: mobileOpen }">
       <div class="sb-brand zg-grad-text"><LogoMark class="logo" />管理后台</div>
-      <div class="sb-role">{{ user.isSuperAdmin ? '超级管理员' : '学科教师' }} · {{ user.current?.realName ?? '' }}</div>
+      <div class="sb-role">{{ roleText }} · {{ user.current?.realName ?? '' }}</div>
       <nav class="sb-nav">
         <div v-for="m in menus" :key="m.name" class="sb-item" :class="{ on: route.name === m.name }" @click="go(m.name)">
           <span class="sb-icon"><el-icon><component :is="m.icon" /></el-icon></span>

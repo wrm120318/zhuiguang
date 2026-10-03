@@ -4,6 +4,8 @@ import { api } from '@/api'
 import { useDataStore } from '@/store/data'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
+// 【v4.9.7】管理员权限勾选所需的 key / 中文名 / 说明
+import { PERM_KEYS, PERM_LABELS, PERM_DESC, type PermKey } from '@/constants/permissions'
 
 const data = useDataStore()
 
@@ -47,7 +49,33 @@ function userSubjectNames(u: any): string {
 }
 onMounted(load)
 
-function roleLabel(r: string) { return r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生' }
+// 【v4.9.7】角色名：新增「管理员」
+function roleLabel(r: string) {
+  return r === 'SUPER_ADMIN' ? '超管'
+    : r === 'ADMIN' ? '管理员'
+    : r === 'TEACHER' ? '教师' : '学生'
+}
+// 【v4.9.7】角色标签配色：超管红 / 管理员橙 / 教师黄 / 学生灰
+function roleTagType(r: string) {
+  return r === 'SUPER_ADMIN' ? 'danger' : r === 'ADMIN' ? 'warning' : r === 'TEACHER' ? 'success' : 'info'
+}
+
+// 【v4.9.7】权限勾选的全部选项（供模板 v-for）
+const allPerms = PERM_KEYS.map(k => ({ key: k as PermKey, label: PERM_LABELS[k], desc: PERM_DESC[k] }))
+/** 当前登录者是否为超管 —— 只有超管能设置管理员身份与权限 */
+const meIsSuper = computed(() => {
+  try { return JSON.parse(localStorage.getItem('zg_user') || 'null')?.role === 'SUPER_ADMIN' } catch { return false }
+})
+/** 权限数组 → 中文名串（列表页展示） */
+function permNames(list: any): string {
+  const arr = Array.isArray(list) ? list : []
+  if (!arr.length) return ''
+  return arr.map((k: string) => PERM_LABELS[k as PermKey] || k).join('、')
+}
+/** 权限多选框：全选 / 全不选 */
+function toggleAllPerms(form: any, checked: boolean) {
+  form.permissions = checked ? PERM_KEYS.slice() : []
+}
 
 async function toggleStatus(u: any) {
   const next = u.status === 'active' ? 'disabled' : 'active'
@@ -81,7 +109,8 @@ async function deleteUser(u: any) {
 }
 
 const addVisible = ref(false)
-const form = ref({ realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null as number | null, subjectIds: [] as number[] })
+// 【v4.9.7】新增 permissions：新建「管理员」时的权限集合（默认 13 项全选，超管按需取消）
+const form = ref({ realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null as number | null, subjectIds: [] as number[], permissions: PERM_KEYS.slice() as string[] })
 
 async function openAdd() {
   // 始终拉取最新班级/学科，避免在「班级管理」里改动后此处仍显示旧数据
@@ -107,6 +136,8 @@ async function addUser() {
       classId: form.value.classId,
       password: form.value.password || '123456',
       subjectId: legacyId,
+      // 【v4.9.7】仅管理员携带权限；后端也只在 role==='ADMIN' 时落库（双保险）
+      permissions: form.value.role === 'ADMIN' ? form.value.permissions : undefined,
     })) as any
     // 【v4.5.0】多学科：写入 user_subjects（教师角色才需要）
     const newId = created?.id ?? created?.data?.id
@@ -117,14 +148,16 @@ async function addUser() {
     }
     ElMessage.success('用户已创建')
     addVisible.value = false
-    form.value = { realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null, subjectIds: [] }
+    form.value = { realName: '', username: '', role: 'STUDENT', email: '', classId: 1, password: '', subjectId: null, subjectIds: [], permissions: PERM_KEYS.slice() }
     await load()
   } catch { /* */ }
 }
 
 // ===== 编辑用户 =====
 const editVisible = ref(false)
-const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, subjectIds: [] as number[], email: '', classId: null as number | null })
+// 【v4.9.7】permissions：该用户当前的权限集合（仅 role==='ADMIN' 有意义）
+//   ⚠️ 每个管理员各自一套，保存时只影响当前编辑的这个用户
+const editForm = ref({ id: 0, realName: '', username: '', role: 'STUDENT', subjectId: null as number | null, subjectIds: [] as number[], email: '', classId: null as number | null, permissions: [] as string[], origRole: 'STUDENT' })
 const editLoading = ref(false)
 
 async function openEdit(u: any) {
@@ -132,6 +165,8 @@ async function openEdit(u: any) {
   await Promise.all([data.fetchClasses(), data.fetchSubjects()])
   let subjectIds: number[] = []
   try { subjectIds = (await api.userSubjects(u.id)) as any } catch { subjectIds = [] }
+  // 【v4.9.7】回填权限：后端 GET /api/users 已把 permissions 解析为数组
+  const perms: string[] = Array.isArray(u.permissions) ? [...u.permissions] : []
   editForm.value = {
     id: u.id,
     realName: u.real_name || '',
@@ -141,6 +176,8 @@ async function openEdit(u: any) {
     subjectIds,
     email: u.email || '',
     classId: u.class_id ?? null as number | null,
+    permissions: perms,
+    origRole: u.role || 'STUDENT',
   }
   editVisible.value = true
 }
@@ -161,6 +198,9 @@ async function saveEdit() {
       // 关键：el-select 清空后 classId 为 undefined，JSON.stringify 会丢弃该键，
       // 导致后端收不到 classId、跳过删除逻辑。规整为 null 确保"清除班级"生效。
       classId: editForm.value.classId ?? null,
+      // 【v4.9.7】权限：role 最终为 ADMIN 时提交（后端还会再校验一次）；
+      //   从 ADMIN 降级为其他角色时后端会自动清空 permissions。
+      permissions: editForm.value.role === 'ADMIN' ? editForm.value.permissions : undefined,
     })
     // 【v4.5.0】多学科：按差量同步 user_subjects
     const current = new Set<number>(userSubjectMap.value[editForm.value.id] || [])
@@ -507,7 +547,18 @@ function openImport() {
           </template>
         </el-table-column>
         <el-table-column label="角色" width="100">
-          <template #default="{ row }"><el-tag size="small" :type="row.role==='SUPER_ADMIN'?'danger':row.role==='TEACHER'?'warning':'info'">{{ roleLabel(row.role) }}</el-tag></template>
+          <template #default="{ row }"><el-tag size="small" :type="roleTagType(row.role)">{{ roleLabel(row.role) }}</el-tag></template>
+        </el-table-column>
+        <!-- 【v4.9.7】管理员权限概览：每位管理员独立，鼠标悬停看全部 -->
+        <el-table-column label="权限" min-width="150" v-if="filtered.some((u:any) => u.role === 'ADMIN')">
+          <template #default="{ row }">
+            <span v-if="row.role !== 'ADMIN'" class="perm-na">-</span>
+            <el-tooltip v-else :content="permNames(row.permissions) || '未分配任何权限'" placement="top">
+              <el-tag size="small" type="info" class="perm-cell">
+                {{ (row.permissions?.length || 0) }} 项{{ row.permissions?.length ? '：' + permNames(row.permissions) : '（空）' }}
+              </el-tag>
+            </el-tooltip>
+          </template>
         </el-table-column>
         <el-table-column label="学科" width="180" v-if="filtered.some((u:any) => u.role === 'TEACHER')">
           <template #default="{ row }"><span v-if="row.role === 'TEACHER'" class="subj-cell">{{ userSubjectNames(row) }}</span><span v-else>-</span></template>
@@ -535,15 +586,33 @@ function openImport() {
     </div>
 
     <!-- 新建用户 -->
-    <el-dialog v-model="addVisible" title="新建用户" width="440px" append-to-body>
+    <el-dialog v-model="addVisible" title="新建用户" width="520px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
         <el-form-item label="用户名"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="密码"><el-input v-model="form.password" placeholder="留空默认 123456" type="password" show-password /></el-form-item>
         <el-form-item label="角色">
           <el-select v-model="form.role" style="width:100%">
-            <el-option label="学生" value="STUDENT" /><el-option label="教师" value="TEACHER" /><el-option label="超级管理员" value="SUPER_ADMIN" />
+            <el-option label="学生" value="STUDENT" /><el-option label="教师" value="TEACHER" />
+            <el-option v-if="meIsSuper" label="管理员（权限可自定义）" value="ADMIN" />
+            <el-option v-if="meIsSuper" label="超级管理员（拥有全部权限）" value="SUPER_ADMIN" />
           </el-select>
+        </el-form-item>
+        <!-- 【v4.9.7】管理员权限勾选：仅 role=ADMIN 时出现 -->
+        <el-form-item label="权限" v-if="form.role === 'ADMIN'">
+          <div class="perm-box">
+            <div class="perm-head">
+              <span class="perm-tip">逐项勾选该管理员可用的后台功能。<b>此权限仅对当前这个用户生效，每位管理员各自独立配置。</b></span>
+              <el-button text size="small" type="primary" @click="form.permissions = PERM_KEYS.slice()">全选</el-button>
+              <el-button text size="small" @click="form.permissions = []">全不选</el-button>
+            </div>
+            <el-checkbox-group v-model="form.permissions" class="perm-grid">
+              <label v-for="p in allPerms" :key="p.key" class="perm-item">
+                <el-checkbox :value="p.key" :label="p.key">{{ p.label }}</el-checkbox>
+                <span class="perm-desc">{{ p.desc }}</span>
+              </label>
+            </el-checkbox-group>
+          </div>
         </el-form-item>
         <el-form-item label="绑定学科" v-if="form.role === 'TEACHER'">
           <el-select v-model="form.subjectIds" multiple collapse-tags collapse-tags-tooltip placeholder="可多选：一位教师可任多学科" style="width:100%">
@@ -561,14 +630,36 @@ function openImport() {
     </el-dialog>
 
     <!-- 编辑用户 -->
-    <el-dialog v-model="editVisible" title="编辑用户" width="440px" append-to-body>
+    <el-dialog v-model="editVisible" title="编辑用户" width="520px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="姓名"><el-input v-model="editForm.realName" /></el-form-item>
         <el-form-item label="用户名"><el-input v-model="editForm.username" /></el-form-item>
         <el-form-item label="角色">
           <el-select v-model="editForm.role" style="width:100%">
-            <el-option label="学生" value="STUDENT" /><el-option label="教师" value="TEACHER" /><el-option label="超级管理员" value="SUPER_ADMIN" />
+            <el-option label="学生" value="STUDENT" /><el-option label="教师" value="TEACHER" />
+            <el-option v-if="meIsSuper" label="管理员（权限可自定义）" value="ADMIN" />
+            <el-option v-if="meIsSuper" label="超级管理员（拥有全部权限）" value="SUPER_ADMIN" />
           </el-select>
+          <!-- 【v4.9.7】改为非 ADMIN 时给出明确提示：权限会被清空 -->
+          <div v-if="editForm.origRole === 'ADMIN' && editForm.role !== 'ADMIN'" class="role-warn">
+            该用户原本是管理员，改为其他角色后其已勾选的权限将被<b>清空</b>。
+          </div>
+        </el-form-item>
+        <!-- 【v4.9.7】管理员权限勾选：每个管理员各自独立一套 -->
+        <el-form-item label="权限" v-if="editForm.role === 'ADMIN'">
+          <div class="perm-box">
+            <div class="perm-head">
+              <span class="perm-tip">逐项勾选该管理员可用的后台功能。<b>此权限仅对当前这个用户生效，每位管理员各自独立配置。</b></span>
+              <el-button text size="small" type="primary" @click="editForm.permissions = PERM_KEYS.slice()">全选</el-button>
+              <el-button text size="small" @click="editForm.permissions = []">全不选</el-button>
+            </div>
+            <el-checkbox-group v-model="editForm.permissions" class="perm-grid">
+              <label v-for="p in allPerms" :key="p.key" class="perm-item">
+                <el-checkbox :value="p.key" :label="p.key">{{ p.label }}</el-checkbox>
+                <span class="perm-desc">{{ p.desc }}</span>
+              </label>
+            </el-checkbox-group>
+          </div>
         </el-form-item>
         <el-form-item label="绑定学科" v-if="editForm.role === 'TEACHER'">
           <el-select v-model="editForm.subjectIds" multiple collapse-tags collapse-tags-tooltip placeholder="可多选：一位教师可任多学科" style="width:100%">
@@ -799,6 +890,62 @@ function openImport() {
   padding: 8px 0;
   font-size: 13px;
 }
+
+/* ===== 【v4.9.7】管理员权限勾选区块 ===== */
+.perm-box {
+  width: 100%;
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-blank, #fff);
+}
+.perm-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--el-border-color-lighter, #ebeef5);
+}
+.perm-tip {
+  flex: 1;
+  min-width: 200px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary, #909399);
+}
+.perm-grid {
+  display: block;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.perm-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.perm-item :deep(.el-checkbox__label) {
+  font-size: 13px;
+  color: var(--el-text-color-primary, #303133);
+}
+.perm-desc {
+  flex: 1;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--el-text-color-placeholder, #a8abb2);
+}
+.role-warn {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-color-danger, #f56c6c);
+}
+.perm-cell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perm-na { color: var(--el-text-color-placeholder, #a8abb2); }
+
 @media (max-width: 768px) {
   :deep(.el-dialog) {
     width: 92% !important;

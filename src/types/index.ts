@@ -1,5 +1,6 @@
 // ===== 全局类型定义 =====
-export type Role = 'SUPER_ADMIN' | 'TEACHER' | 'STUDENT'
+// 【v4.9.7】新增 ADMIN（管理员）：权限由超级管理员逐个勾选，每个管理员各自一套
+export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'TEACHER' | 'STUDENT'
 
 export interface User {
   id: number
@@ -16,6 +17,9 @@ export interface User {
   teachingSubjects?: Record<number, number[]> // classId -> subjectIds
   // 【v4.0.1】主学科：教师只在 users 表里指了主学科、没进 class_members 时，前端用这个做兜底
   subjectId?: number | null
+  // 【v4.9.7】ADMIN 专用权限数组（模块 key）。后端 pub() 已把 TEXT 解析为数组。
+  //   SUPER_ADMIN 恒全权，该字段仅供参考；TEACHER/STUDENT 恒为空。
+  permissions?: string[]
   createdAt: string
 }
 

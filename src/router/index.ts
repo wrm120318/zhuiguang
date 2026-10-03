@@ -100,6 +100,12 @@ router.beforeEach(async (to) => {
   const u = useUserStore()
   if (!to.meta.public && !u.isLogin) return { name: 'login', query: { redirect: to.fullPath } }
   if (to.path.startsWith('/admin') && !u.isStaff) return { name: 'home' }
+  // 【v4.9.7】管理员一个权限都没被勾选 → 后台对他毫无内容，直接回前台
+  //   （注意：这只是体验优化，真正的拦截在后端 requirePerm。
+  //     此处不基于 to.name 逐个校验，避免与菜单配置重复维护、也避免用户手改路由时误伤。）
+  if (to.path.startsWith('/admin') && u.isAdmin && !(u.current?.permissions?.length)) {
+    return { name: 'home' }
+  }
   if (to.name === 'login' && u.isLogin) return { name: 'home' }
   // 仅在进入管理后台时检查账号禁用状态，避免每次路由切换都发请求
   if (u.isLogin && to.path.startsWith('/admin')) {

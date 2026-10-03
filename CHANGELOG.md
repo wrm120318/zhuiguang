@@ -5,6 +5,96 @@
 
 ---
 
+## [v4.9.7] - 2026-10-03
+
+> **本轮主题：① 个人中心禁止自行修改姓名；② 新增「管理员（ADMIN）」角色，权限**逐人独立**、由超级管理员按模块勾选授予。**
+> 用户需求原话：「1.用户不可在个人中心的个人信息编辑界面 修改自己的姓名；2.加一个管理员用户角色（与超级管理员有区别） 超级管理员可以在设置其身份时勾选其可以拥有的权限（把网站中所有权限都有条理的列举出来 让超级管理员自己选择定义）」
+> 关键澄清：「这个我说错了 **所有管理员不是共用同一套权限**」—— 每位管理员各自一套独立权限。
+
+### ✨ 新增
+
+**① 个人中心禁止修改姓名（前后端双堵）**
+- 后端：`PATCH /api/profile` **删除 `real_name` 更新分支**（彻底不接受该字段），响应带 `nameLocked: true`。
+- 前端：`src/views/ProfileView.vue` 姓名输入框 `disabled` + 提示「姓名不可自行修改，如需变更请联系管理员」；`saveProfile` 提交前显式剔除 `realName` 字段。
+- 管理员仍可通过「用户管理 → 编辑用户」代为修改姓名，不受影响。
+
+**② 新增 `ADMIN` 角色（每人独立权限）**
+- 角色层级：`SUPER_ADMIN` > `ADMIN`（权限逐人自定义）> `TEACHER` > `STUDENT`。**教师原有逻辑完全不变**。
+- 权限粒度按**后台模块**划分为 **13 项**：
+
+  | key | 中文名 | key | 中文名 |
+  |---|---|---|---|
+  | `dashboard` | 数据看板 | `site_config` | 网站自定义 |
+  | `users` | 用户管理 | `exp_rules` | 经验设置 |
+  | `subjects` | 学科管理 | `exp_logs` | 经验记录 |
+  | `classes` | 班级管理 | `feature_flags` | 功能开关 |
+  | `audit` | 内容审核 | `theme` | 界面风格 |
+  | `query` | 数据查询 | `monitor` | 运行监控 |
+  | `guide` | 网站说明 | | |
+
+- 存储：`users` 表新增 `permissions TEXT DEFAULT NULL`（JSON 数组），**每人一行、互不影响**。
+- 授予入口：融合进现有「用户管理 → 新建/编辑用户」弹窗；角色选「管理员」时展开 13 项勾选面板，带「全选/全不选」与逐项说明；面板内明确提示「**此权限仅对当前这个用户生效，每位管理员各自独立配置**」。
+
+### 🛡️ 安全（越权防护四规则）
+
+| 规则 | 行为 |
+|---|---|
+| 非超管不得操作超管 | 改超管账号任一字段 → **403** |
+| 不得改自己的角色/权限 | 管理员改自己角色或自己的 permissions → **403** |
+| 仅超管可授予 `ADMIN`/`SUPER_ADMIN` | 管理员创建/改为这两种角色 → **403** |
+| 仅超管可配置管理员权限 | 管理员传 `permissions` 字段 → **403** |
+
+- **降级即清空**：用户 `role` 由 `ADMIN` 改为其它角色时，`UPDATE users SET permissions = NULL`，陈旧权限不留存、不复活。
+- **导入防提权**：Excel 批量导入遇到 `ADMIN`/`SUPER_ADMIN` 行**直接跳过并报错**，防止绕过弹窗批量造管理员。
+- `hasPerm()` 内含角色闸门：`SUPER_ADMIN` 恒 true、**非 `ADMIN` 一律 false**，即使 `permissions` 字段被写入脏值也无法越权。
+
+### 🔧 改造范围（全量权限化）
+
+- **后端守卫**：新增 `requirePerm(key)`（严格权限）与 `requireStaffOr(key)`（教师或该权限）；`worker-api.ts` 中 **51 处** `requireRole('SUPER_ADMIN')` → `requirePerm(key)`（按路由路径精确映射），另 **37 处** 在 `server/index.ts` 同构替换。
+- **刻意保留仅超管**（2 处，非模块化能力）：`POST /api/admin/self-repair`（系统自修复）、`GET /api/messages/all/:aId/:bId`（全局私信查看）。
+- `/api/query/tasks` 系列（列表/详情/改/删）由 `requireStaff` 改为 **`requireStaffOr('query')`** —— 让「只勾了数据查询的管理员」也能用，教师照常可用。
+- `requireSubjectStaff` 新增 `hasPerm(u, 'subjects')` 放行分支：拥有「学科管理」权限的管理员**跨学科**（全站）可操作，不受 `subject_id` 限制。
+- **行内权限判断改造**：美文审核、评论删除、论坛话题/帖子、审核中心、题目增删改批、学科题目池、知识点、练习记录、经验记录等处的 `role === 'SUPER_ADMIN'` 硬判断，统一改为 `hasPerm(u, key)`。
+- **auth 中间件实时读库**：`SELECT status, role, subject_id, permissions`，管理员改权限**即时生效**（不依赖 JWT 内旧值）。
+- **响应统一**：`pub()` → `withPerms()`，登录 / 注册 / `/api/auth/me` 三处均把 `permissions` 解析为数组；**超管恒返回全部 13 项**，前端无需特判。
+
+### 🖥️ 前端
+
+- `src/constants/permissions.ts`（新建）：`PERM_KEYS` / `PermKey` / `PERM_LABELS` / `PERM_DESC` / `isPermKey` / `sanitizePerms` —— 权限单一来源，头部注释标明「新增后台模块时三处同步：本文件 / `worker-api.ts` / `AdminLayout.vue`」。
+- `src/store/user.ts`：新增 `normalizePermissions()`（兼容数组与 JSON 字符串）、`isAdmin`、`hasPerm(key)`（超管 true → 非 ADMIN false → 查数组）；`isStaff` 纳入 ADMIN；`canManageSubject` 加 `isAdmin && hasPerm('subjects')` 分支。
+- `src/layouts/AdminLayout.vue`：13 个菜单项由 `role` 字段改为 `perm: PermKey`；过滤逻辑三档（超管全见 / 管理员按 `hasPerm` / 教师按 `teacherVisible`）；侧栏角色标签改 `roleText`；`onMounted` 重定向——管理员跳到**自己有权限的第一个菜单**，一项都没有则回首页。
+- `src/views/admin/UsersView.vue`：角色下拉加「管理员（权限可自定义）」「超级管理员（拥有全部权限）」（后者 `v-if` 限超管可见）；新建/编辑弹窗加权限勾选面板；列表新增「权限」列（有 ADMIN 时显示，tooltip 展开）；编辑弹窗在「管理员 → 其它角色」时显示 `.role-warn` 降级警告（提示权限将被清空）。
+- `src/router/index.ts`：管理员若 `permissions` 为空数组，访问 `/admin/**` 一律重定向首页。
+- `src/types/index.ts`：`Role` 加 `'ADMIN'`；`User` 加 `permissions?: string[]`。
+
+### 🐞 顺带修复（v4.9.7 之前既存 bug）
+
+`PATCH /api/profile` 的**部分更新静默失效**：原实现多推了一个 `fields.push('id=?')`，它会被拼进 `SET` 子句，导致占位符数多于绑定参数数 —— 真实 D1 静默失败。旧版恰好凑齐 3 个字段时参数数巧合匹配，掩盖了问题；本次删掉 `realName` 分支后立即暴露（探针抓到 `UPDATE users SET email=?, id=? WHERE id=?` 却只有 2 个参数）。**修复**：删除该行，`id` 只作 `WHERE` 参数。这就是长期存在「用户改邮箱/头像、刷新后又变回去」的病根，`worker-api.ts` 与 `server/index.ts` 两处均已修复。
+
+### ✅ 验证
+
+| 层级 | 内容 | 结果 |
+|---|---|---|
+| 纯函数 | `scripts/verify-permissions.mjs` —— key 一致性、`parsePerms` 健壮性（null/空串/非法/对象/数字/布尔/未知 key 过滤）、`hasPerm` 语义 | **26/26 通过** |
+| 真实链路 | `scripts/e2e-permissions.mjs` —— 真实 `worker.fetch` + `node:sqlite` D1 适配器，A~K 共 11 组场景 | **41/41 通过** |
+| 本地服务 | Node 版 `server/index.ts` 8 组场景（超管 13 权限 / 非法 key 过滤 / 有权限 200 / 无权限 403 / 三项越权防护 403 / 降级清空 / 禁改姓名） | **全部符合预期** |
+| 构建 | `npm run build`（含 `vue-tsc --noEmit`） | **通过，零错误** |
+| 残留检查 | `grep requireRole` | 仅剩 2 处白名单 |
+
+**涉及文件（新增 4）**：`migrations/0005_user_permissions.sql`、`src/constants/permissions.ts`、`scripts/verify-permissions.mjs`、`scripts/e2e-permissions.mjs`
+**涉及文件（修改 11）**：`worker-api.ts`、`server/auth.ts`、`server/index.ts`、`server/db.ts`、`schema.sql`、`src/types/index.ts`、`src/store/user.ts`、`src/layouts/AdminLayout.vue`、`src/router/index.ts`、`src/views/ProfileView.vue`、`src/views/admin/UsersView.vue`
+
+### 📌 部署须知
+
+上线需**先执行 D1 迁移**再部署 Worker，否则 `permissions` 列不存在会导致读写报错：
+
+```bash
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0005_user_permissions.sql
+npx wrangler deploy
+```
+
+---
+
 ## [v4.9.6] - 2026-10-03
 
 > **本轮主题：全站编辑器渲染「莫名其妙多出空行、且删不掉」根治。**

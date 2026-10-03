@@ -49,6 +49,7 @@ export async function initDB() {
       level INTEGER DEFAULT 1,
       status TEXT DEFAULT 'active',
       subject_id INTEGER DEFAULT NULL,
+      permissions TEXT DEFAULT NULL,
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
     CREATE TABLE IF NOT EXISTS classes (

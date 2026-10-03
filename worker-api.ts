@@ -85,6 +85,62 @@ export async function run(sql: string, ...args: any[]): Promise<{ lastInsertRowi
 }
 
 // ==============================================================================
+// 【v4.9.7】ADMIN 角色 + 每人独立权限模型
+//   - SUPER_ADMIN：恒全权，任何地方不可被剥夺，不读 permissions 列
+//   - ADMIN：权限来自 users.permissions（JSON 数组字符串），每个管理员各自一套
+//   - TEACHER / STUDENT：不参与权限系统（教师走原有学科判定逻辑）
+//   - 13 个 key 与后台菜单一一对应；前端同名单见 src/constants/permissions.ts
+// ==============================================================================
+export const PERM_KEYS = [
+  'dashboard',     // 数据看板
+  'users',         // 用户管理
+  'subjects',      // 学科管理
+  'classes',       // 班级管理
+  'audit',         // 内容审核
+  'query',         // 数据查询
+  'guide',         // 网站说明
+  'site_config',   // 网站自定义
+  'exp_rules',     // 经验设置
+  'exp_logs',      // 经验记录
+  'feature_flags', // 功能开关
+  'theme',         // 界面风格
+  'monitor',       // 运行监控
+] as const
+export type PermKey = typeof PERM_KEYS[number]
+
+/** 把 DB 中的 permissions（TEXT/JSON 数组字符串）解析为合法 key 数组；NULL/非法一律 → [] */
+export function parsePerms(raw: any): PermKey[] {
+  if (Array.isArray(raw)) return raw.filter((k: any) => (PERM_KEYS as readonly string[]).includes(k)) as PermKey[]
+  if (typeof raw !== 'string' || !raw) return []
+  try {
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.filter((k: any) => (PERM_KEYS as readonly string[]).includes(k)) as PermKey[]
+  } catch { return [] }
+}
+
+/**
+ * 判断用户是否拥有某模块权限：SUPER_ADMIN 恒真；仅 ADMIN 读 permissions 数组
+ *
+ * ⚠️【重要】u.permissions 可能是两种形态，本函数都要能处理：
+ *   1) 数组 —— 来自 auth 中间件（已 parsePerms）或 pub()；
+ *   2) JSON 字符串 —— 来自 handler 内部 `SELECT ..., permissions FROM users` 的原始行。
+ *   早期实现只认数组，导致「handler 里现查 DB 再调 hasPerm」恒为 false（审核美文 403 即此因）。
+ */
+export function hasPerm(u: any, key: PermKey): boolean {
+  if (!u) return false
+  if (u.role === 'SUPER_ADMIN') return true
+  // 【v4.9.7 安全】只有 ADMIN 走权限数组。
+  //   TEACHER / STUDENT 一律 false —— 即使 users.permissions 里残留了值也不认，
+  //   防止「教师被误写入 permissions」或「降级为教师时权限未清」造成越权。
+  if (u.role !== 'ADMIN') return false
+  const raw = u.permissions
+  if (Array.isArray(raw)) return raw.includes(key)
+  if (typeof raw === 'string' && raw) return parsePerms(raw).includes(key)
+  return false
+}
+
+// ==============================================================================
 // JWT Auth
 // ==============================================================================
 export function signToken(payload: { id: number; role: string }) {
@@ -98,17 +154,19 @@ export const auth = async (c: Context, next: () => Promise<void>) => {
   const token = h.startsWith('Bearer ') ? h.slice(7) : h
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { id: number; role: string }
-    // 从数据库实时读取 role + status + subject_id，防止 JWT 中 role 过期导致身份错乱
+    // 从数据库实时读取 role + status + subject_id + permissions
+    // 【v4.9.7】permissions 一并实时读取：管理员被改权限后立即生效（无需等 JWT/前端缓存过期）
     try {
-      const u = await get<{ status: string; role: string; subject_id: number | null }>('SELECT status, role, subject_id FROM users WHERE id=?', payload.id)
+      const u = await get<{ status: string; role: string; subject_id: number | null; permissions: string | null }>(
+        'SELECT status, role, subject_id, permissions FROM users WHERE id=?', payload.id)
       if (!u) return c.json({ message: '用户不存在' }, 401)
       if (u.status === 'disabled') {
         return c.json({ message: '账号已被禁用，请联系管理员', disabled: true }, 401)
       }
       // 使用数据库中的最新 role 与 subject_id（非 JWT 旧值）
-      c.set('user', { id: payload.id, role: u.role, subject_id: u.subject_id ?? null })
+      c.set('user', { id: payload.id, role: u.role, subject_id: u.subject_id ?? null, permissions: parsePerms(u.permissions) })
     } catch {
-      c.set('user', { ...payload, subject_id: null })
+      c.set('user', { ...payload, subject_id: null, permissions: [] })
     }
     await next()
   } catch {
@@ -125,6 +183,22 @@ export const requireRole = (...roles: string[]) => {
   }
 }
 
+/**
+ * 【v4.9.7】requirePerm 中间件：按模块权限 key 放行
+ *  - SUPER_ADMIN：恒放行
+ *  - ADMIN：permissions 数组含该 key 才放行
+ *  - 其他角色：403
+ * 用法：app.get('/api/users', auth, requirePerm('users'), handler)
+ */
+export const requirePerm = (key: PermKey) => {
+  return async (c: Context, next: () => Promise<void>) => {
+    const u = c.get('user') as any
+    if (!u) return c.json({ message: '未登录' }, 401)
+    if (!hasPerm(u, key)) return c.json({ message: '无权限' }, 403)
+    await next()
+  }
+}
+
 /** requireStaff 中间件：教师或超管 */
 export const requireStaff = async (c: Context, next: () => Promise<void>) => {
   const u = c.get('user') as { id: number; role: string } | undefined
@@ -133,6 +207,22 @@ export const requireStaff = async (c: Context, next: () => Promise<void>) => {
   }
   await next()
 }
+
+/**
+ * 【v4.9.7】requireStaffOr 中间件：教师 OR 超管 OR 拥有指定模块权限的 ADMIN
+ * 仅用于「数据查询」这类原本教师+超管可用、现在需要让配了权限的管理员也能进的接口。
+ * ⚠️ 刻意不改 requireStaff 本身 —— 它被 quiz/exam/practice 等 20+ 路由共用，
+ *    改它会波及其他业务语义，风险过大。
+ */
+export const requireStaffOr = (key: PermKey) => {
+  return async (c: Context, next: () => Promise<void>) => {
+    const u = c.get('user') as any
+    const ok = !!u && (u.role === 'TEACHER' || u.role === 'SUPER_ADMIN' || hasPerm(u, key))
+    if (!ok) return c.json({ message: '需要教师或管理员权限' }, 403)
+    await next()
+  }
+}
+
 
 /**
  * 【v4.0.0】学科教师或超管中间件（仅支持 params/query 来源，避免消费 body 一次）
@@ -151,6 +241,8 @@ export const requireSubjectStaff = (source: 'params' | 'query' = 'params', key =
     const u = c.get('user') as { id: number; role: string; subject_id?: number | null } | undefined
     if (!u) return c.json({ message: '未登录' }, 401)
     if (u.role === 'SUPER_ADMIN') return next()
+    // 【v4.9.7】拥有 subjects（学科管理）权限的管理员 = 可管全学科，等价超管放行
+    if (hasPerm(u, 'subjects')) return next()
     if (u.role !== 'TEACHER') return c.json({ message: '需要教师或管理员权限' }, 403)
     let subjectId: any
     if (source === 'params') subjectId = c.req.param(key)
@@ -546,7 +638,29 @@ function fmtBytes(b: number): string {
 // 工具函数
 // ==============================================================================
 const j = (s: string | null | undefined) => { try { return s ? JSON.parse(s) : null } catch { return null } }
-const pub = (u: any) => { if (!u) return u; const { password_hash, ...rest } = u; return rest }
+/**
+ * 剥离敏感字段后返回用户对象
+ * 【v4.9.7】permissions 列为 TEXT/JSON 字符串，这里统一解析为数组后再下发，
+ *          前端（store.normalizeUser）可直接使用，无需再解析。
+ */
+const pub = (u: any) => {
+  if (!u) return u
+  const { password_hash, ...rest } = u
+  if ('permissions' in rest) rest.permissions = parsePerms(rest.permissions)
+  return rest
+}
+
+/**
+ * 【v4.9.7】用户对象下发前的统一后处理：
+ *   1) 剥离 password_hash
+ *   2) permissions 规整为数组 —— SUPER_ADMIN 恒为全部 key（前端可直接依赖长度判断）
+ * 登录 / 注册 / me 三处都走它，避免「某个入口漏了权限字段」导致前端菜单抽风。
+ */
+const withPerms = (u: any) => {
+  const out = pub(u)
+  if (out) out.permissions = out.role === 'SUPER_ADMIN' ? [...PERM_KEYS] : parsePerms(out.permissions)
+  return out
+}
 
 function setDownloadHeaders(c: Context, filename: string) {
   const encoded = encodeURIComponent(filename)
@@ -1685,7 +1799,8 @@ app.post('/api/auth/login', async (c) => {
   // 检查今天是否已发放过登录经验（exp_change>0 才算有效发放，防止bug导致的0值记录 blocking）
   const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? AND exp_change > 0 LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
-  return c.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
+  // 【v4.9.7】带 permissions 返回（超管恒 13 项），前端菜单/守卫依赖它
+  return c.json({ token: signToken({ id: u.id, role: u.role }), user: withPerms(u) })
 })
 
 app.get('/api/me/status', async (c) => {
@@ -1730,18 +1845,19 @@ app.post('/api/auth/register', async (c) => {
   if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, 'STUDENT')
   await addExp(uid, undefined, 'register', '注册奖励')
   const newUser = await get<any>('SELECT * FROM users WHERE id=?', uid)
-  return c.json({ token: signToken({ id: uid, role: 'STUDENT' }), user: pub(newUser) })
+  return c.json({ token: signToken({ id: uid, role: 'STUDENT' }), user: withPerms(newUser) })
 })
 
 app.get('/api/auth/me', auth, async (c) => {
   const u = await get<any>('SELECT * FROM users WHERE id = ?', c.get('user').id)
-  return c.json({ user: pub(u) })
+  // 【v4.9.7】withPerms 保证 permissions 恒为数组，且 SUPER_ADMIN 恒为全部 key
+  return c.json({ user: withPerms(u) })
 })
 
 // ==============================================================================
 // ============ 用户管理 ============
 // ==============================================================================
-app.get('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/users', auth, requirePerm('users'), async (c) => {
   // 以 exp_logs 聚合的真实经验值（SUM(exp_change)）为准，
   // 避免「管理员界面显示 0、排行榜显示 232」这种 users.exp 与 logs 不同步的问题
   const list = await all<any>(
@@ -1812,20 +1928,28 @@ app.get('/api/users/:id', auth, async (c) => {
   return c.json(base)
 })
 
-app.post('/api/users', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const { username, realName, role, email, classId, password, subjectId } = await c.req.json()
+app.post('/api/users', auth, requirePerm('users'), async (c) => {
+  const { username, realName, role, email, classId, password, subjectId, permissions } = await c.req.json()
+  const me = c.get('user') as any
+  // 【v4.9.7】越权防护：只有超管能创建 ADMIN；管理员不得造出与自己平级/更高的账号
+  const newRole = role || 'STUDENT'
+  if (newRole === 'SUPER_ADMIN' && me.role !== 'SUPER_ADMIN') return c.json({ message: '无权限创建超级管理员' }, 403)
+  if (newRole === 'ADMIN' && me.role !== 'SUPER_ADMIN') return c.json({ message: '仅超级管理员可创建管理员账号' }, 403)
   if (await get('SELECT id FROM users WHERE username=?', username)) return c.json({ message: '用户名已存在' }, 400)
   const hash = bcrypt.hashSync(password || '123456', 8)
-  const r = await run(`INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id,created_at) VALUES (?,?,?,?,?,?,?,datetime('now','+8 hours'))`, username, hash, realName, role || 'STUDENT', email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`, subjectId ?? null)
+  // 仅 ADMIN 落库权限；其他角色恒 NULL（降级/越权提交都无效）
+  const permStr = newRole === 'ADMIN' ? JSON.stringify(parsePerms(permissions)) : null
+  const r = await run(`INSERT INTO users (username,password_hash,real_name,role,email,avatar,subject_id,permissions,created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','+8 hours'))`, username, hash, realName, newRole, email || '', `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}`, subjectId ?? null, permStr)
   const uid = Number(r.lastInsertRowid)
-  if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, role === 'TEACHER' ? 'TEACHER' : 'STUDENT')
+  if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, newRole === 'TEACHER' ? 'TEACHER' : 'STUDENT')
   return c.json({ id: uid })
 })
 
 // 批量导入用户
-app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/users/import', auth, requirePerm('users'), async (c) => {
   const { users } = await c.req.json() as { users: Array<{ realName: string; username: string; role: string; email?: string; password?: string; classId?: number; subjectId?: number | null }> }
   if (!Array.isArray(users) || !users.length) return c.json({ message: '未检测到用户数据' }, 400)
+  const me = c.get('user') as any
   const results: { success: number; skipped: number; errors: string[] } = { success: 0, skipped: 0, errors: [] }
   for (let i = 0; i < users.length; i++) {
     const u = users[i]
@@ -1834,7 +1958,14 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (c) => {
       if (!u.username || !u.realName) { results.errors.push(`第${lineNo}行：姓名和用户名不能为空`); continue }
       const existing = await get('SELECT id FROM users WHERE username=?', u.username)
       if (existing) { results.skipped++; results.errors.push(`第${lineNo}行：用户名「${u.username}」已存在，跳过`); continue }
-      const role = u.role || 'STUDENT'
+      // 【v4.9.7】越权防护：批量导入只允许 STUDENT/TEACHER；
+      //   管理员与超管必须走「新建用户」弹窗单独配置权限，避免 Excel 批量提权。
+      const reqRole = u.role || 'STUDENT'
+      if (reqRole === 'ADMIN' || reqRole === 'SUPER_ADMIN') {
+        results.skipped++; results.errors.push(`第${lineNo}行：角色「${reqRole}」不支持批量导入，请单独创建并配置权限`)
+        continue
+      }
+      const role = reqRole
       const hash = bcrypt.hashSync(u.password || '123456', 8)
       const email = u.email || `${u.username}@zguang.edu`
       const avatar = `https://api.dicebear.com/7.x/shapes/svg?seed=zg${Date.now()}${i}`
@@ -1844,18 +1975,48 @@ app.post('/api/users/import', auth, requireRole('SUPER_ADMIN'), async (c) => {
       results.success++
     } catch (e: any) { results.errors.push(`第${lineNo}行：${e.message || '未知错误'}`) }
   }
+  void me
   return c.json(results)
 })
 
-app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
-  const { username, realName, email, role, subjectId, classId } = await c.req.json()
+app.patch('/api/users/:id', auth, requirePerm('users'), async (c) => {
+  const { username, realName, email, role, subjectId, classId, permissions } = await c.req.json()
   const id = c.req.param('id')
-  const u = await get('SELECT id FROM users WHERE id=?', id)
+  const me = c.get('user') as any
+  const u = await get<{ id: number; role: string }>('SELECT id, role FROM users WHERE id=?', id)
   if (!u) return c.json({ message: '用户不存在' }, 404)
+  // ===== 【v4.9.7】越权防护 =====
+  // (1) 非超管不得改动超级管理员账号（防止管理员把超管降权/封禁）
+  if (u.role === 'SUPER_ADMIN' && me.role !== 'SUPER_ADMIN') {
+    return c.json({ message: '无权限修改超级管理员账号' }, 403)
+  }
+  // (2) 任何管理员（含超管）不得在此接口改自己的角色/权限，避免自提权与自锁死
+  //     （超管改自己的入口在「设置」之外，不通过本弹窗；如需变更请由另一超管操作）
+  if (String(id) === String(me.id) && (role !== undefined || permissions !== undefined)) {
+    return c.json({ message: '不能修改自己的角色或权限' }, 403)
+  }
+  // (3) 仅超管可把他人提为 SUPER_ADMIN / ADMIN；普通管理员只能改普通用户的资料
+  const targetRole = role !== undefined ? role : u.role
+  if ((role === 'SUPER_ADMIN' || role === 'ADMIN') && me.role !== 'SUPER_ADMIN') {
+    return c.json({ message: '仅超级管理员可授予管理员身份' }, 403)
+  }
+  // (4) 管理员不得改动其他管理员的权限（只有超管能配置）
+  if (u.role === 'ADMIN' && me.role !== 'SUPER_ADMIN' && (role !== undefined || permissions !== undefined)) {
+    return c.json({ message: '仅超级管理员可配置管理员权限' }, 403)
+  }
+
   if (username !== undefined) await run('UPDATE users SET username=? WHERE id=?', username, id)
   if (realName !== undefined) await run('UPDATE users SET real_name=? WHERE id=?', realName, id)
   if (email !== undefined) await run('UPDATE users SET email=? WHERE id=?', email, id)
-  if (role !== undefined) await run('UPDATE users SET role=? WHERE id=?', role, id)
+  if (role !== undefined) {
+    await run('UPDATE users SET role=? WHERE id=?', role, id)
+    // 降级即清空：只要不是 ADMIN，权限一律置 NULL（前端/后端双保险）
+    if (role !== 'ADMIN') await run('UPDATE users SET permissions=NULL WHERE id=?', id)
+  }
+  // 权限落库：仅当目标最终身份是 ADMIN 时才写入，否则忽略（防越权夹带）
+  if (permissions !== undefined && targetRole === 'ADMIN') {
+    await run('UPDATE users SET permissions=? WHERE id=?', JSON.stringify(parsePerms(permissions)), id)
+  }
   if (subjectId !== undefined) await run('UPDATE users SET subject_id=? WHERE id=?', subjectId ?? null, id)
   if (classId !== undefined) {
     // 先删除该用户的 STUDENT 类型班级关联，再按新值插入（null 表示移出班级）
@@ -1865,27 +2026,27 @@ app.patch('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ ok: true })
 })
 
-app.patch('/api/users/:id/status', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/users/:id/status', auth, requirePerm('users'), async (c) => {
   const { status } = await c.req.json()
   await run('UPDATE users SET status = ? WHERE id = ?', status, c.req.param('id'))
   return c.json({ ok: true })
 })
 
-app.post('/api/users/:id/reset', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/users/:id/reset', auth, requirePerm('users'), async (c) => {
   const { password } = await c.req.json()
   const pwd = password || '123456'
   await run('UPDATE users SET password_hash = ? WHERE id = ?', bcrypt.hashSync(pwd, 8), c.req.param('id'))
   return c.json({ ok: true })
 })
 
-app.post('/api/users/:id/password', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/users/:id/password', auth, requirePerm('users'), async (c) => {
   const { password } = await c.req.json()
   if (!password || password.length < 4) return c.json({ message: '密码至少 4 位' }, 400)
   await run('UPDATE users SET password_hash = ? WHERE id = ?', bcrypt.hashSync(password, 8), c.req.param('id'))
   return c.json({ ok: true })
 })
 
-app.delete('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/users/:id', auth, requirePerm('users'), async (c) => {
   const id = c.req.param('id')
   await run('DELETE FROM exp_logs WHERE user_id=?', id)
   await run('DELETE FROM likes_map WHERE user_id=?', id)
@@ -1897,7 +2058,7 @@ app.delete('/api/users/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ ok: true })
 })
 
-app.patch('/api/users/:id/exp', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/users/:id/exp', auth, requirePerm('users'), async (c) => {
   const { exp, level } = await c.req.json()
   const id = c.req.param('id')
   if (exp !== undefined) await run('UPDATE users SET exp=? WHERE id=?', exp, id)
@@ -1908,7 +2069,7 @@ app.patch('/api/users/:id/exp', auth, requireRole('SUPER_ADMIN'), async (c) => {
 // ==============================================================================
 // ============ 【v4.5.0】多学科教师指派（user_subjects 多对多）============
 // ==============================================================================
-app.post('/api/admin/users/:id/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/users/:id/subjects', auth, requirePerm('users'), async (c) => {
   const uid = Number(c.req.param('id'))
   const b = await c.req.json()
   const sid = Number(b.subject_id)
@@ -1921,18 +2082,18 @@ app.post('/api/admin/users/:id/subjects', auth, requireRole('SUPER_ADMIN'), asyn
   }
 })
 
-app.delete('/api/admin/users/:id/subjects/:sid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/admin/users/:id/subjects/:sid', auth, requirePerm('users'), async (c) => {
   await run('DELETE FROM user_subjects WHERE user_id=? AND subject_id=?', Number(c.req.param('id')), Number(c.req.param('sid')))
   return c.json({ ok: true })
 })
 
-app.get('/api/admin/users/:id/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/users/:id/subjects', auth, requirePerm('users'), async (c) => {
   const rows = await all<any>('SELECT subject_id FROM user_subjects WHERE user_id=?', Number(c.req.param('id')))
   return c.json(rows.map(r => r.subject_id))
 })
 
 // 批量拉取全部 用户-学科 指派（用于后台用户列表一次性展示多学科）
-app.get('/api/admin/user-subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/user-subjects', auth, requirePerm('users'), async (c) => {
   const rows = await all<any>('SELECT user_id, subject_id FROM user_subjects')
   return c.json(rows)
 })
@@ -1944,20 +2105,26 @@ app.patch('/api/profile', auth, async (c) => {
   // 【v4.4.8 头像修复】真·部分更新：只更新前端传入的非 undefined 字段，未传字段保持原值。
   // 旧实现一次性 bind(realName,email,avatar,id)，前端 uploadAvatar 只发 {avatar} 时
   // realName/email 为 undefined → D1 拒绝 undefined 绑定 → 500「服务器内部错误」（头像抽风根因）。
+  //
+  // 【v4.9.7 需求①】个人中心禁止自行修改姓名：
+  //   此处彻底移除 real_name 的更新分支 —— 即使手工构造请求带上 realName 也静默忽略。
+  //   姓名只能由管理员在「用户管理」里改（PATCH /api/users/:id，受 requirePerm('users') 保护）。
   const fields: string[] = []
   const args: any[] = []
-  if (b.realName !== undefined) { fields.push('real_name=?'); args.push(b.realName) }
   if (b.email !== undefined) { fields.push('email=?'); args.push(b.email) }
   if (b.avatar !== undefined) { fields.push('avatar=?'); args.push(b.avatar) }
   if (!fields.length) {
     const u = await get<any>('SELECT * FROM users WHERE id=?', id)
-    return c.json({ user: pub(u) })
+    return c.json({ user: pub(u), nameLocked: true })
   }
-  fields.push('id=?')
+  // 【v4.9.7 修复】原实现这里多推了一个 `fields.push('id=?')`，使 SET 子句变成
+  //   `SET email=?, id=?`，而 args 只有 [email, id] —— 占位符 3 个参数 2 个，
+  //   D1 静默失败 → 「个人中心改了邮箱/头像但刷新后没变」的老 bug。
+  //   正确做法：id 只作为 WHERE 的参数，不进 SET。
   args.push(id)
   await run(`UPDATE users SET ${fields.join(', ')} WHERE id=?`, ...args)
   const u = await get<any>('SELECT * FROM users WHERE id=?', id)
-  return c.json({ user: pub(u) })
+  return c.json({ user: pub(u), nameLocked: true })
 })
 
 // 【v4.8.6】个人中心自助改密：必须校验原密码，避免他人越权改密
@@ -2020,19 +2187,19 @@ app.post('/api/upload/presign-image', auth, async (c) => {
 // ==============================================================================
 app.get('/api/classes', auth, async (c) => c.json(await all('SELECT * FROM classes ORDER BY id')))
 
-app.post('/api/classes', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/classes', auth, requirePerm('classes'), async (c) => {
   const { name, grade, description } = await c.req.json()
   const r = await run(`INSERT INTO classes (name,grade,description,created_at) VALUES (?,?,?,datetime('now','+8 hours'))`, name, grade || '', description || '')
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
-app.patch('/api/classes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/classes/:id', auth, requirePerm('classes'), async (c) => {
   const { name, grade, description } = await c.req.json()
   await run('UPDATE classes SET name=?,grade=?,description=? WHERE id=?', name, grade, description, c.req.param('id'))
   return c.json({ ok: true })
 })
 
-app.delete('/api/classes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/classes/:id', auth, requirePerm('classes'), async (c) => {
   const id = c.req.param('id')
   await run('DELETE FROM class_members WHERE class_id=?', id)
   await run('DELETE FROM classes WHERE id=?', id)
@@ -2053,7 +2220,7 @@ app.get('/api/subjects/:slug', async (c) => {
   return c.json({ ...s, modules: j(s.modules) })
 })
 
-app.post('/api/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/subjects', auth, requirePerm('subjects'), async (c) => {
   const { name, slug, icon, color, description, displayOrder, modules, announcement } = await c.req.json()
   if (await get('SELECT id FROM subjects WHERE slug=?', slug)) return c.json({ message: 'slug已存在' }, 400)
   const r = await run('INSERT INTO subjects (name,slug,icon,color,description,display_order,modules,announcement) VALUES (?,?,?,?,?,?,?,?)',
@@ -2061,7 +2228,7 @@ app.post('/api/subjects', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
-app.patch('/api/subjects/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/subjects/:id', auth, requirePerm('subjects'), async (c) => {
   const { name, icon, color, description, displayOrder, modules, announcement, forumAutoApproveThreshold } = await c.req.json()
   const id = c.req.param('id')
   if (name !== undefined) await run('UPDATE subjects SET name=? WHERE id=?', name, id)
@@ -2075,7 +2242,7 @@ app.patch('/api/subjects/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ ok: true })
 })
 
-app.delete('/api/subjects/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/subjects/:id', auth, requirePerm('subjects'), async (c) => {
   const id = c.req.param('id')
   await run('DELETE FROM articles WHERE subject_id=?', id)
   await run('DELETE FROM resources WHERE subject_id=?', id)
@@ -2230,7 +2397,7 @@ app.post('/api/articles/:id/student-reject', auth, async (c) => {
 })
 
 // 需求9：超管代学生确认美文（手动点击生效，不自动确认）
-app.post('/api/articles/:id/admin-confirm', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/articles/:id/admin-confirm', auth, requirePerm('audit'), async (c) => {
   const id = c.req.param('id')
   const a = await get<any>('SELECT * FROM articles WHERE id=?', id)
   if (!a) return c.json({ message: '不存在' }, 404)
@@ -2321,8 +2488,9 @@ app.patch('/api/articles/:id/status', auth, async (c) => {
   if (!a) return c.json({ message: '不存在' }, 404)
   const reviewerId = c.get('user').id
   // 【v4.3.0 修复】必须查 id —— 漏查导致教师审核任何美文都 500 D1_TYPE_ERROR（超管因短路掩盖，一直没暴露）
-  const u = await get<any>('SELECT id, role, subject_id FROM users WHERE id=?', reviewerId)
-  if (u?.role !== 'SUPER_ADMIN' && !(await canManageSubject(u, a.subject_id, reviewerId))) return c.json({ message: '无权限审核该学科的美文' }, 403)
+  const u = await get<any>('SELECT id, role, subject_id, permissions FROM users WHERE id=?', reviewerId)
+  // 【v4.9.7】拥有 audit 权限的管理员可审核全站美文；否则退回「本学科教师」判定
+  if (!hasPerm(u, 'audit') && !(await canManageSubject(u, a.subject_id, reviewerId))) return c.json({ message: '无权限审核该学科的美文' }, 403)
   await run('UPDATE articles SET status=? WHERE id=?', newStatus, id)
   if (newStatus === 'approved' && a.status !== 'approved') {
     // 审核通过后，给实际作者发放经验值奖励（防重复：检查是否已发放过）
@@ -2391,7 +2559,7 @@ app.patch('/api/articles/:id', auth, async (c) => {
   if (!a) return c.json({ message: '美文不存在' }, 404)
   const isOwner = Number(a.user_id) === Number(u.id)
   const isActualUser = a.actual_user_id && Number(a.actual_user_id) === Number(u.id)
-  const isManage = u.role === 'SUPER_ADMIN' || u.role === 'ADMIN' || (await canManageSubject(u, a.subject_id))
+  const isManage = hasPerm(u, 'audit') || (await canManageSubject(u, a.subject_id))
   if (!isOwner && !isActualUser && !isManage) {
     return c.json({ message: '无权限编辑该美文' }, 403)
   }
@@ -2530,15 +2698,15 @@ app.post('/api/articles/:id/comments', auth, async (c) => {
   return c.json({ id: newCommentId, user_id: uid, user_name: u?.real_name, avatar: u?.avatar, content, parent_id: parentId, created_at, name: u?.real_name, time: created_at, text: content })
 })
 
-// 需求9：删除美文评论（本人或超管）
+// 需求9：删除美文评论（本人或超管；【v4.9.7】拥有 audit 权限的管理员可删全站评论）
 app.delete('/api/articles/:id/comments/:commentId', auth, async (c) => {
   const commentId = c.req.param('commentId')
   const articleId = c.req.param('id')
   const uid = c.get('user').id
-  const u = await get<any>('SELECT role FROM users WHERE id=?', uid)
+  const u = await get<any>('SELECT role, permissions FROM users WHERE id=?', uid)
   const comment = await get<any>('SELECT * FROM article_comments WHERE id=?', commentId)
   if (!comment) return c.json({ message: '评论不存在' }, 404)
-  if (comment.user_id !== uid && u?.role !== 'SUPER_ADMIN') return c.json({ message: '无权限删除' }, 403)
+  if (comment.user_id !== uid && !hasPerm(u, 'audit')) return c.json({ message: '无权限删除' }, 403)
   // 【v4.2.0】如果是主评论，回收经验（仅算自己的，不算子评论带来的重复计算）
   if (comment.parent_id == null) {
     const a = await get<any>('SELECT user_id, actual_user_id, title, subject_id FROM articles WHERE id=?', articleId)
@@ -2558,13 +2726,14 @@ app.delete('/api/articles/:id/comments/:commentId', auth, async (c) => {
 })
 
 // 需求9：删除页面评论（本人或超管）【v4.2.0】主评论连同子评论一起删
+// 【v4.9.7】拥有 guide 权限的管理员（网站说明页的运营者）可删全站页面评论
 app.delete('/api/pages/:id/comments/:commentId', auth, async (c) => {
   const commentId = c.req.param('commentId')
   const uid = c.get('user').id
-  const u = await get<any>('SELECT role FROM users WHERE id=?', uid)
+  const u = await get<any>('SELECT role, permissions FROM users WHERE id=?', uid)
   const comment = await get<any>('SELECT * FROM page_comments WHERE id=?', commentId)
   if (!comment) return c.json({ message: '评论不存在' }, 404)
-  if (comment.user_id !== uid && u?.role !== 'SUPER_ADMIN') return c.json({ message: '无权限删除' }, 403)
+  if (comment.user_id !== uid && !hasPerm(u, 'guide')) return c.json({ message: '无权限删除' }, 403)
   if (comment.parent_id == null) {
     await run('DELETE FROM page_comments WHERE id=? OR parent_id=?', commentId, commentId)
   } else {
@@ -2927,7 +3096,7 @@ app.post('/api/query/tasks/:id/query', auth, async (c) => {
   })
 })
 
-app.post('/api/query/tasks', auth, requireStaff, async (c) => {
+app.post('/api/query/tasks', auth, requireStaffOr('query'), async (c) => {
   const id = c.get('user').id
   const role = c.get('user').role
   const me = await get<any>('SELECT real_name, subject_id, role FROM users WHERE id=?', id)
@@ -2949,14 +3118,16 @@ app.post('/api/query/tasks', auth, requireStaff, async (c) => {
   return c.json({ id: tid })
 })
 
-// 需求1：超管下载数据查询任务的原始Excel
-app.get('/api/query/tasks/:id/export', auth, requireStaff, async (c) => {
+// 需求1：超管下载数据查询任务的原始Excel（【v4.9.7】有 query 权限的管理员同样可下载他人任务）
+app.get('/api/query/tasks/:id/export', auth, requireStaffOr('query'), async (c) => {
   const uid = c.get('user').id
-  const role = c.get('user').role
   const id = c.req.param('id')
   const t = await get<any>('SELECT * FROM query_tasks WHERE id=?', id)
   if (!t) return c.json({ message: '不存在' }, 404)
-  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) {
+  // 【v4.9.7】拥有 query 权限的管理员（视为数据管理员）可下载全站查询任务；
+  //   教师 / 超管仍按「本人创建」约束。
+  const isQueryAdmin = c.get('user').role === 'ADMIN' && hasPerm(c.get('user'), 'query')
+  if (!isQueryAdmin && c.get('user').role !== 'SUPER_ADMIN' && t.creator_id !== uid) {
     return c.json({ message: '无权限下载该查询任务' }, 403)
   }
   const rows = await all<any>('SELECT data_row FROM query_rows WHERE task_id=? ORDER BY id', id)
@@ -2983,13 +3154,14 @@ app.get('/api/query/tasks/:id/export', auth, requireStaff, async (c) => {
   })
 })
 
-app.delete('/api/query/tasks/:id', auth, requireStaff, async (c) => {
+app.delete('/api/query/tasks/:id', auth, requireStaffOr('query'), async (c) => {
   const uid = c.get('user').id
-  const role = c.get('user').role
   const id = c.req.param('id')
   const t = await get<any>('SELECT creator_id, title FROM query_tasks WHERE id=?', id)
   if (!t) return c.json({ message: '不存在' }, 404)
-  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) return c.json({ message: '无权限删除' }, 403)
+  // 【v4.9.7】超管、或有 query 权限的管理员可删任意任务；教师只能删自己创建的
+  const canAll = c.get('user').role === 'SUPER_ADMIN' || hasPerm(c.get('user'), 'query')
+  if (!canAll && t.creator_id !== uid) return c.json({ message: '无权限删除' }, 403)
   // 删除前回收已发放的经验（数据查询相关）
   if (t.title) {
     const logs = await all<{ user_id: number; exp_change: number }>("SELECT user_id, exp_change FROM exp_logs WHERE action_type='query' AND INSTR(description, ?) > 0", t.title)
@@ -3009,14 +3181,15 @@ app.delete('/api/query/tasks/:id', auth, requireStaff, async (c) => {
   return c.json({ ok: true })
 })
 
-// 编辑查询任务（超管或创建教师）
-app.put('/api/query/tasks/:id', auth, requireStaff, async (c) => {
+// 编辑查询任务（超管 / 有 query 权限的管理员 / 创建教师）
+app.put('/api/query/tasks/:id', auth, requireStaffOr('query'), async (c) => {
   const uid = c.get('user').id
-  const role = c.get('user').role
   const id = c.req.param('id')
   const t = await get<any>('SELECT creator_id FROM query_tasks WHERE id=?', id)
   if (!t) return c.json({ message: '不存在' }, 404)
-  if (role !== 'SUPER_ADMIN' && t.creator_id !== uid) return c.json({ message: '无权限编辑' }, 403)
+  // 【v4.9.7】超管、或有 query 权限的管理员可编辑任意任务；教师只能编辑自己创建的
+  const canAll = c.get('user').role === 'SUPER_ADMIN' || hasPerm(c.get('user'), 'query')
+  if (!canAll && t.creator_id !== uid) return c.json({ message: '无权限编辑' }, 403)
   const b = await c.req.json()
   await run('UPDATE query_tasks SET title=?, note=?, valid_until=? WHERE id=?', b.title ?? '', b.note ?? '', b.validUntil ?? '', id)
   if (Array.isArray(b.headers) && Array.isArray(b.rows)) {
@@ -3084,15 +3257,16 @@ app.post('/api/admin/self-repair', auth, requireRole('SUPER_ADMIN'), async (c) =
 // ============ 经验值 & 排行榜 ============
 // ==============================================================================
 app.get('/api/exp/logs', auth, async (c) => {
-  const role = c.get('user').role
   const queryUserId = c.req.query('userId')
-  // 超管可查看任意用户经验记录；其他用户只能查看自己的
-  const uid = (role === 'SUPER_ADMIN' && queryUserId) ? Number(queryUserId) : c.get('user').id
+  // 超管 / 有 exp_logs 权限的管理员可查看任意用户经验记录；其他用户只能查看自己的
+  // 【v4.9.7】原来只看 role==='SUPER_ADMIN'，导致配了权限的管理员仍只能看自己
+  const canAll = c.get('user').role === 'SUPER_ADMIN' || hasPerm(c.get('user'), 'exp_logs')
+  const uid = (canAll && queryUserId) ? Number(queryUserId) : c.get('user').id
   return c.json(await all('SELECT * FROM exp_logs WHERE user_id=? ORDER BY id DESC', uid))
 })
 
 // 超管查看全员经验记录（带用户信息）
-app.get('/api/exp/all-logs', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/exp/all-logs', auth, requirePerm('exp_logs'), async (c) => {
   const page = Number(c.req.query('page') || '1')
   const pageSize = Math.min(Number(c.req.query('pageSize') || '50'), 200)
   const offset = (page - 1) * pageSize
@@ -3108,7 +3282,7 @@ app.get('/api/exp/all-logs', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ list: logs, total: countRow?.total || 0, page, pageSize })
 })
 
-app.post('/api/exp/logs', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/exp/logs', auth, requirePerm('exp_logs'), async (c) => {
   const { userId, change, actionType, description } = await c.req.json()
   await addExp(userId, change, actionType, description)
   return c.json({ ok: true })
@@ -3116,7 +3290,7 @@ app.post('/api/exp/logs', auth, requireRole('SUPER_ADMIN'), async (c) => {
 
 // 超管：删除单条经验记录
 // 删除时会同步把 users.exp 回退并重算 level，确保排行榜与 users.exp 不脱钩
-app.delete('/api/exp/logs/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/exp/logs/:id', auth, requirePerm('exp_logs'), async (c) => {
   const id = c.req.param('id')
   const log = await get<any>('SELECT user_id, exp_change FROM exp_logs WHERE id=?', id)
   if (!log) return c.json({ message: '记录不存在' }, 404)
@@ -3133,7 +3307,7 @@ app.delete('/api/exp/logs/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
 })
 
 // 超管：批量删除经验记录
-app.post('/api/exp/logs/batch-delete', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/exp/logs/batch-delete', auth, requirePerm('exp_logs'), async (c) => {
   const body = await c.req.json() as { ids?: number[] }
   const ids = Array.isArray(body?.ids) ? body.ids.filter((x: any) => Number.isFinite(Number(x))).map((x: any) => Number(x)) : []
   if (!ids.length) return c.json({ message: '未提供要删除的记录 id' }, 400)
@@ -3260,7 +3434,7 @@ app.post('/api/notices/:id/read', auth, async (c) => {
   return c.json({ ok: true })
 })
 
-app.post('/api/notices/broadcast', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/notices/broadcast', auth, requirePerm('dashboard'), async (c) => {
   const { title, content, type } = await c.req.json()
   const users = await all<{ id: number }>('SELECT id FROM users WHERE status=?', 'active')
   for (const u of users) {
@@ -3314,14 +3488,14 @@ app.get('/api/themes/:id', async (c) => {
   return c.json({ ...t, config: j(t.config) })
 })
 
-app.patch('/api/themes/:id/active', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/themes/:id/active', auth, requirePerm('theme'), async (c) => {
   const id = c.req.param('id')
   await run('UPDATE themes SET is_active=0')
   await run('UPDATE themes SET is_active=1 WHERE id=?', id)
   return c.json({ ok: true })
 })
 
-app.put('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.put('/api/themes/:id', auth, requirePerm('theme'), async (c) => {
   const id = c.req.param('id')
   const { config, name, isActive } = await c.req.json()
   await run('UPDATE themes SET config=?, name=?, updated_at=datetime(\'now\',\'+8 hours\') WHERE id=?', JSON.stringify(config), name, id)
@@ -3332,7 +3506,7 @@ app.put('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ ok: true })
 })
 
-app.post('/api/themes', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/themes', auth, requirePerm('theme'), async (c) => {
   const { name, config, isActive } = await c.req.json()
   const r = await run('INSERT INTO themes (name,config,is_active) VALUES (?,?,?)', name, JSON.stringify(config), isActive ? 1 : 0)
   const id = Number(r.lastInsertRowid)
@@ -3340,7 +3514,7 @@ app.post('/api/themes', auth, requireRole('SUPER_ADMIN'), async (c) => {
   return c.json({ id })
 })
 
-app.delete('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/themes/:id', auth, requirePerm('theme'), async (c) => {
   await run('DELETE FROM themes WHERE id=?', c.req.param('id'))
   return c.json({ ok: true })
 })
@@ -3447,7 +3621,7 @@ app.get('/api/settings/exp_rules', auth, async (c) => {
   return c.json(await getExpRules())
 })
 
-app.put('/api/settings/exp_rules', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.put('/api/settings/exp_rules', auth, requirePerm('exp_rules'), async (c) => {
   const rules = await c.req.json() || {}
   await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'exp_rules', JSON.stringify(rules))
   refreshExpRules()
@@ -3461,11 +3635,11 @@ app.get('/api/feature-flags/public', async (c) => {
   return c.json({ registration_enabled: !regFlag || regFlag.value !== '0' })
 })
 
-app.get('/api/settings/feature_flags', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/settings/feature_flags', auth, requirePerm('feature_flags'), async (c) => {
   return c.json(await getFeatureFlags())
 })
 
-app.put('/api/settings/feature_flags', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.put('/api/settings/feature_flags', auth, requirePerm('feature_flags'), async (c) => {
   const flags = await c.req.json() || {}
   await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'feature_flags', JSON.stringify(flags))
   if (flags.registration_enabled !== undefined) {
@@ -3518,7 +3692,7 @@ app.get('/api/settings/site_config', async (c) => {
   return c.json(defaults)
 })
 
-app.put('/api/settings/site_config', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.put('/api/settings/site_config', auth, requirePerm('site_config'), async (c) => {
   const config = await c.req.json() || {}
   // 使用 INSERT OR REPLACE 确保无论 key 是否存在都能正确保存
   await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'site_config', JSON.stringify(config))
@@ -3872,7 +4046,8 @@ app.get('/api/quizzes/:id/report', auth, requireStaff, async (c) => {
 app.get('/api/subjects/:id/questions', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const u = c.get('user') as any
-  const isStaff = u.role === 'SUPER_ADMIN' || (u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))
+  // 【v4.9.7】有 subjects 权限的管理员视为可管全学科
+  const isStaff = hasPerm(u, 'subjects') || (u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))
   // 【v4.5.0】智能选题多维度筛选
   const q = c.req.query()
   const where: string[] = ['sq.subject_id=?']
@@ -4154,7 +4329,7 @@ app.get('/api/subjects/:id/forum/topics', auth, async (c) => {
 app.post('/api/subjects/:id/forum/topics', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
     return c.json({ message: '只有超管和本学科教师可以创建话题标签' }, 403)
   }
   const b = await c.req.json()
@@ -4168,7 +4343,7 @@ app.patch('/api/subjects/:id/forum/topics/:tid', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const tid = Number(c.req.param('tid'))
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
     return c.json({ message: '只有超管和本学科教师可以编辑话题标签' }, 403)
   }
   const b = await c.req.json()
@@ -4181,7 +4356,7 @@ app.delete('/api/subjects/:id/forum/topics/:tid', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const tid = Number(c.req.param('tid'))
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
     return c.json({ message: '只有超管和本学科教师可以删除话题标签' }, 403)
   }
   await run('DELETE FROM forum_topics WHERE id=? AND subject_id=?', tid, sid)
@@ -4195,7 +4370,9 @@ app.get('/api/subjects/:id/forum/posts', auth, async (c) => {
   const topicId = c.req.query('topicId')
   const u = c.get('user') as any
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   let sql = `SELECT p.*, u.real_name AS author_name, u.avatar AS author_avatar
     FROM pages p LEFT JOIN users u ON p.author_id=u.id
     WHERE p.subject_id=? AND p.ptype='forum'`
@@ -4222,7 +4399,9 @@ app.get('/api/subjects/:id/forum/posts/:pid', auth, async (c) => {
   const p = await get<any>("SELECT p.*, u.real_name AS author_name, u.avatar AS author_avatar FROM pages p LEFT JOIN users u ON p.author_id=u.id WHERE p.id=? AND p.subject_id=? AND p.ptype='forum'", pid, sid)
   if (!p) return c.json({ message: '帖子不存在' }, 404)
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   if (p.status !== 'published' && !isSuper && !isStaff && p.author_id !== u.id) {
     return c.json({ message: '无权限' }, 403)
   }
@@ -4239,7 +4418,9 @@ app.post('/api/subjects/:id/forum/posts', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const u = c.get('user') as any
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   const b = await c.req.json()
   if (!b.title?.trim()) return c.json({ message: '标题不能为空' }, 400)
   const me = await get<any>('SELECT real_name FROM users WHERE id=?', u.id)
@@ -4280,7 +4461,9 @@ app.patch('/api/subjects/:id/forum/posts/:pid', auth, async (c) => {
   const p = await get<any>("SELECT * FROM pages WHERE id=? AND subject_id=? AND ptype='forum'", pid, sid)
   if (!p) return c.json({ message: '帖子不存在' }, 404)
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   if (!isSuper && !isStaff && p.author_id !== u.id) return c.json({ message: '无权编辑' }, 403)
   const b = await c.req.json()
   const topicIds = b.topicIds ? JSON.stringify(b.topicIds.map(Number).filter(Boolean)) : null
@@ -4302,7 +4485,9 @@ app.delete('/api/subjects/:id/forum/posts/:pid', auth, async (c) => {
   const p = await get<any>("SELECT author_id FROM pages WHERE id=? AND subject_id=? AND ptype='forum'", pid, sid)
   if (!p) return c.json({ message: '帖子不存在' }, 404)
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   if (!isSuper && !isStaff && p.author_id !== u.id) return c.json({ message: '无权删除' }, 403)
   await run('DELETE FROM page_comments WHERE page_id=?', pid)
   await run("DELETE FROM pages WHERE id=?", pid)
@@ -4316,7 +4501,9 @@ app.patch('/api/subjects/:id/forum/posts/:pid/status', auth, async (c) => {
   const pid = Number(c.req.param('pid'))
   const u = c.get('user') as any
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid)
+  // 【v4.9.7】拥有 subjects 权限的管理员 = 可管全学科（跨学科管理能力与超管一致）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = (permSubjects || u.role === 'TEACHER') && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid) || permSubjects
   if (!isSuper && !isStaff) return c.json({ message: '只有超管和本学科教师可以审核论坛帖子' }, 403)
   const p = await get<any>("SELECT * FROM pages WHERE id=? AND subject_id=? AND ptype='forum'", pid, sid)
   if (!p) return c.json({ message: '帖子不存在' }, 404)
@@ -4349,7 +4536,8 @@ app.patch('/api/subjects/:id/forum/posts/:pid/status', auth, async (c) => {
 //   本学科教师：本学科 pending 论坛帖子
 app.get('/api/admin/audit/forum-posts', auth, async (c) => {
   const u = c.get('user') as any
-  const isSuper = u.role === 'SUPER_ADMIN'
+  // 【v4.9.7】拥有 audit 权限的管理员 = 审核全站（不限学科），等价超管视角
+  const isSuper = u.role === 'SUPER_ADMIN' || hasPerm(u, 'audit')
   const isTeacher = u.role === 'TEACHER'
   if (!isSuper && !isTeacher) return c.json({ message: '无权访问审核中心' }, 403)
   let sql = `SELECT p.*, u.real_name AS author_name, u.avatar AS author_avatar, s.name AS subject_name, s.icon AS subject_icon
@@ -4374,7 +4562,7 @@ app.get('/api/admin/audit/forum-posts', auth, async (c) => {
 app.get('/api/admin/audit/forum-posts/:id', auth, async (c) => {
   const u = c.get('user') as any
   const id = Number(c.req.param('id'))
-  const isSuper = u.role === 'SUPER_ADMIN'
+  const isSuper = u.role === 'SUPER_ADMIN' || hasPerm(u, 'audit')
   const isTeacher = u.role === 'TEACHER'
   if (!isSuper && !isTeacher) return c.json({ message: '无权' }, 403)
   const p = await get<any>(`SELECT p.*, u.real_name AS author_name, u.avatar AS author_avatar, s.name AS subject_name, s.icon AS subject_icon
@@ -4425,7 +4613,8 @@ app.delete('/api/subject-questions/:id', auth, requireStaff, async (c) => {
   const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', id)
   if (!q) return c.json({ message: '题目不存在' }, 404)
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN') {
+  // 【v4.9.7】拥有 subjects 权限的管理员等同超管视角（可删全站题目）
+  if (!hasPerm(u, 'subjects')) {
     if (!(await canManageSubject({ id: u.id, role: u.role }, q.subject_id))) {
       return c.json({ message: '教师只能删除自己任教学科的题目' }, 403)
     }
@@ -4445,7 +4634,9 @@ app.patch('/api/subject-questions/:id', auth, async (c) => {
   const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', id)
   if (!q) return c.json({ message: '题目不存在' }, 404)
   const isSuper = u.role === 'SUPER_ADMIN'
-  const isStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, q.subject_id)
+  // 【v4.9.7】拥有 subjects 权限的管理员可编辑全站题目（不限学科）
+  const permSubjects = hasPerm(u, 'subjects')
+  const isStaff = permSubjects || (!isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, q.subject_id))
   if (!isSuper && !isStaff && q.creator_id !== u.id) return c.json({ message: '无权编辑该题（仅创建者、本学科教师或超管可编辑）' }, 403)
   const b = await c.req.json()
   await run(`UPDATE subject_questions SET
@@ -4543,8 +4734,9 @@ app.post('/api/subject-questions/batch-delete', auth, async (c) => {
   const allowed: number[] = []
   const denied: number[] = []
   // 删除比编辑更严格：与单条 DELETE 一致，教师只能删**自己创建**的题
+  // 【v4.9.7】拥有 subjects 权限的管理员等同超管视角，可删全站题目
   for (const r of rows) {
-    const isSuper = u.role === 'SUPER_ADMIN'
+    const isSuper = u.role === 'SUPER_ADMIN' || hasPerm(u, 'subjects')
     const own = Number(r.creator_id) === Number(u.id)
     const canStaff = !isSuper && u.role === 'TEACHER' && await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, r.subject_id)
     if (isSuper || (canStaff && own)) allowed.push(r.id)
@@ -4656,7 +4848,7 @@ app.get('/api/subjects/:id/knowledge-points', auth, async (c) => {
 app.post('/api/subjects/:id/knowledge-points', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
     return c.json({ message: '只有超管和本学科教师可以管理知识点' }, 403)
   }
   const b = await c.req.json()
@@ -4680,7 +4872,7 @@ app.patch('/api/knowledge-points/:id', auth, async (c) => {
   const u = c.get('user') as any
   const kp = await get<any>('SELECT * FROM knowledge_points WHERE id=?', id)
   if (!kp) return c.json({ message: '知识点不存在' }, 404)
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
     return c.json({ message: '只有超管和本学科教师可以编辑知识点' }, 403)
   }
   const b = await c.req.json()
@@ -4714,7 +4906,7 @@ app.delete('/api/knowledge-points/:id', auth, async (c) => {
   const u = c.get('user') as any
   const kp = await get<any>('SELECT * FROM knowledge_points WHERE id=?', id)
   if (!kp) return c.json({ message: '知识点不存在' }, 404)
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, kp.subject_id))) {
     return c.json({ message: '只有超管和本学科教师可以删除知识点' }, 403)
   }
   // 【v4.8.25 对齐组卷网】原写法删父节点时把子节点 `parent_id=NULL`（**提升为一级**），
@@ -4743,7 +4935,7 @@ app.post('/api/subject-questions/:id/feedback', auth, async (c) => {
 app.get('/api/subjects/:id/question-feedback', auth, async (c) => {
   const sid = Number(c.req.param('id'))
   const u = c.get('user') as any
-  if (u.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
+  if (!hasPerm(u, 'subjects') && !(await canManageSubject({ id: u.id, role: u.role, subject_id: u.subject_id }, sid))) {
     return c.json({ message: '只有超管和本学科教师可以查看纠错反馈' }, 403)
   }
   const list = await all<any>('SELECT f.*, u.real_name, sq.content AS qcontent FROM question_feedback f LEFT JOIN users u ON u.id=f.user_id LEFT JOIN subject_questions sq ON sq.id=f.question_id WHERE sq.subject_id=? ORDER BY f.id DESC', sid)
@@ -4926,7 +5118,8 @@ app.post('/api/practice/:id/grade', auth, requireStaff, async (c) => {
   const sub = await get<any>('SELECT * FROM practice_submissions WHERE id=?', id)
   if (!sub) return c.json({ message: '提交不存在' }, 404)
   const reviewer = c.get('user') as any
-  if (reviewer.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: reviewerId, role: reviewer.role }, sub.subject_id))) {
+  // 【v4.9.7】拥有 subjects 权限的管理员可批改全站
+  if (!hasPerm(reviewer, 'subjects') && !(await canManageSubject({ id: reviewerId, role: reviewer.role }, sub.subject_id))) {
     return c.json({ message: '教师只能批改自己任教学科的题目' }, 403)
   }
   const { score, comment } = await c.req.json()
@@ -4969,7 +5162,8 @@ app.delete('/api/practice/record/:id', auth, async (c) => {
   if (!sub) return c.json({ message: '记录不存在' }, 404)
   const me = c.get('user') as any
   const isOwner = sub.user_id === uid
-  const isSuperAdmin = me.role === 'SUPER_ADMIN'
+  // 【v4.9.7】拥有 subjects（学科管理）权限的管理员可删全站练习记录
+  const isSuperAdmin = me.role === 'SUPER_ADMIN' || hasPerm(me, 'subjects')
   const isSubjectTeacher = me.role === 'TEACHER' && me.subject_id === sub.subject_id
   if (!isOwner && !isSuperAdmin && !isSubjectTeacher) {
     return c.json({ message: '无权删除该记录' }, 403)
@@ -4994,7 +5188,8 @@ app.get('/api/practice/submission/:id', auth, async (c) => {
   if (!row) return c.json({ message: '提交不存在' }, 404)
   // 权限：本人、本学科教师、超管
   const isOwner = row.user_id === me.id
-  const isSuperAdmin = me.role === 'SUPER_ADMIN'
+  // 【v4.9.7】拥有 subjects 权限的管理员可查看全站提交
+  const isSuperAdmin = me.role === 'SUPER_ADMIN' || hasPerm(me, 'subjects')
   const isSubjectTeacher = me.role === 'TEACHER' && me.subject_id === row.subject_id
   if (!isOwner && !isSuperAdmin && !isSubjectTeacher) {
     return c.json({ message: '无权查看该提交' }, 403)
@@ -5012,7 +5207,7 @@ app.get('/api/practice/stats/:questionId', auth, requireStaff, async (c) => {
   const me: any = c.get('user')
   const q = await get<any>('SELECT * FROM subject_questions WHERE id=?', qid)
   if (!q) return c.json({ message: '题目不存在' }, 404)
-  if (me.role !== 'SUPER_ADMIN' && !(await canManageSubject({ id: me.id, role: me.role }, q.subject_id))) {
+  if (!hasPerm(me, 'subjects') && !(await canManageSubject({ id: me.id, role: me.role }, q.subject_id))) {
     return c.json({ message: '教师只能查看自己任教学科的题目数据' }, 403)
   }
   const subject = await get<any>('SELECT id, name, icon FROM subjects WHERE id=?', q.subject_id)
@@ -5210,7 +5405,7 @@ app.get('/api/announcements', auth, async (c) => {
 })
 
 // 网站说明（管理后台编辑）
-app.put('/api/pages/guide', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.put('/api/pages/guide', auth, requirePerm('guide'), async (c) => {
   const body = await c.req.json()
   const title = body.title || ''
   const content = body.content || ''
@@ -5257,7 +5452,7 @@ app.post('/api/pages', auth, async (c) => {
 })
 
 // 修改公告置顶状态
-app.patch('/api/pages/:id/pin', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/pages/:id/pin', auth, requirePerm('guide'), async (c) => {
   const id = c.req.param('id')
   const { pinned, pinnedScope } = await c.req.json()
   const p = await get<any>('SELECT id FROM pages WHERE id=?', id)
@@ -5274,7 +5469,7 @@ app.get('/api/blog/topics', auth, async (c) => {
   const list = await all<any>('SELECT * FROM site_topics ORDER BY id ASC')
   return c.json(list)
 })
-app.post('/api/blog/topics', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/blog/topics', auth, requirePerm('audit'), async (c) => {
   const u = c.get('user')
   const b = await c.req.json()
   const name = (b.name || '').trim()
@@ -5284,7 +5479,7 @@ app.post('/api/blog/topics', auth, requireRole('SUPER_ADMIN'), async (c) => {
   clearAllCache()
   return c.json({ id: Number(r.lastInsertRowid) })
 })
-app.patch('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.patch('/api/blog/topics/:tid', auth, requirePerm('audit'), async (c) => {
   const tid = Number(c.req.param('tid'))
   const b = await c.req.json()
   const exist = await get<any>('SELECT id FROM site_topics WHERE id=?', tid)
@@ -5299,7 +5494,7 @@ app.patch('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) =
   clearAllCache()
   return c.json({ ok: true })
 })
-app.delete('/api/blog/topics/:tid', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/blog/topics/:tid', auth, requirePerm('audit'), async (c) => {
   const tid = Number(c.req.param('tid'))
   const exist = await get<any>('SELECT id FROM site_topics WHERE id=?', tid)
   if (!exist) return c.json({ message: '话题不存在' }, 404)
@@ -5680,7 +5875,7 @@ async function resolveFileMeta(key: string): Promise<any | null> {
 // 【v4.4.10】B2 化：key 支持 file_id / object_key / original_name 三种解析；
 //   B2 文件走 b2DownloadStream（私有桶授权下载 + CF 边缘缓存），Supabase 孤儿回退 downloadFile。
 // ==============================================================================
-app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/storage/file', auth, requirePerm('monitor'), async (c) => {
   const rawKey = (c.req.query('key') || '').trim()
   const mode = c.req.query('mode') === 'download' ? 'download' : 'preview'
   if (!rawKey) return c.json({ message: '缺少文件 key' }, 400)
@@ -5746,7 +5941,7 @@ app.get('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) =
 
 
 // 文件优化：批量处理大体积文件（标记优化状态）
-app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/storage/optimize', auth, requirePerm('monitor'), async (c) => {
   const { action } = await c.req.json()
   // action: 'list' | 'optimize_images' | 'clean_orphaned' | 'purge_cache'
 
@@ -5841,7 +6036,7 @@ app.post('/api/admin/storage/optimize', auth, requireRole('SUPER_ADMIN'), async 
 // 删除指定存储文件（超管专用，支持预览后删除）
 // 【v4.4.10】B2 化：fileName 支持 file_id / object_key / original_name；
 //   B2 文件真正调用 b2Delete 删除对象 + 清理 file_meta 行，Supabase 孤儿回退 deleteFile。
-app.delete('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.delete('/api/admin/storage/file', auth, requirePerm('monitor'), async (c) => {
   const { fileName } = await c.req.json()
   if (!fileName) return c.json({ message: '缺少文件名' }, 400)
 
@@ -5889,7 +6084,7 @@ app.delete('/api/admin/storage/file', auth, requireRole('SUPER_ADMIN'), async (c
 })
 
 // 获取缓存统计信息
-app.get('/api/admin/cache/stats', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/cache/stats', auth, requirePerm('monitor'), async (c) => {
   let totalHotSize = 0
   let totalHotHits = 0
   const hotFileDetails: any[] = []
@@ -5930,7 +6125,7 @@ app.get('/api/admin/cache/stats', auth, requireRole('SUPER_ADMIN'), async (c) =>
 // ==============================================================================
 
 // 当前存储后端模式 + 配额/限速配置概览
-app.get('/api/admin/storage/config', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/storage/config', auth, requirePerm('monitor'), async (c) => {
   return c.json({
     backendMode: (STORAGE_BACKEND || 'B2_FREE').toUpperCase(),
     b2Configured: !!(B2_KEY_ID && B2_APPLICATION_KEY && B2_BUCKET_ID),
@@ -5945,7 +6140,7 @@ app.get('/api/admin/storage/config', auth, requireRole('SUPER_ADMIN'), async (c)
 
 // B2 存储监控数据（供管理后台 B2 监控模块拉取）
 // v4.4.1：只读 D1 快照，不发起任何 B2 请求（避免刷面板烧掉 Class C 交易）
-app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/storage/monitor', auth, requirePerm('monitor'), async (c) => {
   const data = await getStorageMonitor().catch((e) => ({ error: String(e?.message || e) }))
   return c.json(data)
 })
@@ -5953,7 +6148,7 @@ app.get('/api/admin/storage/monitor', auth, requireRole('SUPER_ADMIN'), async (c
 // B2 官方容量盘点：实时调用 b2_list_file_names 全量列举求和（**消耗 Class A 交易**）
 // 每日最多一次（force=true 可强制重扫）。这是本账户唯一能拿到官方容量的途径
 // （b2_get_account_info 实测 404；b2_list_buckets 响应不含 fileCount/totalSize）。
-app.post('/api/admin/storage/census', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/storage/census', auth, requirePerm('monitor'), async (c) => {
   const { force } = await c.req.json().catch(() => ({}))
   try {
     const r = await runBucketCensus(!!force)
@@ -5966,13 +6161,13 @@ app.post('/api/admin/storage/census', auth, requireRole('SUPER_ADMIN'), async (c
 // v4.4.2 官方每日实耗（来自 B2 控制台，管理员手动核对录入）
 // GET 返回当日（或最近一天）官方数字；POST 保存当日数字。
 // 由于 B2 免费账户不暴露官方交易计数 API，此数据是「人工核对」而非程序拉取。
-app.get('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/storage/official', auth, requirePerm('monitor'), async (c) => {
   const day = c.req.query('day')
   const off = await getOfficialDaily(day || undefined).catch(() => null)
   return c.json({ ok: true, official: off })
 })
 
-app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/storage/official', auth, requirePerm('monitor'), async (c) => {
   const p = await c.req.json().catch(() => ({}))
   try {
     const saved = await setOfficialDaily({
@@ -5988,7 +6183,7 @@ app.post('/api/admin/storage/official', auth, requireRole('SUPER_ADMIN'), async 
 })
 
 // 管理员预热：把高频文件推送到 CF 边缘缓存
-app.post('/api/admin/prewarm', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/prewarm', auth, requirePerm('monitor'), async (c) => {
   const { fileIds } = await c.req.json()
   if (!Array.isArray(fileIds) || !fileIds.length) return c.json({ message: '缺少 fileIds' }, 400)
   const operator = c.get('user').id
@@ -6005,7 +6200,7 @@ app.post('/api/admin/prewarm', auth, requireRole('SUPER_ADMIN'), async (c) => {
 //   （D1 里存的是纯文件名，不含 "supabase" 字样），导致迁移永远 total=0。
 //   新版直接全量列举 Supabase 桶，逐个搬迁并改写引用，重复执行安全。
 // 参数：limit（本批处理数量，默认 20）/ only（只迁某个 key，模糊匹配）/ dryRun（只盘点不搬迁）
-app.post('/api/admin/migrate/to-b2', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.post('/api/admin/migrate/to-b2', auth, requirePerm('monitor'), async (c) => {
   const { limit, only, dryRun } = await c.req.json().catch(() => ({}))
   const res = await migrateToB2({
     limit: limit ? Number(limit) : undefined,
@@ -6016,7 +6211,7 @@ app.post('/api/admin/migrate/to-b2', auth, requireRole('SUPER_ADMIN'), async (c)
 })
 
 // 迁移进度查询（不搬迁，只汇报已迁多少 / 还剩多少）
-app.get('/api/admin/migrate/status', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/migrate/status', auth, requirePerm('monitor'), async (c) => {
   const done = await get<{ n: number; sz: number }>(
     `SELECT COUNT(*) AS n, COALESCE(SUM(size),0) AS sz FROM b2_migration_log`).catch(() => ({ n: 0, sz: 0 }))
   const last = await all<any>(
@@ -6031,7 +6226,7 @@ app.get('/api/admin/migrate/status', auth, requireRole('SUPER_ADMIN'), async (c)
   })
 })
 
-app.get('/api/admin/monitor', auth, requireRole('SUPER_ADMIN'), async (c) => {
+app.get('/api/admin/monitor', auth, requirePerm('monitor'), async (c) => {
   const t0 = Date.now()
   c.header('X-Monitor-Version', 'v2-optimized')
   const fiveMinAgo = datetimeBeijing(new Date(Date.now() - 5 * 60 * 1000))
