@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 import fs from 'fs'
 import { initDB, all, get, run } from './db'
 import { signToken, auth, requireRole, requirePerm, requireStaff, requireStaffOr, requireSubjectStaff, hasPerm, parsePerms, withPerms, PERM_KEYS } from './auth'
-import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled } from './helpers'
+import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled, syncUserExp, syncUserExpBatch } from './helpers'
 import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR, createPresignedUploadUrl } from './storage'
 import bcrypt from 'bcryptjs'
 import multer from 'multer'
@@ -659,10 +659,35 @@ app.delete('/api/users/:id', auth, requirePerm('users'), async (req, res) => {
 })
 
 // Admin: 调整用户经验值
+// 【v4.11.0】改为「写日志」语义：不再直接覆盖 users.exp（那会造成缓存与流水漂移），
+//   而是把"目标值"翻译成一条补偿日志（diff = 目标 − 当前日志和），调整动作本身也进入审计流水。
 app.patch('/api/users/:id/exp', auth, requirePerm('users'), async (req, res) => {
-  const { exp, level } = req.body
-  if (exp !== undefined) await run('UPDATE users SET exp=? WHERE id=?', exp, req.params.id)
-  if (level !== undefined) await run('UPDATE users SET level=? WHERE id=?', level, req.params.id)
+  const { exp, level, reason } = req.body
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ message: '用户 id 非法' })
+  const cur = (await get<{ total: number }>('SELECT COALESCE(SUM(exp_change), 0) AS total FROM exp_logs WHERE user_id=?', id))?.total ?? 0
+
+  if (exp !== undefined) {
+    const target = Math.max(0, Math.floor(Number(exp)))
+    if (!Number.isFinite(target)) return res.status(400).json({ message: '经验值非法' })
+    const diff = target - cur
+    if (diff !== 0) {
+      await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id) VALUES (?,?,?,?,?)',
+        id, 'admin_adjust', diff, reason || `管理员调整经验值（${cur} → ${target}）`, null)
+    }
+    await syncUserExp(id)
+  }
+
+  if (level !== undefined && exp === undefined) {
+    const targetLv = Math.max(1, Math.floor(Number(level)))
+    const diff = (targetLv - 1) * 60 - cur
+    if (diff !== 0) {
+      await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id) VALUES (?,?,?,?,?)',
+        id, 'admin_adjust', diff, reason || `管理员调整等级（Lv.${targetLv}）`, null)
+    }
+    await syncUserExp(id)
+  }
+
   res.json({ ok: true })
 })
 
@@ -1104,13 +1129,10 @@ app.delete('/api/articles/:id', auth, async (req, res) => {
   // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关/评论相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
-    // 计算要回收的经验值（用于更新用户exp）
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     // 删除相关经验值记录
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
-    // 更新用户经验值
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, expUid)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等）
+    await syncUserExp(expUid)
   }
   await run('DELETE FROM article_comments WHERE article_id=?', req.params.id)
   // 统计并修正点赞数
@@ -1405,10 +1427,9 @@ app.delete('/api/resources/:id', auth, async (req, res) => {
   // 【v4.4.28 修复】原 `description LIKE '%title%'` 在标题含 ~ + 【】 等特殊字符时触发 SQLite
   //   "LIKE or GLOB pattern too complex" 而 500。改用 INSTR(description,?)>0 等价子串匹配。
   if (rUid && r.title) {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, rUid)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等）
+    await syncUserExp(rUid)
   }
   // v4.4.0 删除存储文件：优先 file_meta（B2/Supabase）→ legacy file_path
   if (rFid) {
@@ -1643,10 +1664,9 @@ app.delete('/api/query/tasks/:id', auth, requireStaffOr('query'), async (req, re
     const byUser = new Map<number, number>()
     for (const l of logs) { byUser.set(l.user_id, (byUser.get(l.user_id) || 0) + (l.exp_change || 0)) }
     for (const [userId, total] of byUser) {
-      if (total) {
-        await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND INSTR(description, ?) > 0", userId, t.title)
-        await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, userId)
-      }
+      await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND INSTR(description, ?) > 0", userId, t.title)
+      // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等）
+      await syncUserExp(userId)
     }
   }
   await run('DELETE FROM query_rows WHERE task_id=?', req.params.id)
@@ -1732,12 +1752,8 @@ app.delete('/api/exp/logs/:id', auth, requirePerm('exp_logs'), async (req, res) 
   const log = await get<any>('SELECT user_id, exp_change FROM exp_logs WHERE id=?', id)
   if (!log) return res.status(404).json({ message: '记录不存在' })
   await run('DELETE FROM exp_logs WHERE id=?', id)
-  await run(
-    `UPDATE users SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
-                    level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
-     WHERE id=?`,
-    log.user_id, log.user_id, log.user_id
-  )
+  // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等）
+  await syncUserExp(log.user_id)
   res.json({ ok: true, deleted: 1 })
 })
 
@@ -1749,12 +1765,8 @@ app.post('/api/exp/logs/batch-delete', auth, requirePerm('exp_logs'), async (req
   await run('DELETE FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
   const userIds = Array.from(new Set(logs.map((x: any) => x.user_id)))
   for (const uid of userIds) {
-    await run(
-      `UPDATE users SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
-                        level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
-       WHERE id=?`,
-      uid, uid, uid
-    )
+    // 【v4.11.0】去重后按日志和全量重算缓存（幂等）
+    await syncUserExp(uid as number)
   }
   res.json({ ok: true, deleted: logs.length, affectedUsers: userIds.length })
 })
@@ -1764,7 +1776,9 @@ app.get('/api/leaderboard', async (req, res) => {
   const classId = req.query.classId as string | undefined
   const subjectId = req.query.subjectId as string | undefined
   const period = (req.query.period as string) || 'total'
-  let list = await all<any>('SELECT id,real_name,role,avatar,exp,level FROM users WHERE status=? ORDER BY exp DESC', 'active')
+  // 【v4.11.0】不再信任 users.exp（派生缓存可能滞后），基础列表只取身份字段，
+  //   经验/等级统一在下面按 exp_logs 聚合后回填，保证与「用户管理」页口径一致。
+  let list = await all<any>('SELECT id,real_name,role,avatar FROM users WHERE status=?', 'active')
   if (scope === 'class' && classId) {
     const rows = await all<{ user_id: number }>('SELECT user_id FROM class_members WHERE class_id=?', classId)
     const ids = rows.map(r => r.user_id)
@@ -1787,7 +1801,10 @@ app.get('/api/leaderboard', async (req, res) => {
     )
     const expMap = new Map<number, number>()
     for (const r of allExps) expMap.set(r.user_id, r.total)
-    list = list.map(u => ({ ...u, pe: expMap.get(u.id) || 0 })).sort((a, b) => b.pe - a.pe)
+    list = list.map(u => {
+      const total = Math.max(0, expMap.get(u.id) || 0)
+      return { ...u, exp: total, level: Math.floor(total / 60) + 1, pe: total }
+    }).sort((a, b) => b.pe - a.pe)
   } else {
     const now = new Date()
     let startDate: string
@@ -1809,7 +1826,19 @@ app.get('/api/leaderboard', async (req, res) => {
     )
     const expMap = new Map<number, number>()
     for (const r of periodExps) expMap.set(r.user_id, r.total)
-    list = list.map(u => ({ ...u, pe: expMap.get(u.id) || 0 })).sort((a, b) => b.pe - a.pe)
+
+    // 【v4.11.0】同时给出累计经验（真源），供前端显示等级；口径与 total 分支一致
+    const totalExps = await all<{ user_id: number; total: number }>(
+      `SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE 1=1${subjClause} GROUP BY user_id`,
+      ...(subjArg !== null ? [subjArg] : [])
+    )
+    const totalMap = new Map<number, number>()
+    for (const r of totalExps) totalMap.set(r.user_id, r.total)
+
+    list = list.map(u => {
+      const total = Math.max(0, totalMap.get(u.id) || 0)
+      return { ...u, exp: total, level: Math.floor(total / 60) + 1, pe: expMap.get(u.id) || 0 }
+    }).sort((a, b) => b.pe - a.pe)
   }
   res.json(list)
 })
@@ -3406,10 +3435,9 @@ app.delete('/api/pages/:id', auth, async (req, res) => {
   if (!isOwner && u?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: '无权限删除' })
   // 删除前直接删除相关的经验值记录
   if (p.author_id && p.title && p.ptype === 'blog') {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?) WHERE id = ?', total, p.author_id)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等）
+    await syncUserExp(p.author_id)
   }
   await run('DELETE FROM page_comments WHERE page_id=?', req.params.id)
   await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'page', req.params.id)

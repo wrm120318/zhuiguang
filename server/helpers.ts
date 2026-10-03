@@ -27,15 +27,43 @@ export function refreshExpRules() { expRulesCache = null }
 
 // 给指定行为加分。change 为 undefined 时，按规则表查 actionType 对应的经验值；传数字直接用
 // subjectId：经验来源学科（用于学科榜按学科统计贡献）；不传则为全站经验
+/**
+ * 【v4.11.0 经验值单一真源】把 users.exp / users.level 按 exp_logs 全量重算。
+ *
+ * exp_logs 是**唯一真源**，users.exp 只是派生缓存（供排序 / 免聚合展示）。
+ * 因此任何改动经验值的入口，只需保证"日志写对了"，再调用本函数重算缓存，
+ * 就永远不会出现"两个数据源漂移"的问题。
+ *
+ * 为何不用增量法（exp = exp + delta）：增量法一旦漏写一条日志，偏差会**永久固化**
+ * 且无法自愈；全量 SUM 重算是**幂等**的，任何一次调用都会把数据拉回正确值。
+ */
+export async function syncUserExp(userId: number) {
+  await run(
+    `UPDATE users
+        SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+            level = CAST(MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60 AS INTEGER) + 1
+      WHERE id=?`,
+    userId, userId, userId
+  )
+}
+
+/** 批量重算（去重后逐个执行） */
+export async function syncUserExpBatch(userIds: number[]) {
+  const uniq = Array.from(new Set(userIds.filter(n => Number.isFinite(n))))
+  for (const uid of uniq) await syncUserExp(uid)
+  return uniq.length
+}
+
 export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string, subjectId?: number | null) {
   let delta = change
   if (delta === undefined) {
     const rules = await getExpRules()
     delta = rules[actionType] ?? 0
   }
-  if (!delta) return
-  await run('UPDATE users SET exp = exp + ?, level = (exp / 60) + 1 WHERE id = ?', delta, userId)
+  if (delta === undefined || delta === null || isNaN(delta as number)) return
+  // 【v4.11.0】先记账（真源），后结算（派生缓存）——即使 delta=0 也要写日志
   await run('INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id) VALUES (?,?,?,?,?)', userId, actionType, delta, desc, subjectId ?? null)
+  if (delta !== 0) await syncUserExp(userId)
 }
 
 export async function addNotice(userId: number, title: string, content: string, type: string, targetUrl?: string) {

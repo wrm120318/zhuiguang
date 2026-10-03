@@ -36,9 +36,13 @@ npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0003_smart_bank.
 npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0004_perf_indexes.sql
 # v4.9.7：ADMIN 角色权限列 —— 必须在部署 Worker 之前执行
 npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0005_user_permissions.sql
+# v4.11.0：经验值单一真源校准（exp_logs 为准重算 users.exp/level）—— 幂等，可重复执行
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0006_exp_single_source.sql
 
 # 验证
 npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM users"
+# 验证经验值无漂移（应返回 0）
+npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) AS drift FROM users u WHERE u.exp != MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=u.id),0))"
 ```
 
 ### 第三步：配置环境变量

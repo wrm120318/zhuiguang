@@ -218,34 +218,42 @@ async function saveEdit() {
   }
 }
 
+// 【v4.11.0】经验调整弹窗 —— 改为「日志制」纯增减语义
+//   旧实现同时存在「当前经验」与「经验变动」两个输入框，保存时先 grantExp 加 delta、
+//   再 adjustUserExp 覆盖 exp，两条路径互相打架，是 users.exp 与 exp_logs 漂移的主因。
+//   now: 只允许输入「变动量」，统一走 grantExp 写一条 admin_adjust 日志。
 const expDialogVisible = ref(false)
-const expForm = ref({ userId: 0, exp: 0, level: 1, change: 0, reason: '' })
+const expSaving = ref(false)
+const expForm = ref({ userId: 0, userName: '', currentExp: 0, change: 0, reason: '' })
 
 function openExpDialog(u: any) {
-  expForm.value = { userId: u.id, exp: u.exp, level: u.level, change: 0, reason: '' }
+  expForm.value = {
+    userId: u.id,
+    userName: u.real_name || u.username || `用户 #${u.id}`,
+    // u.exp 来自 /api/users（已是 SUM(exp_logs) 真源值）
+    currentExp: Number(u.exp) || 0,
+    change: 0,
+    reason: '',
+  }
   expDialogVisible.value = true
 }
 
 async function saveExp() {
+  if (!expForm.value.change) { ElMessage.warning('请填写非零的经验变动值'); return }
+  expSaving.value = true
   try {
-    if (expForm.value.change !== 0) {
-      await api.grantExp({
-        userId: expForm.value.userId,
-        change: expForm.value.change,
-        actionType: 'admin_adjust',
-        description: expForm.value.reason || '管理员调整',
-      })
-    }
-    if (expForm.value.exp !== undefined || expForm.value.level !== undefined) {
-      await api.adjustUserExp(expForm.value.userId, {
-        exp: expForm.value.exp,
-        level: expForm.value.level,
-      })
-    }
-    ElMessage.success('经验值已更新')
+    await api.grantExp({
+      userId: expForm.value.userId,
+      change: expForm.value.change,
+      actionType: 'admin_adjust',
+      description: expForm.value.reason || '管理员调整',
+    })
+    ElMessage.success(`经验值已${expForm.value.change > 0 ? '增加' : '扣除'} ${Math.abs(expForm.value.change)}`)
     expDialogVisible.value = false
     await load()
-  } catch { /* */ }
+  } catch { /* 错误已由 http 层提示 */ } finally {
+    expSaving.value = false
+  }
 }
 
 // ===== 查看经验记录 =====
@@ -676,25 +684,35 @@ function openImport() {
     </el-dialog>
 
     <!-- 经验值调整 -->
-    <el-dialog v-model="expDialogVisible" title="调整经验值" width="440px" append-to-body>
-      <el-form label-width="100px">
-        <el-form-item label="当前经验">
-          <el-input-number v-model="expForm.exp" :min="0" controls-position="right" />
+    <el-dialog v-model="expDialogVisible" title="调整经验值" width="460px" append-to-body>
+      <el-form label-width="96px">
+        <el-form-item label="用户">
+          <span class="ep-user">{{ expForm.userName }}</span>
         </el-form-item>
-        <el-form-item label="当前等级">
-          <el-input-number v-model="expForm.level" :min="1" controls-position="right" />
+        <el-form-item label="当前经验">
+          <span class="ep-cur">{{ expForm.currentExp }} EXP</span>
+          <span class="ep-cur-hint">（等级 Lv.{{ Math.floor(expForm.currentExp / 60) + 1 }} · 每 60 分一级）</span>
         </el-form-item>
         <el-form-item label="经验变动">
-          <el-input-number v-model="expForm.change" :min="-9999" :max="9999" controls-position="right" />
-          <span style="font-size:12px;color:var(--zg-text-dim);margin-left:8px">正数增加，负数扣除</span>
+          <el-input-number v-model="expForm.change" :min="-9999" :max="9999" controls-position="right" style="width:160px" />
+          <span class="ep-hint">正数奖励，负数扣除</span>
+        </el-form-item>
+        <el-form-item label="调整后">
+          <span class="ep-after" :class="{ minus: Math.max(0, expForm.currentExp + expForm.change) < expForm.currentExp }">
+            {{ Math.max(0, expForm.currentExp + expForm.change) }} EXP
+          </span>
+          <span class="ep-hint">等级 Lv.{{ Math.floor(Math.max(0, expForm.currentExp + expForm.change) / 60) + 1 }}</span>
         </el-form-item>
         <el-form-item label="变动原因">
-          <el-input v-model="expForm.reason" type="textarea" :rows="2" placeholder="如：表现优秀奖励 / 违反规定扣分" />
+          <el-input v-model="expForm.reason" type="textarea" :rows="2" placeholder="如：表现优秀奖励 / 违反规定扣分（建议填写，便于审计追溯）" />
         </el-form-item>
       </el-form>
+      <div class="ep-tip">
+        经验值以经验记录为唯一真源：本次操作会新增一条审计记录，可随时在「经验记录」中查看或撤销。
+      </div>
       <template #footer>
         <el-button @click="expDialogVisible=false">取消</el-button>
-        <el-button type="primary" @click="saveExp">保存</el-button>
+        <el-button type="primary" :loading="expSaving" @click="saveExp">保存</el-button>
       </template>
     </el-dialog>
 
@@ -982,5 +1000,33 @@ function openImport() {
 /* 表格水平滚动，避免列重叠 */
 :deep(.el-table__body-wrapper) {
   overflow-x: auto;
+}
+
+/* 【v4.11.0】经验调整弹窗（日志制） */
+.ep-user { font-weight: 600; color: var(--zg-text); }
+.ep-cur { font-weight: 700; color: var(--zg-accent); font-size: 15px; }
+.ep-cur-hint { font-size: 12px; color: var(--zg-text-dim); margin-left: 8px; }
+.ep-hint { font-size: 12px; color: var(--zg-text-dim); margin-left: 8px; }
+.ep-after {
+  font-weight: 700;
+  font-size: 15px;
+  color: #16a34a;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: rgba(22, 163, 74, .1);
+}
+.ep-after.minus {
+  color: #dc2626;
+  background: rgba(220, 38, 38, .1);
+}
+.ep-tip {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--zg-text-dim);
+  background: var(--zg-surface, rgba(127, 127, 127, .08));
+  border-left: 3px solid var(--zg-accent);
 }
 </style>

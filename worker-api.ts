@@ -319,6 +319,34 @@ export async function getExpRules(): Promise<Record<string, number>> {
 
 export function refreshExpRules() { expRulesCache = null }
 
+/**
+ * 【v4.11.0 经验值单一真源】把 users.exp / users.level 按 exp_logs 全量重算。
+ *
+ * 设计原则：exp_logs 是**唯一真源**，users.exp 只是派生缓存（供排序 / 免聚合展示）。
+ * 因此任何改动经验值的入口，只需保证"日志写对了"，再调用本函数重算缓存，
+ * 就永远不会出现"两个数据源漂移"的问题。
+ *
+ * 之所以不用 `exp = exp + delta` 增量法：增量法一旦有一条写漏（例如历史遗留的
+ * PATCH /api/users/:id/exp 直改 exp 不写日志），偏差会**永久固化**且无法自愈。
+ * 全量 SUM 重算则是幂等的，任何一次调用都会把数据拉回正确值。
+ */
+export async function syncUserExp(userId: number) {
+  await run(
+    `UPDATE users
+        SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+            level = CAST(MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60 AS INTEGER) + 1
+      WHERE id=?`,
+    userId, userId, userId
+  )
+}
+
+/** 批量重算（去重后逐个执行，避免重复查询） */
+export async function syncUserExpBatch(userIds: number[]) {
+  const uniq = Array.from(new Set(userIds.filter(n => Number.isFinite(n))))
+  for (const uid of uniq) await syncUserExp(uid)
+  return uniq.length
+}
+
 export async function addExp(userId: number, change: number | undefined, actionType: string, desc: string, subjectId?: number | null) {
   let delta = change
   if (delta === undefined) {
@@ -327,12 +355,9 @@ export async function addExp(userId: number, change: number | undefined, actionT
   }
   if (delta === undefined || delta === null || isNaN(delta as number)) return
   // 即使 delta=0 也要写 exp_logs 记录（用于每日登录防重复检查）
-  if (delta !== 0) {
-    // 基于更新后的经验值重算等级（SQLite 同语句中 exp 引用为旧值，故用 exp+? 取新值）
-    // 基于更新后的经验值重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
-    await run('UPDATE users SET exp = MAX(0, exp + ?), level = CAST(MAX(0, exp + ?) / 60 AS INTEGER) + 1 WHERE id = ?', delta, delta, userId)
-  }
   await run(`INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`, userId, actionType, delta, desc, subjectId ?? null)
+  // 【v4.11.0】日志写完再按日志和重算缓存，彻底消除双源漂移
+  if (delta !== 0) await syncUserExp(userId)
 }
 
 export async function addNotice(userId: number, title: string, content: string, type: string, targetUrl?: string) {
@@ -2078,11 +2103,57 @@ app.delete('/api/users/:id', auth, requirePerm('users'), async (c) => {
   return c.json({ ok: true })
 })
 
+/**
+ * 【v4.11.0】调整用户经验值 —— 改为"写日志"语义，不再直接覆盖 users.exp。
+ *
+ * 旧实现的严重缺陷：`UPDATE users SET exp=?` 只改缓存、不写日志，
+ * 于是 users.exp 与 SUM(exp_logs) 永久背离，且用户管理页（读日志）与
+ * 排行榜（旧版读 users.exp）会显示两个不同数字。
+ *
+ * 新语义：把"目标值"翻译成一条补偿日志（diff = 目标 − 当前日志和），
+ * 这样调整动作本身也进入审计流水，可追溯、可回滚。
+ */
 app.patch('/api/users/:id/exp', auth, requirePerm('users'), async (c) => {
-  const { exp, level } = await c.req.json()
-  const id = c.req.param('id')
-  if (exp !== undefined) await run('UPDATE users SET exp=? WHERE id=?', exp, id)
-  if (level !== undefined) await run('UPDATE users SET level=? WHERE id=?', level, id)
+  const body = await c.req.json() as { exp?: number; level?: number; reason?: string }
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ message: '用户 id 非法' }, 400)
+
+  if (body.exp !== undefined) {
+    const target = Math.max(0, Math.floor(Number(body.exp)))
+    if (!Number.isFinite(target)) return c.json({ message: '经验值非法' }, 400)
+    const cur = (await get<{ total: number }>(
+      'SELECT COALESCE(SUM(exp_change), 0) AS total FROM exp_logs WHERE user_id=?', id
+    ))?.total ?? 0
+    const diff = target - cur
+    if (diff !== 0) {
+      // 直接插日志 + 重算，不复用 addExp（addExp 会把 undefined 走规则表）
+      await run(
+        `INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id,created_at)
+         VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
+        id, 'admin_adjust', diff, body.reason || `管理员调整经验值（${cur} → ${target}）`, null
+      )
+    }
+    await syncUserExp(id)
+  }
+
+  // level 单独传入时：以 level 换算目标经验（每级 60 分）同样落成日志，保持可追溯
+  if (body.level !== undefined && body.exp === undefined) {
+    const targetLv = Math.max(1, Math.floor(Number(body.level)))
+    const targetExp = (targetLv - 1) * 60
+    const cur = (await get<{ total: number }>(
+      'SELECT COALESCE(SUM(exp_change), 0) AS total FROM exp_logs WHERE user_id=?', id
+    ))?.total ?? 0
+    const diff = targetExp - cur
+    if (diff !== 0) {
+      await run(
+        `INSERT INTO exp_logs (user_id,action_type,exp_change,description,subject_id,created_at)
+         VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
+        id, 'admin_adjust', diff, body.reason || `管理员调整等级（Lv.${targetLv}）`, null
+      )
+    }
+    await syncUserExp(id)
+  }
+
   return c.json({ ok: true })
 })
 
@@ -2549,15 +2620,10 @@ app.delete('/api/articles/:id', auth, async (c) => {
   // 删除前直接删除相关的经验值记录（美文审核通过/点赞相关/评论相关）
   const expUid = Number(a.actual_user_id) || Number(a.user_id)
   if (expUid && a.title) {
-    // 计算要回收的经验值（用于更新用户exp）
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     // 删除相关经验值记录
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('article','like','comment') AND INSTR(description, ?) > 0", expUid, a.title)
-    // 更新用户经验值
-    // 经验回退后同步重算等级（level 基于更新后的 exp = MAX(0, exp-total)）
-    // 经验回退后同步重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, expUid)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存（幂等，避免增量回退累积误差）
+    await syncUserExp(expUid)
   }
   await run('DELETE FROM article_comments WHERE article_id=?', id)
   // 统计并修正点赞数
@@ -2881,11 +2947,9 @@ app.delete('/api/resources/:id', auth, async (c) => {
   if (rUid && r.title) {
     // 【v4.4.28 修复】原 `description LIKE '%title%'` 在标题含 ~ + 【】 等特殊字符时会触发 SQLite
     //   "LIKE or GLOB pattern too complex" 而 500（D1_ERROR）。改用 INSTR(description,?)>0 等价子串匹配规避。
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type IN ('resource','like') AND INSTR(description, ?) > 0", rUid, r.title)
-    // 经验回退后同步重算等级；CAST 确保整数（D1 绑定 number 为 REAL 会导致浮点除法）
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, rUid)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存
+    await syncUserExp(rUid)
   }
   // v4.4.0 删除存储文件：优先 file_meta（B2）→ legacy file_path（Supabase）
   if (rFid) {
@@ -3187,13 +3251,10 @@ app.delete('/api/query/tasks/:id', auth, requireStaffOr('query'), async (c) => {
     const logs = await all<{ user_id: number; exp_change: number }>("SELECT user_id, exp_change FROM exp_logs WHERE action_type='query' AND INSTR(description, ?) > 0", t.title)
     const byUser = new Map<number, number>()
     for (const l of logs) { byUser.set(l.user_id, (byUser.get(l.user_id) || 0) + (l.exp_change || 0)) }
-    for (const [userId, total] of byUser) {
-      if (total) {
-        await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND INSTR(description, ?) > 0", userId, t.title)
-        // 经验回退后同步重算等级
-        // 经验回退后同步重算等级；CAST 确保整数
-        await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, userId)
-      }
+    for (const [userId] of byUser) {
+      await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='query' AND INSTR(description, ?) > 0", userId, t.title)
+      // 【v4.11.0】删除日志后按日志和全量重算缓存
+      await syncUserExp(userId)
     }
   }
   await run('DELETE FROM query_rows WHERE task_id=?', id)
@@ -3315,14 +3376,8 @@ app.delete('/api/exp/logs/:id', auth, requirePerm('exp_logs'), async (c) => {
   const log = await get<any>('SELECT user_id, exp_change FROM exp_logs WHERE id=?', id)
   if (!log) return c.json({ message: '记录不存在' }, 404)
   await run('DELETE FROM exp_logs WHERE id=?', id)
-  // 回退 users.exp（不允许出现负数）
-  await run(
-    `UPDATE users
-        SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
-            level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
-      WHERE id=?`,
-    log.user_id, log.user_id, log.user_id
-  )
+  // 【v4.11.0】删除日志后按日志和全量重算缓存（不允许出现负数）
+  await syncUserExp(log.user_id)
   return c.json({ ok: true, deleted: 1 })
 })
 
@@ -3334,17 +3389,9 @@ app.post('/api/exp/logs/batch-delete', auth, requirePerm('exp_logs'), async (c) 
   // 先取出所有要删除的日志所属用户，后续按用户聚合回退 users.exp
   const logs = await all<any>('SELECT user_id, exp_change FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
   await run('DELETE FROM exp_logs WHERE id IN (' + ids.map(() => '?').join(',') + ')', ...ids)
-  // 去重用户，重新按 SUM(exp_logs.exp_change) 同步 users.exp
+  // 【v4.11.0】去重后按日志和全量重算缓存
   const userIds = Array.from(new Set(logs.map((x: any) => x.user_id)))
-  for (const uid of userIds) {
-    await run(
-      `UPDATE users
-          SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
-              level = (MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60) + 1
-        WHERE id=?`,
-      uid, uid, uid
-    )
-  }
+  await syncUserExpBatch(userIds as number[])
   return c.json({ ok: true, deleted: logs.length, affectedUsers: userIds.length })
 })
 
@@ -3355,7 +3402,9 @@ app.get('/api/leaderboard', async (c) => {
   const period = c.req.query('period') || 'total'
 
   // 获取所有活跃用户基础信息
-  let list = await all<any>('SELECT id,real_name,role,avatar,exp,level FROM users WHERE status=? ORDER BY exp DESC', 'active')
+  // 【v4.11.0】不再信任 users.exp（派生缓存可能滞后），基础列表只取身份字段，
+  //   经验/等级统一在下面按 exp_logs 聚合后回填，保证与「用户管理」页口径一致。
+  let list = await all<any>('SELECT id,real_name,role,avatar FROM users WHERE status=?', 'active')
 
   // 范围过滤
   if (scope === 'class' && classId) {
@@ -3384,7 +3433,10 @@ app.get('/api/leaderboard', async (c) => {
     )
     const expMap = new Map<number, number>()
     for (const r of allExps) expMap.set(r.user_id, r.total)
-    list = list.map(u => ({ ...u, pe: expMap.get(u.id) || 0 })).sort((a, b) => b.pe - a.pe)
+    list = list.map(u => {
+      const total = Math.max(0, expMap.get(u.id) || 0)
+      return { ...u, exp: total, level: Math.floor(total / 60) + 1, pe: total }
+    }).sort((a, b) => b.pe - a.pe)
   } else {
     // 周榜/月榜：从 exp_logs 按时间段聚合真实经验值
     // 计算起始日期（北京时间）
@@ -3416,11 +3468,21 @@ app.get('/api/leaderboard', async (c) => {
     const expMap = new Map<number, number>()
     for (const r of periodExps) expMap.set(r.user_id, r.total)
 
+    // 【v4.11.0】周/月榜同时给出累计经验（真源），供前端显示等级；
+    //   注意：学科榜的 pe 只统计该学科贡献，累计 exp 也应按同一口径累加，
+    //   因此这里用与 total 分支一致的 SUM(全时段) 查询（带同样的 subject 过滤）。
+    const totalExps = await all<{ user_id: number; total: number }>(
+      `SELECT user_id, COALESCE(SUM(exp_change), 0) as total FROM exp_logs WHERE 1=1${subjClause} GROUP BY user_id`,
+      ...(subjArg !== null ? [subjArg] : [])
+    )
+    const totalMap = new Map<number, number>()
+    for (const r of totalExps) totalMap.set(r.user_id, r.total)
+
     // 合并：用户在该时间段内获得的经验值
-    list = list.map(u => ({
-      ...u,
-      pe: expMap.get(u.id) || 0,
-    })).sort((a, b) => b.pe - a.pe)
+    list = list.map(u => {
+      const total = Math.max(0, totalMap.get(u.id) || 0)
+      return { ...u, exp: total, level: Math.floor(total / 60) + 1, pe: expMap.get(u.id) || 0 }
+    }).sort((a, b) => b.pe - a.pe)
   }
 
   return c.json(list)
@@ -5584,12 +5646,9 @@ app.delete('/api/pages/:id', auth, async (c) => {
   if (!isOwner && u?.role !== 'SUPER_ADMIN') return c.json({ message: '无权限删除' }, 403)
   // 删除前直接删除相关的经验值记录
   if (p.author_id && p.title && p.ptype === 'blog') {
-    const logs = await all<{ exp_change: number }>("SELECT exp_change FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
-    const total = logs.reduce((s, l) => s + (l.exp_change || 0), 0)
     await run("DELETE FROM exp_logs WHERE user_id=? AND action_type='blog' AND INSTR(description, ?) > 0", p.author_id, p.title)
-    // 经验回退后同步重算等级
-    // 经验回退后同步重算等级；CAST 确保整数
-    if (total) await run('UPDATE users SET exp = MAX(0, exp - ?), level = CAST(MAX(0, exp - ?) / 60 AS INTEGER) + 1 WHERE id = ?', total, total, p.author_id)
+    // 【v4.11.0】删除日志后按日志和全量重算缓存
+    await syncUserExp(p.author_id)
   }
   await run('DELETE FROM page_comments WHERE page_id=?', id)
   await run('DELETE FROM likes_map WHERE target_type=? AND target_id=?', 'page', id)

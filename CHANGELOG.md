@@ -5,6 +5,172 @@
 
 ---
 
+## [v4.11.0] - 2026-10-03
+
+> **本轮主题：根治经验值「不是最新数据」——确立 `exp_logs` 为唯一真源，`users.exp` 降级为派生缓存。**
+
+### 🐛 问题
+
+用户反馈：**管理界面 → 用户管理 → 「经验」列的数据不是最新数据。**
+
+诊断后发现这是一个**数据一致性事故**，而非显示问题。经验值长期存在两个数据源，靠手写代码同步：
+
+| 数据源 | 角色 | 更新方式 |
+|---|---|---|
+| `exp_logs.exp_change` | **真实流水** | 每次行为 INSERT 一行 |
+| `users.exp` / `users.level` | 派生缓存 | `addExp` 用 `exp = exp + delta` 增量更新 |
+
+**两个泄漏点导致偏差永久固化：**
+
+1. `PATCH /api/users/:id/exp` 直接 `UPDATE users SET exp=?`，**不写日志** —— 缓存被改写，流水不知情
+2. 前端 `saveExp()` **两个分支都执行**：先 `grantExp`（写日志 + 增量），再 `adjustUserExp`（覆盖 exp）—— 两条路径互相打架
+
+**叠加后果：两个接口读不同数据源，同一个人在两个页面显示不同数字**
+
+- `/api/users`（用户管理页）读 `SUM(exp_logs)` → 360
+- `/api/leaderboard`（排行榜）读 `users.exp` → 375
+
+**生产实测漂移（4 名用户）：**
+
+| id | username | users.exp | SUM(exp_logs) | 差 |
+|---|---|---|---|---|
+| 1 | admin | 375 | 360 | +15 |
+| 10 | 白楚涵 | 10 | 20 | −10 |
+| 23 | 梁艺倩 | 5 | 20 | −15 |
+| 51 | 张涵智 | 5 | 20 | −15 |
+
+> 佐证：梁艺倩日志明细 = `login 5` + `admin_adjust 15` = 20，而 `users.exp` 仅 5 —— 说明那条 15 分的调整只在日志里，缓存从未跟随。
+
+### 🔧 变更
+
+**① 新增 `syncUserExp(userId)` 归一函数（核心）**
+
+```ts
+export async function syncUserExp(userId: number) {
+  await run(
+    `UPDATE users
+        SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)),
+            level = CAST(MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE user_id=?), 0)) / 60 AS INTEGER) + 1
+      WHERE id=?`,
+    userId, userId, userId
+  )
+}
+```
+
+**关键设计：放弃增量法，改为全量 SUM 重算。**
+增量法（`exp = exp + delta`）一旦漏写一条日志，偏差会**永久固化且无法自愈**；全量重算是**幂等**的，任何一次调用都会把数据拉回正确值。同时提供 `syncUserExpBatch(userIds)` 批量版本。
+
+**② `addExp` 改为「先记账，后结算」**
+
+```ts
+// 旧：先 UPDATE 缓存，再 INSERT 日志（两处都可能失败其一）
+// 新：先 INSERT 日志（真源），再 syncUserExp 重算缓存
+await run(`INSERT INTO exp_logs (...) VALUES (...)`, ...)
+if (delta !== 0) await syncUserExp(userId)
+```
+
+**③ `PATCH /api/users/:id/exp` 改为「写日志」语义**
+
+不再直接覆盖 `users.exp`，而是把"目标值"翻译成一条补偿日志（`diff = 目标 − 当前日志和`），
+调整动作本身也进入审计流水，**可追溯、可回滚**。单独传 `level` 时按每级 60 分换算同样落成日志。
+
+**④ `/api/leaderboard` 不再信任 `users.exp`**
+
+基础列表只取身份字段（`id,real_name,role,avatar`），经验/等级统一按 `exp_logs` 聚合后回填，
+并同时补 `level` 字段，保证与「用户管理」页**口径完全一致**。
+
+```ts
+list = list.map(u => {
+  const total = Math.max(0, expMap.get(u.id) || 0)
+  return { ...u, exp: total, level: Math.floor(total / 60) + 1, pe: total }
+})
+```
+
+**⑤ 收敛 6 处手写重算 SQL**
+
+删除日志后的经验回退，原先散落在美文删除、资料删除、查询任务删除、博客删除、
+`/api/exp/logs/:id`、`batch-delete` 共 6 处，各自手写 `exp = MAX(0, exp - ?)` 增量回退。
+现全部改为调用 `syncUserExp`，**全文件再无任何 `SET exp=` 直改**（探针强制校验）。
+
+**⑥ 前端调整弹窗重做为「日志制」**
+
+`UsersView.vue` 的 `saveExp()` 原先同时走 `grantExp` + `adjustUserExp` 两个分支。现：
+
+- 去掉「当前经验」「当前等级」两个**输入框**，改为只读展示真源值
+- 保留「经验变动」+「变动原因」，**统一走 `grantExp` 写一条 `admin_adjust` 日志**
+- 实时预览「调整后」结果（增加绿色 / 扣除红色），并显示对应等级
+- 保存前校验非零变动，按钮加 `loading` 防重复提交
+- 弹窗底部提示：经验值以经验记录为唯一真源，可随时在「经验记录」中查看或撤销
+
+### 🗄️ 数据校准
+
+新增迁移 `migrations/0006_exp_single_source.sql` —— **全表幂等校准**，对每个用户按 `SUM(exp_change)` 重算缓存：
+
+```sql
+UPDATE users
+   SET exp = MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE exp_logs.user_id = users.id), 0)),
+       level = CAST(MAX(0, COALESCE((SELECT SUM(exp_change) FROM exp_logs WHERE exp_logs.user_id = users.id), 0)) / 60 AS INTEGER) + 1;
+```
+
+> 迁移设计为**可重复执行**：即使将来再出现漂移，重跑一次即可自愈，无需再写补偿脚本。
+
+### ✅ 验证
+
+**① 新增探针 `scripts/probe-exp-source.mjs`（26 项全通过）**
+
+锁死 7 组不变量，防回归：
+
+1. `syncUserExp` 存在、基于 `SUM(exp_change)`、同时重算 `level`
+2. `addExp` 先 INSERT 日志再 `syncUserExp`，**不得**用增量写法
+3. 全文件（排除注释行）**零** `SET exp=` 直改
+4. `PATCH` 接口不再 `UPDATE users SET exp=?`，改为写 `admin_adjust` 日志
+5. `leaderboard` 基础列表不取 `users.exp`，两个分支都回填真源值
+6. 前端 `saveExp` 只调用一次 `grantExp`，不再调用 `adjustUserExp`
+7. `/api/users` 仍以日志为真源
+
+**② 生产校准结果**
+
+```
+执行 0006 迁移 → changes: 64（全表重算）
+复查漂移：SELECT COUNT(*) ... HAVING exp != SUM(exp_change)  →  0
+```
+
+| id | username | 校准前 | 校准后（= 日志和） |
+|---|---|---|---|
+| 1 | admin | 375 | **360** |
+| 10 | 白楚涵 | 10 | **20** |
+| 23 | 梁艺倩 | 5 | **20** |
+| 51 | 张涵智 | 5 | **20** |
+
+**③ 接口对齐验证**
+
+```
+GET /api/leaderboard?scope=all&period=total
+  1  超级管理员  exp=360  level=7  pe=360
+  44 王瑞明     exp=50   level=1  pe=50
+  10 白楚涵     exp=20   level=1  pe=20
+  23 梁艺倩     exp=20   level=1  pe=20
+  51 张涵智     exp=20   level=1  pe=20
+  exp≠pe 的条数：0      ← 总榜下两者应恒等
+```
+
+**④ 写入闭环实测**（插入 7 分 admin_adjust 日志后立即同步）
+
+```
+INSERT exp_logs → users.exp 20 → 27（level 同步），drift = 0
+排行榜实时返回 exp=27 level=1 pe=27   ← 写入后立即可见
+清理测试数据后 drift = 0
+```
+
+**⑤ 回归**：类型检查 0 错、`pnpm build` 通过、角色探针 31/31、docx 排版探针 54/54、docx e2e 探针 39/39。
+
+### 📁 涉及文件
+
+- **修改 3**：`worker-api.ts`（新增 `syncUserExp`/`syncUserExpBatch`，改 `addExp`/`PATCH exp`/`leaderboard`，收敛 6 处重算 SQL）、`src/views/admin/UsersView.vue`（弹窗重做）、`migrations/` 新增 `0006_exp_single_source.sql`
+- **新增 1**：`scripts/probe-exp-source.mjs`（26 项不变量校验）
+
+---
+
 ## [v4.10.3] - 2026-10-03
 
 > **本轮主题：建立 Cloudflare 部署凭证的记录规范（凭证只存 `.cf_token`，不入文档）。**
