@@ -2,7 +2,7 @@
 // 【v4.5.1】Word 试卷导入（客户端 mammoth 解析，尽力拆分 + 增强题型识别）
 // 说明：开源方案只能「尽力而为」——按题号规则切分，公式/图片尽力保留为文本/标记。
 // 导入后题目标记为「待校对」，教师在富文本里微调。
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 
@@ -263,16 +263,26 @@ function plainPreview(html: string): string {
   return t.length > 120 ? t.slice(0, 120) + '…' : t
 }
 
-// ===== 【v4.12.0】AI 智能识别 =====
+// ===== 【v4.13.0】AI 智能识别 =====
 //
 // 用户反馈「自动切割题目读取答案和解析实在是太难用了」。
 // 正则版的两个硬伤在这里体现得最明显：
 //   ① `analysis: ''` **恒为空** —— 解析根本没被提取过
 //   ② 答案只认"行内紧邻"，卷末独立「参考答案」区块完全关联不上
-// 所以新增 AI 通道：识别时优先走大模型，失败/未配置则回落下面的正则。
-const aiStatus = ref<{ available: boolean; provider: string } | null>(null)
+// 所以新增 AI 通道：识别时优先走大模型，失败/不可用则回落下面的正则。
+//
+// 【v4.13.0】主通道改为 Cloudflare Workers AI：零配置、无需密钥。
+const aiStatus = ref<{ available: boolean; provider: string; effective?: string } | null>(null)
 const aiRunning = ref(false)
 const aiInfo = ref('')
+
+/** 通道中文名（避免用户看到裸的 "cf" / "zhipu"） */
+const AI_CHANNEL_NAME: Record<string, string> = { cf: 'Cloudflare Workers AI', zhipu: '智谱 GLM' }
+
+/** AI 不可用时的说明文案 */
+const aiDisabledReason = computed(() =>
+  'AI 服务不可用，将使用规则识别（可在「管理后台 → AI 设置」检查配置）'
+)
 
 async function loadAiStatus() {
   try { aiStatus.value = await api.aiStatus() as any } catch { aiStatus.value = null }
@@ -282,7 +292,7 @@ loadAiStatus()
 async function aiRecognize() {
   if (aiRunning.value) return
   if (aiStatus.value && !aiStatus.value.available) {
-    ElMessage.warning('未配置 AI 服务密钥，正在使用规则识别')
+    ElMessage.warning(aiDisabledReason.value)
     return
   }
   aiRunning.value = true
@@ -291,7 +301,7 @@ async function aiRecognize() {
     if (!text.trim()) { ElMessage.warning('请先上传 Word 文件'); return }
     const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
-      ElMessage.warning(`AI 识别未生效${r?.available === false ? '（未配置密钥）' : ''}，已保留规则识别结果`)
+      ElMessage.warning(`AI 识别未生效${r?.available === false ? '（AI 服务不可用）' : ''}，已保留规则识别结果`)
       return
     }
     preview.value = r.questions.map((q: any) => ({
@@ -304,7 +314,7 @@ async function aiRecognize() {
       score: q.score ?? defaults.score,
       status: 'imported_needs_review',
     }))
-    const providerName = r.provider === 'gemini' ? 'Gemini' : r.provider === 'zhipu' ? '智谱 GLM' : r.provider
+    const providerName = AI_CHANNEL_NAME[r.provider] || r.provider
     aiInfo.value = `${providerName} · ${preview.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
     ElMessage.success(`AI 识别完成：${preview.value.length} 道题（含答案与解析）`)
   } catch (e: any) {
@@ -343,7 +353,7 @@ async function onConfirm() {
       <span v-if="file" class="fname">{{ file.name }}</span>
       <el-tooltip
         :content="aiStatus && !aiStatus.available
-          ? '未配置 AI 密钥，将使用规则识别'
+          ? aiDisabledReason
           : '用大模型重新识别：自动读取卷末参考答案与解析'"
         placement="top"
       >

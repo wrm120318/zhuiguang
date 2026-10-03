@@ -59,6 +59,7 @@ const menus = computed(() => {
     { name: 'admin-exp-logs', label: '经验记录', icon: 'Tickets', perm: 'exp_logs' },
     { name: 'admin-feature-flags', label: '功能开关', icon: 'Grid', perm: 'feature_flags' },
     { name: 'admin-theme', label: '界面风格', icon: 'Brush', perm: 'theme' },
+    { name: 'admin-ai-settings', label: 'AI 设置', icon: 'MagicStick', perm: 'ai_settings' },
     { name: 'admin-monitor', label: '运行监控', icon: 'Monitor', perm: 'monitor' },
   ]
   return list.filter(m => {

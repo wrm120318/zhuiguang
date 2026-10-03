@@ -855,7 +855,7 @@ function qtypeLabel(q: string): string {
   return ({ single: '单选', multiple: '多选', judge: '判断', fill: '填空', subjective: '主观' } as any)[q] || '主观'
 }
 
-// ===== 【v4.12.0】AI 智能识别 =====
+// ===== 【v4.13.0】AI 智能识别 =====
 //
 // 用户反馈：「自动切割题目读取答案和解析实在是太难用了」。
 // 正则的根本局限（无论怎么调）：
@@ -864,15 +864,37 @@ function qtypeLabel(q: string): string {
 //   · 答案与解析混在题干里的各种排版无法区分
 // 所以这里把「结构识别」交给大模型，**正则只作为降级兜底**：
 //   AI 可用 → 用 AI 结果重建 boundaries + drafts
-//   AI 不可用（无 Key / 超限 / 网络失败）→ 保持正则结果，并明确提示
-const aiStatus = ref<{ available: boolean; provider: string; gemini: boolean; zhipu: boolean; modelGemini: string; modelZhipu: string } | null>(null)
+//   AI 不可用（模型不可用 / 超限 / 网络失败）→ 保持正则结果，并明确提示
+//
+// 【v4.13.0 变更】主通道改为 Cloudflare Workers AI：**零配置、无密钥**，
+//   只要 Worker 绑定了 [ai] 就可用（免费档每天 1 万神经元）。智谱为可选备份，
+//   超管可在「管理后台 → AI 设置」里填 Key 并切换服务商。
+const aiStatus = ref<{ available: boolean; provider: string; effective?: string; cf: boolean; zhipu: boolean; modelCf: string; modelZhipu: string } | null>(null)
 const aiRunning = ref(false)
 const aiInfo = ref('')          // 上次识别结果摘要（服务商 / 题数 / 耗时）
+
+/** 通道中文名（用于提示文案，避免用户看到裸的 "cf" / "zhipu"） */
+const AI_CHANNEL_NAME: Record<string, string> = { cf: 'Cloudflare Workers AI', zhipu: '智谱 GLM' }
 
 onMounted(async () => {
   try {
     aiStatus.value = await api.aiStatus() as any
   } catch { aiStatus.value = null }
+})
+
+/** AI 按钮不可用时的说明文案（区分"没通道"与"通道挂了"） */
+const aiDisabledReason = computed(() =>
+  'AI 服务不可用，将使用规则识别（可在「管理后台 → AI 设置」检查配置）'
+)
+
+/** AI 按钮 tooltip 里的"当前通道"文案 */
+const aiChannelText = computed(() => {
+  const s = aiStatus.value
+  if (!s) return '未知'
+  const eff = s.effective || s.provider
+  if (eff === 'cf') return 'Cloudflare Workers AI（免费）'
+  if (eff === 'zhipu') return '智谱 GLM'
+  return '自动：Cloudflare Workers AI → 智谱'
 })
 
 /**
@@ -887,7 +909,7 @@ async function aiRecognize() {
   if (aiRunning.value) return
   if (!blocks.value.length) { ElMessage.warning('请先选择 Word 文件'); return }
   if (aiStatus.value && !aiStatus.value.available) {
-    ElMessage.warning('未配置 AI 服务密钥，正在使用规则识别（可在部署配置中添加 GEMINI_API_KEY / ZHIPU_API_KEY）')
+    ElMessage.warning(aiDisabledReason.value)
     return
   }
   aiRunning.value = true
@@ -898,7 +920,7 @@ async function aiRecognize() {
     const text = blocks.value.map(b => b.text).filter(Boolean).join('\n')
     const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
-      const why = r?.available === false ? '（未配置 AI 密钥）' : `（${r?.message || '识别失败'}）`
+      const why = r?.available === false ? '（AI 服务不可用）' : `（${r?.message || '识别失败'}）`
       ElMessage.warning(`AI 识别未生效${why}，已保留规则识别结果`)
       return
     }
@@ -976,7 +998,7 @@ async function aiRecognize() {
     await nextTick()
     layoutOverlay()
 
-    const providerName = r.provider === 'gemini' ? 'Gemini' : r.provider === 'zhipu' ? '智谱 GLM' : r.provider
+    const providerName = AI_CHANNEL_NAME[r.provider] || r.provider
     aiInfo.value = `${providerName} · ${drafts.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
     const warn = unfound ? `（${unfound} 题未精确匹配位置，已自动对齐）` : ''
     ElMessage.success(`AI 识别完成：${drafts.value.length} 道题${warn}`)
@@ -1448,8 +1470,8 @@ onUnmounted(() => {
           <div class="zs-left-actions">
             <el-tooltip
               :content="aiStatus && !aiStatus.available
-                ? '未配置 AI 密钥，将使用规则识别（可在部署配置中添加 GEMINI_API_KEY / ZHIPU_API_KEY）'
-                : `AI 智能识别题目结构（当前：${aiStatus?.provider === 'zhipu' ? '智谱 GLM' : aiStatus?.provider === 'gemini' ? 'Gemini' : 'Gemini → 智谱 自动切换'}）`"
+                ? aiDisabledReason
+                : `AI 智能识别题目结构（当前：${aiChannelText}）`"
               placement="top"
             >
               <el-button

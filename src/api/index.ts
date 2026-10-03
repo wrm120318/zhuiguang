@@ -162,10 +162,14 @@ export const api = {
   deleteUser: (id: number) => http.delete(`/api/users/${id}`),
   adjustUserExp: (id: number, data: { exp?: number; level?: number }) => http.patch(`/api/users/${id}/exp`, data),
   grantExp: (data: { userId: number; change: number; actionType: string; description: string }) => http.post('/api/exp/logs', data),
-  // 【v4.12.0】AI 试卷识别（双服务：Gemini / 智谱，不可用时后端返回 available:false 由前端回落正则）
+  // 【v4.13.0】AI 试卷识别（双通道：Cloudflare Workers AI 零配置 / 智谱可选）
   aiStatus: () => http.get('/api/ai/status'),
   aiParsePaper: (data: { text?: string; html?: string; subjectId?: number }) =>
     http.post('/api/ai/parse-paper', data, { timeout: 70000 }),
+  // 【v4.13.0】AI 设置（超管在后台配置智谱 Key / 切换服务商）
+  getAiConfig: () => http.get('/api/settings/ai_config'),
+  saveAiConfig: (config: any) => http.put('/api/settings/ai_config', config),
+  testAiConfig: () => http.post('/api/settings/ai_config/test', {}, { timeout: 45000 }),
   updateProfile: (data: any) => http.patch('/api/profile', data),
   changePassword: (oldPassword: string, newPassword: string) => http.post('/api/profile/password', { oldPassword, newPassword }),
   uploadAvatar: async (file: File) => {

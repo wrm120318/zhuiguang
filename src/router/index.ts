@@ -84,6 +84,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'exp-logs', name: 'admin-exp-logs', component: () => import('@/views/admin/ExpLogsView.vue') },
       { path: 'feature-flags', name: 'admin-feature-flags', component: () => import('@/views/admin/FeatureFlagsView.vue') },
       { path: 'site-config', name: 'admin-site-config', component: () => import('@/views/admin/SiteConfigView.vue') },
+      // 【v4.13.0】AI 设置（试卷识别的模型 / 智谱 Key）
+      { path: 'ai-settings', name: 'admin-ai-settings', component: () => import('@/views/admin/AiSettingsView.vue') },
       // 需求5：网站运行监控（仅超管）
       { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/MonitorView.vue') },
     ]

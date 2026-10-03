@@ -26,6 +26,7 @@ export const PERM_KEYS = [
   'feature_flags',
   'theme',
   'monitor',
+  'ai_settings',
 ] as const
 
 export type PermKey = typeof PERM_KEYS[number]
@@ -45,6 +46,7 @@ export const PERM_LABELS: Record<PermKey, string> = {
   feature_flags: '功能开关',
   theme: '界面风格',
   monitor: '运行监控',
+  ai_settings: 'AI 设置',
 }
 
 /** 权限 key → 一句话说明（勾选框下方提示，帮助超管理解影响范围） */
@@ -62,6 +64,7 @@ export const PERM_DESC: Record<PermKey, string> = {
   feature_flags: '开关注册、发帖等功能开关',
   theme: '管理界面主题风格',
   monitor: '查看运行监控、存储用量、缓存与预热、数据迁移',
+  ai_settings: '配置试卷 AI 识别（智谱 API Key、模型与服务商切换）',
 }
 
 /** 判断某个 key 是否合法 */

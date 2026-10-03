@@ -5,6 +5,84 @@
 
 ---
 
+## [v4.13.0] - 2026-10-03
+
+### 主题：试卷 AI 识别改用 Cloudflare Workers AI（零配置、免申请密钥）+ 超管可在后台配 AI
+
+> 背景：v4.12.0 接了 Google Gemini 作为试卷识别的首选通道，但用户反馈
+> 「就是 Google 这个我弄不了」—— Gemini 要求自行到 AI Studio 申请 Key，
+> 中国用户申请困难（需科学上网 + 海外手机号）。同时用户提出
+> 「智谱的 api 我完了给你，或者是超级管理员可以在管理界面设置」。
+> 本版本按此重做 AI 接入。
+
+### 新增
+
+- **Cloudflare Workers AI 通道（主力，零配置零密钥）**
+  - 通过 `wrangler.toml` 的 `[ai] binding = "AI"` 绑定，Worker 内直接 `env.AI.run()`，
+    **不需要任何 API Key**，不走公网、不经手任何密钥。
+  - 免费额度：每天 **10000 神经元**（无需信用卡）。
+  - 主力模型 **`@cf/zai-org/glm-4.7-flash`**（智谱 GLM）：中文试卷理解最好。
+  - 备用模型 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`：JSON 输出最规范。
+  - **模型级降级**：主力模型调用失败 → 自动改用备用模型（两个模型名相同时不重复调用）。
+- **超管后台「AI 设置」页**（`/admin/ai-settings`，新增 `ai_settings` 权限）
+  - 服务商优先级切换：`自动` / `仅 Cloudflare Workers AI` / `仅智谱 GLM`。
+  - 智谱 API Key 输入（密码框 + 显示/隐藏），Key 存 D1 `settings` 表。
+  - 主力/备用模型下拉选择（候选清单实测均在免费额度内可用）。
+  - **「测试连接」按钮**：用一道真题实测当前配置，返回真实题目与神经元用量。
+  - 实时状态卡：AI 可用性 / 实际生效通道 / CF 是否就绪 / 智谱是否已配。
+- **新增后端接口**（worker-api.ts 与 server/index.ts 行为完全一致）：
+  - `GET /api/settings/ai_config` — 读取配置（**Key 脱敏后下发**）
+  - `PUT /api/settings/ai_config` — 保存配置
+  - `POST /api/settings/ai_config/test` — 连接测试（真实调用）
+- 新增探针 `scripts/probe-ai-settings.mjs`（74 项断言），覆盖脱敏、保存防清空、配置优先级、三处权限键一致。
+
+### 变更
+
+- **`shared/ai-paper.ts` 重写为双通道**：删除全部 Gemini 实现，改为 `callCfAi` + `callZhipu`。
+- `AiEnv` 字段更新：新增 `AI?: AiBindingLike`（Worker 绑定）、`AI_MODEL_CF`、`AI_MODEL_CF_FALLBACK`；
+  移除 `GEMINI_API_KEY`、`AI_MODEL_GEMINI`、`AI_BASE_GEMINI`。
+- `AI_PROVIDER` 取值由 `gemini|zhipu|auto` 改为 **`cf|zhipu|auto`**（默认 `auto` = 先 CF 失败切智谱）。
+- `AI_MODEL_ZHIPU` 默认仍为 `glm-4-flash`。
+- `wrangler.toml`：新增 `[ai]` 绑定，移除 `GEMINI_API_KEY` / `AI_MODEL_GEMINI`。
+- 前端提示文案不再提「配置密钥」，改为指向「管理后台 → AI 设置」。
+
+### 修复（本版探针实测抓出的真实缺陷）
+
+- **`options` 为对象形态时会整个丢失**：实测 `@cf/zai-org/glm-4.7-flash` 会输出
+  `{"A":"…","B":"…"}` 而非数组。新增 `normalizeOptions()` 统一归一三种形态
+  （数组 / 对象 / `[{选项,内容}]`），对象按键名字母序排序保证选项顺序稳定。
+- **模型会漂移成中文键名**：实测 GLM 在中文 prompt 下输出
+  `{"题目":"…","选项":[…],"答案":"B","解析":"…"}`，原实现只认英文键 → 整题丢失。
+  新增 `pick()` 同时认中英文键；并强化 prompt 显式给出英文 JSON 骨架。
+- **`configured` 判定导致环境变量被默认值顶掉**：`sanitizeAiConfig` 原会给空字段
+  填默认值，导致超管「只改 provider」时把部署时配好的 `AI_MODEL_CF` 等环境变量静默覆盖。
+  改为空字段保持空串，真正的兜底交给 `mergeAiConfig`。
+- **纯空白 Key 会清空已配置的 Key**：`'   '` 既不等于 `''` 也不含 `****`，
+  会被 trim 成空串把真 Key 覆盖掉。改为先 trim 再判空。
+- **REST 路径 URL 拼错**：设了 `AI_BASE_CF` 时会整个丢掉 `/accounts/{id}` 段，
+  导致本地无法直连真实 CF API。改为 base 只替换 host。
+- **思维链消耗**：GLM / Qwen3 默认把大段推理塞进 `reasoning`，单题烧 1000+ token。
+  统一带 `chat_template_kwargs.enable_thinking = false`，实测 `reasoning` 归零而 `content` 不受影响。
+
+### 实测数据（真实样卷，含卷末独立「参考答案与解析」区块）
+
+| 模型 | 识别题数 | 耗时 | 神经元 |
+|---|---|---|---|
+| `@cf/zai-org/glm-4.7-flash`（默认主力） | 6 / 6 | 9.7 s | 36.05 |
+| `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（备用） | 6 / 6 | 17.2 s | 203.22 |
+
+两个模型均正确处理了：混乱题号（`1.` / `2、`）、四种题型（单选/多选/填空/解答）、
+选项前缀（`A.` / `A)`）、以及**卷末独立答案区回填到对应题目**（这是正则根本做不到的）。
+GLM 更省（**1/5.6** 消耗）、更快（**1.8×**），故定为默认主力。
+
+### 注意
+
+- 需在 Cloudflare 后台确认本账号已开通 Workers AI，且 `wrangler deploy` 后 `[ai]` 绑定生效。
+  未绑定时功能自动回落正则识别，**不会报错、不影响使用**。
+- 智谱 Key 为**可选**备份；不配置时纯靠 CF 通道即可工作。
+
+---
+
 ## [v4.12.0] - 2026-10-04
 
 > **本轮主题：修好 Word 试卷导入的两大顽疾 ——「拖动分割题」与「自动切割/读取答案解析」，并接入免费 AI 做结构识别。**

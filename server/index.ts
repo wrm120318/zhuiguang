@@ -9,7 +9,12 @@ import { initDB, all, get, run } from './db'
 import { signToken, auth, requireRole, requirePerm, requireStaff, requireStaffOr, requireSubjectStaff, hasPerm, parsePerms, withPerms, PERM_KEYS } from './auth'
 import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled, syncUserExp, syncUserExpBatch } from './helpers'
 // ===== v4.12.0 AI 试卷识别（与 Worker 共用同一份实现，铁律#11 三处一致）=====
-import { aiParsePaper, aiAvailable, type AiEnv } from '../shared/ai-paper'
+import {
+  aiParsePaper, aiAvailable, effectiveProvider,
+  DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
+  AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
+  type AiEnv,
+} from '../shared/ai-paper'
 import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR, createPresignedUploadUrl } from './storage'
 import bcrypt from 'bcryptjs'
 import multer from 'multer'
@@ -2808,37 +2813,71 @@ app.get('/api/admin/audit/forum-posts', auth, async (req, res) => {
 // 论坛评论 = 直接复用 /api/pages/:id/comments
 
 // ==============================================================================
-// ============ 【v4.12.0】AI 试卷识别（与 Worker 同一份实现）============
+// ============ 【v4.13.0】AI 试卷识别（与 Worker 同一份实现）============
 // ==============================================================================
 //
 // 说明见 worker-api.ts 的同名区块。这里保持**完全一致的行为**：
-//   · 同样的双服务（Gemini / 智谱）、同样的降级（两家都不可用 → 前端回落正则）
+//   · 同样的双通道（Cloudflare Workers AI / 智谱）、同样的降级
+//   · 同样的"后台配置优先于环境变量"口径
 //   · 同样的权限口径（教师须任教该学科）
-// 密钥从 .env / 环境变量读取（本地开发用 .env，与 wrangler.toml 的 [vars] 对应）。
+//
+// ⚠️ 本地没有 Worker 的 [ai] 绑定，所以通道 A 只能走 REST 路径，
+//    需要在环境变量里给 CF_ACCOUNT_ID / CF_API_TOKEN。
+//    拿不到时通道 A 自动跳过，行为与"未绑定"一致 —— 不会崩。
+
+/** 本地无 Worker 绑定，把 CF 凭据挂到 globalThis 供共享模块的 REST 路径读取 */
+function syncCfGlobals() {
+  ;(globalThis as any).__CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
+  ;(globalThis as any).__CF_API_TOKEN = process.env.CF_API_TOKEN
+}
 
 function readAiEnv(): AiEnv {
+  syncCfGlobals()
   return {
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     ZHIPU_API_KEY: process.env.ZHIPU_API_KEY,
     AI_PROVIDER: process.env.AI_PROVIDER,
-    AI_MODEL_GEMINI: process.env.AI_MODEL_GEMINI,
+    AI_MODEL_CF: process.env.AI_MODEL_CF,
+    AI_MODEL_CF_FALLBACK: process.env.AI_MODEL_CF_FALLBACK,
     AI_MODEL_ZHIPU: process.env.AI_MODEL_ZHIPU,
     // 仅测试用：把请求指向本地 mock（生产不设这两个变量）
-    AI_BASE_GEMINI: process.env.AI_BASE_GEMINI,
+    AI_BASE_CF: process.env.AI_BASE_CF,
     AI_BASE_ZHIPU: process.env.AI_BASE_ZHIPU,
   }
 }
 
+/**
+ * 读取超管在后台配置的 AI 设置（与 Worker 版行为一致，故意不缓存）。
+ * 表不存在 / JSON 损坏都不能让 AI 功能垮掉 —— 一律回落环境变量。
+ */
+async function readAiConfig(): Promise<ReturnType<typeof sanitizeAiConfig>> {
+  try {
+    const r = await get<{ value: string }>('SELECT value FROM settings WHERE key=?', AI_CONFIG_KEY)
+    if (!r?.value) return { ...DEFAULT_AI_CONFIG }
+    return sanitizeAiConfig(JSON.parse(r.value))
+  } catch {
+    return { ...DEFAULT_AI_CONFIG }
+  }
+}
+
+/** 基础设施(环境变量) ⊕ 后台配置(DB)，后台优先 —— 与 Worker 版口径一致 */
+async function aiEnv(): Promise<AiEnv> {
+  const cfg = await readAiConfig()
+  return mergeAiConfig(readAiEnv(), cfg)
+}
+
 app.get('/api/ai/status', auth, async (_req, res) => {
-  const env = readAiEnv()
-  const provider = (env.AI_PROVIDER || 'auto').toLowerCase()
+  const env = await aiEnv()
+  const cfg = await readAiConfig()
   res.json({
     available: aiAvailable(env),
-    provider,
-    gemini: !!env.GEMINI_API_KEY,
+    provider: (env.AI_PROVIDER || 'auto').toLowerCase(),
+    effective: effectiveProvider(env),
+    cf: !!(env.AI || env.AI_BASE_CF),
     zhipu: !!env.ZHIPU_API_KEY,
-    modelGemini: env.AI_MODEL_GEMINI || 'gemini-2.0-flash',
-    modelZhipu: env.AI_MODEL_ZHIPU || 'glm-4-flash',
+    modelCf: env.AI_MODEL_CF || DEFAULT_MODEL_CF,
+    modelCfFallback: env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK,
+    modelZhipu: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU,
+    zhipuKeyMasked: maskKey(cfg.zhipuKey || env.ZHIPU_API_KEY),
   })
 })
 
@@ -2875,9 +2914,9 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
     }
   }
 
-  const env = readAiEnv()
+  const env = await aiEnv()
   if (!aiAvailable(env)) {
-    return res.json({ ok: false, available: false, message: '未配置 AI 服务密钥，已使用规则识别', questions: [] })
+    return res.json({ ok: false, available: false, message: 'AI 服务不可用，已使用规则识别', questions: [] })
   }
 
   const started = Date.now()
@@ -2896,6 +2935,70 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
     provider: result.provider, model: result.model,
     questions: result.questions, attempts: result.attempts,
     usage: result.usage, elapsed,
+  })
+})
+
+// ==============================================================================
+// ============ 【v4.13.0】AI 设置（与 Worker 同一份实现）============
+// ==============================================================================
+// 说明见 worker-api.ts 的同名区块：
+//   · GET 返回的智谱 Key 必须脱敏
+//   · PUT 收到脱敏串/空串 → 视为"没改 Key"，保留原值
+// ==============================================================================
+
+app.get('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (_req, res) => {
+  const cfg = await readAiConfig()
+  const env = await aiEnv()
+  res.json({
+    ...cfg,
+    zhipuKey: maskKey(cfg.zhipuKey),
+    zhipuKeyMasked: maskKey(cfg.zhipuKey),
+    available: aiAvailable(env),
+    effective: effectiveProvider(env),
+    cfReady: !!(env.AI || env.AI_BASE_CF),
+    zhipuReady: !!env.ZHIPU_API_KEY,
+  })
+})
+
+app.put('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (req, res) => {
+  const body = req.body || {}
+  const prev = await readAiConfig()
+  // 前端回显的是脱敏串（含 ****），用户不动它就提交 —— 必须识别并保留原 Key。
+  // **纯空白也算未修改**（实测踩到过：`'   '` 被 trim 成空串把 Key 清掉了）。
+  const incoming = String(body?.zhipuKey ?? '').trim()
+  const looksMasked = incoming.includes('****')
+  const zhipuKey = (incoming === '' || looksMasked) ? prev.zhipuKey : incoming
+
+  const next = sanitizeAiConfig({ ...body, zhipuKey })
+  await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", AI_CONFIG_KEY, JSON.stringify(next))
+  res.json({ ok: true })
+})
+
+app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async (_req, res) => {
+  const env = await aiEnv()
+  if (!aiAvailable(env)) {
+    return res.json({ ok: false, message: 'AI 服务不可用：未绑定 Workers AI，且未配置智谱 Key' })
+  }
+  const sample = [
+    '1. 下列函数中，在区间(0,+∞)上是增函数的是（    ）',
+    'A. y = -x + 1    B. y = 1/x    C. y = x²    D. y = (1/2)^x',
+    '【答案】C 【解析】y=x² 在 (0,+∞) 上单调递增。',
+  ].join('\n')
+  const started = Date.now()
+  const result = await aiParsePaper(env, sample, { timeoutMs: 30000, maxChars: 5000 })
+  const elapsed = Date.now() - started
+  const ok = !!result?.questions?.length
+  res.json({
+    ok,
+    provider: result?.provider || '',
+    model: result?.model || '',
+    questions: result?.questions || [],
+    attempts: result?.attempts || [],
+    usage: result?.usage,
+    elapsed,
+    message: ok
+      ? `连接成功（${result?.provider} / ${result?.model}，耗时 ${elapsed}ms）`
+      : '连接失败：请检查下方错误详情',
   })
 })
 

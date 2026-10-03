@@ -15,8 +15,13 @@ import {
   getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, b2DownloadStream, supaExtractKey,
   runBucketCensus, getOfficialDaily, setOfficialDaily,
 } from './storage-layer'
-// ===== v4.12.0 AI 试卷识别（Gemini + 智谱双服务，共享模块）=====
-import { aiParsePaper, aiAvailable, type AiEnv } from './shared/ai-paper'
+// ===== v4.13.0 AI 试卷识别（Cloudflare Workers AI + 智谱双通道，共享模块）=====
+import {
+  aiParsePaper, aiAvailable, effectiveProvider,
+  DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
+  AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
+  type AiEnv, type AiBindingLike,
+} from './shared/ai-paper'
 
 // ===== Workers 环境变量类型 =====
 interface Env {
@@ -39,14 +44,16 @@ interface Env {
   CACHE_TTL_PUBLIC?: string
   CACHE_TTL_WEBP?: string
   CACHE_TTL_PRIVATE?: string
-  // ===== v4.12.0 AI 试卷识别（密钥只走 wrangler [vars]/secret，不落文件）=====
-  GEMINI_API_KEY?: string
+  // ===== v4.13.0 AI 试卷识别（通道 A 走下面 [ai] 绑定，无需 Key）=====
+  //   AI 绑定由 wrangler.toml 的 [ai] binding 提供，是"零配置"的关键
+  AI?: AiBindingLike
   ZHIPU_API_KEY?: string
-  AI_PROVIDER?: string          // gemini | zhipu | auto（默认 auto）
-  AI_MODEL_GEMINI?: string
+  AI_PROVIDER?: string          // cf | zhipu | auto（默认 auto）
+  AI_MODEL_CF?: string
+  AI_MODEL_CF_FALLBACK?: string
   AI_MODEL_ZHIPU?: string
   /** 仅测试用：把请求指向本地 mock（生产不配置） */
-  AI_BASE_GEMINI?: string
+  AI_BASE_CF?: string
   AI_BASE_ZHIPU?: string
 }
 
@@ -71,9 +78,12 @@ let CACHE_TTL_PUBLIC = '86400'
 let CACHE_TTL_WEBP = '2592000'
 let CACHE_TTL_PRIVATE = '0'
 
-// ===== v4.12.0 AI 试卷识别配置（请求中间件从 c.env 注入）=====
+// ===== v4.13.0 AI 试卷识别配置（请求中间件从 c.env 注入）=====
 //   直接复用共享模块的 AiEnv 类型，避免两处字段漂移（铁律#11）。
+//   注意：这里只放"基础设施"部分（env.AI 绑定 + 环境变量兜底值）；
+//   超管在后台改的配置存 D1，**每次请求实时合并**（见 aiEnv()），不缓存在这个变量上。
 let AI_ENV: AiEnv = {}
+let AI_BINDING: AiBindingLike | undefined
 
 // ===== 互斥锁（self-repair 和 __zg_fix 共用） =====
 const SELF_REPAIR_LOCK = { at: 0 }
@@ -120,6 +130,7 @@ export const PERM_KEYS = [
   'feature_flags', // 功能开关
   'theme',         // 界面风格
   'monitor',       // 运行监控
+  'ai_settings',   // AI 设置（v4.13.0）
 ] as const
 export type PermKey = typeof PERM_KEYS[number]
 
@@ -1110,15 +1121,16 @@ app.use('*', async (c, next) => {
   CACHE_TTL_PUBLIC = c.env.CACHE_TTL_PUBLIC || CACHE_TTL_PUBLIC
   CACHE_TTL_WEBP = c.env.CACHE_TTL_WEBP || CACHE_TTL_WEBP
   CACHE_TTL_PRIVATE = c.env.CACHE_TTL_PRIVATE || CACHE_TTL_PRIVATE
-  // 【v4.12.0】AI 试卷识别凭据注入（只在这里读取一次，后续从 AI_ENV 取）
-  //   AI_BASE_* 仅用于测试（指向本地 mock），生产环境不配置。
+  // 【v4.13.0】AI 试卷识别注入：只在这里读一次环境变量，通道 A 的 AI 绑定单独存。
+  //   后台配置存 D1、每次请求实时合并（见 aiEnv()），保证超管改完立刻生效。
+  AI_BINDING = c.env.AI
   AI_ENV = {
-    GEMINI_API_KEY: c.env.GEMINI_API_KEY,
     ZHIPU_API_KEY: c.env.ZHIPU_API_KEY,
     AI_PROVIDER: c.env.AI_PROVIDER,
-    AI_MODEL_GEMINI: c.env.AI_MODEL_GEMINI,
+    AI_MODEL_CF: c.env.AI_MODEL_CF,
+    AI_MODEL_CF_FALLBACK: c.env.AI_MODEL_CF_FALLBACK,
     AI_MODEL_ZHIPU: c.env.AI_MODEL_ZHIPU,
-    AI_BASE_GEMINI: c.env.AI_BASE_GEMINI,
+    AI_BASE_CF: c.env.AI_BASE_CF,
     AI_BASE_ZHIPU: c.env.AI_BASE_ZHIPU,
   }
   initStorage(D1, {
@@ -4699,7 +4711,7 @@ async function linkKnowledge(questionId: number, ids: any) {
 }
 
 // ==============================================================================
-// ============ 【v4.12.0】AI 试卷识别（自动切割 + 读答案/解析）============
+// ============ 【v4.13.0】AI 试卷识别（自动切割 + 读答案/解析）============
 // ==============================================================================
 //
 // 【为什么加这个】
@@ -4707,25 +4719,61 @@ async function linkKnowledge(questionId: number, ids: any) {
 //   答案只在行内紧邻才认、卷末「参考答案」区块完全关联不上、解析常年为空。
 //   这里把「结构识别」交给大模型，正则只作降级兜底。
 //
-// 【双服务（用户决策：两家都接、可切换）】
-//   Gemini 2.0 Flash（免费 1500 次/天，上下文大）↔ 智谱 GLM-4-Flash（国内直连）
-//   AI_PROVIDER=gemini|zhipu|auto（默认 auto = 先 Gemini 失败切智谱）
-//   两家都不可用时返回 available:false，前端**自动回落正则**，功能永不中断。
+// 【双通道（v4.13.0 从 Gemini 迁移到 Cloudflare Workers AI）】
+//   通道 A Cloudflare Workers AI —— 走 [ai] 绑定，**零密钥、零配置**，
+//          免费档每天 10000 神经元；主力 glm-4.7-flash，备用 llama-3.3-70b
+//   通道 B 智谱开放平台 —— 超管在管理后台填 Key，存 D1 settings 表
+//   AI_PROVIDER=cf|zhipu|auto（默认 auto = 先 CF 失败切智谱）
+//   两通道都不可用时返回 available:false，前端**自动回落正则**，功能永不中断。
 //
-// 【安全】只读环境变量，密钥不落文件、不进日志（错误信息里也不回显 key）。
+// 【安全】密钥只从后台配置/环境变量读取，不落文件、不进日志（错误里也不回显）。
 // ==============================================================================
+
+/**
+ * 读取超管在后台配置的 AI 设置。
+ *
+ * 每次请求都读一次？——是的，且**故意不缓存**。
+ *   理由：AI 配置变更频率极低（可能几个月一次），但一旦改动，超管期望
+ *   "点保存 → 立刻生效"。D1 单点查询 <10ms，相比一次 AI 调用的几十秒可忽略。
+ *   相比之下，缓存会让"我明明改了怎么没用"成为一类难以排查的问题。
+ */
+async function readAiConfig(): Promise<ReturnType<typeof sanitizeAiConfig>> {
+  try {
+    const r = await get<{ value: string }>("SELECT value FROM settings WHERE key=?", AI_CONFIG_KEY)
+    if (!r?.value) return { ...DEFAULT_AI_CONFIG }
+    return sanitizeAiConfig(JSON.parse(r.value))
+  } catch {
+    // 表不存在/JSON 损坏都不能让 AI 功能整体垮掉 —— 回落到环境变量
+    return { ...DEFAULT_AI_CONFIG }
+  }
+}
+
+/**
+ * 组装本次请求实际生效的 AiEnv = 基础设施(env.AI 绑定 + 环境变量) ⊕ 后台配置。
+ * 后台配置优先（超管在界面上改的东西必须立刻生效）。
+ */
+async function aiEnv(): Promise<AiEnv> {
+  const cfg = await readAiConfig()
+  return { ...mergeAiConfig(AI_ENV, cfg), AI: AI_BINDING }
+}
+
 
 /** AI 可用性（前端据此决定按钮是否置灰 + 显示当前服务商） */
 app.get('/api/ai/status', auth, async (c) => {
-  const env = AI_ENV as AiEnv
-  const provider = (env.AI_PROVIDER || 'auto').toLowerCase()
+  const env = await aiEnv()
+  const cfg = await readAiConfig()
   return c.json({
     available: aiAvailable(env),
-    provider,
-    gemini: !!env.GEMINI_API_KEY,
+    provider: (env.AI_PROVIDER || 'auto').toLowerCase(),
+    // 实际会生效的通道（考虑可用性后的结果，比 provider 更能反映真相）
+    effective: effectiveProvider(env),
+    cf: !!(env.AI || env.AI_BASE_CF),
     zhipu: !!env.ZHIPU_API_KEY,
-    modelGemini: env.AI_MODEL_GEMINI || 'gemini-2.0-flash',
-    modelZhipu: env.AI_MODEL_ZHIPU || 'glm-4-flash',
+    modelCf: env.AI_MODEL_CF || DEFAULT_MODEL_CF,
+    modelCfFallback: env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK,
+    modelZhipu: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU,
+    // 脱敏后的智谱 Key，供后台确认"配没配"，绝不明文回显
+    zhipuKeyMasked: maskKey(cfg.zhipuKey || env.ZHIPU_API_KEY),
   })
 })
 
@@ -4777,10 +4825,11 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     }
   }
 
-  const env = AI_ENV as AiEnv
+  const env = await aiEnv()
   if (!aiAvailable(env)) {
-    // 明确告知"没配 Key"，前端据此直接用正则、不弹错误（这是预期路径，不是故障）
-    return c.json({ ok: false, available: false, message: '未配置 AI 服务密钥，已使用规则识别', questions: [] })
+    // 明确告知"没配 AI"，前端据此直接用正则、不弹错误（这是预期路径，不是故障）
+    // v4.13.0：通道 A 只要 [ai] 绑定在就可用，正常情况下走不到这里
+    return c.json({ ok: false, available: false, message: 'AI 服务不可用，已使用规则识别', questions: [] })
   }
 
   const started = Date.now()
@@ -4807,6 +4856,92 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     attempts: result.attempts,
     usage: result.usage,
     elapsed,
+  })
+})
+
+// ==============================================================================
+// ============ 【v4.13.0】AI 设置（超管在后台配置智谱 Key / 切换服务商）============
+// ==============================================================================
+//
+// 【为什么要有这两个接口】
+//   用户原话：「Google 这个我弄不了」+「智谱的 api 我完了给你 或者是
+//   超级管理员可以在管理界面设置」。所以：
+//     · 通道 A（Cloudflare Workers AI）零配置可用，不需要任何界面
+//     · 通道 B（智谱）的 Key 让超管在管理界面自己填，不用碰命令行
+//
+// 【安全设计】
+//   · 需要 `ai_settings` 权限（超管恒有，普通管理员需显式授予）
+//   · GET 返回的 Key **必须脱敏**（前4后4），绝不明文下发到浏览器
+//   · PUT 收到的是**完整配置**；如果 zhipuKey 传的是脱敏串或空，
+//     说明用户没改 Key → 保留原值，避免"保存一次就把 Key 清空"的经典坑
+// ==============================================================================
+
+app.get('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (c) => {
+  const cfg = await readAiConfig()
+  const env = await aiEnv()
+  return c.json({
+    ...cfg,
+    // 脱敏后再下发；前端拿到的是 "abcd****wxyz"，不是真 Key
+    zhipuKey: maskKey(cfg.zhipuKey),
+    zhipuKeyMasked: maskKey(cfg.zhipuKey),
+    // 实时可用性，让超管一眼看出"配的到底生效没有"
+    available: aiAvailable(env),
+    effective: effectiveProvider(env),
+    cfReady: !!(env.AI || env.AI_BASE_CF),
+    zhipuReady: !!env.ZHIPU_API_KEY,
+  })
+})
+
+app.put('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (c) => {
+  const body = await c.req.json().catch(() => ({})) as any
+  const prev = await readAiConfig()
+
+  // 【关键】Key 的"未修改"判定：
+  //   前端回显的是脱敏串（含 ****），用户不动它就直接提交了。
+  //   若不识别这种情况，一次保存就会把真实 Key 覆盖成 "abcd****wxyz"，AI 当场失效。
+  //   另外**纯空白也算未修改**（用户可能全选删掉但留了空格）——
+  //   实测踩到过：`'   ' !== ''` 且不含 ****，于是被 trim 成空串把 Key 清掉了。
+  const incoming = String(body?.zhipuKey ?? '').trim()
+  const looksMasked = incoming.includes('****')
+  const zhipuKey = (incoming === '' || looksMasked) ? prev.zhipuKey : incoming
+
+  const next = sanitizeAiConfig({ ...body, zhipuKey })
+  await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", AI_CONFIG_KEY, JSON.stringify(next))
+  clearAllCache()
+  return c.json({ ok: true })
+})
+
+/**
+ * 一次性连接测试：用当前配置跑一道迷你题，返回真实结果。
+ *
+ * 为什么值得单独做一个接口：超管最需要回答的问题是
+ * 「我配的这个 Key / 这个模型，到底能不能用？」——猜不出来，必须实测。
+ */
+app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async (c) => {
+  const env = await aiEnv()
+  if (!aiAvailable(env)) {
+    return c.json({ ok: false, message: 'AI 服务不可用：未绑定 Workers AI，且未配置智谱 Key' })
+  }
+  const sample = [
+    '1. 下列函数中，在区间(0,+∞)上是增函数的是（    ）',
+    'A. y = -x + 1    B. y = 1/x    C. y = x²    D. y = (1/2)^x',
+    '【答案】C 【解析】y=x² 在 (0,+∞) 上单调递增。',
+  ].join('\n')
+  const started = Date.now()
+  const result = await aiParsePaper(env, sample, { timeoutMs: 30000, maxChars: 5000 })
+  const elapsed = Date.now() - started
+  const ok = !!result?.questions?.length
+  return c.json({
+    ok,
+    provider: result?.provider || '',
+    model: result?.model || '',
+    questions: result?.questions || [],
+    attempts: result?.attempts || [],
+    usage: result?.usage,
+    elapsed,
+    message: ok
+      ? `连接成功（${result?.provider} / ${result?.model}，耗时 ${elapsed}ms）`
+      : '连接失败：请检查下方错误详情',
   })
 })
 

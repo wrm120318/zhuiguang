@@ -12,6 +12,7 @@ export const TOKEN_EXPIRES = process.env.JWT_EXPIRES || '7d'
 export const PERM_KEYS = [
   'dashboard', 'users', 'subjects', 'classes', 'audit', 'query', 'guide',
   'site_config', 'exp_rules', 'exp_logs', 'feature_flags', 'theme', 'monitor',
+  'ai_settings',
 ] as const
 export type PermKey = typeof PERM_KEYS[number]
 
