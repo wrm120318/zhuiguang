@@ -8,6 +8,8 @@ import { ElMessage } from 'element-plus'
 // 【v4.13.1】与后端共用同一份合并逻辑（铁律#11）：
 //   题干以原卷 HTML 为准，表格/图片不被 AI 的纯文本覆盖；[图N] 占位符换回 <img>。
 import { mergeContent, restoreImages } from '@shared/ai-paper'
+// 【v4.13.2】题号剥离（与「原卷编辑」入口共用同一实现，保证两条路径结果一致）
+import { stripQuestionNumber } from '@/utils/question-number'
 
 const props = defineProps<{ subjectId: number }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -201,7 +203,11 @@ function parseBlock(raw: string) {
     else qtype = 'single'
   }
   return {
-    qtype, content: raw,
+    qtype,
+    // 【v4.13.2】剥掉题干开头的题号（「1.」「一、」），与「原卷编辑」入口行为一致
+    //   （用户需求：「切完题后自动把序号去除，小题的不要去」）。
+    //   小问号 `(1)` `①` 保留 —— 判据见 @/utils/question-number。
+    content: stripQuestionNumber(raw),
     options: (qtype === 'single' || qtype === 'multiple' || qtype === 'judge') ? opts : [],
     answer: answer.trim(),
     analysis: '',

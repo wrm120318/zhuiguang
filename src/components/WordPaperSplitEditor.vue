@@ -23,6 +23,9 @@ import { htmlToMarkdown } from '@/utils/html-to-md'
 // 【v4.13.1】题干合并用共享实现（与后端同一份，铁律#11）：
 //   保证「原卷 HTML 为准、AI 只补元数据」，表格/图片不被 AI 的纯文本覆盖掉。
 import { mergeContent, restoreImages } from '@shared/ai-paper'
+// 【v4.13.2】题号剥离：切完题后自动去掉题干开头的题号（小问号保留）。
+//   抽成独立模块是为了让「原卷编辑」与「快速导入」两条入口行为完全一致。
+import { stripQuestionNumber, hasLeadingNumber } from '@/utils/question-number'
 
 const props = defineProps<{ subjectId: number; subjectName?: string }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -176,7 +179,12 @@ function inferDraft(html: string): DraftQuestion {
     qtype,
     // 【v4.9.1】content 必须剥掉选项/答案/解析段 —— 否则 content 与 options 各输出一遍，
     //   用户看到「选项重复两遍」（实测已复现）。表格/图片会被保留。
-    content: stripOptionsFromHtml(html),
+    //
+    // 【v4.13.2】再剥掉题干开头的**题号**（用户需求：「切完题后自动把序号去除，
+    //   小题的不要去」）。判据见 `@/utils/question-number`：
+    //   · 去：`1.` `1、` `一、` `（一）` `第1部分` `第Ⅰ卷`
+    //   · 不去：`(1)` `①` 这类小问号（解答题里极常见，误删会永久丢信息）
+    content: stripQuestionNumber(stripOptionsFromHtml(html)),
     options: opts,
     answer: answer.trim(),
     // rest 是除选项/答案外的其它文字（常是「解析」「说明」），归到 analysis
@@ -1050,6 +1058,44 @@ function blankDraft(): DraftQuestion {
   }
 }
 
+// ===== 【v4.13.2】题号剥离 =====
+//
+// 用户需求：「切完题后自动把序号去除（小题的不要去）」。
+//   · **自动**：切题时 `inferDraft()` 已内置剥离（见 `content` 那一行）
+//   · **手动**：这里提供按钮，应对「自动剥离后用户又粘回题号」或历史数据
+//
+// 与自动剥离的分工：
+//   自动剥离只在**重新推断该题**时生效，且**不覆盖用户手动编辑过的题**
+//   （`oldDirty` 保护）。按钮则是**显式操作**，用户点了就是要剥，包括已编辑的题。
+
+/** 还有多少题的开头带题号（按钮可用性 + 数量提示） */
+const numberStrippedCount = computed(() =>
+  drafts.value.filter(d => hasLeadingNumber(d.content || '')).length
+)
+
+/**
+ * 批量去除所有题干开头的题号。
+ *
+ * ⚠️ 与自动剥离的区别：这是**用户显式点击**，所以**不跳过 dirty 题** ——
+ *    用户既然点了按钮，就是要处理全部。但也因此必须是"去除"而非"重推断"，
+ *    不能顺手把用户填的答案/解析重置掉。
+ */
+function stripAllNumbers() {
+  let n = 0
+  drafts.value = drafts.value.map(d => {
+    const before = d.content || ''
+    const after = stripQuestionNumber(before)
+    if (after !== before) n++
+    return after === before ? d : { ...d, content: after }
+  })
+  if (n) {
+    ElMessage.success(`已去除 ${n} 道题的题号（小问号已保留）`)
+    scheduleSitePreview()
+  } else {
+    ElMessage.info('当前题目均已无开头题号')
+  }
+}
+
 // ===== 分割线操作 =====
 /** 在指定块之前插入分割线（即拆分）。
  *  【v4.12.0】允许在第 1 块之前插入（用于把误并入卷头的首题切出来）。 */
@@ -1510,6 +1556,18 @@ onUnmounted(() => {
                 :disabled="!chunks.length"
                 @click="aiRecognize"
               ><ZgGlyph emoji="🪄" /> AI 智能识别</el-button>
+            </el-tooltip>
+            <el-tooltip
+              :content="numberStrippedCount
+                ? `去除题干开头的题号（如「1.」「一、」），小问号「(1)」保留`
+                : '当前题目均已无开头题号'"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!chunks.length || !numberStrippedCount"
+                @click="stripAllNumbers"
+              >🧹 去除序号<span v-if="numberStrippedCount">（{{ numberStrippedCount }}）</span></el-button>
             </el-tooltip>
             <el-button v-if="viewMode === 'word'" size="small" :loading="busy" @click="rebuildFromContent">按当前内容重排</el-button>
             <el-button size="small" @click="stage = 'pick'">重选文件</el-button>
