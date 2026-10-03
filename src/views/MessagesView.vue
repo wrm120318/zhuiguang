@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
+// 【v4.10.2】角色显示统一来源
+import { roleName, roleFullName, roleTagType, roleSuffix } from '@/constants/permissions'
 
 const route = useRoute()
 const router = useRouter()
@@ -145,8 +147,8 @@ watch(() => route.params.peerId, async (pid) => {
             <img :src="s.peer?.avatar" class="si-avatar" />
             <div class="si-body">
               <div class="si-name">{{ peerName(s.peer) }}
-                <el-tag size="small" :type="s.peer?.role === 'SUPER_ADMIN' ? 'danger' : s.peer?.role === 'TEACHER' ? 'warning' : 'info'">
-                  {{ s.peer?.role === 'SUPER_ADMIN' ? '超管' : s.peer?.role === 'TEACHER' ? '教师' : '学生' }}
+                <el-tag size="small" :type="roleTagType(s.peer?.role)">
+                  {{ roleName(s.peer?.role) }}
                 </el-tag>
               </div>
               <div class="si-last">{{ (s.content || '').replace(/<[^>]+>/g, '').slice(0, 24) }}</div>
@@ -159,7 +161,7 @@ watch(() => route.params.peerId, async (pid) => {
         <!-- 发起新会话 -->
         <div class="sb-new">
           <el-select filterable placeholder="发消息给…" size="small" @change="(v: any) => openPeer(v)">
-            <el-option v-for="c in contacts" :key="c.id" :label="c.real_name + (c.role === 'TEACHER' ? '（教师）' : c.role === 'SUPER_ADMIN' ? '（超管）' : '')" :value="c.id" />
+            <el-option v-for="c in contacts" :key="c.id" :label="c.real_name + roleSuffix(c.role)" :value="c.id" />
           </el-select>
         </div>
       </aside>
@@ -171,7 +173,7 @@ watch(() => route.params.peerId, async (pid) => {
             <img :src="activePeer.avatar" class="ch-avatar" />
             <div>
               <div class="ch-name">{{ peerName(activePeer) }}</div>
-              <div class="ch-role">{{ activePeer.role === 'SUPER_ADMIN' ? '超级管理员' : activePeer.role === 'TEACHER' ? '学科教师' : '学生' }}</div>
+              <div class="ch-role">{{ roleFullName(activePeer.role) }}</div>
             </div>
           </div>
           <div ref="chatBox" class="chat-body" v-loading="loading">

@@ -45,6 +45,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
+// 【v4.10.2】角色显示统一来源
+import { roleName } from '@/constants/permissions'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,12 +92,14 @@ const IconSettings = () => [
   h('path', { d: 'M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z' })
 ]
 
+// 【v4.10.2】roles 数组补 ADMIN —— 此前管理员在移动端看不到「管理」入口
+//   （原先 roles: ['SUPER_ADMIN','TEACHER'] 漏了新增的 ADMIN 角色）
 const baseTabs = [
-  { to: '/', lb: '首页', icon: IconHome, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
-  { to: '/subjects', lb: '科目', icon: IconBook, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
-  { key: 'notice', lb: '通知', icon: IconBell, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
-  { to: '/profile', lb: '我的', icon: IconUser, roles: ['SUPER_ADMIN','TEACHER','STUDENT'] },
-  { to: '/admin', lb: '管理', icon: IconSettings, roles: ['SUPER_ADMIN','TEACHER'] },
+  { to: '/', lb: '首页', icon: IconHome, roles: ['SUPER_ADMIN','ADMIN','TEACHER','STUDENT'] },
+  { to: '/subjects', lb: '科目', icon: IconBook, roles: ['SUPER_ADMIN','ADMIN','TEACHER','STUDENT'] },
+  { key: 'notice', lb: '通知', icon: IconBell, roles: ['SUPER_ADMIN','ADMIN','TEACHER','STUDENT'] },
+  { to: '/profile', lb: '我的', icon: IconUser, roles: ['SUPER_ADMIN','ADMIN','TEACHER','STUDENT'] },
+  { to: '/admin', lb: '管理', icon: IconSettings, roles: ['SUPER_ADMIN','ADMIN','TEACHER'] },
 ]
 
 const tabs = computed(() => baseTabs.filter(t => t.roles.includes((user as any).role || 'STUDENT')))

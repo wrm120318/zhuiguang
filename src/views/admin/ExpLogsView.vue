@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// 【v4.10.2】角色显示统一来源
+import { roleName, roleTagType } from '@/constants/permissions'
 
 const router = useRouter()
 
@@ -114,12 +116,13 @@ function resetFilter() {
   actionFilter.value = ''
 }
 
+// 【v4.10.2】角色名/配色统一走 constants/permissions.ts，ADMIN 不再显示为学生
 function roleLabel(r: string) {
-  return r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生'
+  return roleName(r)
 }
 
-function roleType(r: string): 'danger' | 'warning' | 'info' {
-  return r === 'SUPER_ADMIN' ? 'danger' : r === 'TEACHER' ? 'warning' : 'info'
+function roleType(r: string): 'danger' | 'warning' | 'success' | 'info' {
+  return roleTagType(r)
 }
 
 function expColor(v: number) {

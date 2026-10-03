@@ -5,7 +5,8 @@ import { useDataStore } from '@/store/data'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 // 【v4.9.7】管理员权限勾选所需的 key / 中文名 / 说明
-import { PERM_KEYS, PERM_LABELS, PERM_DESC, type PermKey } from '@/constants/permissions'
+import { PERM_KEYS, PERM_LABELS, PERM_DESC, type PermKey,
+  roleName, roleTagType as roleTagTypeShared } from '@/constants/permissions'
 
 const data = useDataStore()
 
@@ -49,15 +50,13 @@ function userSubjectNames(u: any): string {
 }
 onMounted(load)
 
-// 【v4.9.7】角色名：新增「管理员」
+// 【v4.10.2】角色名/配色统一走 constants/permissions.ts（原先此处已含 ADMIN，
+//   但其他 9 处漏了 —— 现全部收敛到同一实现，避免再次漏改）
 function roleLabel(r: string) {
-  return r === 'SUPER_ADMIN' ? '超管'
-    : r === 'ADMIN' ? '管理员'
-    : r === 'TEACHER' ? '教师' : '学生'
+  return roleName(r)
 }
-// 【v4.9.7】角色标签配色：超管红 / 管理员橙 / 教师黄 / 学生灰
 function roleTagType(r: string) {
-  return r === 'SUPER_ADMIN' ? 'danger' : r === 'ADMIN' ? 'warning' : r === 'TEACHER' ? 'success' : 'info'
+  return roleTagTypeShared(r)
 }
 
 // 【v4.9.7】权限勾选的全部选项（供模板 v-for）
@@ -794,8 +793,8 @@ function openImport() {
             <el-table-column label="用户名" prop="username" width="120" />
             <el-table-column label="角色" width="80">
               <template #default="{ row }">
-                <el-tag size="small" :type="row.role==='SUPER_ADMIN'?'danger':row.role==='TEACHER'?'warning':'info'">
-                  {{ row.role === 'SUPER_ADMIN' ? '超管' : row.role === 'TEACHER' ? '教师' : '学生' }}
+                <el-tag size="small" :type="roleTagType(row.role)">
+                  {{ roleLabel(row.role) }}
                 </el-tag>
               </template>
             </el-table-column>

@@ -4,6 +4,8 @@ import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
 import { levelFromExp } from '@/utils/helpers'
+// 【v4.10.2】角色显示统一来源
+import { roleName } from '@/constants/permissions'
 
 const user = useUserStore()
 const data = useDataStore()
@@ -92,7 +94,7 @@ function medal(i: number) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2
       <div v-for="(u, i) in ranked" :key="u.id" class="rt-row" :class="{ me: u.id === user.current?.id, top: i < 3 }">
         <span class="col-no">{{ i < 3 ? medal(i) : i + 1 }}</span>
         <span class="col-user"><img :src="u.avatar" class="rt-avatar" />{{ u.real_name }}</span>
-        <span class="col-role">{{ u.role === 'SUPER_ADMIN' ? '超管' : u.role === 'TEACHER' ? '教师' : '学生' }}</span>
+        <span class="col-role">{{ roleName(u.role) }}</span>
         <span class="col-level">Lv.{{ levelFromExp(u.exp) }}</span>
         <span class="col-exp">{{ u.pe }}</span>
       </div>

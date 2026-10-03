@@ -254,6 +254,61 @@ ok('管理员访问 self-repair → 403（保持仅超管）', k1.status === 403
 const k2 = await req('GET', `/api/messages/all/1/2`, { token: A2.token })
 ok('管理员查他人私信 → 403（保持仅超管）', k2.status === 403, `实际 ${k2.status}`)
 
+// ============================================================================
+// 【v4.10.2】角色文案回归：ADMIN 绝不能被当成「学生」
+//
+// 背景：v4.9.7 新增 ADMIN 后，全站 10 处角色文案是硬编码三元链
+//   `r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生'`
+//   → ADMIN 掉进兜底分支，界面显示为「学生」。
+// 本节锁定：① API 返回的 role 字段必须原样透出 'ADMIN'（前端才可能正确映射）
+//          ② 前端映射函数对 'ADMIN' 必须给出「管理员」
+//          ③ 后端角色分布图不能再兜底到「学生」
+// ============================================================================
+console.log('=== 【v4.10.2】角色文案回归（ADMIN 不得显示为学生）===')
+
+// 造一个真实的 ADMIN 用户
+const rl = await req('POST', '/api/users', {
+  token: S.token,
+  body: { username: 'rolechk', realName: '角色检查员', role: 'ADMIN',
+    password: 'pass1234', email: 'rolechk@t.com', classId: null, permissions: ['dashboard'] },
+})
+ok('创建 ADMIN 用户 → 成功', rl.status === 200 && rl.data?.id, `${rl.status} ${JSON.stringify(rl.data)}`)
+const roleUserId = rl.data?.id
+
+// ① 列表接口是否原样透出 role='ADMIN'（若后端把 ADMIN 改写成 STUDENT，前端再怎么映射也没用）
+const rlList = await req('GET', '/api/users', { token: S.token })
+const rlRow = (rlList.data?.items || rlList.data || []).find(u => u.id === roleUserId)
+ok('用户列表原样返回 role=ADMIN（未被后端改写）', rlRow?.role === 'ADMIN', `实际 ${JSON.stringify(rlRow?.role)}`)
+
+// ② 该 USER 自己登录后用 /auth/me，role 也必须是 ADMIN
+const rlLogin = await req('POST', '/api/auth/login', { body: { username: 'rolechk', password: 'pass1234' } })
+ok('ADMIN 登录 → role=ADMIN', rlLogin.data?.user?.role === 'ADMIN', `实际 ${rlLogin.data?.user?.role}`)
+const rlMe = await req('GET', '/api/auth/me', { token: rlLogin.data?.token })
+ok('/auth/me → role=ADMIN', rlMe.data?.role === 'ADMIN' || rlMe.data?.user?.role === 'ADMIN',
+  `实际 ${rlMe.data?.role ?? rlMe.data?.user?.role}`)
+
+// ③ 前端映射：ADMIN 必须得到「管理员」而非「学生」
+console.log('--- 前端映射函数（src/constants/permissions.ts）---')
+const permMod = await server.ssrLoadModule('/src/constants/permissions.ts')
+const { roleName, roleFullName, roleTagType } = permMod
+for (const r of ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'STUDENT']) {
+  const n = roleName(r)
+  ok(`roleName('${r}') → ${n}`, n !== '学生' || r === 'STUDENT', n)
+}
+ok("roleName('ADMIN') === '管理员'（**回归本 bug**）", roleName('ADMIN') === '管理员', roleName('ADMIN'))
+ok("roleName('ADMIN') !== '学生'", roleName('ADMIN') !== '学生')
+ok("roleFullName('ADMIN') === '管理员'", roleFullName('ADMIN') === '管理员', roleFullName('ADMIN'))
+ok("roleTagType('ADMIN') === 'warning'", roleTagType('ADMIN') === 'warning', roleTagType('ADMIN'))
+ok("未知角色 roleName('BOGUS') === '未知角色'（不冒充学生）", roleName('BOGUS') === '未知角色', roleName('BOGUS'))
+
+// ④ 后端角色分布图（worker-api.ts 的 roleName）不得把 ADMIN 计入学生
+console.log('--- 后端角色分布图映射（worker-api.ts）---')
+const wkSrc = (await import('node:fs')).readFileSync('/workspace/zhuiguang/worker-api.ts', 'utf8')
+ok('worker-api.ts 无「? 教师 : 学生」三元链', !/^\s*[^/*].*\?\s*'教师'\s*:\s*'学生'/m.test(wkSrc))
+
+// 清理
+await req('DELETE', `/api/users/${roleUserId}`, { token: S.token })
+
 console.log(`\n===== 端到端结果：通过 ${pass} / 失败 ${fail} =====`)
 await server.close()
 process.exit(fail ? 1 : 0)

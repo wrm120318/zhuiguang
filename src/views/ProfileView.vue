@@ -5,6 +5,8 @@ import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { expProgress } from '@/utils/helpers'
+// 【v4.10.2】角色显示统一来源
+import { roleFullName } from '@/constants/permissions'
 
 const router = useRouter()
 const route = useRoute()
@@ -156,7 +158,7 @@ const expLeftToNext = computed(() => {
         <div class="ph-info">
           <div class="ph-name-row">
             <h1 class="ph-name">{{ viewUser.realName }}</h1>
-            <span class="ph-role">{{ viewUser.role === 'SUPER_ADMIN' ? '超级管理员' : viewUser.role === 'TEACHER' ? '教师' : '学生' }}</span>
+            <span class="ph-role">{{ roleFullName(viewUser.role) }}</span>
             <!-- 他人主页：用户名作为「可搜索 ID」显示，方便反向回查 -->
             <span v-if="isOthersProfile && viewUser.username" class="ph-username">@{{ viewUser.username }}</span>
           </div>

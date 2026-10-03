@@ -7,6 +7,8 @@ import { useSettingsStore } from '@/store/settings'
 import { ElMessage, ElNotification } from 'element-plus'
 import { api } from '@/api'
 import LogoMark from '@/components/LogoMark.vue'
+// 【v4.10.2】角色显示统一来源（新增角色只需改 constants/permissions.ts）
+import { roleName } from '@/constants/permissions'
 
 const router = useRouter()
 const route = useRoute()
@@ -153,7 +155,8 @@ const navItems = computed(() => {
 })
 
 function go(to: string) { router.push(to); drawerVisible.value = false }
-function roleLabel(r?: string) { return r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生' }
+// 【v4.10.2】角色文案统一走 roleName()，未知角色不再冒充「学生」
+function roleLabel(r?: string) { return roleName(r) }
 const reading = ref(false)
 async function readAll() {
   if (reading.value) return

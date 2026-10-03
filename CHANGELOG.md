@@ -5,6 +5,84 @@
 
 ---
 
+## [v4.10.2] - 2026-10-03
+
+> **本轮主题：修复严重 bug —— 管理员（非超级管理员）在大量界面被显示成「学生」。**
+> 用户反馈原话：「管理员（不是超级管理员）在很多界面的角色显示为学生 这是一个严重的bug」
+
+### 🐞 根因
+
+v4.9.7 新增 `ADMIN` 角色时，**全站有 10 处角色文案是硬编码的三元链**：
+
+```js
+r === 'SUPER_ADMIN' ? '超管' : r === 'TEACHER' ? '教师' : '学生'
+```
+
+这个写法把**最后的兜底分支当成了「学生」** —— 任何不属于前两个分支的角色都会掉进去。
+`ADMIN` 恰好就是这种角色，于是：
+
+- 个人中心、排行榜、学科页排行榜、导航栏/Avatar 悬浮卡 → 显示「学生」
+- 私信会话列表、聊天头部、联系人下拉 → 显示「学生」
+- 经验记录管理页 → 显示「学生」
+- 用户管理页的**导入预览**表格 → 显示「学生」
+- **后端角色分布图**（运行监控）→ 管理员被统计进「学生」人数
+
+> 注意：`UsersView.vue` 主表格当时是**对的**（v4.9.7 已含 ADMIN 分支），
+> 这恰恰是问题最阴险之处 —— 看上去「角色显示已适配」，实际只有一处改了。
+
+**附带发现的第二个 bug**：`MobileTabBar.vue` 的 roles 过滤数组是
+`['SUPER_ADMIN','TEACHER']`（漏了 `ADMIN`）→ **管理员在移动端完全看不到「管理」入口**。
+
+### ⚡ 修复
+
+**① 建立角色文案的单一来源（`src/constants/permissions.ts`）**
+- 新增 `ROLE_NAMES`（短名）/ `ROLE_FULL_NAMES`（全名）/ `ALL_ROLES`。
+- 新增 `roleName(r)` / `roleFullName(r)`（教师显示为「学科教师」）/ `roleTagType(r)` / `roleSuffix(r)`。
+- **未知角色返回「未知角色」，绝不冒充学生** —— 宁可显示得奇怪，也不要静默误判。
+- 文件头写入三条铁律，明确禁止再写 `? '教师' : '学生'` 这类三元链。
+
+**② 10 处展示点全部收敛到统一函数**
+
+| 文件 | 修复点 |
+|---|---|
+| `components/NavBar.vue` | 导航栏 + Avatar 悬浮卡（2 处） |
+| `views/ProfileView.vue` | 个人中心角色标签 |
+| `views/LeaderboardView.vue` | 排行榜角色列 |
+| `views/SubjectView.vue` | 学科页排行榜 |
+| `views/MessagesView.vue` | 会话列表标签 / 聊天头部 / 联系人下拉（3 处） |
+| `views/admin/UsersView.vue` | 主表格 + **导入预览**表格（2 处） |
+| `views/admin/ExpLogsView.vue` | 经验记录角色列 + 配色 |
+
+**③ 后端同步（`worker-api.ts`）**
+- 新增 `roleName()`（与前端同表），修正运行监控的**角色分布图** —— 管理员不再被计入学生。
+
+**④ 修复移动端「管理」入口**
+- `MobileTabBar.vue` 的 roles 数组补 `ADMIN`，管理员在移动端恢复「管理」Tab。
+
+### ✅ 验证
+
+| 层级 | 内容 | 结果 |
+|---|---|---|
+| 角色文案探针（新增） | `scripts/probe-role-label.mjs` —— 四角色短名/全名/配色/后缀、未知角色不冒充学生、**源码全量扫描禁止三元链**、8 个展示页均接入统一来源、移动端入口含 ADMIN、后端无兜底链 | **31/31 通过** |
+| 权限端到端 | `scripts/e2e-permissions.mjs` —— 新增 14 项：**创建真实 ADMIN → 列表/登录/`auth/me` 均原样返回 `role:'ADMIN'`**（后端未改写）、前端映射得「管理员」、配色 warning、未知角色不冒充学生 | **55/55 通过**（原 41 + 新增 14） |
+| 排版探针 | `scripts/probe-docx-layout.mjs` | **54/54 通过** |
+| 导出端到端 | `scripts/probe-docx-e2e.mjs` | **39/39 通过** |
+| 构建 | `npm run build` + `tsc -p tsconfig.node.json` | **通过，零错误** |
+
+**探针自证有效**：临时把 `LeaderboardView` 改回三元链，探针立刻报
+`❌ src/ 下无角色硬编码三元链 → src/views/LeaderboardView.vue:97`，恢复后转绿 ——
+证明断言不是空转。
+
+### 📁 涉及文件
+
+- **修改 10**：`src/constants/permissions.ts`、`src/components/NavBar.vue`、`src/components/MobileTabBar.vue`、`src/views/ProfileView.vue`、`src/views/LeaderboardView.vue`、`src/views/SubjectView.vue`、`src/views/MessagesView.vue`、`src/views/admin/UsersView.vue`、`src/views/admin/ExpLogsView.vue`、`worker-api.ts`
+- **新增 1**：`scripts/probe-role-label.mjs`
+- **修改 1**：`scripts/e2e-permissions.mjs`（+14 项断言）
+
+> **教训固化**：此后新增角色，只需改 `constants/permissions.ts`（前端）+ `worker-api.ts` 的 `ROLE_NAMES`（后端），全站显示自动跟上。
+
+---
+
 ## [v4.10.1] - 2026-10-03
 
 > **本轮主题：字号设置改用中文习惯的「号数」表述（一号/二号/三号…），同时保留数字输入。**

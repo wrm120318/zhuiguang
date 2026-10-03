@@ -108,6 +108,26 @@ export const PERM_KEYS = [
 ] as const
 export type PermKey = typeof PERM_KEYS[number]
 
+// ==============================================================================
+// 【v4.10.2】角色 → 中文名（后端侧）
+//
+// 与前端 `src/constants/permissions.ts` 的 roleName/roleFullName 保持一致。
+// ⚠️ 教训：v4.9.7 新增 ADMIN 时，后端角色分布图用的是三元链兜底到「学生」，
+//   导致管理员被统计成学生。此后**新增角色只改这两处**（前端 constants + 此处）。
+//   未知角色一律返回「未知角色」，绝不冒充学生。
+// ==============================================================================
+const ROLE_NAMES: Record<string, string> = {
+  SUPER_ADMIN: '超级管理员',
+  ADMIN: '管理员',
+  TEACHER: '教师',
+  STUDENT: '学生',
+}
+/** 角色 → 中文名；未知角色返回「未知角色」（不冒充学生） */
+export function roleName(r?: string | null): string {
+  if (!r) return '未知角色'
+  return ROLE_NAMES[r] || '未知角色'
+}
+
 /** 把 DB 中的 permissions（TEXT/JSON 数组字符串）解析为合法 key 数组；NULL/非法一律 → [] */
 export function parsePerms(raw: any): PermKey[] {
   if (Array.isArray(raw)) return raw.filter((k: any) => (PERM_KEYS as readonly string[]).includes(k)) as PermKey[]
@@ -6509,7 +6529,7 @@ app.get('/api/admin/monitor', auth, requirePerm('monitor'), async (c) => {
       workerCpuLimit: '10ms CPU/请求 (免费套餐)', workerSubrequests: '50 子请求/请求',
     },
     subjectDist,
-    roleDist: roleDist.map(r => ({ name: r.role === 'SUPER_ADMIN' ? '超级管理员' : r.role === 'TEACHER' ? '教师' : '学生', value: r.n })),
+    roleDist: roleDist.map(r => ({ name: roleName(r.role), value: r.n })),
     pending: { articles: todayRow.pArticles, resources: todayRow.pResources },
     dailyActive,
     _debug: { totalMs: Date.now() - t0 },

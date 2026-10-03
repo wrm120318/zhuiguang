@@ -7,6 +7,8 @@ import { api } from '@/api'
 import { formatSize, fileIcon, fileUrl } from '@/utils/helpers'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
+// 【v4.10.2】角色显示统一来源
+import { roleName } from '@/constants/permissions'
 
 const route = useRoute()
 const router = useRouter()
@@ -554,7 +556,7 @@ async function submitResource() {
         <div v-for="(u, i) in contributors" :key="u.id" class="rank-item" :class="{ top: i < 3 }">
           <div class="rank-no" :class="`n${i + 1}`">{{ i + 1 }}</div>
           <img :src="u.avatar" class="rank-avatar" />
-          <div class="rank-info"><div class="rank-name">{{ u.real_name }}</div><div class="rank-role">{{ u.role === 'SUPER_ADMIN' ? '超管' : u.role === 'TEACHER' ? '教师' : '学生' }} · Lv.{{ u.level }}</div></div>
+          <div class="rank-info"><div class="rank-name">{{ u.real_name }}</div><div class="rank-role">{{ roleName(u.role) }} · Lv.{{ u.level }}</div></div>
           <div class="rank-exp">{{ u.pe }}</div>
         </div>
         <el-empty v-if="!contributors.length" description="暂无贡献者" />
