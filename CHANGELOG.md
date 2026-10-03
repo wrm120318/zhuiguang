@@ -5,6 +5,61 @@
 
 ---
 
+## [v4.9.6] - 2026-10-03
+
+> **本轮主题：全站编辑器渲染「莫名其妙多出空行、且删不掉」根治。**
+> 用户反馈原话：「现在网站里还是有很多莫名其妙多渲染出的空行，请你仔细检查网站中所有编辑器的渲染，把无用的空行渲染删掉，恢复到正常状态，现在无用的空行太多了，而且还删不掉」。
+
+### 🔍 根因（决定性探针证据）
+
+在 Node + linkedom 下真实调用 `renderExtendedMarkdown`，逐场景量化渲染结果，定位到**同一处段落分隔被「双重计算」**：
+
+- `src/utils/marked-extensions.ts` 的 `restoreBlankLines`（v4.9.1 引入）在补「空行占位块」时用了 `count`（空行个数）：
+  ```js
+  const n = Math.min(Math.max(0, g.count), 6)   // ❌ 多补了 1
+  ```
+- 但 Markdown 里 `\n\n` 的语义**就是「分段」** —— `marked` 已把它渲染成 `<p>甲</p><p>乙</p>`，段间空白由 `.zg-rich p { margin: 0.6em 0 }` 表达。**第一个「空行」已经由 marked 的「新段落」表达过了**。
+- 于是每处普通分段都被叠加了一遍「marked 段落间距 + 一个 `<p class="zg-br">` 整行（`height:1.8em`）」：
+  - 实测：源 `甲\n\n乙`（用户只空 1 行）→ `<p>甲</p><p class="zg-br"></p><p>乙</p>` ❌ **凭空多出一整行**
+- 这就是「莫名的空行太多」的根因；且它**不在源数据里**（渲染时生成），所以用户去编辑器删源文本**怎么删都删不掉**（与 v4.8.27 修复的「公告幽灵空行」同源，本次是全站放大版）。
+
+**次要根因**：`<ul>/<li>/<ol>` 内部残留 marked 输出的结构换行（`<ul>\n<li>`、`</li>\n</ul>`），在 `.zg-rich` 的 `white-space: pre-wrap` 下渲染成额外空行（表格已有 `white-space: normal` 兜底，列表没有）。
+
+### ⚡ 修复
+
+**① `src/utils/marked-extensions.ts` · `restoreBlankLines` 空行换算 `count` → `count - 1`**
+- `\n\n`（1 个空行）→ marked 已用「新段落」表达分段 → 补 **0** 个占位 ✅
+- `\n\n\n`（2 个空行）→ 分段之外多出的 1 行 → 补 **1** 个占位 ✅
+- `\n`×N → 补 **N-1** 个占位。语义闭合于数据侧 `joinBlocks` 的 `'\n'.repeat(pendingBlanks + 1)`（1 个空段落→`\n\n`、2 个空段落→`\n\n\n`）。
+- 这样「分段」只表达一次，**用户刻意多留的空行**才额外补占位，严格 1:1 —— 既消除多余空行，又保留「我留了几个空行就是几个」的能力。
+
+**② `src/utils/marked-extensions.ts` · 块级标签间结构空白清理补全**
+- 原规则只清「块级**闭**标签 + 空白 + 开标签」（`</p>\n<p>`），漏掉「块级**开**标签 + 空白 + 开标签」（`<ul>\n<li>`、`<table>\n<thead>`）。补齐第二条规则，两条都只匹配「标签 + 纯空白 + 紧跟标签」，**绝不触碰标签之间的文本换行**（`<td>第一行\n第二行</td>` 零影响）；集合**不含 `<br>`**（行内换行必须保留）。
+
+**③ `src/styles/main.css` · 列表容器复位 `white-space`**
+- `.zg-rich ul, ol, li { white-space: normal }` —— 与表格同理，消除列表内部结构换行被 `pre-wrap` 渲染成空行；列表项内真实换行由 `<br>` 表达，不受影响。
+
+### ✅ 验证
+
+- **真实链路探针**（Node + linkedom，直接 `ssrLoadModule` 加载改后的 `renderExtendedMarkdown`）覆盖 18 个场景（MD 单段/两段/多段/连续空行/单换行/标题/列表/表格/代码块/引用、HTML 单 p/两 p/空段落、Word MsoNormal/margin、题面典型、综合），**异常数 0**：
+  - `第一段\n\n第二段` → `<p>第一段</p><p>第二段</p>`（修复前多 1 个 `zg-br` 占位）
+  - `甲\n\n乙\n\n丙` → 3 个 `<p>`，**0** 占位（修复前 2 个占位）
+  - `甲\n\n\n乙`（刻意留 2 空行）→ **1** 个占位 ✅ 保留
+  - `- 甲\n- 乙\n- 丙` → `<ul><li>甲</li><li>乙</li><li>丙</li></ul>`（修复前 `<ul>⏎<li>` 内部换行）
+  - 代码块 `<pre>` 内换行、表格单元格内容均正确保留
+- `npm run build` 通过（`vue-tsc` 零错误）。
+
+### 📝 修改文件
+
+- `src/utils/marked-extensions.ts` —— `restoreBlankLines` 换算 `count-1` + 块级标签间空白清理补全
+- `src/styles/main.css` —— `.zg-rich ul/ol/li` 复位 `white-space: normal`
+
+### ⚠️ 已知遗留（非本次范围）
+
+- `sanitizeHtml` 处理后残留空 `style=""` 属性、以及 `style="color:red;margin:0"` 剥 margin 后引号丢失（v4.9.4 引入的引号拼接瑕疵，无视觉影响，属独立小项）。
+
+---
+
 ## [v4.9.5] - 2026-10-03
 
 > **本轮主题：登录用户切回首页 hero 数据很慢 —— 前端解耦 + 后端减负（含一次重要的根因纠偏）。**

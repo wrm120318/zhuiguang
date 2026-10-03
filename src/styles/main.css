@@ -3415,6 +3415,13 @@ a.zg-file-link {
 .zg-rich h4 { font-size: 1.05em; }
 .zg-rich h5, .zg-rich h6 { font-size: 1em; }
 .zg-rich ul, .zg-rich ol { padding-left: 1.8em; margin: 0.6em 0; }
+/* 【v4.9.6】列表容器复位 white-space —— 与表格同理。
+   `.zg-rich` 的 `white-space: pre-wrap` 会让 marked 输出的**结构换行**
+   （`<ul>\n<li>`、`</li>\n<li>`、`</li>\n</ul>`）在列表内部渲染成**额外的空行**。
+   这些换行是 marked 的输出格式，不是用户内容 —— 列表项之间的换行本应由
+   `.zg-rich li { margin }` 表达。复位为 normal 即消除「列表莫名的空行」，
+   而列表项内的真实换行由 `<br>`（breaks:true）表达，不受 white-space 影响。 */
+.zg-rich ul, .zg-rich ol, .zg-rich li { white-space: normal; }
 .zg-rich li { margin: 0.25em 0; }
 .zg-rich li > p { margin: 0.25em 0; }
 .zg-rich blockquote {

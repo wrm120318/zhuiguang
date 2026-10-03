@@ -556,12 +556,30 @@ function restoreBlankLines(html: string, src: string): string {
     //   浏览器会把整个列表结构拆坏（实测：`<p class="zg-br">` 被插到 `</li>` 与 `</ol>` 之间）。
     if (insideBlockContainer(out, insertAt)) continue
 
-    // ── 空行数量换算 ──
-    // 数据里 `\n\n` = 用户留了 1 个空行 → 补 1 个空段落。
-    // （marked 已把 `\n\n` 渲染成新段落，段间间距由 margin 提供；
-    //   真正的「空行」需要额外一行高度，故补 count 个空段落。）
+    // ── 空行数量换算（【v4.9.6 修正 · 根除「全站渲染多出空行、且删不掉」】）──
+    //
+    // 【原实现为什么错 —— 同一处空行被「双重计算」】
+    //   Markdown 里 `\n\n` 的语义**就是「分段」**：`marked` 会把它渲染成
+    //   `<p>甲</p><p>乙</p>` 两个段落，段与段之间的空白由 `.zg-rich p { margin }` 提供。
+    //   也就是说：**第一个「空行」已经由 marked 的「新段落」表达了**。
+    //
+    //   但原实现按 `count`（空行个数）补占位块 —— 于是每处普通分段都被
+    //   「marked 的段落间距 + 一个 `<p class="zg-br">` 整行」**叠加**了一遍：
+    //     源 `甲\n\n乙`（用户只空了一行）
+    //       → `<p>甲</p><p class="zg-br"></p><p>乙</p>` ❌ 多出一整个整行
+    //   因为 `.zg-br` 是 `height:1.8em`（实心一整行），用户看到的就是
+    //   **每一处段落分隔都凭空多一个空行** —— 这正是「莫名其妙的空行太多」的根因。
+    //   且它**不在源数据里**（渲染时生成），所以用户去编辑器**怎么删都删不掉**
+    //   （与 v4.8.27 那个「公告幽灵空行」同源，本次是全站放大版）。
+    //
+    // 【修正后的换算 —— count - 1】
+    //   `\n\n`(1 个空行)   → marked 已用「新段落」表达分段 → 补 **0** 个占位 ✅
+    //   `\n\n\n`(2 个空行) → marked 表达分段后，多出的 1 行 → 补 **1** 个占位 ✅
+    //   `\n`×N            → 补 **N-1** 个占位（首行由段落分隔承担）
+    //   这样「分段」只表达一次，「用户刻意多留的空行」才额外补占位，严格 1:1。
+    //
     // ⚠️ 上限 6，防止脏数据（几百个空段）撑爆页面。
-    const n = Math.min(Math.max(0, g.count), 6)
+    const n = Math.min(Math.max(0, g.count - 1), 6)
     if (!n) continue
     const filler = '<p class="zg-br"></p>'.repeat(n)
     out = out.slice(0, insertAt) + filler + out.slice(insertAt)
@@ -660,8 +678,23 @@ export function renderExtendedMarkdown(src: string, sanitize = true): string {
   html = html.replace(/(<br\s*\/?>\s*){2,}/gi, '<br>')
 
   // 【问题② 修法】块级标签之间的源码空白（marked 输出格式所致，非用户内容）
-  const BLOCK = 'p|div|ul|ol|li|table|thead|tbody|tr|blockquote|h[1-6]|pre|figure|figcaption|section|article|details'
-  html = html.replace(new RegExp(`(<\\/(?:${BLOCK})>)\\s+(?=<(?:${BLOCK})\\b)`, 'gi'), '$1')
+  //
+  // 【v4.9.6 补全】原规则只清「块级**闭**标签 + 空白 + 开标签」（`</p>\n<p>`），
+  //   漏掉了两类 marked 同样会输出的结构换行，它们同样会被 `.zg-rich` 的 `pre-wrap`
+  //   在容器顶层渲染成**额外的视觉空行/换行**（用户看到的就是"莫名其妙多出的空行"）：
+  //     · 「块级**开**标签 + 空白 + 开标签」：`<ul>\n<li>`、`<table>\n<thead>`、`<thead>\n<tr>`
+  //     · 「闭标签 + 空白 + 开标签」中的 `<hr>` 等（原 BLOCK 未含 hr）
+  //   ⚠️ 两条规则都**只匹配「标签 + 纯空白 + 紧跟标签」**，绝不触碰标签之间的**文本**换行，
+  //      因此 `<td>第一行\n第二行</td>` 这类真实内容零影响；
+  //      且 `openRe` 匹配的是**开标签**，不会命中 `</th>\n<th>`（那用的是闭标签），
+  //      所以表格单元格内容也不会被粘连（且表格/列表内部另有 CSS 兜底，见 main.css）。
+  //   ⚠️ 集合里**不含 `<br>`** —— `<br>` 是行内换行标记，`<br>\n文本` 的换行
+  //      属于正常内容，绝不能清。
+  const BLOCK = 'p|div|ul|ol|li|table|thead|tbody|tfoot|tr|blockquote|h[1-6]|pre|figure|figcaption|section|article|details|hr'
+  // ① 块级闭标签之后的空白
+  html = html.replace(new RegExp(`(<\\/(?:${BLOCK})>)\\s+(?=<)`, 'gi'), '$1')
+  // ② 块级开标签之后的空白（补齐 `<ul>\n<li>` 这一类）
+  html = html.replace(new RegExp(`(<(?:${BLOCK})\\b[^>]*>)\\s+(?=<)`, 'gi'), '$1')
 
   // 【v4.4.3】上传图片存为相对 /api/file/{id}，补全为绝对 API 地址，
   // 否则在 Pages 域(xkzg.de5.net)下 <img> 请求相对路径会落到 SPA 兜底、导致裂图。
