@@ -5,6 +5,45 @@
 
 ---
 
+## [v4.9.5] - 2026-10-03
+
+> **本轮主题：登录用户切回首页 hero 数据很慢 —— 前端解耦 + 后端减负（含一次重要的根因纠偏）。**
+> 用户反馈原话：「首页 hero 当一登陆用户从其他界面切回首页的时候 数据就会拉的非常慢」。
+
+### 🔍 根因定位（四层递进排查，关键是第 4 层纠偏）
+
+1. **前端层**：原 `HomeView.load()` 用 `Promise.allSettled([articles, home, ...])`，`homeData` 要等全部 settle 后才赋值，最慢的 `/api/articles`（冷启动数秒）把 hero 挡在后面；且 `App.vue` 用 `<component :is="Component" :key="route.fullPath" />` 使每次路由变化**重挂载** HomeView，`homeData` 归零重拉。
+2. **后端层**：`/api/home` 已登录时做 `parseOptionalAuth` 查 users 表 + `cnt` 聚合 + `favCnt` + `meRow` 再查 users 表（取 exp/level），D1 往返达 3~4 次。
+3. **全局中间件层**：中间件3 对**每条** Bearer 请求同步发起 `UPDATE users SET last_active` D1 写。
+4. **冷启动根因（决定性测试纠偏）**：实测 `/api/home` 延迟双峰（一半 8.4s、一半 0.7~1.1s），**连 HIT 缓存响应也 8.4s**；进一步用**公开**端点 `/api/subjects`（无 token、走缓存、handler 极简）复测仍有 8.4s 尖刺；再用**完全不碰 D1** 的 `/__zg_health`（仅返回字符串）复测，首次 7.6s、其后 7 次全快。
+   → **结论：8.4s 是 isolate 冷启动（bundle 过大 + `nodejs_compat` 加载整套 Node polyfill），与认证 / D1 写 / users 表查询无关**。原先第 2、3 层改动能降稳态延迟，但**治不了冷启动 8.4s**；用户感知的「切回慢」真正由**前端解耦**解决。
+
+### ⚡ 修复一：前端 hero 即时渲染 + 与后端延迟脱钩（用户感知修复核心）
+
+- **`src/api/index.ts`**：新增模块级 `homeCache`（30s TTL）+ `homeLast`（上次成功响应、无过期）。`home()` 命中缓存即 `Promise.resolve(homeCache.data)`；`homeLast()` 供切回首页时**同步即时填充**。模块级变量跨组件重挂载存活。
+- **`src/views/HomeView.vue`**：`load()` 重写为四路独立、互不阻塞——A) 先 `api.homeLast()` **同步**填充 hero（零等待，永不出 0 空档）；B) `api.home()` 后台刷新（30s 缓存命中即瞬时）；C) `api.articles()` 纯展示、失败只影响「最新美文」卡片；D) siteConfig/subjects 仅首次补拉。`heroStats` 经验值/等级改从 Pinia `user.current` 取（App 启动即加载、跨导航持久），不再依赖本接口。
+- **效果**：切回首页 hero 永远瞬时显示真实数字；即便后台 `/api/home` 命中 8.4s 冷启动，用户也**无任何感知**（渲染已与后端延迟解耦）。
+
+### ⚡ 修复二：后端 `/api/home` 减负（D1 往返 3~4 → 2）
+
+- **`worker-api.ts`**：`/api/home` 身份**仅从 JWT 解码**（`jwt.verify` 纯 CPU、零 D1），彻底移除 2 次 users 表查询；已登录 D1 往返从 3~4 次降到 **2 次**（聚合计数 + 收藏计数），且都不碰 users 表。响应移除 `exp`/`level`（改由前端 `user.current` 提供）。
+- **`worker-api.ts` 中间件3**：`UPDATE users SET last_active` 改为 **60s/用户节流** + `executionCtx.waitUntil` **后台执行**，绝不阻塞响应；绝大多数认证请求零 D1 写。
+- ⚠️ 口径更正：两处注释原称「8.4s 根因是 D1 写 / users 查询，已被根除」——**已修正为准确表述**：8.4s 根因是 isolate 冷启动，本改动只降**稳态** D1 压力，不消除冷启动（详见下方「待办」）。
+
+### 📝 修改文件
+
+- `src/api/index.ts` —— 新增 `homeCache`(30s) + `homeLast` + `homeLast()` getter
+- `src/views/HomeView.vue` —— `load()` 四路解耦 + `heroStats` 经验值/等级取自 `user.current`
+- `worker-api.ts` —— `/api/home` 仅 JWT 解码（去 users 表）、中间件3 节流+后台、注释口径修正
+
+### ⚠️ 验证与待办
+
+- **已验证**：`npm run build` 通过（`vue-tsc` 零错误）；前端已代码分割（echarts/element-plus/mammoth/xlsx 均为独立懒加载 chunk，HomeView 自身仅 8.78KB），确认冷启动在 **Worker 端**而非前端。
+- **未闭环（环境限制）**：真实 SPA 浏览器切回测试需访问部署前端（被沙箱 SNI 拦截 `*.pages.dev`/`*.workers.dev`）且需登录态，本沙箱无法跑端到端。NavBar 首页入口已定位（桌面 `div.brand @click="go('/')"`、移动抽屉 `div.d-item` 首页项，均 `router.push('/')` 的 SPA 导航），具备网络的环境可直接复验。
+- **独立性能项（用户未明确要求）**：isolate 冷启动治理仍需做——① `worker-api.ts` 中 supabase / xlsx / jsonwebtoken / bcryptjs 改为按需动态 `import()`（移出冷启动路径）；② 评估去掉或替换 `nodejs_compat`；③ 缩短 cron 预热间隔（当前 `*/4` 每 4 分钟，冷启动窗口过长）。
+
+---
+
 ## [v4.9.4] - 2026-10-02
 
 > **本轮主题：智能题库表格导出嵌套根治 + 渲染侧多余空白间隙剥离 + 首页 hero 6 项合一高速拉取。**

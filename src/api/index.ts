@@ -136,6 +136,16 @@ async function directUpload(file: File, kind: 'file' | 'image'): Promise<any> {
 // 【v4.8.28 性能专项】/api/me/status 的 in-flight 合并句柄
 let meStatusInflight: Promise<any> | null = null
 
+// 【v4.9.5】/api/home 客户端缓存：登录用户切回首页时组件被重新挂载，
+//   homeData 归零、需重新请求 /api/home；叠加此 30s 内存缓存（与后端登录态边缘缓存 TTL 对齐），
+//   第二次起同步取上次响应、零回源，hero 指标瞬时渲染，不再被首屏 fetch 拖慢。
+//   模块级变量跨组件重挂载存活，且只读响应对象无副作用。
+let homeCache: { ts: number; data: any } | null = null
+const HOME_CACHE_TTL = 30_000
+// 【v4.9.5】上次成功响应的"已知好数据"——无过期，仅用于切回首页时**同步即时渲染**兜底，
+//   使 hero 永远显示真实数字（而非 0 空档）。真正的数据新鲜度由下方 home() 的后台刷新保证。
+let homeLast: any = null
+
 export const api = {
   // 认证
   login: (data: { username: string; password: string }) => http.post('/api/auth/login', data),
@@ -325,7 +335,27 @@ export const api = {
   stats: () => http.get('/api/stats'),
   // 【v4.8.27】首页聚合：一次返回 美文数 + 资料数 + 收藏数
   //   替代原来的 stats + favorites 两次往返（美文列表仍走 /api/articles，保持口径零变更）
-  home: () => http.get('/api/home'),
+  // 【v4.9.5】首页聚合 hero 计数指标（学科/美文/资料/收藏）。
+  //   经验值/等级不在此返回，由前端 Pinia `user.current` 提供（见 HomeView.heroStats）。
+  //   ① 30s 客户端缓存：切回首页重挂载时若未过期则瞬时返回、零回源；
+  //   ② homeLast：始终保存上次成功响应，供 load() 同步即时填充（见 HomeView）。
+  home: () => {
+    const now = Date.now()
+    if (homeCache && now - homeCache.ts < HOME_CACHE_TTL) {
+      return Promise.resolve(homeCache.data)
+    }
+    return (http.get('/api/home') as Promise<any>).then((r: any) => {
+      homeCache = { ts: Date.now(), data: r }
+      homeLast = r
+      return r
+    }).catch((e: any) => {
+      // 网络失败时，若有过往已知数据仍返回之（保证 hero 不空白），否则上抛
+      if (homeLast) return homeLast
+      throw e
+    })
+  },
+  // 返回上次成功的 /api/home 响应（无过期）。切回首页时 load() 先同步用它填充 hero。
+  homeLast: () => homeLast,
   // 搜索
   search: (q: string) => http.get('/api/search', { params: { q } }),
   // 收藏

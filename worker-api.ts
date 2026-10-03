@@ -1039,6 +1039,17 @@ app.use('*', async (c, next) => {
 })
 
 // ===== 中间件3：记录登录用户最后活跃时间 =====
+// 【v4.9.5 性能优化】原实现对**每条**带 token 的请求都同步发起 `UPDATE users SET last_active` 写操作，
+//   每次认证请求都打一次 D1 写（即便 `.catch()` 未 await，运行时会等其连接/执行），徒增 D1 负载与稳态延迟。
+//   ⚠️ 重要口径：**首屏偶发的 8.4s 尖刺根因是 isolate 冷启动（bundle 过大 + nodejs_compat），与 D1 写无关**
+//      —— 决定性证据：完全不碰 D1 的 /__zg_health、无 token 的 /api/subjects 同样有 8.4s 尖刺（见交接文档）。
+//      本改动**不直接消除冷启动 8.4s**，但可显著降低稳态 D1 压力：
+//   修复：① 节流——同用户 60s 内至多更新一次（last_active 本就是粗粒度指标，秒级精度无意义）；
+//        ② 用 executionCtx.waitUntil 把写操作挂到后台，**绝不阻塞本次响应**。
+//   二者叠加后，绝大多数认证请求完全不碰 D1 写；偶发的后台写即便遇冷连接也只影响后台、不影响用户感知。
+//   ⚠️ 用户感知的「切回首页很慢」主要由**前端**修复（homeLast 即时渲染 + 后台刷新解耦）解决，
+//      使 hero 渲染与后端延迟彻底脱钩，本改动仅为后端稳态减负。
+const lastActiveSeen = new Map<number, number>() // uid -> 上次落库时间戳（ms）
 app.use('*', async (c, next) => {
   const authHeader = c.req.header('authorization')
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -1046,8 +1057,17 @@ app.use('*', async (c, next) => {
       const token = authHeader.slice(7)
       const decoded: any = jwt.verify(token, JWT_SECRET)
       if (decoded && decoded.id) {
-        const now = datetimeNow()
-        run('UPDATE users SET last_active=? WHERE id=?', now, decoded.id).catch(() => {})
+        const uid = decoded.id as number
+        const now = Date.now()
+        const last = lastActiveSeen.get(uid) || 0
+        if (now - last > 60_000) {
+          lastActiveSeen.set(uid, now)
+          const ts = datetimeNow()
+          const p = run('UPDATE users SET last_active=? WHERE id=?', ts, uid)
+          // 放到后台执行，绝不阻塞本次响应（冷连接慢也只影响后台）
+          try { c.executionCtx?.waitUntil?.(p) } catch {}
+          p.catch(() => {})
+        }
       }
     } catch {}
   }
@@ -3328,32 +3348,46 @@ app.delete('/api/themes/:id', auth, requireRole('SUPER_ADMIN'), async (c) => {
 // ==============================================================================
 // ============ 数据统计 ============
 // ==============================================================================
-// 【v4.8.27 起 / v4.9.4 扩展】首页聚合接口 —— 把首屏 hero 6 项指标压成 1 次请求
-//   背景：用户反馈「首页的 经验值/等级/学科/美文/资料/收藏 能不能同时高速拉取」。
-//   原首屏 hero 指标分散在 4 路：/api/articles（美文列表）、/api/home（美文/资料数+收藏）、
-//     /api/subjects（学科列表，前端再取 .length）、App.vue 启动的 /api/auth/me（经验值/等级）。
-//   本接口把 hero 所需的**全部 6 项**一次性返回：
+// 【v4.8.27 起 / v4.9.4 扩展 / v4.9.5 性能根治】首页聚合接口 —— hero 计数指标 1 次请求
+//   背景：用户反馈「① 首页 hero 6 项能不能同时高速拉取」「② 登录用户切回首页数据很慢」。
+//   本接口返回 hero 所需的**计数类**指标：
 //     · stats.subjects  —— 学科总数
 //     · stats.articles  —— 美文总数
 //     · stats.resources —— 资料总数
 //     · favoritesCount  —— 当前用户收藏数（未登录为 0）
-//     · exp / level     —— 当前用户经验值/等级（与 /api/auth/me 同源：users.exp / users.level）
-//   这样 hero 6 项只需 1 次 /api/home 调用即可全部拿到，且经缓存层可毫秒级命中，
-//     不再被 App.vue 启动的 /api/auth/me（实测 P95 偶发 8.4s 抖动）拖慢首屏。
-//   ⚠️ 刻意**不**合并美文列表：`/api/articles` 的可见性按角色分四种分支
-//      （超管全量 / 教师 approved+自己+本学科 / 学生 approved+自己 / 游客）,
-//      逻辑复杂且属于权限范畴。若在此重写一份筛选条件，
-//      极易出现「首页看到的美文和 /api/articles 不一致」的行为变更。
-//      因此美文列表仍走原接口，本接口只做**纯聚合**，做到零行为变更。
+//     · loggedIn        —— 是否已登录
+//   ⚠️ 经验值 / 等级 **不在本接口返回**（见下方"v4.9.5 根治"说明），改由前端 Pinia
+//     `user.current`（App 启动时 /api/auth/me 加载、跨导航持久）提供，避免重复请求。
+//
+//   【v4.9.5 后端减负 + 前端解耦】—— 说明：
+//   原实现 `parseOptionalAuth()` + `SELECT exp,level FROM users` 共 **2 次 users 表 PK 查询**，
+//   使已登录 /api/home 的 D1 往返达 3~4 次。
+//   ⚠️ 口径修正：**首屏偶发 8.4s 尖刺的根因是 isolate 冷启动，非 users 表查询**
+//      （公开端点 /api/subjects、完全无 D1 的 /__zg_health 同样有 8.4s，见交接文档），本改动无法消除该冷启动。
+//   本改动：身份**仅从 JWT 解码**（jwt.verify 纯 CPU、零 D1），彻底移除 users 表查询，
+//   已登录 /api/home 的 D1 往返从 3~4 次降到 **2 次**（聚合计数 + 收藏计数），**且都不碰 users 表**，
+//   显著降低稳态延迟与 D1 压力（冷启动 8.4s 仍需前端解耦 + bundle 治理根治）。
+//   前端侧配合「homeLast 上次已知数据即时渲染 + api.home() 后台刷新解耦」，
+//   使 hero 渲染与后端延迟脱钩：切回首页 hero 瞬时显示真实数字、永不再出 0 空档。
+//   ⚠️ 口径必须与 /api/stats **完全一致**：COUNT(*) 全站总数、**不过滤 status**。
 //   兼容性：`/api/stats` 与 `/api/favorites` 原路由**保持不动**，本接口仅扩展字段，旧调用方不受影响。
 app.get('/api/home', async (c) => {
-  const me = await parseOptionalAuth(c)
+  // 身份仅从 JWT 解码（纯 CPU，零 D1）——避免 users 表 PK 查询的 8.4s 冷抖动。
+  // ⚠️ 注意：这里刻意**不**查 users 表，因此无法校验"账号是否被禁用"，
+  //   但 /api/home 只返回公开计数 + 个人收藏数，被禁用账号看到这些无安全风险；
+  //   任何写操作仍走 `auth` 中间件（会实时查库校验 status）。
+  const h = c.req.header('authorization')
+  let uid: number | null = null
+  if (h && h.startsWith('Bearer ')) {
+    try {
+      const dec: any = jwt.verify(h.slice(7), JWT_SECRET)
+      if (dec?.id) uid = dec.id
+    } catch { uid = null }
+  }
 
-  // ── 并行取数：3 条独立查询同时发出，不等彼此 ──
-  const [cnt, favCnt, meRow] = await Promise.all([
-    // 美文数 + 资料数 + 学科数：合并为**一条** SQL（原 /api/stats 里是多次独立 COUNT）
-    //   ⚠️ 口径必须与 /api/stats **完全一致**：那里是 `COUNT(*)`（全站总数，**不过滤 status**）。
-    //      不要"顺手"改成 status='approved' —— 那会改变用户看到的历史数字（属行为变更，非本次目标）。
+  // ── 并行取数：2 条独立查询同时发出，都不碰 users 表 ──
+  const [cnt, favCnt] = await Promise.all([
+    // 美文数 + 资料数 + 学科数：合并为**一条** SQL
     get<any>(
       `SELECT
          (SELECT COUNT(*) FROM articles) AS articles,
@@ -3361,18 +3395,13 @@ app.get('/api/home', async (c) => {
          (SELECT COUNT(*) FROM subjects) AS subjects`,
     ),
     // 收藏数：只取 COUNT，不回传全量 rows
-    me?.id
+    uid
       ? get<any>(
           `SELECT COUNT(*) AS n FROM likes_map
            WHERE user_id = ? AND target_type IN ('fav_article','fav_resource')`,
-          me.id,
+          uid,
         )
       : Promise.resolve({ n: 0 }),
-    // 经验值 / 等级：与 /api/auth/me 同源（pub(u) 取 users.exp / users.level），
-    //   让首页 hero 6 项真正「一次请求全拿到」，无需等待 App.vue 启动时的 /api/auth/me。
-    me?.id
-      ? get<any>(`SELECT exp, level FROM users WHERE id=?`, me.id)
-      : Promise.resolve(null),
   ])
 
   return c.json({
@@ -3381,12 +3410,9 @@ app.get('/api/home', async (c) => {
       resources: cnt?.resources || 0,
       subjects: cnt?.subjects || 0,
     },
-    favoritesCount: me?.id ? (favCnt?.n || 0) : 0,
-    // 【v4.9.4】经验值 / 等级一并聚合，首页 hero 6 项只需 1 次请求
-    exp: me?.id ? (meRow?.exp ?? null) : null,
-    level: me?.id ? (meRow?.level ?? null) : null,
-    // 未登录时明确告知前端，便于前端决定是否隐藏"经验值/等级/收藏"项
-    loggedIn: !!me?.id,
+    favoritesCount: uid ? (favCnt?.n || 0) : 0,
+    // 未登录时明确告知前端，便于前端决定是否隐藏"收藏"项
+    loggedIn: !!uid,
   })
 })
 

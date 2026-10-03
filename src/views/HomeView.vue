@@ -88,9 +88,11 @@ const showAnnouncement = computed(() => {
 // 【v4.8.27】原为 `ref<any[]>` 且拉取整张收藏表，实际只用到 `.length`。
 //   现改为直接存**数量**（后端 /api/home 已算好 COUNT），少传一次全量数据。
 const favoritesCount = ref(0)
-// 【v4.9.4】hero 6 项全部来自单次 /api/home 聚合响应，无需再等 App.vue 启动的 /api/auth/me，
-//   真正「同时高速拉取」：学科/美文/资料来自 stats，经验值/等级/收藏来自登录态聚合。
-//   缺省回退到 data.subjects / articles 列表长度，保证任何一路失败时 hero 仍有兜底数字。
+// 【v4.9.5】hero 6 项数据来源：
+//   学科/美文/资料/收藏 → 单次 /api/home 聚合响应（homeData）；
+//   经验值/等级 → Pinia `user.current`（App 启动时 /api/auth/me 加载、跨导航持久，
+//      不在 /api/home 返回，以免后端为拿这两个值再打 users 表查询拖慢首屏）。
+//   所有项均有兜底：homeData 取数失败/未到时用 store 值或 0，hero 永远不空白。
 const heroStats = computed(() => {
   const h = homeData.value
   const loggedIn = !!h?.loggedIn || user.isLogin
@@ -100,10 +102,10 @@ const heroStats = computed(() => {
     { k: '资料', v: h?.stats?.resources ?? 0 },
   ]
   if (loggedIn) {
-    // 经验值/等级优先取 /api/home 聚合值（与 /api/auth/me 同源），缺省回退到 user store
+    // 经验值/等级来自前端 user store（已加载即持久），无需等待任何网络请求
     list.unshift(
-      { k: '经验值', v: (h?.exp ?? user.current?.exp) || 0 },
-      { k: '等级', v: (h?.level ?? user.current?.level) || 1 },
+      { k: '经验值', v: user.current?.exp || 0 },
+      { k: '等级', v: user.current?.level || 1 },
     )
     list.push({ k: '收藏', v: h?.favoritesCount ?? 0 })
   }
@@ -112,39 +114,44 @@ const heroStats = computed(() => {
 
 const error = ref(false)
 
+// 【v4.9.5 修复「登录用户切回首页 hero 数据很慢」】
+//   根因两层：① 原 load() 用 Promise.allSettled([articles, home, ...])，homeData 在全 settle 后才赋值，
+//      最慢的 /api/articles 把 hero 挡在后面；② 后端 /api/home 已登录要打 2 次 users 表查询，
+//      冷连接偶发 8.4s 抖动，期间 hero 的 资料/美文/收藏 显示 0。
+//   前端修复：
+//      A. 切回首页**立即**用上次已知数据（api.homeLast()）填充 hero —— 同步、瞬时、零网络，
+//         无论后端多慢，hero 永远显示真实数字、永不出 0 空档；
+//      B. /api/home 改为后台刷新（30s 客户端缓存 + 命中即瞬时），仅用于刷新、绝不阻塞 hero；
+//      C. 经验值/等级来自 Pinia `user.current`（App 启动时已加载、跨导航持久），不再依赖本接口。
 async function load() {
   error.value = false
   try {
-    // 【v4.8.27 性能专项】首屏并行化 + 合并请求
-    //   原实现是三段式：
-    //     ① await fetchSiteConfig()  ← 串行等
-    //     ② await fetchSubjects()    ← 再串行等
-    //     ③ await Promise.all([articles, stats, favorites])  ← 才并行
-    //   于是「美文 / 资料 / 收藏」这三个用户最关心的数据，
-    //   要等前两轮往返全部结束才开始发请求 —— 慢的不是它们，是被串行拖累。
-    //
-    //   现在四路**同时发出**，且请求数从 3 个减到 2 个：
-    //     · /api/articles  → 美文列表（**保持原接口不变**，因其可见性按角色分四种分支，
-    //                        重写筛选条件会有行为变更风险，详见 worker-api.ts /api/home 注释）
-    //     · /api/home      → 美文数 + 资料数 + 收藏数（原 /api/stats + /api/favorites 合并为一次）
-    const [artsRes, homeRes] = await Promise.allSettled([
-      api.articles({ limit: 6 }),
-      api.home(),
-      // siteConfig / subjects 是「页面辅助数据」：失败只影响对应区块，
-      //   不应导致整页 ZgNetworkError（原实现用 try/catch 包住全部，属于过度反应）
-      settings.siteConfigLoaded ? Promise.resolve() : settings.fetchSiteConfig(),
-      data.subjects.length ? Promise.resolve() : data.fetchSubjects(),
-    ])
-
-    if (artsRes.status === 'fulfilled') articles.value = (artsRes.value as any) || []
-    if (homeRes.status === 'fulfilled') {
-      const r: any = homeRes.value || {}
-      // 【v4.9.4】整包存下，hero 6 项统一从这里取（学科/美文/资料/经验值/等级/收藏）
-      homeData.value = r
-      stats.value = r.stats || {}
-      // 收藏：后端已算好数量，前端不再拉全量列表（原实现拉了整表却只用 .length）
-      favoritesCount.value = r.favoritesCount || 0
+    // A. 同步即时渲染：先用上次成功响应填充（切回首页关键路径，零等待）
+    const last = api.homeLast()
+    if (last) {
+      homeData.value = last
+      stats.value = last.stats || {}
+      favoritesCount.value = last.favoritesCount || 0
     }
+
+    // B. 后台刷新 hero 计数（不阻塞）：30s 内命中客户端缓存则瞬时，否则回源
+    api.home()
+      .then((r: any) => {
+        const d = r || {}
+        homeData.value = d
+        stats.value = d.stats || {}
+        favoritesCount.value = d.favoritesCount || 0
+      })
+      .catch(() => { /* hero 走 computed 兜底层，不报错 */ })
+
+    // C. 美文列表：纯展示区块，失败只影响「最新美文」卡片，不阻塞 hero
+    api.articles({ limit: 6 })
+      .then((a: any) => { articles.value = a || [] })
+      .catch(() => {})
+
+    // D. siteConfig / subjects 已靠 store 去重，仅首次补拉，避免每次切回首页重发
+    if (!settings.siteConfigLoaded) settings.fetchSiteConfig().catch(() => {})
+    if (!data.subjects.length) data.fetchSubjects().catch(() => {})
   } catch { error.value = true }
 }
 onMounted(load)
