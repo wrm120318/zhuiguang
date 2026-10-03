@@ -175,6 +175,8 @@ const toText = (html) => String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 ${toJs(sliceFn('isSubQuestion'))}
 ${toJs(sliceFn('isSectionTitleOnly'))}
+${toJs(sliceFn('isAnswerKeyStart'))}
+${toJs(sliceFn('isPaperTitleOnly'))}
 ${toJs(sliceFn('sectionTypeHint'))}
 ${toJs(sliceFn('dropSectionTitleBoundaries'))}
 ${toJs(sliceFn('splitIntoBlocks'))}
@@ -185,10 +187,10 @@ const cutSources = { value: new Map() }
 ${toJs(sliceFn('normForMatch'))}
 ${toJs(sliceFn('similarity'))}
 const MATCH_MIN = 0.34
-export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, OPT_LINE_RE, cutSources }
+export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, OPT_LINE_RE, cutSources }
 `
 const mod = await import('data:text/javascript;base64,' + Buffer.from(sandboxSrc).toString('base64'))
-const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries } = mod
+const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries } = mod
 
 // ───────────────────────────────────────────────────────────────────────────
 console.log('=== 1. 段落内按 <br> 下钻（上一版最大的缺口：一段多题切不开）===')
@@ -536,6 +538,8 @@ console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数�
     SUBQ_RE: lineOf(/^const SUBQ_RE = /m),
     isSubQuestion: lineOf(/^function isSubQuestion\(/m),
     isSectionTitleOnly: lineOf(/^function isSectionTitleOnly\(/m),
+    isPaperTitleOnly: lineOf(/^function isPaperTitleOnly\(/m),
+    isAnswerKeyStart: lineOf(/^function isAnswerKeyStart\(/m),
     sectionTypeHint: lineOf(/^function sectionTypeHint\(/m),
     sectionHints: lineOf(/^function sectionHints\(/m),
     inferDraft: lineOf(/^function inferDraft\(/m),
@@ -559,6 +563,9 @@ console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数�
     ['SUBQ_RE', 'autoSplit'],
     ['isSubQuestion', 'autoSplit'],
     ['isSectionTitleOnly', 'sectionHints'],
+    ['isPaperTitleOnly', 'dropSectionTitleBoundaries'],
+    ['isPaperTitleOnly', 'autoSplit'],
+    ['isAnswerKeyStart', 'autoSplit'],
     ['isSectionTitleOnly', 'dropSectionTitleBoundaries'],
     ['isSectionTitleOnly', 'autoSplit'],
     ['sectionTypeHint', 'sectionHints'],
@@ -677,6 +684,137 @@ console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数�
     }
     ok('⚠️ 至少检查到 4 个 watch 的 source 依赖（防扫描器失效）', wChecked >= 4, `实检 ${wChecked} 处`)
   }
+}
+
+console.log('\n=== 8i. 【v4.13.4】卷名不得单独成题 / 卷尾答案区不得并进最后一题 ===')
+//
+// 【用户反馈】
+//   「AI 识别 目前完全不生效 ！！！」「AI无法识别卷尾答案」
+//
+// 【实测（生产环境）】
+//   上传一份含卷名 + 卷尾「参考答案」的卷子，AI 切出 **7 题**：
+//     题1 = `数学第一单元测试卷`（卷名！）
+//     第1题的答案栏 = 「字数 0」（AI 明明返回了 answer:"B"）
+//     最后一题题干里塞着 `参考答案 1-2. B C 3. 8 …`
+//
+// 【两个根因】
+//   A. `aiRecognize` 里 `bnd = [0, ...clean, nB]` **强制保留边界 0**；
+//      卷名块在 block 0，于是卷名独自成题（6 → 7）。
+//      `dropSectionTitleBoundaries` 只认 MAJOR_RE，不认卷名 → 漏网。
+//   B. `qs = r.questions.slice(0, segCount)` 是**按位置硬套**；
+//      一旦有边界被剔除，整体错位一格 → AI 的答案落到别的题上，
+//      第 1 题答案栏因此为空（用户看到的「答案没识别出来」）。
+{
+  // ── 8i-1. isPaperTitleOnly 判据 ──
+  const paperYes = [
+    '数学第一单元测试卷',
+    '2025-2026学年第一学期期中考试',
+    '高一数学期中试卷',
+    '姓名：张三　班级：一（1）班',
+    '数学第一单元测试卷（含答案解析）',
+  ]
+  for (const t of paperYes) {
+    ok(`卷名 → ${JSON.stringify(t).slice(0, 30)}`, isPaperTitleOnly(t, `<p>${t}</p>`))
+  }
+  const paperNo = [
+    '1. 已知集合A={1,2,3}，则A∩B的元素个数为（ ）',
+    '一、选择题',
+    '函数y=2x+1的图象不经过（ ）',
+    '下表是某班学生成绩统计，请回答问题。',   // 有句号 → 不是卷名
+  ]
+  for (const t of paperNo) {
+    ok(`非卷名 → ${JSON.stringify(t).slice(0, 30)}`, !isPaperTitleOnly(t, `<p>${t}</p>`))
+  }
+  ok('含表格的块不是卷名', !isPaperTitleOnly('数学单元测试卷', '<p>x</p><table><tr><td>1</td></tr></table>'))
+
+  // ── 8i-2. isAnswerKeyStart 判据 ──
+  const akYes = ['参考答案', '答案与解析', '答案及解析', '一、参考答案', '解析', '评分标准']
+  for (const t of akYes) ok(`答案区标题 → ${t}`, isAnswerKeyStart(t, `<p>${t}</p>`))
+  const akNo = ['1-2. B C', '3. 8', '数学第一单元测试卷', '1. 已知集合A={1,2,3}', '5. 如图，在△ABC中']
+  for (const t of akNo) ok(`非答案区 → ${JSON.stringify(t).slice(0, 24)}`, !isAnswerKeyStart(t, `<p>${t}</p>`))
+  ok('含表格的块不是答案区', !isAnswerKeyStart('参考答案', '<p>x</p><table><tr><td>1</td></tr></table>'))
+
+  // ── 8i-3. dropSectionTitleBoundaries 的 keepFirst 安全阀 ──
+  const bs3 = [
+    { html: '<p>数学第一单元测试卷</p>', text: '数学第一单元测试卷' },
+    { html: '<p>1. 已知集合</p>', text: '1. 已知集合' },
+    { html: '<p>2. 函数</p>', text: '2. 函数' },
+  ]
+  const dropped = dropSectionTitleBoundaries([0, 1, 2, 3], bs3, {})
+  ok('卷名边界被剔除（默认）', dropped.join() === '1,2,3', JSON.stringify(dropped))
+  const keptFirst = dropSectionTitleBoundaries([0, 1, 2, 3], bs3, { keepFirst: true })
+  ok('keepFirst=true 时首块永不删（AI 第1题落在块0 → 不丢题）',
+    keptFirst.join() === '0,1,2,3', JSON.stringify(keptFirst))
+
+  // ── 8i-4. 段 → AI 题号 映射（防止"按位置硬套"错位）──
+  //
+  //   复刻 aiRecognize 的映射逻辑，喂入"卷名在块0"的典型场景。
+  const blocksSim = [
+    '数学第一单元测试卷',        // 0 卷名
+    '1. 已知集合A={1,2,3}',      // 1 题1
+    '2. 函数y=2x+1',             // 2 题2
+    '3. 计算：2^3',              // 3 题3
+    '参考答案',                  // 4 答案区
+    '1-2. B C',                  // 5
+  ].map(t => ({ html: `<p>${t}</p>`, text: t }))
+  const cleanSim = [1, 2, 3]     // AI 三题的 anchor 命中块 1/2/3
+  const nBSim = blocksSim.length
+  const bndSim = Array.from(new Set([0, ...cleanSim, nBSim])).sort((a, b) => a - b)
+  ok('映射前边界 = [0,1,2,3,6]（卷名占了段0）', bndSim.join() === '0,1,2,3,6', JSON.stringify(bndSim))
+
+  const aiFirstAtZeroSim = cleanSim.length > 0 && cleanSim[0] === 0
+  const beforeDropSim = bndSim.slice()
+  const bndAfter = dropSectionTitleBoundaries(bndSim, blocksSim, { keepFirst: aiFirstAtZeroSim })
+  // 复刻映射
+  const aiQOfSeg = []
+  {
+    let aiPtr = 0
+    for (let k = 0; k < bndAfter.length - 1; k++) {
+      const v = bndAfter[k]
+      const blk = blocksSim[v]
+      const posBefore = beforeDropSim.indexOf(v)
+      const isSecTitle = !!blk && isSectionTitleOnly(blk.text, blk.html)
+      const isPaperTitle = posBefore === 0 && !aiFirstAtZeroSim && !!blk && isPaperTitleOnly(blk.text, blk.html)
+      if (isSecTitle || isPaperTitle) { aiQOfSeg.push(-1); continue }
+      const exact = cleanSim.indexOf(v)
+      if (exact >= 0) { aiQOfSeg.push(exact); aiPtr = Math.max(aiPtr, exact + 1) }
+      else if (aiPtr < cleanSim.length) { aiQOfSeg.push(aiPtr); aiPtr++ }
+      else { aiQOfSeg.push(-1) }
+    }
+  }
+  ok('卷名段被剔除 → 边界 [1,2,3,6]', bndAfter.join() === '1,2,3,6', JSON.stringify(bndAfter))
+  ok('⚠️ 映射正确：段0→AI题1(下标0)、段1→AI题2(下标1)、段2→AI题3(下标2)',
+    aiQOfSeg.join() === '0,1,2', JSON.stringify(aiQOfSeg))
+  ok('⚠️ 修复前"按位置硬套"会把 AI 题1 的数据给到段1（错位一格）—— 这正是答案栏为空的根因',
+    aiQOfSeg[0] === 0 && aiQOfSeg[1] === 1)
+
+  // ── 8i-5. 卷尾答案区不得并进最后一题 ──
+  //
+  //   规则路径：autoSplit 应把终点从 nB 收到"答案区起点"。
+  const paperHtml = [
+    '<h1>数学第一单元测试卷</h1>',
+    '<p>一、选择题</p>',
+    '<p>1. 已知集合 A={1,2,3}，B={2,3,4}，则 A∩B 的元素个数为（　　）</p>',
+    '<p>A. 1</p>', '<p>B. 2</p>', '<p>C. 3</p>', '<p>D. 4</p>',
+    '<p>2. 函数 y=2x+1 的图象不经过（　　）</p>',
+    '<p>A. 第一象限</p>', '<p>B. 第二象限</p>', '<p>C. 第三象限</p>', '<p>D. 第四象限</p>',
+    '<p>二、填空题</p>',
+    '<p>3. 计算：2^3 = ________。</p>',
+    '<p>4. 若 x + 3 = 7，则 x = ________。</p>',
+    '<p>参考答案</p>',
+    '<p>1-2. B C</p>',
+    '<p>3. 8</p>',
+    '<p>4. 4</p>',
+  ].join('')
+  const simBlocks = splitIntoBlocks(paperHtml)
+  const simBnd = autoSplit(simBlocks)
+  const answerIdx = simBlocks.findIndex(b => isAnswerKeyStart(b.text, b.html))
+  ok('能定位到卷尾「参考答案」块', answerIdx > 0, `answerIdx=${answerIdx}`)
+  ok('⚠️ autoSplit 的终点已被收到答案区之前（答案区不并进最后一题）',
+    simBnd[simBnd.length - 1] === answerIdx,
+    `终点=${simBnd[simBnd.length - 1]}，答案区起点=${answerIdx}`)
+  ok('最后一题的题干不含「参考答案」四字',
+    !/参考答案/.test(simBlocks.slice(simBnd[simBnd.length - 2], simBnd[simBnd.length - 1]).map(b => b.text).join('')))
 }
 
 console.log(`\n${'─'.repeat(52)}`)

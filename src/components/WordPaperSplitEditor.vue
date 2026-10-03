@@ -236,6 +236,62 @@ function isSectionTitleOnly(text: string, html: string): boolean {
 }
 
 /**
+ * 判断某块是否为**卷尾答案区块的起始块**。
+ *
+ * 【v4.13.4】用户反馈「AI 无法识别卷尾答案」——
+ *   除了上面那处错位，还有一个体验问题：卷尾的
+ *   `参考答案 / 答案与解析 / 详解` 整段会被并进**最后一道题**的题干里，
+ *   用户看到最后一题的题干里多了一大坨答案，而前面几题的答案栏却空着
+ *   （答案本该由 AI 分配到各题）。
+ *
+ *   这里把该区块识别出来单独排除，让最后一题的题干保持干净。
+ *   （AI 已经把答案回填到各题了，这段原文不必再保留在题干里。）
+ */
+function isAnswerKeyStart(text: string, html: string): boolean {
+  const line = String(text || '').split('\n')[0].trim()
+  if (!line) return false
+  // 含表格/图片的不当答案区（可能是题目本身）
+  if (/<table[\s>]|<img[\s>]/i.test(html || '')) return false
+  // 整行就是答案区标题（允许前面带序号/括号）
+  const core = line.replace(/^[（(【\[]?\s*[一二三四五六七八九十\d]{1,2}\s*[)）】\]]?[\s.、．:：]*/, '').trim()
+  return /^(参考答案|答案与解析|答案及解析|试题答案|题目答案|答案|详解|解析|评分标准|评分细则|参考解答)(与解析|及解析)?$/.test(core)
+}
+
+/**
+ * 判断某块是否为**试卷大标题**（卷名），而不是题目。
+ *
+ * 【v4.13.4】用户反馈「AI 识别目前完全不生效！！！」——
+ *   实测 `数学第一单元测试卷`（卷名）被 AI 路径切成了独立的第 1 题，
+ *   于是 6 道题变 7 道，用户看到的是一张"标题+题目"的错乱列表。
+ *
+ * 【为什么会这样】
+ *   `aiRecognize()` 里 `bnd = [0, ...clean, nB]` **强制保留边界 0**，
+ *   是为了"防止首题丢失"。但当 block 0 是卷名时，这个 0 就变成了
+ *   "卷名独自成题"。`dropSectionTitleBoundaries()` 只认 `MAJOR_RE`
+ *   （一、二、三…），**不认识卷名**（"数学第一单元测试卷"），所以漏网。
+ *
+ * 【判据】（宽松，只用于**首块**和**末块**这种极端位置，不会误伤正题）
+ *   · 没有题号开头（`1.` `一、` 都不算）
+ *   · 不含表格 / 图片（含了就是题目实体）
+ *   · 长度短（≤ 30 字）且不含句子终止符（。？！）—— 卷名不是句子
+ *   · 含卷名特征词：试卷 / 测试卷 / 试题 / 答题卡 / 姓名 / 班级 / 考试 / 期中 / 期末 / 单元 / 学年 …
+ *       —— 或有 "卷" 字结尾
+ */
+function isPaperTitleOnly(text: string, html: string): boolean {
+  const line = String(text || '').split('\n')[0].trim()
+  if (!line) return false
+  // 含表格/图片 → 题目实体，绝不可能是卷名
+  if (/<table[\s>]|<img[\s>]/i.test(html || '')) return false
+  // 有题号开头 → 是题，不是卷名
+  if (MINOR_RE.test(line) || MAJOR_RE.test(line)) return false
+  // 卷名不是句子：过长或带终止符的一律排除
+  if (line.length > 30) return false
+  if (/[。？！；]/.test(line)) return false
+  // 卷名特征词（命中其一即可）
+  return /试卷|测试卷|试题|考题|答题卡|卷$|考试|考查|期中|期末|单元|学年|模拟|联考|月考|调研|质量检测|学业水平|姓名|班级|学号/.test(line)
+}
+
+/**
  * 用**大题标题**推断该段落的默认题型（供 `inferDraft` 的上下文提示）。
  *
  * 【v4.13.3】用户需求：「『一、选择题』这是让你判断题目类型的，最后切完题也不要保留」。
@@ -589,9 +645,16 @@ const cutSources = ref<Map<number, CutSource>>(new Map())
  *
  * @param bnd 边界数组（含终点 = 块总数）
  * @param bs  块数组
+ * @param opts.keepFirst 为 true 时**首块永不删**
+ *        —— AI 路径专用：若 AI 的第 1 题 anchor 就落在块 0，
+ *        说明那块的正文**就是**第 1 题的题干（不是卷名），删了会丢题。
  * @returns 清理后的边界数组（至少保留 2 项）
  */
-function dropSectionTitleBoundaries(bnd: number[], bs: Block[]): number[] {
+function dropSectionTitleBoundaries(
+  bnd: number[],
+  bs: Block[],
+  opts: { keepFirst?: boolean } = {},
+): number[] {
   if (bnd.length <= 2) return bnd
   const kept: number[] = []
   for (let i = 0; i < bnd.length; i++) {
@@ -600,6 +663,21 @@ function dropSectionTitleBoundaries(bnd: number[], bs: Block[]): number[] {
     if (!isLast) {
       const blk = bs[v]
       if (!blk || isSectionTitleOnly(blk.text, blk.html)) continue
+      // 【v4.13.4】**卷名块**也不能单独成题。
+      //
+      // 用户反馈「AI 识别目前完全不生效！！！」的真实原因就在这一行：
+      //   AI 返回的题数/定位都对，但 `aiRecognize` 里 `bnd = [0, ...clean, nB]`
+      //   强制保留了边界 0；而 block 0 是 `数学第一单元测试卷`（卷名）——
+      //   于是卷名被切成"第 1 题"，6 题变 7 题，用户看到的就是一坨错乱。
+      //
+      // 只对**首块**（i===0）做这个判断：
+      //   · 首块之后如果再出现卷名样式的内容，很可能是真题干里的一句话，
+      //     误删代价太大（会永久丢内容），宁可留给用户手动合并
+      //   · 首块本来就是"卷头"位置，本来就是最该被排除的
+      //
+      // ⚠️ `keepFirst` 是安全阀：AI 路径下若 AI 的第 1 题 anchor 就落在块 0，
+      //    说明该块正文**真的**是题干（AI 不会凭空造 anchor），此时不删。
+      if (i === 0 && !opts.keepFirst && isPaperTitleOnly(blk.text, blk.html)) continue
     }
     kept.push(v)
   }
@@ -724,6 +802,35 @@ function autoSplit(bs: Block[]): number[] {
   //   cleaned，再 push 自然是空数组 —— 整卷题全没了。
   //   这个别名坑实测踩过，且症状极隐蔽（只在"整卷都是标题"时出现）。
   const finalBounds = dropSectionTitleBoundaries(uniq, bs)
+
+  // 【v4.13.4】卷尾「参考答案 / 答案与解析」区块：**整段截断**，不并进最后一道题。
+  //
+  // 为什么不能只改"最后一个边界"：
+  //   答案区里的行也长得像题目起点 ——
+  //     `参考答案` / `1-2. B C` / `3. 8` / `4. 4`
+  //   其中 `3.` `4.` 会被 MINOR_RE 判成题号，于是答案区**自己又切出了伪题**。
+  //   实测边界是 `[2,7,13,14,17,18,19]`，17/18 正是答案区里的 `3. 8` / `4. 4`。
+  //   —— 注意此时"最后一个边界的前一个"是 18（在答案区**内部**），
+  //   所以只看 `[len-2, len-1)` 这个区间根本扫不到答案区（15 早被越过了）。
+  //
+  // 正确做法：从**首题之后**开始找答案区起点 k，
+  //   把所有 ≥ k 的边界全部丢掉，再把 k 作为新终点。
+  if (finalBounds.length >= 2) {
+    const searchStart = finalBounds[1] > 0 ? finalBounds[1] : 1
+    for (let i = searchStart; i < bs.length; i++) {
+      const blk = bs[i]
+      if (blk && isAnswerKeyStart(blk.text, blk.html)) {
+        while (finalBounds.length && finalBounds[finalBounds.length - 1] >= i) finalBounds.pop()
+        finalBounds.push(i)
+        break
+      }
+    }
+  }
+  // 至少保住 2 项（1 题 + 终点）
+  if (finalBounds.length < 2) {
+    finalBounds.length = 0
+    finalBounds.push(0, bs.length)
+  }
 
   // 记录来源（首尾线无来源）
   const src = new Map<number, CutSource>()
@@ -1299,14 +1406,57 @@ async function aiRecognize() {
       bnd.push(nB)
       bnd = Array.from(new Set(bnd)).sort((x, y) => x - y)
     }
-    // 【v4.13.3】AI 路径也要剔除"纯大题标题题"。
-    //   上面的 `[0, ...clean, nB]` 强制保留了边界 0；若该块其实是
-    //   `一、选择题` 这类纯标题（AI 已把第 1 题定位到块 1），
-    //   就会凭空多出一道"只有标题的空题"。与规则识别的处理保持一致。
-    bnd = dropSectionTitleBoundaries(bnd, blocks.value)
-    // 题目数与边界段数必须一致；不一致时以"段数"为准裁掉多余题目
+    // 【v4.13.4】剔除「纯大题标题」与「卷名」，**同时算出「段 → AI 题号」的映射**。
+    //
+    // 为什么要映射（本次「AI 无法识别卷尾答案」的真正根因）：
+    //   旧代码 `qs = r.questions.slice(0, segCount)` 是**按位置硬套** ——
+    //   AI 题 i 的数据直接塞进第 i 段。可一旦有边界被剔除
+    //   （卷名 / 大题标题），位置就**整体错位一格**：
+    //     AI 明明返回了 `answer: "B"`，却落到了下游的题上，
+    //     第 1 题答案栏显示「字数 0」，用户看到的就是「答案没识别出来」。
+    //
+    //   现在改成：逐个保留边界记录它来自**哪一道 AI 题**，组装草稿时按映射取数，
+    //   不再依赖"位置碰巧对上"。
+    const aiFirstAtZero = clean.length > 0 && clean[0] === 0
+    const beforeDrop = bnd.slice()
+    bnd = dropSectionTitleBoundaries(bnd, blocks.value, { keepFirst: aiFirstAtZero })
+
+    // 【v4.13.4】卷尾答案区：整段截断（与 `autoSplit` 同一套逻辑，铁律#11 行为一致）。
+    //   必须放在算 `aiQOfSeg` **之前**，否则映射会指向已被丢掉的段。
+    if (bnd.length >= 2) {
+      const searchStart = bnd[1] > 0 ? bnd[1] : 1
+      for (let i = searchStart; i < nB; i++) {
+        const blk = blocks.value[i]
+        if (blk && isAnswerKeyStart(blk.text, blk.html)) {
+          while (bnd.length && bnd[bnd.length - 1] >= i) bnd.pop()
+          bnd.push(i)
+          break
+        }
+      }
+      if (bnd.length < 2) { bnd = [0, nB] }
+    }
+
+    // 段 k 的起点值 = bnd[k]；用它在 drop 前的数组里反查"来源 AI 题号"。
+    // 走一遍与 drop 同构的判定，保证映射与裁剪结果严格一致。
+    const aiQOfSeg: number[] = []
+    {
+      let aiPtr = 0
+      for (let k = 0; k < bnd.length - 1; k++) {
+        const v = bnd[k]
+        const blk = blocks.value[v]
+        // 该边界在 drop 前的位置（同值首次出现）——用于判断是否"首块"
+        const posBefore = beforeDrop.indexOf(v)
+        const isSecTitle = !!blk && isSectionTitleOnly(blk.text, blk.html)
+        const isPaperTitle = posBefore === 0 && !aiFirstAtZero && !!blk && isPaperTitleOnly(blk.text, blk.html)
+        if (isSecTitle || isPaperTitle) { aiQOfSeg.push(-1); continue }
+        // 优先精确：某道 AI 题的起点块 == 本边界
+        const exact = clean.indexOf(v)
+        if (exact >= 0) { aiQOfSeg.push(exact); aiPtr = Math.max(aiPtr, exact + 1) }
+        else if (aiPtr < clean.length) { aiQOfSeg.push(aiPtr); aiPtr++ }
+        else { aiQOfSeg.push(-1) }
+      }
+    }
     const segCount = bnd.length - 1
-    const qs = r.questions.slice(0, segCount)
 
     boundaries.value = bnd
     // ④ 生成每题的编辑态。
@@ -1318,25 +1468,32 @@ async function aiRecognize() {
     //
     //   现在改为**以原卷 HTML 为真源**（`chunks[i].html`，含完整 table/img），
     //   只从 AI 那里取「原卷里没有或不准」的元数据：
-    //     题型 / 答案 / 解析 / 分值 / 分值。
+    //     题型 / 答案 / 解析 / 分值。
     //   题干合并交给共享层的 `mergeContent()`（纯函数，前后端行为一致）。
+    //
+    // 【v4.13.4】取数据改用 `aiQOfSeg`（段 → AI 题号），不再用位置下标。
     const hintsAi = sectionHints()   // 【v4.13.3】大题题型提示
-    drafts.value = qs.map((q: any, i: number) => {
+    drafts.value = Array.from({ length: segCount }, (_, i) => {
       const orig = chunks.value[i]?.html || ''
-      const mergedContent = mergeContent(orig, q.content || '', r.images || {})
+      const aiQ = aiQOfSeg[i] >= 0 ? (r.questions[aiQOfSeg[i]] as any) : null
+      const base = orig ? inferDraft(orig, hintsAi[i] || '') : blankDraft()
+      if (!aiQ) {
+        // 这段没有对应的 AI 题（卷头/补位）→ 完全用规则结果
+        return base
+      }
+      const mergedContent = mergeContent(orig, aiQ.content || '', r.images || {})
       // 原卷切出来的草稿里已经带了规则识别的答案/解析（常为空或不准），
       // 优先采用 AI 的；AI 没给就保留规则结果，避免"AI 一跑反而更空"。
-      const base = orig ? inferDraft(orig, hintsAi[i] || '') : blankDraft()
-      const aiAnswer = String(q.answer || '').trim()
-      const aiAnalysis = String(q.analysis || '').trim()
+      const aiAnswer = String(aiQ.answer || '').trim()
+      const aiAnalysis = String(aiQ.analysis || '').trim()
       return {
-        qtype: q.qtype || base.qtype || 'subjective',
+        qtype: aiQ.qtype || base.qtype || 'subjective',
         content: mergedContent,
         // 选项：AI 与规则各给一份，取"内容更多"的那份（AI 常更准，但偶尔会漏）
-        options: (q.options?.length >= (base.options?.length || 0)) ? q.options : base.options,
+        options: (aiQ.options?.length >= (base.options?.length || 0)) ? aiQ.options : base.options,
         answer: aiAnswer || base.answer,
         analysis: aiAnalysis || base.analysis,
-        score: q.score ?? base.score ?? 5,
+        score: aiQ.score ?? base.score ?? 5,
         difficulty: 3,
         knowledge_point_ids: [],
         status: 'imported_needs_review',
