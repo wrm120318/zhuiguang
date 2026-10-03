@@ -20,6 +20,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import QuestionForm from '@/components/QuestionForm.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { htmlToMarkdown } from '@/utils/html-to-md'
+// 【v4.13.1】题干合并用共享实现（与后端同一份，铁律#11）：
+//   保证「原卷 HTML 为准、AI 只补元数据」，表格/图片不被 AI 的纯文本覆盖掉。
+import { mergeContent, restoreImages } from '@shared/ai-paper'
 
 const props = defineProps<{ subjectId: number; subjectName?: string }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -915,10 +918,18 @@ async function aiRecognize() {
   aiRunning.value = true
   progressText.value = 'AI 正在识别题目结构…'
   try {
-    // 送 AI 的是**纯文本**（按块拼接，保留换行），这样 AI 看到的顺序与 blocks 严格一致，
-    // 后面的 anchor 定位才可靠。
+    // 【v4.13.1】送 AI 的是 **HTML**（不是纯文本）。
+    //
+    // 为什么必须改：v4.13.0 传的是 `blocks.map(b => b.text)`，由此两条血管被切断 ——
+    //   · 表格：text 已把 <td> 拍平成一行，行列结构消失，AI 无法作答依赖表格的题
+    //   · 图片：<img> 的 text 是空串 → 被 `.filter(Boolean)` 丢掉 → **整块消失**
+    // 用户反馈「遇到表格 图片之类的 AI 就不识别，直接吞了」正是这两条。
+    //
+    // 改传 HTML 后，后端 `htmlToStructuredText()` 会做保真转换：
+    //   表格 → Markdown 表格（行列完整）、图片 → [图N] 占位符（位置保留）。
+    const html = blocks.value.map(b => b.html).join('')
     const text = blocks.value.map(b => b.text).filter(Boolean).join('\n')
-    const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
+    const r: any = await api.aiParsePaper({ text, html, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
       const why = r?.available === false ? '（AI 服务不可用）' : `（${r?.message || '识别失败'}）`
       ElMessage.warning(`AI 识别未生效${why}，已保留规则识别结果`)
@@ -972,20 +983,40 @@ async function aiRecognize() {
     const qs = r.questions.slice(0, segCount)
 
     boundaries.value = bnd
-    // ④ 直接采用 AI 的结构化结果（题干/选项/答案/解析/题型/分值）
-    drafts.value = qs.map((q: any) => ({
-      qtype: q.qtype || 'subjective',
-      content: q.content || '',
-      options: q.options || [],
-      answer: q.answer || '',
-      analysis: q.analysis || '',
-      score: q.score ?? 5,
-      difficulty: 3,
-      knowledge_point_ids: [],
-      status: 'imported_needs_review',
-      id: null,
-      imported: true,
-    }))
+    // ④ 生成每题的编辑态。
+    //
+    // 【v4.13.1 关键修正 · 「切完之后东西不能没」】
+    //   上一版直接 `content: q.content` —— 用 AI 的**纯文本题干整体覆盖**，
+    //   而 AI 的输入里表格已被压平、图片连占位符都没有，
+    //   所以覆盖后原卷的 <table>/<img> **永久丢失**（用户反馈的"直接吞了"）。
+    //
+    //   现在改为**以原卷 HTML 为真源**（`chunks[i].html`，含完整 table/img），
+    //   只从 AI 那里取「原卷里没有或不准」的元数据：
+    //     题型 / 答案 / 解析 / 分值 / 分值。
+    //   题干合并交给共享层的 `mergeContent()`（纯函数，前后端行为一致）。
+    drafts.value = qs.map((q: any, i: number) => {
+      const orig = chunks.value[i]?.html || ''
+      const mergedContent = mergeContent(orig, q.content || '', r.images || {})
+      // 原卷切出来的草稿里已经带了规则识别的答案/解析（常为空或不准），
+      // 优先采用 AI 的；AI 没给就保留规则结果，避免"AI 一跑反而更空"。
+      const base = orig ? inferDraft(orig) : blankDraft()
+      const aiAnswer = String(q.answer || '').trim()
+      const aiAnalysis = String(q.analysis || '').trim()
+      return {
+        qtype: q.qtype || base.qtype || 'subjective',
+        content: mergedContent,
+        // 选项：AI 与规则各给一份，取"内容更多"的那份（AI 常更准，但偶尔会漏）
+        options: (q.options?.length >= (base.options?.length || 0)) ? q.options : base.options,
+        answer: aiAnswer || base.answer,
+        analysis: aiAnalysis || base.analysis,
+        score: q.score ?? base.score ?? 5,
+        difficulty: 3,
+        knowledge_point_ids: [],
+        status: 'imported_needs_review',
+        id: null,
+        imported: true,
+      }
+    })
     // AI 题数少于分割段数时补足（避免右栏缺题）
     while (drafts.value.length < segCount) {
       const c = chunks.value[drafts.value.length]

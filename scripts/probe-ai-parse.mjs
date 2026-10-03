@@ -44,6 +44,8 @@ try {
     extractJson, normalizeQuestions, normalizeOptions, aiAvailable, aiParsePaper,
     sanitizeAiConfig, mergeAiConfig, maskKey, effectiveProvider,
     DEFAULT_AI_CONFIG, DEFAULT_MODEL_CF,
+    // 【v4.13.1】表格/图片保真
+    htmlToStructuredText, restoreImages, mergeContent,
   } = mod
 
   console.log('=== 1. JSON 容错解析（模型不听话的三种典型形态）===')
@@ -144,6 +146,70 @@ try {
 
   ok('顶层中文键「题目」也能接（模型不带 questions 包裹）',
     normalizeQuestions({ '题目': [{ content: '裸数组题干' }] }).length === 1)
+
+  console.log('\n=== 2c. 表格与图片保真（v4.13.1 新增 · 用户反馈「直接吞了」）===')
+  // 用户原话：「有个问题 遇到表格 图片之类的 AI 就不是别 直接吞了」
+  // 根因两处：① 送 AI 的是纯文本（表格拍平、图片空 text 被 filter 掉）
+  //          ② AI 回填时用纯文本整体覆盖原卷 HTML（table/img 永久丢失）
+  // 修法：送 AI 前做「表格 Markdown 化 + 图片占位符化」，回填时以原卷 HTML 为准。
+
+  // —— ① HTML → 结构化文本：表格保住行列 ——
+  const tblHtml = '<p>1. 根据下表数据回答问题</p>' +
+    '<table><tr><th>年份</th><th>产量</th></tr><tr><td>2020</td><td>1.2</td></tr><tr><td>2021</td><td>3.4</td></tr></table>'
+  const st1 = htmlToStructuredText(tblHtml)
+  ok('表格被转成 Markdown（含表头分隔行）',
+    /\|\s*年份\s*\|\s*产量\s*\|/.test(st1.text) && /\|\s*-{3,}\s*\|/.test(st1.text), JSON.stringify(st1.text))
+  ok('⭐ 表格数据行完整保留（行列关系不丢）',
+    /\|\s*2020\s*\|\s*1\.2\s*\|/.test(st1.text) && /\|\s*2021\s*\|\s*3\.4\s*\|/.test(st1.text), JSON.stringify(st1.text))
+  ok('表格前的题干文字保留', st1.text.includes('根据下表数据回答问题'))
+
+  // —— ② HTML → 结构化文本：图片转占位符并记录 src ——
+  const imgHtml = '<p>2. 如图所示，求阴影面积</p><p><img src="https://cdn.test/a.png"></p>'
+  const st2 = htmlToStructuredText(imgHtml)
+  ok('⭐ 图片转成 [图1] 占位符（位置可寻）', st2.text.includes('[图1]'), JSON.stringify(st2.text))
+  ok('⭐ 图片 src 被记录下来（供回填）', st2.images['图1'] === 'https://cdn.test/a.png', JSON.stringify(st2.images))
+  ok('图片不再整块消失（题干文字仍在）', st2.text.includes('求阴影面积'))
+
+  // —— ③ 多图编号递增 + startIdx 续编 ——
+  const st3 = htmlToStructuredText('<p><img src="u1"><img src="u2"></p>')
+  ok('多图编号递增（图1/图2）',
+    st3.text.includes('[图1]') && st3.text.includes('[图2]') && st3.images['图2'] === 'u2', JSON.stringify(st3.images))
+  const st4 = htmlToStructuredText('<p><img src="u3"></p>', 5)
+  ok('startIdx 可续编（分块调用时不重复从图1开始）',
+    st4.text.includes('[图5]') && st4.images['图5'] === 'u3', JSON.stringify(st4.images))
+
+  // —— ④ 表格+图片混合，且单元格内含换行/竖线 ——
+  const mix = htmlToStructuredText(
+    '<table><tr><td>a<br>b</td><td>x|y</td></tr></table><p>见图 [图]</p><img src="u9">')
+  ok('单元格内 <br> 变空格、竖线被转义（不破坏 Markdown 结构）',
+    /\|\s*a b\s*\|/.test(mix.text) && mix.text.includes('x\\|y'), JSON.stringify(mix.text))
+  ok('混合场景图片仍被正确编号', mix.images['图1'] === 'u9', JSON.stringify(mix.images))
+
+  // —— ⑤ 纯文本输入不受影响（不误伤）——
+  const plain = htmlToStructuredText('1. 纯文本题目 x < 3 且 y > 2')
+  ok('纯文本原样返回（数学不等号不被当标签）', plain.text.includes('x < 3') && plain.text.includes('y > 2'), JSON.stringify(plain.text))
+
+  // —— ⑥ [图N] 占位符回填成 <img> ——
+  const restored = restoreImages('<p>如图[图1]所示</p>', { 图1: 'https://cdn.test/b.png' })
+  ok('⭐ [图1] 回填成真正的 <img> 标签', /<img src="https:\/\/cdn\.test\/b\.png"/.test(restored), restored)
+  ok('全角方括号 ［图1］ 也能识别', /<img/.test(restoreImages('<p>［图1］</p>', { 图1: 'u' })))
+  ok('「图 1」中间带空格也能识别', /<img/.test(restoreImages('<p>[图 1]</p>', { 图1: 'u' })))
+  ok('映射里没有该图 → 原样保留（不生成空 img）',
+    restoreImages('<p>[图9]</p>', { 图1: 'u' }).includes('[图9]'))
+  ok('无 images 映射 → 原样返回不抛', restoreImages('<p>[图1]</p>', undefined) === '<p>[图1]</p>')
+
+  // —— ⑦ mergeContent：原卷 HTML 为准，AI 只补元数据 ——
+  const origRich = '<p>3. 根据下表求值</p><table><tr><td>1</td></tr></table>'
+  const mc1 = mergeContent(origRich, '3. 根据下表求值（AI 把表格弄丢了）', {})
+  ok('⭐ 原卷含表格 → 合并后表格仍在（AI 不能覆盖掉）',
+    mc1.includes('<table>'), mc1)
+  const origImg = '<p>4. 如图</p><img src="real.png">'
+  const mc2 = mergeContent(origImg, '4. 如图', {})
+  ok('⭐ 原卷含图片 → 合并后图片仍在', mc2.includes('<img src="real.png"'), mc2)
+  const mc3 = mergeContent('', '纯 AI 题干[图1]', { 图1: 'u1' })
+  ok('原卷为空 → 采用 AI 题干并回填图片', /<img/.test(mc3) && mc3.includes('纯 AI 题干'), mc3)
+  const mc4 = mergeContent('<p>文字题干</p>', '', {})
+  ok('AI 没给题干 → 保留原卷（不会变成空）', mc4.includes('文字题干'))
 
   console.log('\n=== 3. 降级逻辑（通道不可用时功能不能崩）===')
   ok('无任何通道 → aiAvailable=false', aiAvailable({}) === false)

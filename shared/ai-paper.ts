@@ -89,6 +89,14 @@ export interface AiParseResult {
   /** 尝试过的服务与失败原因（便于排查与前端提示） */
   attempts: { provider: string; error?: string }[]
   usage?: { promptTokens?: number; completionTokens?: number; neurons?: number }
+  /**
+   * 【v4.13.1】图片占位符 → 原图 src 映射（键为 `图1` `图2`…）。
+   *
+   * 入参是 HTML 时，`<img>` 被替换成 `[图N]` 送进模型（模型不可能"看见"图片二进制）。
+   * 模型会把 `[图N]` 原样写进题干的 `content`，前端拿这个映射把 src 换成真正的
+   * `<img>` 标签 —— 这就是「切完之后图片不会没」的闭环。
+   */
+  images?: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +120,198 @@ export const CF_MODEL_CHOICES = [
 // ---------------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 【v4.13.1】HTML → 结构化文本：保住表格与图片
+// ---------------------------------------------------------------------------
+//
+// 【为什么需要】
+//   v4.13.0 送 AI 的是**纯文本**（`blocks.map(b => b.text)`），由此两条血管被切断：
+//     · 表格：`toText()` 把 `<td>` 全拍平成一行，行列结构彻底消失
+//       → 「根据下表数据求……」这类题 AI 必然答错
+//     · 图片：`<img>` 的 textContent 是空串 → 被 `.filter(Boolean)` 过滤
+//       → **整块消失，图片位置无迹可寻**
+//   用户原话：「遇到表格 图片之类的 AI 就不识别，直接吞了」。
+//
+// 【修法】
+//   在送 AI 之前把 HTML 转成**带结构标记的文本**：
+//     · `<table>` → Markdown 表格（行列关系完整保留）
+//     · `<img>`   → `[图N]` 占位符（N 从 1 递增）
+//   并把这些占位符的原图 src 一并交给调用方（`images` 字段），
+//   供 AI 识别完成后**回填**到题目里 —— 这样「切完之后东西不会没」。
+//
+// 【为什么用 Markdown 表格而不是 HTML 表格】
+//   实测 glm-4.7-flash 读 Markdown 表格的准确率明显更高，
+//   且 token 开销远小于 HTML（`<td></td>` 的标签本身很占位置）。
+// ---------------------------------------------------------------------------
+
+/** HTML → 结构化文本的结果 */
+export interface StructuredText {
+  /** 转好的文本（表格已 Markdown 化、图片已占位符化） */
+  text: string
+  /**
+   * 图片占位符 → 原图 src 的映射（键为 `图1` `图2`… 不含方括号）。
+   * 调用方拿它把图片回填到 AI 返回的题目里。
+   */
+  images: Record<string, string>
+}
+
+/** 解 HTML 实体（只处理常见的，够用且不引入依赖） */
+function decodeEntities(s: string): string {
+  return String(s ?? '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, '&')
+}
+
+/** 去掉标签取纯文本（单元格用） */
+function cellText(html: string): string {
+  return decodeEntities(
+    String(html ?? '')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<[^>]+>/g, '')
+  ).replace(/[\s\u00a0\u3000]+/g, ' ').trim()
+}
+
+/**
+ * 把一个 `<table>` 元素转成 Markdown 表格。
+ *
+ * 处理要点：
+ *  · `<br>` → 空格（单元格内换行会破坏 Markdown 表格结构）
+ *  · `|` → 转义成 `\|`（否则会被当成列分隔符）
+ *  · 合并单元格（colspan/rowspan）→ 重复占位，保证每行列数对齐
+ *    （不完全等价于原表格，但比"整张表拍平"强太多）
+ *  · 没有 `<thead>` 时把第一行当表头
+ */
+function tableToMarkdown(table: Element): string {
+  const rows = Array.from(table.querySelectorAll('tr'))
+  if (!rows.length) return ''
+
+  const grid: string[][] = []
+  rows.forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll('th,td'))
+    const line: string[] = []
+    cells.forEach(td => {
+      const t = cellText(td.innerHTML).replace(/\|/g, '\\|')
+      // colspan：按跨度重复填，保持列数对齐
+      const span = Math.max(1, Math.min(20, parseInt(td.getAttribute('colspan') || '1', 10) || 1))
+      for (let i = 0; i < span; i++) line.push(i === 0 ? t : '')
+    })
+    if (line.length) grid.push(line)
+  })
+  if (!grid.length) return ''
+
+  const cols = Math.max(...grid.map(r => r.length))
+  const pad = (r: string[]) => {
+    const c = r.slice()
+    while (c.length < cols) c.push('')
+    return c
+  }
+
+  const head = pad(grid[0])
+  const body = grid.slice(1).map(pad)
+  const out: string[] = []
+  out.push(`| ${head.join(' | ')} |`)
+  out.push(`|${head.map(() => ' --- ').join('|')}|`)
+  body.forEach(r => out.push(`| ${r.join(' | ')} |`))
+  return out.join('\n')
+}
+
+/**
+ * HTML → 结构化文本（**表格保结构、图片保位置**）。
+ *
+ * @param html      试卷 HTML 片段（来自 mammoth）
+ * @param startIdx  图片编号起始值（分块调用时保持全局递增，避免每块都从「图1」开始）
+ * @returns         结构化文本 + 图片映射
+ */
+export function htmlToStructuredText(html: string, startIdx = 1): StructuredText {
+  const src = String(html ?? '')
+  if (!src.trim()) return { text: '', images: {} }
+
+  // 无 DOM 环境（如纯 Node 探测脚本）走正则路径 —— 行为与 DOM 路径保持一致
+  const hasDom = typeof DOMParser !== 'undefined'
+
+  if (!hasDom) {
+    const images: Record<string, string> = {}
+    let n = startIdx
+    let out = src
+      // 表格：正则版较粗糙（无法完美处理嵌套），但保住"行"的边界
+      .replace(/<table[\s\S]*?<\/table>/gi, (tbl) => {
+        const rows = [...tbl.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+        const grid = rows.map(r =>
+          [...r[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)].map(c => cellText(c[1]).replace(/\|/g, '\\|'))
+        ).filter(r => r.length)
+        if (!grid.length) return ''
+        const cols = Math.max(...grid.map(r => r.length))
+        const pad = (r: string[]) => { const c = r.slice(); while (c.length < cols) c.push(''); return c }
+        const head = pad(grid[0])
+        const lines = [`| ${head.join(' | ')} |`, `|${head.map(() => ' --- ').join('|')}|`]
+        grid.slice(1).forEach(r => lines.push(`| ${pad(r).join(' | ')} |`))
+        return `\n${lines.join('\n')}\n`
+      })
+      .replace(/<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi, (_m, s) => {
+        const key = `图${n++}`
+        images[key] = decodeEntities(s)
+        return `[${key}]`
+      })
+      .replace(/<img[^>]*>/gi, () => { const key = `图${n++}`; images[key] = ''; return `[${key}]` })
+      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      // 数学不等号保护：只删「合法标签」，避免把 `x < 3` 的 `< 3 ...` 当标签删掉
+      .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+    out = decodeEntities(out).replace(/\n{2,}/g, '\n').trim()
+    return { text: out, images }
+  }
+
+  // 【v4.13.1 修正】DOMParser 会把数学不等号当标签吃掉。
+  //
+  // 实测：`1. 纯文本题目 x < 3 且 y > 2` 经 DOMParser 后变成 `1. 纯文本题目 x  2`
+  // —— `DOMParser` 把 `< 3 且 y >` 当成了一个畸形标签。
+  // 这在数学/物理卷里极常见（"x < 3"、"a > b"、"＜"），不修会**静默吞掉题干内容**。
+  //
+  // 修法：解析前把「不是合法标签开头的 `<`」转义成 `&lt;`。
+  //   · 合法开头 = `<标签名` / `</标签名` / `<!--`
+  //   · 其余（如 `< 3`、`<3`）→ 转义，避免被当标签
+  const safeSrc = String(src).replace(/<(?![a-zA-Z/!])/g, '&lt;')
+  const doc = new DOMParser().parseFromString(`<div id="__root">${safeSrc}</div>`, 'text/html')
+  const root = doc.getElementById('__root')
+  if (!root) return { text: cellText(src), images: {} }
+
+  const images: Record<string, string> = {}
+  let n = startIdx
+
+  // ① 先处理表格：整体替换成 Markdown（必须在遍历文本之前做，否则行列关系已丢失）
+  Array.from(root.querySelectorAll('table')).forEach(tbl => {
+    const md = tableToMarkdown(tbl)
+    const holder = doc.createElement('div')
+    holder.textContent = md ? `\n${md}\n` : ''
+    tbl.replaceWith(holder)
+  })
+
+  // ② 图片 → 占位符
+  Array.from(root.querySelectorAll('img')).forEach(img => {
+    const key = `图${n++}`
+    images[key] = img.getAttribute('src') || ''
+    img.replaceWith(doc.createTextNode(`[${key}]`))
+  })
+
+  // ③ 块级元素补换行后取文本
+  const text = decodeEntities(
+    String(root.innerHTML || '')
+      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  )
+    .replace(/[ \t\u00a0\u3000]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+
+  return { text, images }
+}
 
 /**
  * 系统提示词。
@@ -161,7 +361,13 @@ const SYSTEM_PROMPT = `你是一名资深中小学试卷排版工程师，擅长
 5. 如果某题没有答案或解析，对应字段填空字符串 ""，**不要编造**。
 6. score 无法判断时给 5。
 7. 原文中的试卷标题、考试说明、姓名班级栏、页码等**非题目内容一律忽略**，不要输出成题目。
-8. 保留题干中的公式（LaTeX 用 $...$ 包裹）、表格（Markdown 表格）、图片占位符。`
+8. 保留题干中的公式（LaTeX 用 $...$ 包裹）。
+9. **表格**：原文里已是 Markdown 表格（\`| 列1 | 列2 |\`）。它属于**它前面那道题**的题干，
+   必须**原样复制进 content 字段**（连同表头与分隔行），**不许省略、不许改写成一句话概括**。
+   若题干依赖表格数据（如"根据下表求…"），表格缺失会导致整题无法作答。
+10. **图片**：原文里以 \`[图1]\` \`[图2]\` 这样的占位符出现。它同样属于**它前面那道题**，
+   必须**原样保留在 content 中**（位置也不要挪动），**绝对不要删除、不要翻译、不要改成"（见图）"**。
+   占位符只是图片的代号，原图会由系统自动回填。`
 
 // ---------------------------------------------------------------------------
 // 通用：从模型输出里稳健地抠出 JSON
@@ -462,8 +668,10 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * 调用 AI 解析试卷。
  *
  * @param env       环境变量 / 绑定（含 env.AI 与智谱 Key）
- * @param paperText 试卷纯文本
- * @param opts      可选：超时、单次最大字符数
+ * @param paperText 试卷文本。**可以是纯文本，也可以是 HTML**
+ *                  —— 传 HTML 时会自动转成「表格 Markdown 化 + 图片占位符化」的
+ *                  结构化文本（见 `htmlToStructuredText`），这是表格/图片不丢的前提。
+ * @param opts      可选：超时、单次最大字符数、图片映射回传
  * @returns         解析结果；**两通道都失败时返回空 questions**（调用方回落正则）
  */
 export async function aiParsePaper(
@@ -475,7 +683,19 @@ export async function aiParsePaper(
   // 免费档上下文够大，但整卷动辄数万字；超长截断会造成"后半卷丢失"，
   // 所以默认上限设得较高（6 万字符），并在前端提示用户可拆分上传。
   const maxChars = opts.maxChars ?? 60000
-  const text = paperText.length > maxChars ? paperText.slice(0, maxChars) : paperText
+
+  // 【v4.13.1】入参含标签 → 先做「保结构」转换，保住表格行列与图片位置。
+  //   判据用「含 < 且含 >」而不是严格的 HTML 校验 —— 试卷文本里出现
+  //   `<`、`>` 作为数学符号（如 "x < 3"）很常见，但它们不会成对出现标签名，
+  //   所以再用一个宽松的标签名正则二次确认，避免误伤纯文本。
+  let structured: StructuredText
+  if (/<\/?[a-z][a-z0-9]*(\s[^>]*)?>/i.test(paperText)) {
+    structured = htmlToStructuredText(paperText)
+  } else {
+    structured = { text: paperText, images: {} }
+  }
+  const full = structured.text
+  const text = full.length > maxChars ? full.slice(0, maxChars) : full
   if (!text.trim()) return null
 
   const mode = (env.AI_PROVIDER || 'auto').toLowerCase()
@@ -491,7 +711,13 @@ export async function aiParsePaper(
   // 通道不可用的直接跳过（不算失败，避免误导用户）
   if (!hasCf) order = order.filter(p => p !== 'cf')
   if (!hasZhipu) order = order.filter(p => p !== 'zhipu')
-  if (!order.length) return { questions: [], provider: '', model: '', attempts: [] }
+  if (!order.length) return { questions: [], provider: '', model: '', attempts: [], images: structured.images }
+
+  /** 命中即返回，统一带上图片映射（即使为空，调用方也能安全展开） */
+  const done = (
+    questions: AiQuestion[], provider: string, model: string,
+    usage?: AiParseResult['usage']
+  ): AiParseResult => ({ questions, provider, model, attempts, usage, images: structured.images })
 
   const attempts: { provider: string; error?: string }[] = []
   for (const p of order) {
@@ -510,14 +736,11 @@ export async function aiParsePaper(
             const questions = normalizeQuestions(raw)
             if (!questions.length) { lastErr = `模型 ${m} 未解析出题目`; continue }
             attempts.push({ provider: 'cf' })
-            return {
-              questions, provider: 'cf', model: m, attempts,
-              usage: {
-                promptTokens: usage?.prompt_tokens ?? usage?.promptTokenCount,
-                completionTokens: usage?.completion_tokens ?? usage?.candidatesTokenCount,
-                neurons: usage?.neurons,
-              },
-            }
+            return done(questions, 'cf', m, {
+              promptTokens: usage?.prompt_tokens ?? usage?.promptTokenCount,
+              completionTokens: usage?.completion_tokens ?? usage?.candidatesTokenCount,
+              neurons: usage?.neurons,
+            })
           } catch (e: any) {
             lastErr = String(e?.message || e).slice(0, 200)
           }
@@ -533,19 +756,16 @@ export async function aiParsePaper(
         continue
       }
       attempts.push({ provider: 'zhipu' })
-      return {
-        questions, provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, attempts,
-        usage: {
-          promptTokens: usage?.prompt_tokens,
-          completionTokens: usage?.completion_tokens,
-        },
-      }
+      return done(questions, 'zhipu', env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, {
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+      })
     } catch (e: any) {
       attempts.push({ provider: p, error: String(e?.message || e).slice(0, 200) })
     }
   }
   // 全部失败
-  return { questions: [], provider: '', model: '', attempts }
+  return { questions: [], provider: '', model: '', attempts, images: structured.images }
 }
 
 /**
@@ -572,8 +792,87 @@ export function effectiveProvider(env: AiEnv): string {
 }
 
 // ---------------------------------------------------------------------------
-// 后台可配置项（超管在管理界面填，存 D1 settings 表）
+// 后端可配置项（超管在管理界面填，存 D1 settings 表）
 // ---------------------------------------------------------------------------
+
+/**
+ * 把题干里的 `[图N]` 占位符换回真正的 `<img>` 标签。
+ *
+ * 【为什么需要】
+ *   送 AI 的文本里图片是 `[图1]` 这种占位符（模型看不见图片二进制）。
+ *   模型把它原样写进 content 后，前端必须换回 `<img src="...">`
+ *   才能让图片**真正显示在题目里** —— 否则用户看到的只是一串 `[图1]`。
+ *
+ * 容错：
+ *   · 模型可能写 `[图 1]`（多一个空格）或 `［图1］`（全角方括号）→ 一并识别
+ *   · 模型可能把占位符弄丢 → 此时不做任何替换，由调用方决定是否兜底补图
+ *   · src 为空的（mammoth 未提取到）→ 保留原样，不生成空 img
+ *
+ * @param content 题干文本（含 `[图N]` 占位符）
+ * @param images  占位符 → src 映射（来自 `AiParseResult.images`）
+ * @param asHtml  强制按 HTML 生成 `<img>`（即使 content 看着像纯文本）。
+ *                用于 `mergeContent` 的空原卷分支 —— 那种场景下题干就是要渲染成 HTML。
+ * @returns       替换后的文本
+ */
+export function restoreImages(content: string, images?: Record<string, string>, asHtml?: boolean): string {
+  if (!content) return content || ''
+  if (!images || !Object.keys(images).length) return content
+  const isHtmlLike = asHtml || /<\/?[a-z][a-z0-9]*(\s[^>]*)?>/i.test(content)
+  return String(content).replace(
+    /[［\[]\s*图\s*(\d+)\s*[］\]]/g,
+    (whole, d) => {
+      const src = images[`图${d}`]
+      if (!src) return whole
+      // 题干已是 HTML（来自原卷）→ 生成 <img>；纯文本 → 保留可见的文字标记
+      return isHtmlLike
+        ? `<img src="${src}" alt="图${d}" />`
+        : whole
+    }
+  )
+}
+
+/**
+ * 把 AI 返回的纯文本题干**合并**到原卷 HTML 上，保证表格/图片不丢。
+ *
+ * 【v4.13.1 关键设计 · 为什么不是直接替换】
+ *   v4.13.0 的做法是 `content: q.content` —— 用 AI 的纯文本**整体覆盖**原卷 HTML。
+ *   而 AI 拿到的输入里表格已被压平、图片连占位符都不存在，
+ *   所以覆盖之后**原卷里的 <table> / <img> 全没了**（用户反馈的"直接吞了"）。
+ *
+ *   现在的策略是「原卷为准，AI 只补元数据」：
+ *     · 原卷 HTML 里**有** table/img —— 一律保留原样，不因 AI 的重写而丢失
+ *     · AI 题干与原文差异大（表格被 AI 改写/丢失）—— 仍以原卷 HTML 为准
+ *     · AI 的答案/解析/题型/分值 —— 这些原卷里常常没有或不准，采用 AI 的
+ *
+ * @param originalHtml 原卷切出来的 HTML（含 table/img，是内容真源）
+ * @param aiContent    AI 返回的题干（用于补充原文没有的信息）
+ * @param images       图片占位符映射
+ * @returns            合并后的题干 HTML
+ */
+export function mergeContent(originalHtml: string, aiContent: string, images?: Record<string, string>): string {
+  const orig = String(originalHtml || '')
+  const ai = String(aiContent || '')
+
+  // 原卷 HTML 里含表格或图片 —— 这些是最容易被 AI 弄丢的，一律以原卷为准
+  const hasRich = /<table[\s>]|<img[\s>]/i.test(orig)
+
+  if (!orig.trim()) {
+    // 原卷没内容（比如块只有图片、text 为空）：用 AI 的，并回填图片。
+    // ⚠️ 这里必须**强制按 HTML 处理**（restoreImages 的第 3 参）——
+    //    否则纯文本走"保留文字标记"分支，用户看到的会是 "[图1]" 而不是图片。
+    return restoreImages(ai, images, true)
+  }
+  if (hasRich) return orig
+
+  // 原卷是纯文字：若 AI 给了更完整的题干（含表格 Markdown / 图片占位符）就用 AI 的
+  const aiT = ai.trim()
+  const origT = orig.replace(/<[^>]+>/g, '').replace(/\s+/g, '')
+  const aiPlain = aiT.replace(/[|#*`\[\]\s]/g, '')
+  if (aiT && (aiPlain.length > origT.length * 1.2 || /\[图\d+\]|\|.*\|/.test(aiT))) {
+    return restoreImages(aiT, images)
+  }
+  return orig
+}
 
 /** 存进 settings 表的 key */
 export const AI_CONFIG_KEY = 'ai_config'

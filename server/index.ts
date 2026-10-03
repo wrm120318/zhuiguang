@@ -2884,21 +2884,13 @@ app.get('/api/ai/status', auth, async (_req, res) => {
 app.post('/api/ai/parse-paper', auth, async (req, res) => {
   const body = req.body || {}
   const rawHtml: string = String(body.html || '')
-  let text: string = String(body.text || '')
-  if (!text && rawHtml) {
-    text = rawHtml
-      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  }
-  if (!text.trim()) return res.status(400).json({ ok: false, available: true, message: '试卷内容为空' })
-  if (text.length > 200000) return res.status(400).json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' })
+  const bodyText: string = String(body.text || '')
+
+  // 【v4.13.1】与 worker-api.ts 保持逐字一致：优先用 HTML，
+  //   让共享层做「表格 Markdown 化 + 图片占位符化」的结构保真转换。
+  const payload = rawHtml.trim() || bodyText
+  if (!payload.trim()) return res.status(400).json({ ok: false, available: true, message: '试卷内容为空' })
+  if (payload.length > 200000) return res.status(400).json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' })
 
   const subjectId = Number(body.subjectId)
   if (subjectId) {
@@ -2920,7 +2912,7 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
   }
 
   const started = Date.now()
-  const result = await aiParsePaper(env, text, { timeoutMs: 55000, maxChars: 60000 })
+  const result = await aiParsePaper(env, payload, { timeoutMs: 55000, maxChars: 60000 })
   const elapsed = Date.now() - started
 
   if (!result || !result.questions.length) {
@@ -2934,6 +2926,8 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
     ok: true, available: true,
     provider: result.provider, model: result.model,
     questions: result.questions, attempts: result.attempts,
+    // 【v4.13.1】与 worker-api.ts 一致：回传「图N → src」映射，前端据此回填图片
+    images: result.images || {},
     usage: result.usage, elapsed,
   })
 })

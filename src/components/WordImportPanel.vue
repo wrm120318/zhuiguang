@@ -5,6 +5,9 @@
 import { ref, reactive, computed } from 'vue'
 import { api } from '@/api'
 import { ElMessage } from 'element-plus'
+// 【v4.13.1】与后端共用同一份合并逻辑（铁律#11）：
+//   题干以原卷 HTML 为准，表格/图片不被 AI 的纯文本覆盖；[图N] 占位符换回 <img>。
+import { mergeContent, restoreImages } from '@shared/ai-paper'
 
 const props = defineProps<{ subjectId: number }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -297,23 +300,34 @@ async function aiRecognize() {
   }
   aiRunning.value = true
   try {
+    // 【v4.13.1】同时送 text 与 html：
+    //   后端优先用 html 做「表格 Markdown 化 + 图片占位符化」的结构保真转换，
+    //   避免表格被拍平、图片因 text 为空而整块消失。
+    const html = preview.value.map(p => p.content).filter(Boolean).join('')
     const text = preview.value.map(p => htmlToText(p.content)).filter(Boolean).join('\n')
     if (!text.trim()) { ElMessage.warning('请先上传 Word 文件'); return }
-    const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
+    const r: any = await api.aiParsePaper({ text, html, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
       ElMessage.warning(`AI 识别未生效${r?.available === false ? '（AI 服务不可用）' : ''}，已保留规则识别结果`)
       return
     }
-    preview.value = r.questions.map((q: any) => ({
-      qtype: q.qtype || 'subjective',
-      content: q.content || '',
-      options: q.options || [],
-      answer: q.answer || '',
-      analysis: q.analysis || '',
-      difficulty: defaults.difficulty,
-      score: q.score ?? defaults.score,
-      status: 'imported_needs_review',
-    }))
+    // 【v4.13.1】题干以**原卷 HTML 为准**（含 table/img），AI 只补元数据；
+    //   并把 AI 文本里的 [图N] 占位符换回真正的 <img>，保证图片不丢。
+    preview.value = r.questions.map((q: any) => {
+      const idx = preview.value.findIndex((p: any) =>
+        q.anchor && htmlToText(p.content).includes(String(q.anchor).slice(0, 10)))
+      const orig = idx >= 0 ? String(preview.value[idx].content || '') : ''
+      return {
+        qtype: q.qtype || 'subjective',
+        content: orig ? mergeContent(orig, q.content || '', r.images || {}) : restoreImages(q.content || '', r.images || {}),
+        options: q.options || [],
+        answer: q.answer || '',
+        analysis: q.analysis || '',
+        difficulty: defaults.difficulty,
+        score: q.score ?? defaults.score,
+        status: 'imported_needs_review',
+      }
+    })
     const providerName = AI_CHANNEL_NAME[r.provider] || r.provider
     aiInfo.value = `${providerName} · ${preview.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
     ElMessage.success(`AI 识别完成：${preview.value.length} 道题（含答案与解析）`)

@@ -4792,22 +4792,14 @@ app.get('/api/ai/status', auth, async (c) => {
 app.post('/api/ai/parse-paper', auth, async (c) => {
   const body = await c.req.json().catch(() => ({})) as any
   const rawHtml: string = String(body?.html || '')
-  let text: string = String(body?.text || '')
-  // 没给纯文本就从 HTML 粗转（去标签、块级元素补换行）——保证后端可独立使用
-  if (!text && rawHtml) {
-    text = rawHtml
-      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  }
-  if (!text.trim()) return c.json({ ok: false, available: true, message: '试卷内容为空' }, 400)
-  if (text.length > 200000) return c.json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' }, 400)
+  const bodyText: string = String(body?.text || '')
+
+  // 【v4.13.1】**优先用 HTML**（表格保行列、图片保位置）。
+  //   v4.13.0 只认 text，导致表格被拍平、图片块因 text 为空而整块消失。
+  //   现在前端会同时传 text 与 html：有 html 就交给共享层做结构化转换。
+  const payload = rawHtml.trim() || bodyText
+  if (!payload.trim()) return c.json({ ok: false, available: true, message: '试卷内容为空' }, 400)
+  if (payload.length > 200000) return c.json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' }, 400)
 
   // 权限：若是绑定学科的导入，要求任教该学科
   const subjectId = Number(body?.subjectId)
@@ -4833,7 +4825,7 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
   }
 
   const started = Date.now()
-  const result = await aiParsePaper(env, text, { timeoutMs: 55000, maxChars: 60000 })
+  const result = await aiParsePaper(env, payload, { timeoutMs: 55000, maxChars: 60000 })
   const elapsed = Date.now() - started
 
   if (!result || !result.questions.length) {
@@ -4853,6 +4845,9 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     provider: result.provider,
     model: result.model,
     questions: result.questions,
+    // 【v4.13.1】把「图N → 原图 src」映射回传，前端据此把占位符换回 <img>，
+    //   否则用户看到的题干里只有 "[图1]" 而没有图片。
+    images: result.images || {},
     attempts: result.attempts,
     usage: result.usage,
     elapsed,
