@@ -84,14 +84,30 @@
 **涉及文件（新增 4）**：`migrations/0005_user_permissions.sql`、`src/constants/permissions.ts`、`scripts/verify-permissions.mjs`、`scripts/e2e-permissions.mjs`
 **涉及文件（修改 11）**：`worker-api.ts`、`server/auth.ts`、`server/index.ts`、`server/db.ts`、`schema.sql`、`src/types/index.ts`、`src/store/user.ts`、`src/layouts/AdminLayout.vue`、`src/router/index.ts`、`src/views/ProfileView.vue`、`src/views/admin/UsersView.vue`
 
-### 📌 部署须知
+### 📌 部署记录
 
-上线需**先执行 D1 迁移**再部署 Worker，否则 `permissions` 列不存在会导致读写报错：
+**先迁移后部署**顺序执行成功：
 
-```bash
-npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0005_user_permissions.sql
-npx wrangler deploy
-```
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| ① D1 迁移 | `npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0005_user_permissions.sql` | `changes: 1`；`pragma_table_info` 复核 = `permissions TEXT DEFAULT NULL` |
+| ② Worker 部署 | `npx wrangler deploy` | Version `801aef82-bd4f-42ac-a0a0-6af1e7532a20`，3126.20 KiB / gzip 654.81 KiB，Startup 95 ms |
+
+### ✅ 生产端到端验证（9 组场景全部符合预期）
+
+| 场景 | 结果 |
+|---|---|
+| 超管登录 | 返回 **13 项权限** |
+| 创建「只勾 users+audit」管理员（含非法 key `bogus`） | 落库 `['users','audit']`，未知 key 被过滤 |
+| 有权限接口 `GET /api/users` | **200** |
+| 无权限接口 `POST /api/classes` / `GET /api/admin/monitor` / `POST /api/subjects` | **403** |
+| 白名单 `POST /api/admin/self-repair`（管理员） | **403**（保持仅超管） |
+| 越权防护三项（改超管 / 改自己角色 / 创建新 ADMIN） | **全部 403** |
+| 个人中心传 `realName` | `real_name` **保持原值不变**，邮箱正常变更（partial-update 修复生效） |
+| 超管追加 `classes` 权限 | 管理员**立即可用** `POST /api/classes` → **200**（实时读库即时生效） |
+| 降级为 STUDENT | `permissions` → **`[]`** |
+
+**冒烟**：`/api/home`、`/api/subjects`、`/api/articles`、`/api/settings/site_config`、`/api/leaderboard` 全部 **200**；`/api/notices` 匿名 401 / 带 token 200（正常鉴权语义）；前端 `https://xkzg.de5.net` 与 `zhuiguang-web.pages.dev` 均 **200**。测试数据（管理员 `prodadm`、临时班级）已清理。
 
 ---
 
