@@ -28,8 +28,14 @@ npx wrangler d1 create zhuiguang-db
 ### 第二步：建表 + 写入种子数据
 
 ```bash
-# 建表（24 张表 + 索引，幂等 IF NOT EXISTS）
+# 建表（30 张表 + 索引，幂等 IF NOT EXISTS）
 npx wrangler d1 execute zhuiguang-db --remote --file=schema.sql
+
+# 增量迁移（每次版本升级按需执行，均幂等）
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0003_smart_bank.sql
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0004_perf_indexes.sql
+# v4.9.7：ADMIN 角色权限列 —— 必须在部署 Worker 之前执行
+npx wrangler d1 execute zhuiguang-db --remote --file=migrations/0005_user_permissions.sql
 
 # 验证
 npx wrangler d1 execute zhuiguang-db --remote --command="SELECT COUNT(*) FROM users"
