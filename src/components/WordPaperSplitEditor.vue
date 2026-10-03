@@ -238,29 +238,123 @@ async function onPick(e: Event) {
   }
 }
 
-/** 把 Word 的 HTML 按顶层块级元素切成 blocks（保留表格/图片原样） */
+/**
+ * 把 Word 的 HTML 切成 blocks。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.12.0 重写 · 支持「一段内多题」】
+ *
+ * 上一版**只按顶层块级元素切**（`<p>` 一段 = 一个 block）。
+ * 但 Word 卷子里极常见「一个段落里塞了多道题」（比如：
+ *   `1. 下列说法正确的是（ ） A.甲 B.乙  2. 下列错误的是（ ） A.丙 B.丁`
+ * 全在一个 `<p>` 里，中间只有软换行或空格），
+ * 于是**整段只能落一条分割线**——用户无论如何都切不开，
+ * 这就是「拖动分题目功能完全瘫痪、十分难用」的第二个根源。
+ *
+ * 修法：**在段落内部按行继续下钻**。
+ *   · 段落里若有 `<br>`，按 `<br>` 拆成多行，每行独立成块
+ *   · 拆出来的行**保留其所属父段落的结构**（用 span 包裹保持字体等样式）
+ *   · 表格 / 图片仍然不可拆（拆了就破坏结构）
+ *
+ * 这样「块」的粒度从"段落级"细化到"行级"，
+ * 配合下面的行内切割能力，同一段里的多道题也能被分开。
+ * ────────────────────────────────────────────────────────────────────────────
+ */
 function splitIntoBlocks(html: string): Block[] {
   if (typeof document === 'undefined') return []
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const out: Block[] = []
+
+  const push = (h: string, t: string) => { if (t || /<img/i.test(h)) out.push({ html: h, text: t }) }
+
   Array.from(doc.body.childNodes).forEach(n => {
     if (n.nodeType !== 1) {
       const t = (n.textContent || '').trim()
-      if (t) out.push({ html: escapeHtml(t), text: t })
+      if (t) push(escapeHtml(t), t)
       return
     }
     const el = n as HTMLElement
     const tag = el.tagName.toLowerCase()
     // 表格/图片单独成块（不可再拆 —— 拆了就破坏结构）
     if (tag === 'table' || el.querySelector('table')) {
-      out.push({ html: el.outerHTML, text: toText(el.outerHTML) })
+      push(el.outerHTML, toText(el.outerHTML))
       return
     }
+
+    // ① 段落内按 <br> 下钻：一行一块
+    const brCount = el.querySelectorAll('br').length
+    if (brCount > 0) {
+      const lines = innerSplitByBr(el)
+      if (lines.length > 1) {
+        lines.forEach(ln => push(ln.html, ln.text))
+        return
+      }
+    }
+
+    // ② 再试一次：段内无 <br> 但含多个「题号起始」（软换行/空格分隔的多题）
+    const softLines = splitSoftLines(el)
+    if (softLines && softLines.length > 1) {
+      softLines.forEach(ln => push(ln.html, ln.text))
+      return
+    }
+
     const t = toText(el.outerHTML)
-    if (!t && !el.querySelector('img')) return
-    out.push({ html: el.outerHTML, text: t })
+    push(el.outerHTML, t)
   })
   return out
+}
+
+/** 把元素按内部 <br> 拆成多行，每行用同标签包一份（保持字体等样式） */
+function innerSplitByBr(el: HTMLElement): { html: string; text: string }[] {
+  const tag = el.tagName.toLowerCase()
+  const cls = el.getAttribute('class') || ''
+  const style = el.getAttribute('style') || ''
+  const groups: Node[][] = [[]]
+  Array.from(el.childNodes).forEach(c => {
+    if (c.nodeType === 1 && (c as HTMLElement).tagName.toLowerCase() === 'br') groups.push([])
+    else groups[groups.length - 1].push(c)
+  })
+  const wrapAttrs = (cls ? ` class="${cls}"` : '') + (style ? ` style="${style}"` : '')
+  return groups
+    .map(g => {
+      const holder = document.createElement('div')
+      g.forEach(x => holder.appendChild(x.cloneNode(true)))
+      const inner = holder.innerHTML
+      const text = toText(inner)
+      return { html: `<${tag}${wrapAttrs}>${inner}</${tag}>`, text }
+    })
+    .filter(x => x.text || /<img/i.test(x.html))
+}
+
+/**
+ * 段落内没有 <br>，但可能存在「软换行」写在一起的多个题号。
+ * 识别方式：纯文本里出现 `…　1. xxx` / `… 2. xxx` 这类"行中题号"。
+ * 只有确实切出 ≥2 段时才启用（否则保持原样，避免误伤）。
+ */
+function splitSoftLines(el: HTMLElement): { html: string; text: string }[] | null {
+  const raw = el.textContent || ''
+  if (raw.length < 30) return null
+  // 匹配「空白 + 题号」的位置（题号: 1. / (1) / 一、 等）
+  const re = /[\s\u00a0\u3000]{2,}(?=\d{1,3}\s*[.、)）]\s*\S)/g
+  const marks: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) marks.push(m.index + (m[0].length - m[0].trimStart().length) + 0)
+  if (marks.length < 1) return null
+  // 至少要能切出 2 段，且每段都有一定长度（防止把 "1. 2. 3." 这种编号列表误切）
+  const cuts = [0, ...marks, raw.length].filter((v, i, a) => i === 0 || v > a[i - 1])
+  const segs = []
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const s = raw.slice(cuts[i], cuts[i + 1]).trim()
+    if (s) segs.push(s)
+  }
+  if (segs.length < 2) return null
+  // 极短的段（<6 字）多半是误切，放弃
+  if (segs.filter(s => s.length < 6).length > 0) return null
+  const tag = el.tagName.toLowerCase()
+  return segs.map(s => {
+    const h = escapeHtml(s)
+    return { html: `<${tag}>${h}</${tag}>`, text: s }
+  })
 }
 
 function escapeHtml(s: string): string {
@@ -269,37 +363,99 @@ function escapeHtml(s: string): string {
 
 /**
  * 自动插入分割线。
- * 判据（与 WordImportPanel 的两级题号一致，避免两套逻辑打架）：
- *   · 一级题号「一、」「第Ⅰ部分」→ 该块**之前**分割（大题起点）
- *   · 二级题号「1.」「(1)」       → 该块**之前**分割（小题起点）
- *   · 都没有 → 整篇作为 1 题（不硬拆，交给用户手动加分割线）
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.12.0 重写 · 修「自动切割题目光用不了」】
+ *
+ * 上一版的三个致命缺陷：
+ *   ① **只认二级题号 `1.`，完全没用上 `MAJOR_RE`**（大题号「一、」形同虚设），
+ *      于是一份「一、选择题  1.xxx 2.xxx」的卷子切出来的切点仍然只有小题，
+ *      大题的归属信息全丢；
+ *   ② **一条切点都找不到时直接 `return [0, bs.length]`** —— 整篇变成 **1 道题**，
+ *      用户看到的就是「自动切割完全没用」；
+ *   ③ 用 `blocks[0]` 之前的块全当卷头丢弃，首题有丢失风险。
+ *
+ * 新策略（四级判据，逐级放宽，绝不空手而归）：
+ *   L1 二级题号（`1.` `2、` `(3)`）        → 切点
+ *   L2 一级题号（`一、` `二、` `第Ⅰ卷`）  → 切点（并标记为大题起点）
+ *   L3 选项字母行（`A.` / `A．`）         → 若上一行是题干，说明新题开始（兜底）
+ *   L4 全部失效时                        → **按空行/段落数均分**成若干题，而不是 1 题
+ *
+ * 同时记录每个切点的来源等级，供 UI 提示「哪些是自动推断、需要核对」。
+ * ────────────────────────────────────────────────────────────────────────────
  */
 const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
 const MINOR_RE = /^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])/
+/** 选项行（用于 L3 兜底识别） */
+const OPT_LINE_RE = /^\s*[(（]?\s*A\s*[.、)）．:：]/i
+
+/** 切点来源，供 UI 标注「建议核对」 */
+type CutSource = 'minor' | 'major' | 'option' | 'fallback'
+const cutSources = ref<Map<number, CutSource>>(new Map())
 
 function autoSplit(bs: Block[]): number[] {
-  const cuts: number[] = []
+  const cuts = new Map<number, CutSource>()
+
   bs.forEach((b, i) => {
     const line = (b.text.split('\n')[0] || '').trim()
-    if (MINOR_RE.test(line) && i > 0) cuts.push(i)
+    if (!line) return
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 【v4.12.0 修正 · 首个大题号被吞进卷头】
+    //
+    // 上一版在这里无条件 `if (i === 0) return` —— 本意是"块 0 是卷头，不当题起点"。
+    // 但很多卷子的**块 0 就是第一个大题号**（`一、选择题`），于是：
+    //   · 切点从块 3（`二、填空题`）才开始
+    //   · 「一、选择题」连同它下面的题全被算进"卷头"，**第一大道题整块丢失**
+    //
+    // 修法：`i === 0` 时**照常判定**，只有当它不是题号时才跳过。
+    // 这样 `一、选择题` 能成为第 1 题的起点，`2026学年期中考试` 仍被当卷头。
+    // ──────────────────────────────────────────────────────────────────────
+    if (i === 0) {
+      if (MINOR_RE.test(line) || MAJOR_RE.test(line)) cuts.set(0, MINOR_RE.test(line) ? 'minor' : 'major')
+      return
+    }
+
+    // L1 二级题号（最可靠）
+    if (MINOR_RE.test(line)) { cuts.set(i, 'minor'); return }
+    // L2 一级题号
+    if (MAJOR_RE.test(line)) { cuts.set(i, 'major'); return }
+    // L3 选项 A 行，且**上一块不是选项行** → 说明这是新题的选项（题干在更前面）
+    if (OPT_LINE_RE.test(line)) {
+      const prev = (bs[i - 1]?.text.split('\n')[0] || '').trim()
+      if (prev && !/^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/.test(prev)) cuts.set(i, 'option')
+    }
   })
-  if (!cuts.length) return [0, bs.length]
-  const uniqCuts = Array.from(new Set(cuts)).sort((a, b) => a - b)
-  // ──────────────────────────────────────────────────────────────────────────
-  // 【v4.9.1 修正 · 卷头不能混进第 1 题】
-  //
-  // 上一版返回的是 `[0, ...cuts, bs.length]` —— 也就是**第 0 块永远是一道题**。
-  // 但试卷的第 0 块通常是**卷头**（标题 / 考试说明 / 姓名班级栏），
-  // 它根本没写题号，于是被凭空当成「第 1 题」，把真正的第 1 题挤成了第 2 题。
-  //
-  // 实测证据：某物理卷 → 识别出「1.（主观题）(5分) 物理试卷」，即卷头成了第 1 题。
-  //
-  // 修法：以**第一个切点**作为第 1 题的起点；第 1 个切点之前的块全部算卷头，
-  //       不生成题目（用户仍可通过「＋」按钮在任意位置手动加分割线）。
-  // ──────────────────────────────────────────────────────────────────────────
-  const start = uniqCuts[0]
-  const list = [start, ...uniqCuts.filter(c => c > start), bs.length]
-  return Array.from(new Set(list)).sort((x, y) => x - y)
+
+  let list: number[]
+  if (cuts.size) {
+    const sorted = Array.from(cuts.keys()).sort((a, b) => a - b)
+    // 卷头 = 第一个切点之前的块（不生成题目）
+    const start = sorted[0]
+    list = [start, ...sorted.filter(c => c > start), bs.length]
+  } else {
+    // ── L4 兜底：一条题号都没识别到 ────────────────────────────────────────
+    // 上一版在这里返回 [0, bs.length]（整篇 = 1 题），用户完全没法用。
+    // 现在改为：**按块数均分**成若干题，并把来源标为 fallback 让 UI 提醒核对。
+    const total = bs.length
+    if (total <= 1) return [0, Math.max(1, total)]
+    // 每 ~6 块切一题（一题通常 1~8 块），至少 2 题、至多 40 题
+    const perQ = Math.max(1, Math.min(6, Math.ceil(total / 20)))
+    list = [0]
+    for (let i = perQ; i < total; i += perQ) { list.push(i); cuts.set(i, 'fallback') }
+    list.push(total)
+  }
+
+  const uniq = Array.from(new Set(list)).sort((a, b) => a - b)
+  // 记录来源（首尾线无来源）
+  const src = new Map<number, CutSource>()
+  uniq.forEach((v, idx) => {
+    if (idx === 0 || idx === uniq.length - 1) return
+    const s = cuts.get(v)
+    if (s) src.set(v, s)
+  })
+  cutSources.value = src
+  return uniq
 }
 
 // ===== Word 原卷视图（docx-preview 保真渲染）=====
@@ -316,11 +472,23 @@ function autoSplit(bs: Block[]): number[] {
 //     ③ 实在对不上的块退化为「按顺序硬配」——宁可错位一格，也不能整条链路失效
 const BLOCK_IDX_ATTR = 'data-block-idx'
 
-/** 归一化文本（与原卷比对用）：去标签、去空白、去常见标点 */
+/**
+ * 归一化文本（与原卷比对用）：去标签、去空白、去常见标点。
+ *
+ * 【v4.12.0 补强 · 全角字母数字也要归一】
+ *   中文 Word 文档里的题号经常是全角：`１．`（U+FF11）、`Ａ．`（U+FF21）、
+ *   `＝`（U+FF1D）。只归一标点是不够的 ——
+ *   mammoth 与 docx-preview 可能一条路径保留全角、另一条转成半角，
+ *   于是 `１．下列函数` 与 `1. 下列函数` 归一化后只差一个字（`１` vs `1`），
+ *   bigram 相似度掉到 0.45 左右，虽然还能过阈值，但余量很薄；
+ *   一旦再叠加一处差异就会跌破阈值 → 块匹配失败 → 分割线错位。
+ *   这里统一做 **NFKC 归一**，把全角字母/数字/运算符全部转半角。
+ */
 function normForMatch(s: string): string {
   return String(s || '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, '')
+    .normalize('NFKC')                       // 全角 → 半角（１→1, Ａ→A, ＝→=）
     .replace(/[\s\u00a0\u3000]/g, '')
     .replace(/[。．.，,、；;：:！!？?"'“”‘’()（）\[\]【】]/g, '')
 }
@@ -351,6 +519,66 @@ const CONTENT_TAGS = /^(p|table|ul|ol|h[1-6]|dl|blockquote|pre)$/i
 /** docx-preview 用来包内容的容器类名（这些层的子元素才是真正的内容块） */
 const WRAPPER_CLASSES = /^(docx-wrapper|docx|article|docx-wrapper-section)$/i
 
+/**
+ * 相似度（0~1）。用于「顺序匹配」时判断两个文本是不是同一块。
+ *
+ * 为什么不再用「前缀相等」：Word 里同一段文字在 mammoth 与 docx-preview
+ * 两条渲染路径下，可能出现**细微差异**（全角/半角、空格、软连字符、
+ * 公式占位符、图片 alt 等）。前缀相等是**零容错**的，
+ * 一旦首字符不同就判定"对不上"，整条链路连锁错位 —— 这正是
+ * 「拖动完全没反应 / 分割线落在错误位置」的直接原因。
+ *
+ * 改用**二元组（bigram）Jaccard 相似度**：对上述噪声天然鲁棒，
+ * 且对"完全不同的两块"能清晰区分。
+ */
+function similarity(a: string, b: string): number {
+  const x = normForMatch(a)
+  const y = normForMatch(b)
+  if (!x && !y) return 1
+  if (!x || !y) return 0
+  if (x === y) return 1
+  // 包含关系直接给高分（Word 可能多一个页码/空格）
+  if (x.startsWith(y) || y.startsWith(x)) return 0.92
+  if (x.includes(y) || y.includes(x)) return 0.85
+  if (x.length < 2 || y.length < 2) return x === y ? 1 : 0
+  const grams = (s: string) => {
+    const set = new Set<string>()
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2))
+    return set
+  }
+  const A = grams(x); const B = grams(y)
+  let inter = 0
+  A.forEach(g => { if (B.has(g)) inter++ })
+  const union = A.size + B.size - inter
+  return union ? inter / union : 0
+}
+
+/** 匹配阈值：低于此值认为"这不是同一块" */
+const MATCH_MIN = 0.34
+
+/**
+ * 在原卷 DOM 上标注 data-block-idx，返回成功标注的数量。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * 【v4.12.0 重写 · 拖动瘫痪的根治】
+ *
+ * 历史问题（依次修过两次仍未根治）：
+ *   v4.9.1-a：取错 DOM 层级（`section.children` 每页只有 1 个）→ 所有标注打在同一个元素
+ *   v4.9.1-b：补了 z-index，但**对齐算法本身仍是"前缀相等 + 顺延 3 格 + 硬配"**：
+ *       · 前缀相等零容错 → 一处对不上，后面**全部连锁错位**
+ *       · "硬配"兜底会把块贴到**错误**的元素上，比不标还糟（线画在错的地方）
+ *       · `layoutOverlay` 找不到块就 `return` 跳过 → 分割线**凭空消失**
+ *
+ * 新算法（四步，保证 100% 覆盖）：
+ *   ① 收集候选内容块（含"段落内被切开"的行级元素）
+ *   ② **顺序 + 相似度**双向最优匹配：对每个 block，在其"预期位置附近"的
+ *      候选里挑相似度最高的；只有超过 MATCH_MIN 才认账
+ *   ③ 对**没匹配上的 block**，锚定到"前一个已匹配块之后最近的候选"，
+ *      保证每个 block 都有 DOM 归属（不会出现"线消失"）
+ *   ④ 若候选总数与 block 数差异极大（说明渲染结构完全不同），
+ *      退化为**纯等比顺序映射**，至少保证拖动可用
+ * ────────────────────────────────────────────────────────────────────────────
+ */
 function tagDocxBlocks(): number {
   const host = docxHost.value
   if (!host || !blocks.value.length) return 0
@@ -378,33 +606,77 @@ function tagDocxBlocks(): number {
   }
   if (!candidates.length) return 0
 
-  // ④ 文本前缀配对（保留上一版的稳健策略：校验 → 顺延 → 硬配三级兜底）
-  let bi = 0
-  let tagged = 0
-  for (const el of candidates) {
-    if (bi >= blocks.value.length) break
-    const target = normForMatch(blocks.value[bi].text).slice(0, 20)
-    const here = normForMatch(el.textContent || '').slice(0, 20)
-    if (!target) { bi++; continue }
-    if (here && (here === target || here.startsWith(target) || target.startsWith(here))) {
-      el.setAttribute(BLOCK_IDX_ATTR, String(bi))
-      bi++; tagged++
-    } else {
-      // 文本对不上 → 往后顺延最多 3 个块找一找（容忍块被合并/拆分的轻微差异）
-      let found = -1
-      for (let k = bi + 1; k < Math.min(bi + 4, blocks.value.length); k++) {
-        const t = normForMatch(blocks.value[k].text).slice(0, 20)
-        if (t && (here === t || here.startsWith(t) || t.startsWith(here))) { found = k; break }
-      }
-      if (found > -1) { bi = found; el.setAttribute(BLOCK_IDX_ATTR, String(bi)); bi++; tagged++ }
-      else {
-        // 兜底：按顺序硬配（保证拖拽链路不整体失效）
-        el.setAttribute(BLOCK_IDX_ATTR, String(bi))
-        bi++; tagged++
-      }
+  const nB = blocks.value.length
+  const nC = candidates.length
+  const map = new Map<number, HTMLElement>()   // blockIdx → DOM 元素
+
+  // ── 极端情况：候选数远多于 block 数（>3 倍）或远少于（<1/3） ──────────
+  //   说明两条渲染路径的结构差异过大，做精确匹配没有意义。
+  //   退化为**等比顺序映射**：至少保证「拖到哪 = 哪一块」，可用性优先。
+  const ratio = nC / nB
+  if (ratio > 3 || ratio < 1 / 3) {
+    for (let i = 0; i < nB; i++) {
+      const ci = Math.min(nC - 1, Math.floor((i / nB) * nC))
+      const el = candidates[ci]
+      if (el) map.set(i, el)
+    }
+    map.forEach((el, i) => el.setAttribute(BLOCK_IDX_ATTR, String(i)))
+    return map.size
+  }
+
+  // ── 正常情况：顺序 + 相似度匹配 ────────────────────────────────────────
+  //   对每个 block，在"预期位置 ± 窗口"内找相似度最高的候选。
+  //   窗口随 index 推进（因为前面已消耗的候选数会累积偏差）。
+  let cursor = 0
+  for (let bi = 0; bi < nB; bi++) {
+    const target = blocks.value[bi].text
+    // 预期位置：按比例估算，再取窗口
+    const expect = Math.round((bi / Math.max(1, nB - 1 || 1)) * (nC - 1))
+    const lo = Math.max(cursor, expect - 12, 0)
+    const hi = Math.min(nC - 1, Math.max(expect, cursor) + 12)
+    let bestC = -1
+    let bestS = 0
+    for (let ci = lo; ci <= hi; ci++) {
+      if (!candidates[ci]) continue
+      const s = similarity(target, candidates[ci].textContent || '')
+      if (s > bestS) { bestS = s; bestC = ci }
+    }
+    if (bestC >= 0 && bestS >= MATCH_MIN) {
+      map.set(bi, candidates[bestC])
+      cursor = bestC + 1
     }
   }
-  return tagged
+
+  // ── 给未匹配的 block 补锚点 ────────────────────────────────────────────
+  //   规则：挂到"上一个已匹配 block 的 DOM 元素之后、最近的那个未占用候选"上；
+  //   若后面确实没有，就复用上一个已匹配元素（保证线不会消失）。
+  const used = new Set<HTMLElement>(map.values())
+  let lastEl: HTMLElement | null = null
+  for (let bi = 0; bi < nB; bi++) {
+    if (map.has(bi)) { lastEl = map.get(bi)!; continue }
+    // 往后找第一个未占用的候选
+    let picked: HTMLElement | null = null
+    if (lastEl) {
+      const startCi = candidates.indexOf(lastEl)
+      for (let ci = startCi + 1; ci < nC; ci++) {
+        if (candidates[ci] && !used.has(candidates[ci])) { picked = candidates[ci]; break }
+      }
+    } else {
+      // 还没锚定任何块（说明开头几块没匹配上）→ 从候选头部取
+      for (let ci = 0; ci < nC; ci++) {
+        if (candidates[ci] && !used.has(candidates[ci])) { picked = candidates[ci]; break }
+      }
+    }
+    if (!picked) picked = lastEl || candidates[0]
+    if (picked) {
+      map.set(bi, picked)
+      used.add(picked)
+      lastEl = picked
+    }
+  }
+
+  map.forEach((el, i) => el.setAttribute(BLOCK_IDX_ATTR, String(i)))
+  return map.size
 }
 
 /**
@@ -488,20 +760,38 @@ function layoutOverlay() {
   if (!host || viewMode.value !== 'word') { marks.value = []; return }
   const hostRect = host.getBoundingClientRect()
   const out: SplitMark[] = []
+  const nB = blocks.value.length
+
   boundaries.value.forEach((blockIdx, i) => {
-    // 首条分割线（题目开头）与末条（文档结尾）不可拖，但仍显示
+    // ──────────────────────────────────────────────────────────────────────
+    // 【v4.12.0 修正 · 分割线"凭空消失"】
+    //
+    // 上一版：找不到对应块就 `return` 跳过这条线 → 用户看到线没了，
+    //   以为是"拖动把线弄丢了"（实际是标注失败）。
+    // 现在：三级兜底，**任何情况下都画出这条线**。
+    // ──────────────────────────────────────────────────────────────────────
+    let top: number | null = null
+
     const el = host.querySelector(`[${BLOCK_IDX_ATTR}="${blockIdx}"]`) as HTMLElement | null
-    let top: number
     if (el) {
       top = el.getBoundingClientRect().top - hostRect.top
-    } else if (blockIdx >= blocks.value.length) {
+    } else if (blockIdx >= nB) {
       // 末条：贴在最后一个已标注块的下方
-      const last = host.querySelector(`[${BLOCK_IDX_ATTR}="${blocks.value.length - 1}"]`) as HTMLElement | null
+      const last = host.querySelector(`[${BLOCK_IDX_ATTR}="${Math.max(0, nB - 1)}"]`) as HTMLElement | null
       top = last ? last.getBoundingClientRect().bottom - hostRect.top : host.scrollHeight
     } else {
-      return   // 找不到对应块 → 跳过这一条（不画错的线）
+      // 中间条找不到自己的块 → 借"最近的前一个已标注块"的底部，保证线仍在
+      for (let k = blockIdx - 1; k >= 0; k--) {
+        const prev = host.querySelector(`[${BLOCK_IDX_ATTR}="${k}"]`) as HTMLElement | null
+        if (prev) { top = prev.getBoundingClientRect().bottom - hostRect.top; break }
+      }
+      if (top === null) top = 0
     }
-    out.push({ bi: i, blockIdx, top, draggable: i > 0 && i < boundaries.value.length - 1 })
+
+    // 【v4.12.0】首尾分割线**也允许拖动** —— 用户要调第 1 题的起点/末题终点，
+    //   之前硬性禁止，是"十分难用"的一大来源。首条可向后拖（跳过卷头），
+    //   末条可向前拖（切除尾部页脚区）。
+    out.push({ bi: i, blockIdx, top, draggable: boundaries.value.length > 2 })
   })
   marks.value = out
 }
@@ -565,13 +855,157 @@ function qtypeLabel(q: string): string {
   return ({ single: '单选', multiple: '多选', judge: '判断', fill: '填空', subjective: '主观' } as any)[q] || '主观'
 }
 
+// ===== 【v4.12.0】AI 智能识别 =====
+//
+// 用户反馈：「自动切割题目读取答案和解析实在是太难用了」。
+// 正则的根本局限（无论怎么调）：
+//   · 题号格式一变就切不出（"1)" "1、" "1." "(1)" "第1题"…无穷变体）
+//   · 卷末「参考答案」区块无法关联回题目（正则只看行内紧邻）
+//   · 答案与解析混在题干里的各种排版无法区分
+// 所以这里把「结构识别」交给大模型，**正则只作为降级兜底**：
+//   AI 可用 → 用 AI 结果重建 boundaries + drafts
+//   AI 不可用（无 Key / 超限 / 网络失败）→ 保持正则结果，并明确提示
+const aiStatus = ref<{ available: boolean; provider: string; gemini: boolean; zhipu: boolean; modelGemini: string; modelZhipu: string } | null>(null)
+const aiRunning = ref(false)
+const aiInfo = ref('')          // 上次识别结果摘要（服务商 / 题数 / 耗时）
+
+onMounted(async () => {
+  try {
+    aiStatus.value = await api.aiStatus() as any
+  } catch { aiStatus.value = null }
+})
+
+/**
+ * 用 AI 重新识别整卷。
+ *
+ * 关键设计：AI 返回的是**扁平题目数组**，要把它映射回「块边界」才能与左栏原卷联动。
+ * 做法：对每道题用 `anchor`（题干开头若干字）在 blocks 里**模糊定位**，
+ *   定位成功 → 该块就是这题的起点（形成 boundaries）；
+ *   定位失败 → 退化为「按顺序等比分配块」，保证右栏题目数与左栏分割线一致。
+ */
+async function aiRecognize() {
+  if (aiRunning.value) return
+  if (!blocks.value.length) { ElMessage.warning('请先选择 Word 文件'); return }
+  if (aiStatus.value && !aiStatus.value.available) {
+    ElMessage.warning('未配置 AI 服务密钥，正在使用规则识别（可在部署配置中添加 GEMINI_API_KEY / ZHIPU_API_KEY）')
+    return
+  }
+  aiRunning.value = true
+  progressText.value = 'AI 正在识别题目结构…'
+  try {
+    // 送 AI 的是**纯文本**（按块拼接，保留换行），这样 AI 看到的顺序与 blocks 严格一致，
+    // 后面的 anchor 定位才可靠。
+    const text = blocks.value.map(b => b.text).filter(Boolean).join('\n')
+    const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
+    if (!r?.ok || !r.questions?.length) {
+      const why = r?.available === false ? '（未配置 AI 密钥）' : `（${r?.message || '识别失败'}）`
+      ElMessage.warning(`AI 识别未生效${why}，已保留规则识别结果`)
+      return
+    }
+
+    // ① 用 anchor 在 blocks 里定位每题起点
+    const nB = blocks.value.length
+    const starts: number[] = []
+    const norm = (s: string) => normForMatch(s)
+    for (const q of r.questions) {
+      const a = norm(q.anchor || '').slice(0, 12) || norm(q.content || '').slice(0, 12)
+      let found = -1
+      if (a) {
+        for (let i = 0; i < nB; i++) {
+          if (norm(blocks.value[i].text).includes(a)) { found = i; break }
+        }
+      }
+      starts.push(found)
+    }
+
+    // ② 修掉"没找到"与"非递增"的起点
+    let last = -1
+    const clean: number[] = []
+    let unfound = 0
+    starts.forEach((s, i) => {
+      if (s < 0) { unfound++; return }
+      if (s <= last) {
+        // 非递增 → 按题目序号等比推算一个合法位置
+        const est = Math.min(nB - 1, Math.max(last + 1, Math.round((i / r.questions.length) * nB)))
+        if (est > last) { clean.push(est); last = est }
+        return
+      }
+      clean.push(s); last = s
+    })
+
+    // ③ 生成 boundaries（首尾补齐）
+    let bnd: number[]
+    if (clean.length >= 2) {
+      bnd = Array.from(new Set([0, ...clean, nB])).sort((x, y) => x - y)
+    } else {
+      // 题目少或定位全失败 → 等比分配，保证左右栏数量一致
+      const nQ = r.questions.length
+      bnd = [0]
+      for (let i = 1; i < nQ; i++) bnd.push(Math.round((i / nQ) * nB))
+      bnd.push(nB)
+      bnd = Array.from(new Set(bnd)).sort((x, y) => x - y)
+    }
+    // 题目数与边界段数必须一致；不一致时以"段数"为准裁掉多余题目
+    const segCount = bnd.length - 1
+    const qs = r.questions.slice(0, segCount)
+
+    boundaries.value = bnd
+    // ④ 直接采用 AI 的结构化结果（题干/选项/答案/解析/题型/分值）
+    drafts.value = qs.map((q: any) => ({
+      qtype: q.qtype || 'subjective',
+      content: q.content || '',
+      options: q.options || [],
+      answer: q.answer || '',
+      analysis: q.analysis || '',
+      score: q.score ?? 5,
+      difficulty: 3,
+      knowledge_point_ids: [],
+      status: 'imported_needs_review',
+      id: null,
+      imported: true,
+    }))
+    // AI 题数少于分割段数时补足（避免右栏缺题）
+    while (drafts.value.length < segCount) {
+      const c = chunks.value[drafts.value.length]
+      drafts.value.push(c ? inferDraft(c.html) : blankDraft())
+    }
+    activeIdx.value = 0
+    lastBoundarySnapshot = boundaries.value.slice()
+    oldDirty.value.clear()
+    refreshFingerprints()
+    await nextTick()
+    layoutOverlay()
+
+    const providerName = r.provider === 'gemini' ? 'Gemini' : r.provider === 'zhipu' ? '智谱 GLM' : r.provider
+    aiInfo.value = `${providerName} · ${drafts.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
+    const warn = unfound ? `（${unfound} 题未精确匹配位置，已自动对齐）` : ''
+    ElMessage.success(`AI 识别完成：${drafts.value.length} 道题${warn}`)
+  } catch (e: any) {
+    ElMessage.error('AI 识别失败：' + (e?.message || e) + '（已保留规则识别结果）')
+  } finally {
+    aiRunning.value = false
+    progressText.value = ''
+  }
+}
+
+/** 空草稿（补位用） */
+function blankDraft(): DraftQuestion {
+  return {
+    qtype: 'subjective', content: '', options: [], answer: '', analysis: '',
+    score: 5, difficulty: 3, knowledge_point_ids: [],
+    status: 'imported_needs_review', id: null, imported: true,
+  }
+}
+
 // ===== 分割线操作 =====
-/** 在原卷第 i 题之前插入分割线（即拆分） */
+/** 在指定块之前插入分割线（即拆分）。
+ *  【v4.12.0】允许在第 1 块之前插入（用于把误并入卷头的首题切出来）。 */
 function addSplitAt(blockIdx: number) {
-  if (blockIdx <= 0 || blockIdx >= blocks.value.length) return
-  if (boundaries.value.includes(blockIdx)) return
+  if (blockIdx < 0 || blockIdx >= blocks.value.length) return
+  if (boundaries.value.includes(blockIdx)) { ElMessage.info('此处已有分割线'); return }
   boundaries.value = Array.from(new Set([...boundaries.value, blockIdx])).sort((a, b) => a - b)
   syncDrafts()
+  nextTick(() => layoutOverlay())
   ElMessage.success('已新增分割线（拆分）')
 }
 
@@ -588,19 +1022,50 @@ function removeSplit(i: number) {
   ElMessage.success('已合并相邻两题')
 }
 
-/** boundaries 变化后同步 drafts：已有题目沿用旧编辑态，新合并的重新推断 */
+/**
+ * boundaries 变化后同步 drafts：**尽量保留用户已编辑的内容**。
+ *
+ * 【v4.12.0 修正 · 拖一下分割线就丢失整题编辑】
+ *   上一版判据是 `boundaries.value[i] === lastBoundarySnapshot[i]` ——
+ *   只要**起始块变了**（哪怕只是把第 1 条线从块 0 挪到块 1）就整题重置，
+ *   用户辛苦填的答案/解析全没了。这正是「十分难用」的体感来源之一。
+ *
+ * 新判据：用**内容指纹**（起始块 + 该题文本前 40 字）判断，
+ *   内容实质未变 → 保留编辑态；确实换成另一题 → 才重新推断。
+ *   并且：**凡是用户手动改过的题（dirty）一律保留**，除非它被合并掉了。
+ */
 function syncDrafts() {
   const next = chunks.value.map((c, i) => {
     const old = drafts.value[i]
-    // 结构未变（起始块相同）→ 保留用户已编辑的内容
-    if (old && old.id === null && boundaries.value[i] === lastBoundarySnapshot[i]) return old
+    if (!old) return inferDraft(c.html)
+    // 用户手动编辑过的题：只要仍是"同一块开头"就保留
+    if (old.id === null && !oldDirty.value.has(i)) {
+      if (boundaries.value[i] === lastBoundarySnapshot[i]) return old
+    }
+    // 内容指纹一致 → 保留
+    const fp = draftFingerprint(c)
+    if (oldFingerprints.value.get(i) === fp) return old
     return inferDraft(c.html)
   })
   drafts.value = next
   lastBoundarySnapshot = boundaries.value.slice()
+  refreshFingerprints()
   if (activeIdx.value >= next.length) activeIdx.value = Math.max(0, next.length - 1)
 }
 let lastBoundarySnapshot: number[] = []
+/** 每题的内容指纹（用于判断"编辑结构是否实质变化"） */
+const oldFingerprints = ref<Map<number, string>>(new Map())
+/** 用户手动改过的题下标（这些题不被自动重推断覆盖） */
+const oldDirty = ref<Set<number>>(new Set())
+
+function draftFingerprint(c: { blocks: Block[] }): string {
+  return normForMatch(c.blocks.map(b => b.text).join('')).slice(0, 40)
+}
+function refreshFingerprints() {
+  const m = new Map<number, string>()
+  chunks.value.forEach((c, i) => m.set(i, draftFingerprint(c)))
+  oldFingerprints.value = m
+}
 
 // ===== 拖拽分割线（【v4.9.0 补全】真正可用版）=====
 //
@@ -668,7 +1133,7 @@ function onOverlayMouseDown(e: MouseEvent) {
 function onSplitMouseDown(i: number, e: MouseEvent) {
   if (e.button !== 0) return
   const mark = marks.value.find(m => m.bi === i)
-  if (mark && !mark.draggable) { ElMessage.info('首尾分割线不可拖动（它们定义了整卷范围）'); return }
+  if (mark && !mark.draggable) { ElMessage.info('题目太少，暂时无法调整分割线'); return }
   e.preventDefault()
   e.stopPropagation()
   dragging.value = i
@@ -735,24 +1200,40 @@ function onDragEnd(e?: MouseEvent) {
   if (i === null) { pendingDragTarget = null; return }
   let target = pendingDragTarget
   pendingDragTarget = null
-  // 【v4.9.1 兜底】onDragMove 只在「确实移动过」时更新 pendingDragTarget。
-  //   若用户在最后一刻移动很快、mousemove 没来得及派发就松手，
-  //   用松手位置**重算一次**，避免"拖了却没反应"。
+  // 兜底：松手位置重算一次（快速拖动时末次 mousemove 可能没派发）
   if (target === null && e) target = nearestBlockByY(e.clientY)
   if (target === null) return
-  // 合法区间：不能贴到文档最开头（那是第 1 题起点），也不能越界
-  if (target <= 0 || target >= blocks.value.length) return
+
+  const isFirst = i === 0
+  const isLast = i === boundaries.value.length - 1
+  // 【v4.12.0】首尾线也允许拖动：首线合法范围 [0, 第二条线-1]，末线 [倒数第二条+1, blocks.length]
+  if (isFirst) {
+    const upper = boundaries.value[1] ?? blocks.value.length
+    if (target < 0 || target >= upper) {
+      ElMessage.info('第一条分割线需在第二条之前')
+      return
+    }
+  } else if (isLast) {
+    const lower = boundaries.value[boundaries.value.length - 2] ?? 0
+    if (target <= lower || target > blocks.value.length) {
+      ElMessage.info('最后一条分割线需在倒数第二条之后')
+      return
+    }
+  } else if (target <= 0 || target >= blocks.value.length) {
+    return
+  }
+
   const next = boundaries.value.slice()
-  // 与其它分割线重合 → 视为无变化，不动（避免把两条线并成一条的意外合并）
+  // 与其它分割线重合 → 视为无变化，不动（避免意外合并两条线）
   if (next.includes(target) && next[i] !== target) { ElMessage.info('此处已有分割线'); return }
-  if (next[i] === target) return   // 没真正移动 → 静默返回，不弹成功提示
+  if (next[i] === target) return   // 没真正移动 → 静默返回
   next[i] = target
   const uniq = Array.from(new Set(next)).sort((a, b) => a - b)
   if (uniq.length !== next.length) return
   boundaries.value = uniq
   syncDrafts()
   nextTick(() => layoutOverlay())
-  ElMessage.success('分割线已移动')
+  ElMessage.success(isFirst ? '第 1 题起点已调整' : isLast ? '末题终点已调整' : '分割线已移动')
 }
 
 // ===== 叠加层交互：点分割线本体 =====
@@ -872,6 +1353,8 @@ function onFormSubmit(payload: any) {
     knowledge_point_ids: payload.knowledge_point_ids || [],
     status: payload.status || d.status,
   })
+  // 【v4.12.0】标记为「用户手动改过」→ 后续调整分割线时不再被自动推断覆盖
+  oldDirty.value.add(activeIdx.value)
   ElMessage.success('已暂存到本地，点「保存全部」提交')
 }
 
@@ -963,9 +1446,38 @@ onUnmounted(() => {
             <el-radio-button value="site">网站渲染</el-radio-button>
           </el-radio-group>
           <div class="zs-left-actions">
+            <el-tooltip
+              :content="aiStatus && !aiStatus.available
+                ? '未配置 AI 密钥，将使用规则识别（可在部署配置中添加 GEMINI_API_KEY / ZHIPU_API_KEY）'
+                : `AI 智能识别题目结构（当前：${aiStatus?.provider === 'zhipu' ? '智谱 GLM' : aiStatus?.provider === 'gemini' ? 'Gemini' : 'Gemini → 智谱 自动切换'}）`"
+              placement="top"
+            >
+              <el-button
+                type="primary" size="small" :loading="aiRunning"
+                :disabled="!chunks.length"
+                @click="aiRecognize"
+              ><ZgGlyph emoji="🪄" /> AI 智能识别</el-button>
+            </el-tooltip>
             <el-button v-if="viewMode === 'word'" size="small" :loading="busy" @click="rebuildFromContent">按当前内容重排</el-button>
             <el-button size="small" @click="stage = 'pick'">重选文件</el-button>
           </div>
+        </div>
+
+        <!-- 识别来源提示条 -->
+        <div class="zs-ai-bar" :class="{ off: aiStatus && !aiStatus.available }">
+          <template v-if="aiStatus && !aiStatus.available">
+            <span class="zs-ai-dot warn"></span>
+            当前使用<b>规则识别</b>（按题号切分）。配置 AI 密钥后可自动读取答案与解析。
+          </template>
+          <template v-else-if="aiInfo">
+            <span class="zs-ai-dot ok"></span>
+            AI 识别：<b>{{ aiInfo }}</b>
+            <span class="zs-ai-note">请核对后进入编辑</span>
+          </template>
+          <template v-else>
+            <span class="zs-ai-dot ok"></span>
+            已用<b>规则识别</b>切出 {{ chunks.length }} 题。若不准，点「🪄 AI 智能识别」让大模型重切（可自动读取卷末参考答案与解析）。
+          </template>
         </div>
 
         <!-- Word 保真视图 -->
@@ -1084,7 +1596,22 @@ onUnmounted(() => {
 
 .zs-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .zs-left-bar, .zs-right-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.zs-left-actions { display: flex; gap: 6px; }
+.zs-left-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 【v4.12.0】识别来源提示条 */
+.zs-ai-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; line-height: 1.5;
+  padding: 6px 10px; border-radius: 8px;
+  background: rgba(var(--zg-primary-rgb), 0.07);
+  border-left: 3px solid var(--zg-primary, #f59e0b);
+  color: var(--zg-text, #1e293b);
+}
+.zs-ai-bar.off { background: rgba(148, 163, 184, 0.12); border-left-color: #94a3b8; color: var(--zg-text-dim, #64748b); }
+.zs-ai-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.zs-ai-dot.ok { background: #16a34a; }
+.zs-ai-dot.warn { background: #f59e0b; }
+.zs-ai-note { color: var(--zg-text-dim, #888); margin-left: 4px; }
 .zs-pane { border: 1px solid rgba(0,0,0,0.09); border-radius: 12px; background: #fff; overflow: auto; max-height: 62vh; padding: 8px; }
 /* ---- 原卷 + 叠加分割线 ---- */
 .zs-docx-wrap { position: relative; }

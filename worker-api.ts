@@ -15,6 +15,8 @@ import {
   getStorageMonitor, getQuotaToday, getUserOrigin, b2Delete, b2DownloadStream, supaExtractKey,
   runBucketCensus, getOfficialDaily, setOfficialDaily,
 } from './storage-layer'
+// ===== v4.12.0 AI 试卷识别（Gemini + 智谱双服务，共享模块）=====
+import { aiParsePaper, aiAvailable, type AiEnv } from './shared/ai-paper'
 
 // ===== Workers 环境变量类型 =====
 interface Env {
@@ -37,6 +39,15 @@ interface Env {
   CACHE_TTL_PUBLIC?: string
   CACHE_TTL_WEBP?: string
   CACHE_TTL_PRIVATE?: string
+  // ===== v4.12.0 AI 试卷识别（密钥只走 wrangler [vars]/secret，不落文件）=====
+  GEMINI_API_KEY?: string
+  ZHIPU_API_KEY?: string
+  AI_PROVIDER?: string          // gemini | zhipu | auto（默认 auto）
+  AI_MODEL_GEMINI?: string
+  AI_MODEL_ZHIPU?: string
+  /** 仅测试用：把请求指向本地 mock（生产不配置） */
+  AI_BASE_GEMINI?: string
+  AI_BASE_ZHIPU?: string
 }
 
 // ===== 全局变量（在请求中间件中从 c.env 设置） =====
@@ -59,6 +70,10 @@ let B2_USER_DAILY_ORIGIN_LIMIT = '100'
 let CACHE_TTL_PUBLIC = '86400'
 let CACHE_TTL_WEBP = '2592000'
 let CACHE_TTL_PRIVATE = '0'
+
+// ===== v4.12.0 AI 试卷识别配置（请求中间件从 c.env 注入）=====
+//   直接复用共享模块的 AiEnv 类型，避免两处字段漂移（铁律#11）。
+let AI_ENV: AiEnv = {}
 
 // ===== 互斥锁（self-repair 和 __zg_fix 共用） =====
 const SELF_REPAIR_LOCK = { at: 0 }
@@ -1095,6 +1110,17 @@ app.use('*', async (c, next) => {
   CACHE_TTL_PUBLIC = c.env.CACHE_TTL_PUBLIC || CACHE_TTL_PUBLIC
   CACHE_TTL_WEBP = c.env.CACHE_TTL_WEBP || CACHE_TTL_WEBP
   CACHE_TTL_PRIVATE = c.env.CACHE_TTL_PRIVATE || CACHE_TTL_PRIVATE
+  // 【v4.12.0】AI 试卷识别凭据注入（只在这里读取一次，后续从 AI_ENV 取）
+  //   AI_BASE_* 仅用于测试（指向本地 mock），生产环境不配置。
+  AI_ENV = {
+    GEMINI_API_KEY: c.env.GEMINI_API_KEY,
+    ZHIPU_API_KEY: c.env.ZHIPU_API_KEY,
+    AI_PROVIDER: c.env.AI_PROVIDER,
+    AI_MODEL_GEMINI: c.env.AI_MODEL_GEMINI,
+    AI_MODEL_ZHIPU: c.env.AI_MODEL_ZHIPU,
+    AI_BASE_GEMINI: c.env.AI_BASE_GEMINI,
+    AI_BASE_ZHIPU: c.env.AI_BASE_ZHIPU,
+  }
   initStorage(D1, {
     STORAGE_BACKEND, B2_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_ID, B2_BUCKET_NAME, B2_ACCOUNT_ID,
     B2_QUOTA_ALERT, B2_USER_DAILY_ORIGIN_LIMIT, CACHE_TTL_PUBLIC, CACHE_TTL_WEBP, CACHE_TTL_PRIVATE,
@@ -4671,6 +4697,118 @@ async function linkKnowledge(questionId: number, ids: any) {
     try { await run('INSERT OR IGNORE INTO question_knowledge (question_id, knowledge_point_id) VALUES (?,?)', questionId, kp) } catch {}
   }
 }
+
+// ==============================================================================
+// ============ 【v4.12.0】AI 试卷识别（自动切割 + 读答案/解析）============
+// ==============================================================================
+//
+// 【为什么加这个】
+//   Word 导入的自动切割原来是纯正则：题号格式一变就切不出、
+//   答案只在行内紧邻才认、卷末「参考答案」区块完全关联不上、解析常年为空。
+//   这里把「结构识别」交给大模型，正则只作降级兜底。
+//
+// 【双服务（用户决策：两家都接、可切换）】
+//   Gemini 2.0 Flash（免费 1500 次/天，上下文大）↔ 智谱 GLM-4-Flash（国内直连）
+//   AI_PROVIDER=gemini|zhipu|auto（默认 auto = 先 Gemini 失败切智谱）
+//   两家都不可用时返回 available:false，前端**自动回落正则**，功能永不中断。
+//
+// 【安全】只读环境变量，密钥不落文件、不进日志（错误信息里也不回显 key）。
+// ==============================================================================
+
+/** AI 可用性（前端据此决定按钮是否置灰 + 显示当前服务商） */
+app.get('/api/ai/status', auth, async (c) => {
+  const env = AI_ENV as AiEnv
+  const provider = (env.AI_PROVIDER || 'auto').toLowerCase()
+  return c.json({
+    available: aiAvailable(env),
+    provider,
+    gemini: !!env.GEMINI_API_KEY,
+    zhipu: !!env.ZHIPU_API_KEY,
+    modelGemini: env.AI_MODEL_GEMINI || 'gemini-2.0-flash',
+    modelZhipu: env.AI_MODEL_ZHIPU || 'glm-4-flash',
+  })
+})
+
+/**
+ * 用 AI 解析试卷文本 → 结构化题目数组。
+ *
+ * 入参：{ text: string, subjectId?: number }
+ *   · text 由前端从 mammoth 结果里抽取的**纯文本**（含公式/表格的自然语言化）
+ *   · 也接受 html 字段（后端会粗转纯文本），方便前端少写代码
+ *
+ * 返回：{ ok, available, provider, model, questions[], attempts[] }
+ *   · available=false 或 questions 为空 → 前端回落正则
+ *
+ * 权限：与「新增题目」一致（教师须任教该学科），避免任意用户白嫖 AI 额度。
+ */
+app.post('/api/ai/parse-paper', auth, async (c) => {
+  const body = await c.req.json().catch(() => ({})) as any
+  const rawHtml: string = String(body?.html || '')
+  let text: string = String(body?.text || '')
+  // 没给纯文本就从 HTML 粗转（去标签、块级元素补换行）——保证后端可独立使用
+  if (!text && rawHtml) {
+    text = rawHtml
+      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  if (!text.trim()) return c.json({ ok: false, available: true, message: '试卷内容为空' }, 400)
+  if (text.length > 200000) return c.json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' }, 400)
+
+  // 权限：若是绑定学科的导入，要求任教该学科
+  const subjectId = Number(body?.subjectId)
+  if (subjectId) {
+    const u = c.get('user')
+    if (u.role !== 'SUPER_ADMIN') {
+      const okStaff = await (async () => {
+        if (u.role !== 'TEACHER') return false
+        const row = await get<any>('SELECT 1 AS ok FROM user_subjects WHERE user_id=? AND subject_id=?', u.id, subjectId)
+        if (row) return true
+        const cs = await get<any>('SELECT 1 AS ok FROM class_members WHERE user_id=? AND subject_id=? AND role_in_class=?', u.id, subjectId, 'TEACHER')
+        return !!cs
+      })()
+      if (!okStaff) return c.json({ message: '无权操作该学科' }, 403)
+    }
+  }
+
+  const env = AI_ENV as AiEnv
+  if (!aiAvailable(env)) {
+    // 明确告知"没配 Key"，前端据此直接用正则、不弹错误（这是预期路径，不是故障）
+    return c.json({ ok: false, available: false, message: '未配置 AI 服务密钥，已使用规则识别', questions: [] })
+  }
+
+  const started = Date.now()
+  const result = await aiParsePaper(env, text, { timeoutMs: 55000, maxChars: 60000 })
+  const elapsed = Date.now() - started
+
+  if (!result || !result.questions.length) {
+    return c.json({
+      ok: false,
+      available: true,
+      message: 'AI 识别失败或未识别出题目，已回退规则识别',
+      questions: [],
+      attempts: result?.attempts || [],
+      elapsed,
+    })
+  }
+
+  return c.json({
+    ok: true,
+    available: true,
+    provider: result.provider,
+    model: result.model,
+    questions: result.questions,
+    attempts: result.attempts,
+    usage: result.usage,
+    elapsed,
+  })
+})
 
 // 【v4 Bug9】单题训练 - 教师必须任教该学科才能加题
 app.post('/api/subjects/:id/questions', auth, requireSubjectStaff('params', 'id'), async (c) => {

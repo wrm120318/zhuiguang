@@ -263,6 +263,57 @@ function plainPreview(html: string): string {
   return t.length > 120 ? t.slice(0, 120) + '…' : t
 }
 
+// ===== 【v4.12.0】AI 智能识别 =====
+//
+// 用户反馈「自动切割题目读取答案和解析实在是太难用了」。
+// 正则版的两个硬伤在这里体现得最明显：
+//   ① `analysis: ''` **恒为空** —— 解析根本没被提取过
+//   ② 答案只认"行内紧邻"，卷末独立「参考答案」区块完全关联不上
+// 所以新增 AI 通道：识别时优先走大模型，失败/未配置则回落下面的正则。
+const aiStatus = ref<{ available: boolean; provider: string } | null>(null)
+const aiRunning = ref(false)
+const aiInfo = ref('')
+
+async function loadAiStatus() {
+  try { aiStatus.value = await api.aiStatus() as any } catch { aiStatus.value = null }
+}
+loadAiStatus()
+
+async function aiRecognize() {
+  if (aiRunning.value) return
+  if (aiStatus.value && !aiStatus.value.available) {
+    ElMessage.warning('未配置 AI 服务密钥，正在使用规则识别')
+    return
+  }
+  aiRunning.value = true
+  try {
+    const text = preview.value.map(p => htmlToText(p.content)).filter(Boolean).join('\n')
+    if (!text.trim()) { ElMessage.warning('请先上传 Word 文件'); return }
+    const r: any = await api.aiParsePaper({ text, subjectId: props.subjectId })
+    if (!r?.ok || !r.questions?.length) {
+      ElMessage.warning(`AI 识别未生效${r?.available === false ? '（未配置密钥）' : ''}，已保留规则识别结果`)
+      return
+    }
+    preview.value = r.questions.map((q: any) => ({
+      qtype: q.qtype || 'subjective',
+      content: q.content || '',
+      options: q.options || [],
+      answer: q.answer || '',
+      analysis: q.analysis || '',
+      difficulty: defaults.difficulty,
+      score: q.score ?? defaults.score,
+      status: 'imported_needs_review',
+    }))
+    const providerName = r.provider === 'gemini' ? 'Gemini' : r.provider === 'zhipu' ? '智谱 GLM' : r.provider
+    aiInfo.value = `${providerName} · ${preview.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
+    ElMessage.success(`AI 识别完成：${preview.value.length} 道题（含答案与解析）`)
+  } catch (e: any) {
+    ElMessage.error('AI 识别失败：' + (e?.message || e) + '（已保留规则识别结果）')
+  } finally {
+    aiRunning.value = false
+  }
+}
+
 async function onConfirm() {
   if (!preview.value.length) return
   importing.value = true
@@ -290,13 +341,27 @@ async function onConfirm() {
     <div class="upload">
       <input type="file" accept=".docx" @change="onFile" />
       <span v-if="file" class="fname">{{ file.name }}</span>
+      <el-tooltip
+        :content="aiStatus && !aiStatus.available
+          ? '未配置 AI 密钥，将使用规则识别'
+          : '用大模型重新识别：自动读取卷末参考答案与解析'"
+        placement="top"
+      >
+        <el-button
+          size="small" type="primary" :loading="aiRunning"
+          :disabled="!preview.length"
+          @click="aiRecognize"
+        ><ZgGlyph emoji="🪄" /> AI 智能识别</el-button>
+      </el-tooltip>
     </div>
+    <div v-if="aiInfo" class="ai-info">AI 识别：{{ aiInfo }}</div>
     <div v-if="preview.length" class="prev-list">
       <div v-for="(p, i) in preview" :key="i" class="prev-item">
         <div class="pi-head"><b>#{{ i + 1 }}</b> <el-tag size="small">{{ p.qtype === 'judge' ? '判断' : p.qtype === 'multiple' ? '多选' : p.qtype === 'single' ? '单选' : '主观' }}</el-tag> <span class="pi-meta">{{ p.score }}分/难度{{ p.difficulty }}</span></div>
         <div class="pi-content">{{ plainPreview(p.content) }}</div>
         <div v-if="p.options.length" class="pi-opts">{{ p.options.join(' / ') }}</div>
         <div v-if="p.answer" class="pi-ans">答案：{{ p.answer }}</div>
+        <div v-if="p.analysis" class="pi-ana">解析：{{ p.analysis }}</div>
       </div>
     </div>
     <el-button v-if="preview.length" type="primary" :loading="importing" @click="onConfirm" icon="Check">确认导入 {{ preview.length }} 题</el-button>
@@ -315,4 +380,6 @@ async function onConfirm() {
 .pi-content { line-height: 1.5; }
 .pi-opts { color: #555; font-size: 13px; margin-top: 2px; }
 .pi-ans { color: #b06a00; font-size: 13px; margin-top: 2px; }
+.pi-ana { color: #4b5563; font-size: 12.5px; margin-top: 2px; line-height: 1.5; }
+.ai-info { font-size: 12px; color: var(--zg-primary, #f59e0b); margin: -6px 0 10px; }
 </style>

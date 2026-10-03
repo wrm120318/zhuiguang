@@ -14,7 +14,7 @@ export default defineConfig({
     Components({ resolvers: [ElementPlusResolver()] })
   ],
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') }
+    alias: { '@': path.resolve(__dirname, 'src'), '@shared': path.resolve(__dirname, 'shared') }
   },
   server: {
     host: '0.0.0.0', port: 5173,

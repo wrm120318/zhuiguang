@@ -8,6 +8,8 @@ import fs from 'fs'
 import { initDB, all, get, run } from './db'
 import { signToken, auth, requireRole, requirePerm, requireStaff, requireStaffOr, requireSubjectStaff, hasPerm, parsePerms, withPerms, PERM_KEYS } from './auth'
 import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled, syncUserExp, syncUserExpBatch } from './helpers'
+// ===== v4.12.0 AI 试卷识别（与 Worker 共用同一份实现，铁律#11 三处一致）=====
+import { aiParsePaper, aiAvailable, type AiEnv } from '../shared/ai-paper'
 import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR, createPresignedUploadUrl } from './storage'
 import bcrypt from 'bcryptjs'
 import multer from 'multer'
@@ -2804,6 +2806,98 @@ app.get('/api/admin/audit/forum-posts', auth, async (req, res) => {
 })
 
 // 论坛评论 = 直接复用 /api/pages/:id/comments
+
+// ==============================================================================
+// ============ 【v4.12.0】AI 试卷识别（与 Worker 同一份实现）============
+// ==============================================================================
+//
+// 说明见 worker-api.ts 的同名区块。这里保持**完全一致的行为**：
+//   · 同样的双服务（Gemini / 智谱）、同样的降级（两家都不可用 → 前端回落正则）
+//   · 同样的权限口径（教师须任教该学科）
+// 密钥从 .env / 环境变量读取（本地开发用 .env，与 wrangler.toml 的 [vars] 对应）。
+
+function readAiEnv(): AiEnv {
+  return {
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    ZHIPU_API_KEY: process.env.ZHIPU_API_KEY,
+    AI_PROVIDER: process.env.AI_PROVIDER,
+    AI_MODEL_GEMINI: process.env.AI_MODEL_GEMINI,
+    AI_MODEL_ZHIPU: process.env.AI_MODEL_ZHIPU,
+    // 仅测试用：把请求指向本地 mock（生产不设这两个变量）
+    AI_BASE_GEMINI: process.env.AI_BASE_GEMINI,
+    AI_BASE_ZHIPU: process.env.AI_BASE_ZHIPU,
+  }
+}
+
+app.get('/api/ai/status', auth, async (_req, res) => {
+  const env = readAiEnv()
+  const provider = (env.AI_PROVIDER || 'auto').toLowerCase()
+  res.json({
+    available: aiAvailable(env),
+    provider,
+    gemini: !!env.GEMINI_API_KEY,
+    zhipu: !!env.ZHIPU_API_KEY,
+    modelGemini: env.AI_MODEL_GEMINI || 'gemini-2.0-flash',
+    modelZhipu: env.AI_MODEL_ZHIPU || 'glm-4-flash',
+  })
+})
+
+app.post('/api/ai/parse-paper', auth, async (req, res) => {
+  const body = req.body || {}
+  const rawHtml: string = String(body.html || '')
+  let text: string = String(body.text || '')
+  if (!text && rawHtml) {
+    text = rawHtml
+      .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  if (!text.trim()) return res.status(400).json({ ok: false, available: true, message: '试卷内容为空' })
+  if (text.length > 200000) return res.status(400).json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' })
+
+  const subjectId = Number(body.subjectId)
+  if (subjectId) {
+    const u = (req as any).user
+    if (u.role !== 'SUPER_ADMIN') {
+      let okStaff = false
+      if (u.role === 'TEACHER') {
+        const sids = await teachingSubjects(u.id)
+        if (u.subject_id && !sids.includes(Number(u.subject_id))) sids.push(Number(u.subject_id))
+        okStaff = sids.includes(subjectId)
+      }
+      if (!okStaff) return res.status(403).json({ message: '无权操作该学科' })
+    }
+  }
+
+  const env = readAiEnv()
+  if (!aiAvailable(env)) {
+    return res.json({ ok: false, available: false, message: '未配置 AI 服务密钥，已使用规则识别', questions: [] })
+  }
+
+  const started = Date.now()
+  const result = await aiParsePaper(env, text, { timeoutMs: 55000, maxChars: 60000 })
+  const elapsed = Date.now() - started
+
+  if (!result || !result.questions.length) {
+    return res.json({
+      ok: false, available: true,
+      message: 'AI 识别失败或未识别出题目，已回退规则识别',
+      questions: [], attempts: result?.attempts || [], elapsed,
+    })
+  }
+  res.json({
+    ok: true, available: true,
+    provider: result.provider, model: result.model,
+    questions: result.questions, attempts: result.attempts,
+    usage: result.usage, elapsed,
+  })
+})
 
 // 教师向学科题目池添加题目
 // 【v4 Bug9】单题训练 - 教师必须任教该学科才能加题
