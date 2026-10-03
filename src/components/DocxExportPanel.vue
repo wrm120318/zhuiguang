@@ -24,6 +24,8 @@ import {
   // 既有原语
   inlineRuns, mdToParagraphs, paperStyle, buildFooter, buildSealBlock,
   buildExamInfoTable, buildNoticeBox, layoutOptions,
+  // 【v4.10.1】中文习惯字号表与换算
+  CN_FONT_SIZES, ptToCnFontSize, cnFontSizeToPt,
   // 选项排版类型
   type OptionLayout,
 } from '@/utils/docx-kit'
@@ -39,23 +41,44 @@ interface Preset {
 }
 const presets: Preset[] = [
   {
-    key: 'formal', label: '正式考试卷', desc: '标准字号 · 密封线 · 须知 · 答题卡 · 页脚',
+    key: 'formal', label: '正式考试卷', desc: '小四 · 密封线 · 须知 · 答题卡 · 页脚',
     cfg: { template: 'formal', fontSize: 12, twoColumn: false, withSeal: true, withAnswerSheet: true,
       withBlueprint: true, withAnswer: true, showNotice: true, showFooter: true, optionLayout: 'auto' },
   },
   {
-    key: 'test', label: '日常测验卷', desc: '紧凑排版 · 密封线 · 不含细目表',
+    key: 'test', label: '日常测验卷', desc: '小四 · 紧凑排版 · 密封线 · 不含细目表',
     cfg: { template: 'test', fontSize: 12, twoColumn: false, withSeal: true, withAnswerSheet: true,
       withBlueprint: false, withAnswer: true, showNotice: true, showFooter: true, optionLayout: 'auto' },
   },
   {
-    key: 'homework', label: '课后作业卷', desc: '小字号 · 无密封线 · 无答题卡 · 无页脚',
-    cfg: { template: 'homework', fontSize: 11, twoColumn: false, withSeal: false, withAnswerSheet: false,
+    key: 'homework', label: '课后作业卷', desc: '五号 · 无密封线 · 无答题卡 · 无页脚',
+    cfg: { template: 'homework', fontSize: 10.5, twoColumn: false, withSeal: false, withAnswerSheet: false,
       withBlueprint: false, withAnswer: true, showNotice: false, showFooter: false, optionLayout: 'auto' },
   },
 ]
 
 const templates: Record<string, string> = { formal: '正式考试卷', test: '日常测验卷', homework: '课后作业卷' }
+
+// ===== 【v4.10.1】中文习惯字号（号数 ↔ 磅值）=====
+// 语文/数学中学试卷习惯用「初号 / 一号 / 小四 …… 八号」表述字号。
+// 号数表与换算函数统一放在 `@/utils/docx-kit`（单一来源，探针可覆盖），
+// 面板下拉直接选号数，「自定义」时可手填任意 pt，两种表述双向同步。
+
+/** 字号下拉的选中值：能对上号数就用号数名，否则回落 'custom' */
+const fontSizePreset = computed({
+  get: () => ptToCnFontSize(cfg.fontSize) ?? 'custom',
+  set: (v: string) => {
+    if (v === 'custom') return
+    const pt = cnFontSizeToPt(v)
+    if (pt !== null) { cfg.fontSize = pt; markCustom() }
+  },
+})
+/** 当前字号的完整表述，如「小四（12 pt）」*/
+const fontSizeLabel = computed(() => {
+  const n = ptToCnFontSize(cfg.fontSize)
+  const pt = Number.isInteger(cfg.fontSize) ? String(cfg.fontSize) : cfg.fontSize.toFixed(1)
+  return n ? `${n}（${pt} pt）` : `${pt} pt`
+})
 
 const cfg = reactive({
   title: `${props.subjectName} 测验卷`,
@@ -573,8 +596,24 @@ async function onExport() {
     <div class="ep-section">
       <div class="ep-section-title">高级排版</div>
       <el-form label-position="top" @change="markCustom">
-        <el-form-item :label="`正文字号：${cfg.fontSize} pt`">
-          <el-slider v-model="cfg.fontSize" :min="10" :max="16" :step="0.5" />
+        <el-form-item label="正文字号">
+          <div class="ep-fontsize">
+            <el-select v-model="fontSizePreset" class="ep-fontsize-select" placeholder="选择字号">
+              <el-option
+                v-for="s in CN_FONT_SIZES" :key="s.name"
+                :label="`${s.name}（${s.pt} pt）`" :value="s.name"
+              />
+              <el-option label="自定义…" value="custom" />
+            </el-select>
+            <el-input-number
+              v-model="cfg.fontSize" :min="5" :max="42" :step="0.5"
+              :precision="1" controls-position="right"
+              class="ep-fontsize-num" @change="markCustom"
+            />
+          </div>
+          <div class="ep-hint">
+            当前：<b>{{ fontSizeLabel }}</b>。可直接选「小四/四号」这类习惯字号，也可在右侧填任意磅值（5 ~ 42 pt），两者双向同步。
+          </div>
         </el-form-item>
         <el-form-item label="选择题选项排版">
           <el-radio-group v-model="cfg.optionLayout">
@@ -630,12 +669,18 @@ async function onExport() {
 .ep-note { margin: 4px 0 14px; }
 .ep-note :deep(.el-alert__title) { font-size: 12.5px; }
 .ep-note :deep(.el-alert__description) { font-size: 11.5px; line-height: 1.6; }
+/* 【v4.10.1】字号选择：左侧号数下拉 + 右侧磅值输入，双向同步 */
+.ep-fontsize { display: flex; gap: 8px; width: 100%; align-items: center; }
+.ep-fontsize-select { flex: 1 1 auto; min-width: 0; }
+.ep-fontsize-num { flex: 0 0 128px; width: 128px; }
 .ep-submit { width: 100%; }
 .export-panel :deep(.el-form-item) { margin-bottom: 12px; }
 .export-panel :deep(.el-form-item__label) { font-size: 12.5px; padding-bottom: 2px; }
 @media (max-width: 640px) {
   .ep-presets { grid-template-columns: 1fr; }
   .ep-grid { grid-template-columns: 1fr; }
+  .ep-fontsize { flex-direction: column; align-items: stretch; }
+  .ep-fontsize-num { flex: 1 1 auto; width: 100%; }
   .export-panel { max-height: 60vh; }
 }
 </style>

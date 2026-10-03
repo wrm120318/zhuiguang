@@ -650,14 +650,41 @@ export interface PaperStyle {
   footer: boolean
 }
 
+/** 【v4.10.1】中文习惯字号表（号数 ↔ 磅值）。号数越大 → 字越小 */
+export const CN_FONT_SIZES: { name: string; pt: number }[] = [
+  { name: '初号', pt: 42 }, { name: '小初', pt: 36 },
+  { name: '一号', pt: 26 }, { name: '小一', pt: 24 },
+  { name: '二号', pt: 22 }, { name: '小二', pt: 18 },
+  { name: '三号', pt: 16 }, { name: '小三', pt: 15 },
+  { name: '四号', pt: 14 }, { name: '小四', pt: 12 },
+  { name: '五号', pt: 10.5 }, { name: '小五', pt: 9 },
+  { name: '六号', pt: 7.5 }, { name: '小六', pt: 6.5 },
+  { name: '七号', pt: 5.5 }, { name: '八号', pt: 5 },
+]
+
+/**
+ * 磅值 → 最接近的中文号数名（用于下拉回显与文案）。
+ * 不在标准号数表内（含非整数差）时返回 `null`，表示「自定义字号」。
+ */
+export function ptToCnFontSize(pt: number): string | null {
+  const hit = CN_FONT_SIZES.find(s => Math.abs(s.pt - pt) < 0.01)
+  return hit ? hit.name : null
+}
+
+/** 中文号数名 → 磅值；未知号数返回 `null` */
+export function cnFontSizeToPt(name: string): number | null {
+  const hit = CN_FONT_SIZES.find(s => s.name === name)
+  return hit ? hit.pt : null
+}
+
 /** 三套模板的**实体化**差异（此前三套模板只有「是否显示注意事项」一个分支） */
 export const PAPER_STYLES: Record<string, PaperStyle> = {
-  // 正式考试卷：标准字号、宽行距、深框线、有密封线与须知、有页脚
-  formal: { bodySize: 21, line: 360, borderSize: 8, borderColor: '595959', seal: true, notice: true, footer: true },
-  // 日常测验卷：略小字号、中等行距、常规框线、有密封线无长须知
-  test: { bodySize: 21, line: 312, borderSize: 6, borderColor: '808080', seal: true, notice: true, footer: true },
-  // 课后作业卷：紧凑、浅框线、无密封线、无须知、无页脚（作业卷常为单页）
-  homework: { bodySize: 20, line: 276, borderSize: 4, borderColor: 'BFBFBF', seal: false, notice: false, footer: false },
+  // 正式考试卷：小四（12pt）、宽行距、深框线、有密封线与须知、有页脚
+  formal: { bodySize: 24, line: 360, borderSize: 8, borderColor: '595959', seal: true, notice: true, footer: true },
+  // 日常测验卷：小四（12pt）、中等行距、常规框线、有密封线有须知
+  test: { bodySize: 24, line: 312, borderSize: 6, borderColor: '808080', seal: true, notice: true, footer: true },
+  // 课后作业卷：五号（10.5pt）、紧凑、浅框线、无密封线、无须知、无页脚（作业卷常为单页）
+  homework: { bodySize: 21, line: 276, borderSize: 4, borderColor: 'BFBFBF', seal: false, notice: false, footer: false },
 }
 
 /** 取模板样式，未知模板回退 formal */

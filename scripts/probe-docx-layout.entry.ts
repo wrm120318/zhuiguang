@@ -12,6 +12,7 @@ import JSZip from 'jszip'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import {
   paperStyle, layoutOptions, buildFooter, buildSealBlock,
+  CN_FONT_SIZES, ptToCnFontSize, cnFontSizeToPt,
   buildExamInfoTable, buildNoticeBox,
 } from '@/utils/docx-kit'
 
@@ -37,6 +38,27 @@ export async function run() {
   ok('formal 有页脚 / homework 无页脚', f.footer === true && h.footer === false)
   ok('formal 与 homework 字号不同', f.bodySize !== h.bodySize)
   ok('未知模板回退 formal', paperStyle('nope').seal === true)
+  // 【v4.10.1】模板默认字号对齐中文习惯号数
+  ok('formal 默认小四（12pt = 24 half-pt）', f.bodySize === 24, String(f.bodySize))
+  ok('homework 默认五号（10.5pt = 21 half-pt）', h.bodySize === 21, String(h.bodySize))
+
+  console.log('=== 1b. 中文习惯字号映射（v4.10.1）===')
+  ok('号数表含 16 档', CN_FONT_SIZES.length === 16, String(CN_FONT_SIZES.length))
+  ok('小四 = 12pt', cnFontSizeToPt('小四') === 12)
+  ok('五号 = 10.5pt', cnFontSizeToPt('五号') === 10.5)
+  ok('初号 = 42pt', cnFontSizeToPt('初号') === 42)
+  ok('八号 = 5pt', cnFontSizeToPt('八号') === 5)
+  ok('号数越大字号越小（三号 16 > 四号 14 > 五号 10.5）',
+    (cnFontSizeToPt('三号') ?? 0) > (cnFontSizeToPt('四号') ?? 0)
+    && (cnFontSizeToPt('四号') ?? 0) > (cnFontSizeToPt('五号') ?? 0))
+  ok('pt 反查回号数：12 → 小四', ptToCnFontSize(12) === '小四')
+  ok('pt 反查回号数：10.5 → 五号', ptToCnFontSize(10.5) === '五号')
+  ok('非标准磅值返回 null（13pt 自定义）', ptToCnFontSize(13) === null)
+  ok('未知号数返回 null', cnFontSizeToPt('九号') === null)
+  ok('号数表无重复名', new Set(CN_FONT_SIZES.map(s => s.name)).size === CN_FONT_SIZES.length)
+  ok('号数表无重复磅值', new Set(CN_FONT_SIZES.map(s => s.pt)).size === CN_FONT_SIZES.length)
+  ok('往返一致性：每个号数 pt→name→pt 恒定',
+    CN_FONT_SIZES.every(s => cnFontSizeToPt(ptToCnFontSize(s.pt) ?? '') === s.pt))
 
   console.log('=== 2. 选项自动横排算法 ===')
   const short = ['甲乙', '丙丁', '戊己', '庚辛']
