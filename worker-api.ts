@@ -17,7 +17,7 @@ import {
 } from './storage-layer'
 // ===== v4.13.0 AI 试卷识别（Cloudflare Workers AI + 智谱双通道，共享模块）=====
 import {
-  aiParsePaper, aiAvailable, effectiveProvider,
+  aiParsePaper, aiAvailable, effectiveProvider, aiFailureMessage,
   DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
   AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
   htmlToStructuredText,
@@ -4842,7 +4842,7 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     return c.json({
       ok: false,
       available: true,
-      message: 'AI 识别失败或未识别出题目，已回退规则识别',
+      message: aiFailureMessage(result?.attempts),
       questions: [],
       attempts: result?.attempts || [],
       elapsed,

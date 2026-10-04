@@ -19,11 +19,12 @@
 //   │ 通道 A：Cloudflare Workers AI（**默认主力，零配置**）                 │
 //   │   · 走 Worker 原生绑定 env.AI，**完全不需要 API Key**                 │
 //   │   · 免费额度：每天 10000 神经元（无需信用卡）                          │
-//   │   · 主力模型 @cf/meta/llama-4-scout-17b-16e-instruct                  │
-//   │     （**Llama 4 Scout**：Meta 最新架构、免费、131K 上下文、原生多模态）│
-//   │   · 备用模型 @cf/qwen/qwen3-30b-a3b-fp8                               │
-//   │     （**Qwen3** 新模型、免费、中文与 JSON 结构化输出最强）            │
-//   │   · 两者都位于 Workers AI 免费档，长卷切块并行也不会触发付费           │
+//   │   · 主力模型 @cf/zai-org/glm-5.3-flash                               │
+//   │     （**GLM-5.3 新模型**、免费、GLM 家族神经元最省，单日可跑最多卷）  │
+//   │   · 备用模型 @cf/meta/llama-4-scout-17b-16e-instruct                  │
+//   │     （**Llama 4 Scout**：Meta 最新架构、免费、多模态，作新模型备选）  │
+//   │   · 最终兜底 @cf/zai-org/glm-4.7-flash（最省最稳，保证一定能跑完）    │
+//   │   ⚠️ 免费档每日 10000 神经元用尽后所有 CF 模型暂停，需次日或升级付费  │
 //   ├──────────────────────────────────────────────────────────────────────┤
 //   │ 通道 B：智谱开放平台 GLM（可选，超级管理员在后台填 Key）              │
 //   │   · 国内直连、中文强、glm-4-flash 免费                                │
@@ -104,16 +105,16 @@ export interface AiParseResult {
 // 默认模型常量（后端与前端设置页共用，避免两处写死不一致）
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL_CF = '@cf/meta/llama-4-scout-17b-16e-instruct'
-export const DEFAULT_MODEL_CF_FALLBACK = '@cf/qwen/qwen3-30b-a3b-fp8'
+export const DEFAULT_MODEL_CF = '@cf/zai-org/glm-5.3-flash'
+export const DEFAULT_MODEL_CF_FALLBACK = '@cf/meta/llama-4-scout-17b-16e-instruct'
 export const DEFAULT_MODEL_ZHIPU = 'glm-4-flash'
 
 /** 候选模型清单（供管理后台下拉选择，均位于 Workers AI 免费档内） */
 export const CF_MODEL_CHOICES = [
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 免费 · 最省神经元）' },
   { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 免费 · 多模态）' },
   { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 免费 · 中文/JSON 强）' },
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最省）' },
-  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 免费）' },
+  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）' },
   { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强 · 免费）' },
   { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强 · 免费）' },
   { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B（免费）' },
@@ -537,7 +538,9 @@ async function callCfAi(env: AiEnv, model: string, paperText: string, timeoutMs:
   const payload: any = {
     messages,
     temperature: 0.1,      // 结构化抽取任务，温度越低越稳
-    max_tokens: 8192,
+    // 【v4.13.7】输出 token 上限提到 16K：带 LaTeX 的题干+选项+答案+解析 JSON 较大，
+    // 8192 会在长块（如 12 题）中途被截断 → 丢题。Llama-4/Qwen3 输出上限均 ≥128K，余量充足。
+    max_tokens: 16000,
   }
   // 仅 GLM / Qwen3 / DeepSeek / QwQ 等「默认会吐思维链」的模型关掉 thinking，省 token；
   // Llama-4 等无 thinking 模式的模型传这个 kwarg 可能报错，故按模型名选择性添加。
@@ -637,7 +640,7 @@ async function callZhipu(env: AiEnv, paperText: string, timeoutMs: number): Prom
       { role: 'user', content: `【试卷原文】\n${paperText}` },
     ],
     temperature: 0.1,
-    max_tokens: 8192,
+    max_tokens: 16000,
     // 智谱支持 json_object（部分模型），失败时靠 extractJson 容错
     response_format: { type: 'json_object' },
   }
@@ -690,7 +693,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * 【切块策略 —— 按"题数"而非"字符数"切（关键）】
  *   最初按 16k 字符切，但「60 题密卷仅 6.7k 字符」这类卷仍被切成单块，
  *   模型输出被 max_tokens 截断，只返回 8 题。所以必须在**题号边界**切成"题单元"，
- *   再每 ~12 题一组 —— 保证每块的 JSON 输出远小于 8192 token，既不超时又完整。
+ *   再每 ~8 题一组 —— 保证每块的 JSON 输出远小于 16K token 上限，既不截断又完整。
  *   短卷（≤16k 字符）直接单块，保持原行为；识别不出题号结构的卷回退字符切块。
  */
 const Q_START_RE = /^\s*(?:[0-9]{1,3}[.、)）]|[（(][0-9]{1,3}[)）]|第\s*[0-9]{1,3}\s*题|①|②|③|④|⑤|[（(][一二三四五六七八九十]+\s*[)）])/
@@ -713,7 +716,7 @@ function splitIntoQuestionUnits(text: string): string[] | null {
   return units
 }
 
-function splitForParse(text: string, chunkSize = 16000, maxQuestions = 12): { text: string; appendTail: string }[] {
+function splitForParse(text: string, chunkSize = 16000, maxQuestions = 6): { text: string; appendTail: string }[] {
   // 先把卷末"参考答案"区块单独切出来：它只用于回填，不应被当成题目切块/误判为题。
   const ansMarker = text.match(/(参考答案|答案与解析|答案解析|参考答案及解析|——\s*参考答案)/)
   let body = text
@@ -808,10 +811,11 @@ async function parseOneChunk(
   for (const p of order) {
     try {
       if (p === 'cf') {
-        // 通道 A 内部再降级：主力模型 → 备用模型
+        // 通道 A 内部再降级：主力新模型 → 备用新模型 → 最省老模型（保证一定能跑完）
         const primary = env.AI_MODEL_CF || DEFAULT_MODEL_CF
         const fallback = env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK
-        const models = primary === fallback ? [primary] : [primary, fallback]
+        const cheap = '@cf/zai-org/glm-4.7-flash'
+        const models = Array.from(new Set([primary, fallback, cheap]))
         let lastErr = ''
         for (const m of models) {
           // 频率限制(429)/过载：退避后重试（最多 3 次），实测一次重试常能成功
@@ -904,10 +908,10 @@ export async function aiParsePaper(
     merged = r.questions
   } else {
     // 长卷：多块解析。
-    // 【v4.13.7】Cloudflare Workers AI 免费档对并发调用有限流——
-    // 并发过高时易触发 429/过载。故用**受限并发（≤2）**压住墙钟时间
-    // （≈ ⌈N/2⌉ × 单块耗时），且每块内已对 429 做退避重试，避开限流。
-    const CONCURRENCY = 2
+    // 【v4.13.7】Workers AI 免费档对**并发/大体量**请求会限流，导致模型返回残缺 JSON（丢题）。
+    // 故改为**串行**（concurrency=1）：每块都拿到完整算力，稳出完整题目；
+    // 墙钟时间 ≈ 块数 × 单块耗时（无超时限制，用户本就要求"让 AI 跑完"），宁可慢但完整。
+    const CONCURRENCY = 1
     const runPool = async (items: { text: string; appendTail: string }[]) => {
       const out: Awaited<ReturnType<typeof parseOneChunk>>[] = new Array(items.length)
       let cursor = 0
@@ -945,6 +949,28 @@ export async function aiParsePaper(
  */
 export function aiAvailable(env: AiEnv): boolean {
   return !!(env.AI || env.AI_BASE_CF || env.ZHIPU_API_KEY)
+}
+
+/**
+ * 把后端 attempts 里的失败原因转成对用户友好的中文提示。
+ *
+ * 重点覆盖两类用户会真遇到的「白跑」场景：
+ *   · 免费档每日 10000 神经元耗尽（CF 返回 "used up your daily free allocation"）
+ *     → 这是账户级硬上限，所有 CF 模型都停，只能次日或升级付费。
+ *   · 频率限制 / 过载 / 超时 → 稍候或拆分重试。
+ */
+export function aiFailureMessage(attempts?: { provider: string; error?: string }[]): string {
+  const errs = (attempts || []).map(a => a.error || '').filter(Boolean).join(' ')
+  if (/daily free allocation|upgrade to Cloudflare|10,?000 neurons|free allocation/i.test(errs)) {
+    return '今日免费额度（10000 神经元）已用完，AI 识别已暂停。请次日再试，或在「AI 设置」里切换到更省神经元的小模型（如 GLM-4.7-Flash）。'
+  }
+  if (/429|频率限制|rate.?limit|too many requests/i.test(errs)) {
+    return 'AI 服务暂时繁忙（触发频率限制），请稍候重试，或把长卷拆成几份分次识别。'
+  }
+  if (/overloaded|负载|capacity|timeout|超时/i.test(errs)) {
+    return 'AI 模型暂时过载或响应超时，请稍后重试。'
+  }
+  return 'AI 识别失败或未识别出题目，已回退规则识别'
 }
 
 /** 当前实际会生效的服务商（用于状态展示；空串表示都不可用） */

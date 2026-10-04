@@ -10,7 +10,7 @@ import { signToken, auth, requireRole, requirePerm, requireStaff, requireStaffOr
 import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled, syncUserExp, syncUserExpBatch } from './helpers'
 // ===== v4.12.0 AI 试卷识别（与 Worker 共用同一份实现，铁律#11 三处一致）=====
 import {
-  aiParsePaper, aiAvailable, effectiveProvider,
+  aiParsePaper, aiAvailable, effectiveProvider, aiFailureMessage,
   DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
   AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
   htmlToStructuredText,
@@ -2928,7 +2928,7 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
   if (!result || !result.questions.length) {
     return res.json({
       ok: false, available: true,
-      message: 'AI 识别失败或未识别出题目，已回退规则识别',
+      message: aiFailureMessage(result?.attempts),
       questions: [], attempts: result?.attempts || [], elapsed,
     })
   }
