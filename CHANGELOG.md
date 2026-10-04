@@ -5,6 +5,36 @@
 
 ---
 
+## [v4.13.8] - 2026-10-04
+
+### 主题：超管 AI 设置——模型选择更丰富 + 高级参数自定义（免费范围内）
+
+> 用户原话：「超级管理员界面的 Cloudflare Workers AI（零配置 · 免费）能不能选择模型丰富一些 自定义程度高一些（免费范围内）」
+
+### 修改
+
+- **模型清单扩充 + 可自定义**：Cloudflare Workers AI 免费档每天 10000 神经元、可用模型 50+ 款（全按神经元计费、不按模型收费）。
+  - 候选清单从 6 款扩到 **14 款**，覆盖智谱 Z.ai（glm-5.3-flash / glm-4.7-flash）、Meta（llama-4-scout / llama-3.3-70b / llama-3.1-8b / llama-3.2-11b-vision）、通义（qwen3-30b / qwen2.5-coder-32b / qwq-32b）、DeepSeek-R1-Distill、Mistral（small-3.1-24b / 7b-v0.2）、Google（gemma-4-26b / gemma-3-12b）。
+  - 每个模型带 `tag` 徽章：**免费**（绿）/ **耗量大**（橙）/ **可能需付费**（黄，依据官方定价，少数前沿模型标需绑定付费计费，以「测试连接」实测为准）。
+  - 两个下拉改为 `filterable allow-create` 组合框：清单没收录的模型，超管可直接在输入框**粘贴任意 `@cf/...` 模型 ID**（回车确认），彻底解决「选择不够丰富」。
+- **高级参数（免费范围内可调）折叠区**：把原来硬编码在后端的 5 个旋钮开放给超管，全部只影响神经元消耗、不额外花钱：
+  - 采样温度（0~1，默认 0.1，越低越稳越省）
+  - 每批题数（默认 6，越少越稳/省，越多越快但长块易截断丢题）
+  - 最大输出 tokens（默认 16000，题多调大防截断）
+  - 并发数（默认 1，**警告**：调高更快但免费档易触发 429 限流丢题，除非额度充足否则保持 1）
+  - 429 重试次数（默认 3，设 0 则不重试）
+- **后端打通**：`AiConfig` 新增 5 个数值字段；`sanitizeAiConfig` 夹取合理区间（越界/非法→空串回落默认）；`mergeAiConfig` 写入 `AI_TEMPERATURE / AI_CHUNK_QUESTIONS / AI_MAX_TOKENS / AI_CONCURRENCY / AI_RETRY_ATTEMPTS`；`callCfAi`/`callZhipu` 用后台温度与输出上限；`aiParsePaper` 把每批题数/并发/重试贯穿到切块、串行池与重试循环。超管未填→回落与现状一致的默认值，**老配置/未升级环境行为不变**。
+- 「测试连接」返回新增 `params` 字段，展示本次实际生效的温度/每批题数/输出/并发/重试，便于对照调参。
+- `shared/ai-paper.ts` 的 `CF_MODEL_CHOICES` 与前端 `AiSettingsView.vue` 的 `CF_MODELS` 同步为同一份 14 款清单（沿用两处各自维护、需一致的约定）。
+
+### 验证
+
+- `vue-tsc --noEmit && vite build` 通过（0 类型错误）。
+- `tsx` 单元验证 `sanitizeAiConfig → mergeAiConfig` 链路 17 项全过：空配置回落默认、越界夹取、非法转空串、温度保留小数（修正了一处误把 0.3/0.5 取整为 0 的 bug）、后台配置优先于 env 变量。
+- 已部署 Worker（Version `2392f521`）+ 推送前端（Pages 自动构建）。
+
+---
+
 ## [v4.13.7] - 2026-10-04
 
 ### 主题：放开 AI 超时 + 切换 Workers AI 免费新模型 + 额度耗尽清晰提示
