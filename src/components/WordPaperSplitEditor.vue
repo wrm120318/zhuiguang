@@ -483,6 +483,7 @@ async function onPick(e: Event) {
     activeIdx.value = 0
     // 【v4.13.4】整卷结果被替换 → 强制右侧表单重挂载（见 `formEpoch` 注释）。
     formEpoch.value++
+    aiError.value = ''   // 【v4.13.5】规则识别成功 → 清除上一次的 AI 失败态
     stage.value = 'split'
     ElMessage.success(`已识别 ${drafts.value.length} 道题，请核对分割线后进入编辑`)
     await nextTick()
@@ -1166,6 +1167,12 @@ async function renderWordView() {
 const aiStatus = ref<{ available: boolean; provider: string; effective?: string; cf: boolean; zhipu: boolean; modelCf: string; modelZhipu: string } | null>(null)
 const aiRunning = ref(false)
 const aiInfo = ref('')          // 上次识别结果摘要（服务商 / 题数 / 耗时）
+// 【v4.13.5】AI 识别"未生效"的可视化根因。
+//   旧逻辑：AI 返回空题目时只弹一个一闪而过的 warning 然后静默 return，
+//   用户感知为"点了没反应 / 功能坏了"，但其实请求真的发出去了、只是后端没切出题目。
+//   新增 aiError：把后端给的真实失败原因落进 AI 栏，让用户明确知道
+//   "AI 确实跑了、但没能识别本卷"，而不是茫然地以为按钮失灵。
+const aiError = ref('')
 
 /** 是否处于任意忙碌态（上传解析 / AI 识别 / 重排） */
 const working = computed(() => busy.value || aiRunning.value)
@@ -1382,8 +1389,12 @@ async function aiRecognize() {
     const text = blocks.value.map(b => b.text).filter(Boolean).join('\n')
     const r: any = await api.aiParsePaper({ text, html, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
-      const why = r?.available === false ? '（AI 服务不可用）' : `（${r?.message || '识别失败'}）`
-      ElMessage.warning(`AI 识别未生效${why}，已保留规则识别结果`)
+      const detail = r?.available === false
+        ? 'AI 服务当前不可用'
+        : (r?.message || 'AI 未能从本卷识别出题目')
+      // 【v4.13.5】把失败原因落进 AI 栏，避免"点了没反应"的错觉。
+      aiError.value = detail
+      ElMessage.warning(`AI 识别未生效：${detail}。已保留规则识别结果，你可手动微调或换更清晰的卷子重试`)
       return
     }
 
@@ -1544,10 +1555,14 @@ async function aiRecognize() {
 
     const providerName = AI_CHANNEL_NAME[r.provider] || r.provider
     aiInfo.value = `${providerName} · ${drafts.value.length} 题 · ${(r.elapsed / 1000).toFixed(1)}s`
+    aiError.value = ''
     const warn = unfound ? `（${unfound} 题未精确匹配位置，已自动对齐）` : ''
     ElMessage.success(`AI 识别完成：${drafts.value.length} 道题${warn}`)
   } catch (e: any) {
-    ElMessage.error('AI 识别失败：' + (e?.message || e) + '（已保留规则识别结果）')
+    // 【v4.13.5】把失败原因落进 AI 栏（含 401/网络异常/超时等），让用户看得见。
+    const msg = e?.message || String(e)
+    aiError.value = msg.includes('401') ? '登录态已失效，请重新登录后再试' : `请求异常：${msg.slice(0, 80)}`
+    ElMessage.error('AI 识别失败：' + msg + '（已保留规则识别结果）')
   } finally {
     aiRunning.value = false
     progressText.value = ''
@@ -2089,10 +2104,15 @@ onUnmounted(() => {
         </div>
 
         <!-- 识别来源提示条 -->
-        <div class="zs-ai-bar" :class="{ off: aiStatus && !aiStatus.available }">
+        <div class="zs-ai-bar" :class="{ off: (aiStatus && !aiStatus.available) || aiError }">
           <template v-if="aiStatus && !aiStatus.available">
             <span class="zs-ai-dot warn"></span>
             当前使用<b>规则识别</b>（按题号切分）。配置 AI 密钥后可自动读取答案与解析。
+          </template>
+          <template v-else-if="aiError">
+            <span class="zs-ai-dot warn"></span>
+            <b>AI 未能识别本卷</b>：{{ aiError }}。已保留规则识别结果，可手动微调或换更清晰的卷子重试。
+            <span class="zs-ai-note">常见原因：卷子含大量图片/扫描件（AI 暂无法识别图内文字）、超长、或格式特殊。</span>
           </template>
           <template v-else-if="aiInfo">
             <span class="zs-ai-dot ok"></span>
