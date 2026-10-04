@@ -57,6 +57,16 @@ export interface AiEnv {
   AI_MODEL_CF_FALLBACK?: string
   /** 通道 B 模型，默认 glm-4-flash */
   AI_MODEL_ZHIPU?: string
+  /** 【v4.13.8】采样温度（0~1），越低越稳越省神经元，默认 0.1 */
+  AI_TEMPERATURE?: number
+  /** 【v4.13.8】切块时每批最多题数，越少越稳/省、越多越快但易截断，默认 6 */
+  AI_CHUNK_QUESTIONS?: number
+  /** 【v4.13.8】单次模型输出 token 上限，默认 16000 */
+  AI_MAX_TOKENS?: number
+  /** 【v4.13.8】多块解析并发数（1~3），越高越快但越易触发 429，默认 1 */
+  AI_CONCURRENCY?: number
+  /** 【v4.13.8】频率限制(429)重试次数（0~5），默认 3 */
+  AI_RETRY_ATTEMPTS?: number
   /** 仅用于测试：把请求指向本地 mock 服务（生产不设） */
   AI_BASE_CF?: string
   AI_BASE_ZHIPU?: string
@@ -109,17 +119,50 @@ export const DEFAULT_MODEL_CF = '@cf/zai-org/glm-5.3-flash'
 export const DEFAULT_MODEL_CF_FALLBACK = '@cf/meta/llama-4-scout-17b-16e-instruct'
 export const DEFAULT_MODEL_ZHIPU = 'glm-4-flash'
 
-/** 候选模型清单（供管理后台下拉选择，均位于 Workers AI 免费档内） */
-export const CF_MODEL_CHOICES = [
-  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 免费 · 最省神经元）' },
-  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 免费 · 多模态）' },
-  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 免费 · 中文/JSON 强）' },
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）' },
-  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强 · 免费）' },
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强 · 免费）' },
-  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B（免费）' },
-  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文 · 免费）' },
-] as const
+/**
+ * 候选模型清单（供管理后台下拉选择）。
+ *
+ * ⚠️ 与前端 `src/views/admin/AiSettingsView.vue` 的 `CF_MODELS` 必须保持内容一致
+ *    （现有约定：两处各自维护一份，改此处要同步前端）。
+ *
+ * tag 含义：
+ *   free  —— 免费档可用（每天 10000 神经元，按神经元计费，不额外收钱）
+ *   heavy —— 免费但耗量偏高（单次调用消耗更多神经元，大卷慎用）
+ *   paid  —— 官方标注「需绑定付费计费方式」的前沿模型；实测部分账号免费档也能跑，
+ *            但若「测试连接」报需要付费，请换回 free 标签的模型。
+ *
+ * 全部 id 均为 Cloudflare Workers AI 已存在的免费档模型。若这里没收录你想要的，
+ * 管理界面两个下拉都支持「直接粘贴任意 @cf/... 模型 ID」（组合框 allow-create）。
+ */
+export interface CfModelChoice {
+  id: string
+  label: string
+  tag: 'free' | 'heavy' | 'paid'
+  /** 分组（仅前端展示用，便于按家族浏览） */
+  group?: string
+}
+export const CF_MODEL_CHOICES: CfModelChoice[] = [
+  // —— 智谱 Z.ai ——
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 最省神经元）', tag: 'free', group: '智谱 Z.ai' },
+  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）', tag: 'free', group: '智谱 Z.ai' },
+  // —— Meta ——
+  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 多模态 · 10M 上下文）', tag: 'free', group: 'Meta Llama' },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）', tag: 'heavy', group: 'Meta Llama' },
+  { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', label: 'Llama-3.1-8B（最轻量 · 省神经元）', tag: 'free', group: 'Meta Llama' },
+  { id: '@cf/meta/llama-3.2-11b-vision-instruct', label: 'Llama-3.2-11B-Vision（看图 · 适合含图试卷）', tag: 'free', group: 'Meta Llama' },
+  // —— 阿里通义 ——
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 中文/JSON 强）', tag: 'free', group: '阿里通义' },
+  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（公式/代码强）', tag: 'heavy', group: '阿里通义' },
+  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强）', tag: 'heavy', group: '阿里通义' },
+  // —— DeepSeek ——
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）', tag: 'heavy', group: 'DeepSeek' },
+  // —— Mistral ——
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B', tag: 'heavy', group: 'Mistral' },
+  { id: '@cf/mistral/mistral-7b-instruct-v0.2', label: 'Mistral-7B-v0.2（轻量）', tag: 'free', group: 'Mistral' },
+  // —— Google ——
+  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文）', tag: 'heavy', group: 'Google Gemma' },
+  { id: '@cf/google/gemma-3-12b-it', label: 'Gemma-3-12B', tag: 'free', group: 'Google Gemma' },
+]
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -537,10 +580,11 @@ async function callCfAi(env: AiEnv, model: string, paperText: string, timeoutMs:
   ]
   const payload: any = {
     messages,
-    temperature: 0.1,      // 结构化抽取任务，温度越低越稳
-    // 【v4.13.7】输出 token 上限提到 16K：带 LaTeX 的题干+选项+答案+解析 JSON 较大，
+    // 【v4.13.8】温度可后台调（默认 0.1，越低越稳越省）；结构化抽取任务本就偏低温。
+    temperature: env.AI_TEMPERATURE ?? 0.1,
+    // 【v4.13.7/8】输出 token 上限可后台调（默认 16K）：带 LaTeX 的题干+选项+答案+解析 JSON 较大，
     // 8192 会在长块（如 12 题）中途被截断 → 丢题。Llama-4/Qwen3 输出上限均 ≥128K，余量充足。
-    max_tokens: 16000,
+    max_tokens: env.AI_MAX_TOKENS ?? 16000,
   }
   // 仅 GLM / Qwen3 / DeepSeek / QwQ 等「默认会吐思维链」的模型关掉 thinking，省 token；
   // Llama-4 等无 thinking 模式的模型传这个 kwarg 可能报错，故按模型名选择性添加。
@@ -639,8 +683,9 @@ async function callZhipu(env: AiEnv, paperText: string, timeoutMs: number): Prom
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `【试卷原文】\n${paperText}` },
     ],
-    temperature: 0.1,
-    max_tokens: 16000,
+    // 【v4.13.8】温度/输出上限与 CF 通道同源，均受后台旋钮控制（默认 0.1 / 16000）。
+    temperature: env.AI_TEMPERATURE ?? 0.1,
+    max_tokens: env.AI_MAX_TOKENS ?? 16000,
     // 智谱支持 json_object（部分模型），失败时靠 extractJson 容错
     response_format: { type: 'json_object' },
   }
@@ -796,9 +841,11 @@ function dedupeQuestions(qs: AiQuestion[]): AiQuestion[] {
 /**
  * 对「单块」跑完整双通道解析（CF 主力 → 备用，再智谱兜底）。
  * 任何失败都不抛，返回空 questions + 失败原因，由上层决定如何合并。
+ *
+ * @param retryAttempts 频率限制(429)重试上限（默认 3）；由后台旋钮控制。
  */
 async function parseOneChunk(
-  env: AiEnv, chunkText: string, timeoutMs: number
+  env: AiEnv, chunkText: string, timeoutMs: number, retryAttempts = 3
 ): Promise<{ questions: AiQuestion[]; provider: string; model: string; usage?: any; attempts: { provider: string; error?: string }[] }> {
   const mode = (env.AI_PROVIDER || 'auto').toLowerCase()
   const hasCf = !!(env.AI || env.AI_BASE_CF)
@@ -818,8 +865,8 @@ async function parseOneChunk(
         const models = Array.from(new Set([primary, fallback, cheap]))
         let lastErr = ''
         for (const m of models) {
-          // 频率限制(429)/过载：退避后重试（最多 3 次），实测一次重试常能成功
-          for (let attempt = 0; attempt < 3; attempt++) {
+          // 频率限制(429)/过载：退避后重试（次数受后台旋钮控制，默认 3 次），实测一次重试常能成功
+          for (let attempt = 0; attempt < retryAttempts; attempt++) {
             try {
               const { raw, usage } = await callCfAi(env, m, chunkText, timeoutMs)
               const questions = normalizeQuestions(raw)
@@ -827,7 +874,7 @@ async function parseOneChunk(
               return { questions, provider: 'cf', model: m, usage, attempts: [{ provider: 'cf' }] }
             } catch (e: any) {
               lastErr = String(e?.message || e).slice(0, 200)
-              if (isRateLimit(e) && attempt < 2) { await sleep(2000 * (attempt + 1)); continue }
+              if (isRateLimit(e) && attempt < retryAttempts - 1) { await sleep(2000 * (attempt + 1)); continue }
               break
             }
           }
@@ -882,7 +929,11 @@ export async function aiParsePaper(
   if (!text.trim()) return null
 
   // ── 切块并行解析（长卷防超时；短卷退化为单块，行为不变）──
-  const rawChunks = splitForParse(text)
+  // 【v4.13.8】每批题数 / 并发 / 重试 均受后台旋钮控制，未配则回落默认（6 / 1 / 3）。
+  const chunkQuestions = env.AI_CHUNK_QUESTIONS ?? 6
+  const concurrency = Math.min(4, Math.max(1, env.AI_CONCURRENCY ?? 1))
+  const retryAttempts = env.AI_RETRY_ATTEMPTS ?? 3
+  const rawChunks = splitForParse(text, 16000, chunkQuestions)
   const total = rawChunks.length
 
   const buildChunkText = (c: { text: string; appendTail: string }, i: number): string => {
@@ -903,26 +954,26 @@ export async function aiParsePaper(
 
   if (total === 1) {
     // 短卷：与原逻辑一致的单次调用（保持已验证行为）
-    const r = await parseOneChunk(env, buildChunkText(rawChunks[0], 0), timeoutMs)
+    const r = await parseOneChunk(env, buildChunkText(rawChunks[0], 0), timeoutMs, retryAttempts)
     provider = r.provider; model = r.model; usageAcc = r.usage; allAttempts = r.attempts
     merged = r.questions
   } else {
     // 长卷：多块解析。
     // 【v4.13.7】Workers AI 免费档对**并发/大体量**请求会限流，导致模型返回残缺 JSON（丢题）。
-    // 故改为**串行**（concurrency=1）：每块都拿到完整算力，稳出完整题目；
+    // 故默认**串行**（concurrency=1）：每块都拿到完整算力，稳出完整题目；
     // 墙钟时间 ≈ 块数 × 单块耗时（无超时限制，用户本就要求"让 AI 跑完"），宁可慢但完整。
-    const CONCURRENCY = 1
+    // 【v4.13.8】并发数开放给后台调（最高 4）；超管自行承担提速带来的 429 风险。
     const runPool = async (items: { text: string; appendTail: string }[]) => {
       const out: Awaited<ReturnType<typeof parseOneChunk>>[] = new Array(items.length)
       let cursor = 0
       const worker = async () => {
         while (cursor < items.length) {
           const i = cursor++
-          const r = await parseOneChunk(env, buildChunkText(items[i], i), timeoutMs)
+          const r = await parseOneChunk(env, buildChunkText(items[i], i), timeoutMs, retryAttempts)
           out[i] = r
         }
       }
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()))
+      await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
       return out
     }
     const results = await runPool(rawChunks)
@@ -1083,6 +1134,16 @@ export interface AiConfig {
   modelZhipu: string
   /** 智谱开放平台 Key（空串表示未配置） */
   zhipuKey: string
+  /** 【v4.13.8】采样温度（0~1），空串=用默认 0.1 */
+  temperature?: string | number
+  /** 【v4.13.8】切块每批最多题数（2~12），空串=用默认 6 */
+  chunkQuestions?: string | number
+  /** 【v4.13.8】单次输出 token 上限（2048~32768），空串=用默认 16000 */
+  maxTokens?: string | number
+  /** 【v4.13.8】多块解析并发数（1~3），空串=用默认 1 */
+  concurrency?: string | number
+  /** 【v4.13.8】频率限制重试次数（0~5），空串=用默认 3 */
+  retryAttempts?: string | number
 }
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
@@ -1091,6 +1152,11 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   modelCfFallback: DEFAULT_MODEL_CF_FALLBACK,
   modelZhipu: DEFAULT_MODEL_ZHIPU,
   zhipuKey: '',
+  temperature: '',
+  chunkQuestions: '',
+  maxTokens: '',
+  concurrency: '',
+  retryAttempts: '',
 }
 
 /**
@@ -1115,7 +1181,27 @@ export function sanitizeAiConfig(raw: any): AiConfig {
     modelCfFallback: String(o.modelCfFallback ?? '').trim(),
     modelZhipu: String(o.modelZhipu ?? '').trim(),
     zhipuKey: String(o.zhipuKey ?? '').trim(),
+    // 数值旋钮：空串/非法 → 空串（回落默认）；合法 → 夹在合理区间内的数字。
+    //   温度允许小数（integer=false），其余整数旋钮统一取整。
+    temperature: parseNumField(o.temperature, 0, 1, false),
+    chunkQuestions: parseNumField(o.chunkQuestions, 1, 20, true),
+    maxTokens: parseNumField(o.maxTokens, 1024, 32768, true),
+    concurrency: parseNumField(o.concurrency, 1, 4, true),
+    retryAttempts: parseNumField(o.retryAttempts, 0, 6, true),
   }
+}
+
+/**
+ * 把输入规整成「可存入配置的数字」或空串（空串表示"未设置，回落默认"）。
+ * 非法 / 空 → ''；合法 → 夹在 [min,max] 区间内。integer=true 时取整（用于题数/并发等）。
+ */
+function parseNumField(v: any, min: number, max: number, integer: boolean): string | number {
+  const s = String(v ?? '').trim()
+  if (s === '') return ''
+  const n = Number(s)
+  if (!Number.isFinite(n)) return ''
+  const clamped = Math.min(max, Math.max(min, n))
+  return integer ? Math.round(clamped) : clamped
 }
 
 /**
@@ -1139,7 +1225,25 @@ export function mergeAiConfig(env: AiEnv, cfg: AiConfig): AiEnv {
     AI_MODEL_CF_FALLBACK: cfg.modelCfFallback || env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK,
     AI_MODEL_ZHIPU: cfg.modelZhipu || env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU,
     ZHIPU_API_KEY: cfg.zhipuKey || env.ZHIPU_API_KEY,
+    // 【v4.13.8】高级旋钮：后台配置了（非空串）就用后台的，否则回落环境变量，再否则用内置默认。
+    //   注意 cfg.x 可能是数字或空串；空串 → 回落，这正是 sanitize 里"不填默认"的设计意图。
+    AI_TEMPERATURE: resolveNum(cfg.temperature, env.AI_TEMPERATURE, 0.1),
+    AI_CHUNK_QUESTIONS: resolveNum(cfg.chunkQuestions, env.AI_CHUNK_QUESTIONS, 6),
+    AI_MAX_TOKENS: resolveNum(cfg.maxTokens, env.AI_MAX_TOKENS, 16000),
+    AI_CONCURRENCY: resolveNum(cfg.concurrency, env.AI_CONCURRENCY, 1),
+    AI_RETRY_ATTEMPTS: resolveNum(cfg.retryAttempts, env.AI_RETRY_ATTEMPTS, 3),
   }
+}
+
+/**
+ * 从「后台配置（可能是数字或空串）」解析一个数值旋钮。
+ * 规则：后台配了（非空串且为合法数字）→ 用它；否则回落 env 变量；再否则用内置默认。
+ */
+function resolveNum(v: any, envV: number | undefined, def: number): number {
+  if (v === '' || v == null) return envV ?? def
+  const n = Number(v)
+  if (!Number.isFinite(n)) return envV ?? def
+  return n
 }
 
 /**

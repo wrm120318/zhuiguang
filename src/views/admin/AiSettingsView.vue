@@ -34,22 +34,50 @@ const PROVIDERS = [
   { value: 'zhipu', label: '仅智谱 GLM', desc: '只用智谱开放平台（需填 Key）' },
 ]
 
-/** CF 候选模型（与 shared/ai-paper.ts 的 CF_MODEL_CHOICES 保持一致） */
+/**
+ * CF 候选模型（与 shared/ai-paper.ts 的 CF_MODEL_CHOICES 保持内容一致）。
+ * tag：free=免费档可用 / heavy=免费但耗量偏高 / paid=官方标需付费计费（以测试连接实测为准）。
+ * 两个下拉均支持「直接粘贴任意 @cf/... 模型 ID」（filterable + allow-create），
+ * 所以这里没收录的模型也能用。
+ */
 const CF_MODELS = [
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文最强 · 最省）' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）' },
-  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（代码/公式强）' },
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）' },
-  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B' },
-  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 上下文 256K）' },
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 最省神经元）', tag: 'free' as const },
+  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）', tag: 'free' as const },
+  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 多模态 · 10M 上下文）', tag: 'free' as const },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）', tag: 'heavy' as const },
+  { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', label: 'Llama-3.1-8B（最轻量 · 省神经元）', tag: 'free' as const },
+  { id: '@cf/meta/llama-3.2-11b-vision-instruct', label: 'Llama-3.2-11B-Vision（看图 · 适合含图试卷）', tag: 'free' as const },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 中文/JSON 强）', tag: 'free' as const },
+  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（公式/代码强）', tag: 'heavy' as const },
+  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强）', tag: 'heavy' as const },
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）', tag: 'heavy' as const },
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B', tag: 'heavy' as const },
+  { id: '@cf/mistral/mistral-7b-instruct-v0.2', label: 'Mistral-7B-v0.2（轻量）', tag: 'free' as const },
+  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文）', tag: 'heavy' as const },
+  { id: '@cf/google/gemma-3-12b-it', label: 'Gemma-3-12B', tag: 'free' as const },
 ]
+/** 计算标签样式：免费=绿 / 耗量大=橙 / 可能需付费=黄 */
+function tagType(t: string): 'success' | 'warning' | 'info' {
+  if (t === 'free') return 'success'
+  if (t === 'heavy') return 'warning'
+  return 'info'
+}
+function tagText(t: string): string {
+  return t === 'free' ? '免费' : t === 'heavy' ? '耗量大' : '可能需付费'
+}
 
 const form = ref({
   provider: 'auto',
   modelCf: CF_MODELS[0].id,
-  modelCfFallback: CF_MODELS[1].id,
+  modelCfFallback: CF_MODELS[2].id,
   modelZhipu: 'glm-4-flash',
   zhipuKey: '',
+  // 【v4.13.8】高级旋钮；默认值与后端现状行为一致，避免"一升级就变化"
+  temperature: 0.1,
+  chunkQuestions: 6,
+  maxTokens: 16000,
+  concurrency: 1,
+  retryAttempts: 3,
 })
 
 /** 后端返回的实时状态（可用性 / 实际生效通道 / 通道就绪情况） */
@@ -76,10 +104,16 @@ async function load() {
     form.value = {
       provider: cfg.provider || 'auto',
       modelCf: cfg.modelCf || CF_MODELS[0].id,
-      modelCfFallback: cfg.modelCfFallback || CF_MODELS[1].id,
+      modelCfFallback: cfg.modelCfFallback || CF_MODELS[2].id,
       modelZhipu: cfg.modelZhipu || 'glm-4-flash',
       // 注意：这里拿到的是脱敏串，原样放回输入框；用户不改就原样提交
       zhipuKey: cfg.zhipuKeyMasked || '',
+      // 【v4.13.8】高级旋钮回填；后端未配（空串/undefined）时回落到与现状一致的默认值
+      temperature: cfg.temperature === '' || cfg.temperature == null ? 0.1 : Number(cfg.temperature),
+      chunkQuestions: cfg.chunkQuestions === '' || cfg.chunkQuestions == null ? 6 : Number(cfg.chunkQuestions),
+      maxTokens: cfg.maxTokens === '' || cfg.maxTokens == null ? 16000 : Number(cfg.maxTokens),
+      concurrency: cfg.concurrency === '' || cfg.concurrency == null ? 1 : Number(cfg.concurrency),
+      retryAttempts: cfg.retryAttempts === '' || cfg.retryAttempts == null ? 3 : Number(cfg.retryAttempts),
     }
     status.value = cfg
     // 同时刷新一次全局状态（含实际生效通道）
@@ -194,18 +228,63 @@ function clearKey() {
       <div class="sec-title"><ZgGlyph emoji="⚡" /> Cloudflare Workers AI（零配置 · 免费）</div>
       <el-form label-width="140px" label-position="left">
         <el-form-item label="主力模型">
-          <el-select v-model="form.modelCf" style="width:100%">
-            <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id" />
+          <el-select v-model="form.modelCf" filterable allow-create default-first-option style="width:100%"
+            placeholder="选择或粘贴 @cf/... 模型 ID" no-match-text="按回车使用此模型">
+            <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id">
+              <span>{{ m.label }}</span>
+              <el-tag size="small" :type="tagType(m.tag)" effect="dark" class="opt-tag">{{ tagText(m.tag) }}</el-tag>
+            </el-option>
           </el-select>
-          <div class="hint">默认 GLM-4.7-Flash：中文试卷理解最好，单题仅耗约 3.4 神经元。</div>
+          <div class="hint">
+            默认 GLM-5.3-Flash：中文试卷理解好、最省神经元。找不到想要的模型？直接在输入框<b>粘贴 Cloudflare 控制台里的 <code>@cf/...</code> 模型 ID</b> 即可（按回车确认）。
+          </div>
         </el-form-item>
         <el-form-item label="备用模型">
-          <el-select v-model="form.modelCfFallback" style="width:100%">
-            <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id" />
+          <el-select v-model="form.modelCfFallback" filterable allow-create default-first-option style="width:100%"
+            placeholder="选择或粘贴 @cf/... 模型 ID" no-match-text="按回车使用此模型">
+            <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id">
+              <span>{{ m.label }}</span>
+              <el-tag size="small" :type="tagType(m.tag)" effect="dark" class="opt-tag">{{ tagText(m.tag) }}</el-tag>
+            </el-option>
           </el-select>
-          <div class="hint">主力模型调用失败时自动改用这个，建议保留默认的 Llama-3.3-70B。</div>
+          <div class="hint">主力模型调用失败时自动改用这个，建议保留默认的 Llama-4-Scout-17B（多模态、免费）。</div>
         </el-form-item>
       </el-form>
+    </div>
+
+    <!-- ============ 高级参数（免费范围内可调） ============ -->
+    <div class="glass sec">
+      <div class="sec-title"><ZgGlyph emoji="⚙️" /> 高级参数（免费范围内可调）</div>
+      <el-collapse :model-value="['adv']">
+        <el-collapse-item name="adv" title="展开 / 收起：温度、每批题数、输出长度、并发、重试">
+          <el-form label-width="140px" label-position="left">
+            <el-form-item label="采样温度">
+              <el-slider v-model="form.temperature" :min="0" :max="1" :step="0.05" style="width:60%" />
+              <span class="val">{{ form.temperature }}</span>
+              <div class="hint">0~1，默认 0.1。越低越稳、越省神经元；越高越发散（试卷识别建议保持低位）。</div>
+            </el-form-item>
+            <el-form-item label="每批题数">
+              <el-input-number v-model="form.chunkQuestions" :min="1" :max="20" :step="1" />
+              <div class="hint">切块时每批最多几道题，默认 6。越少越稳/越省（单次输出短），越多越快但长块易被截断丢题。</div>
+            </el-form-item>
+            <el-form-item label="最大输出 tokens">
+              <el-input-number v-model="form.maxTokens" :min="1024" :max="32768" :step="1024" />
+              <div class="hint">单次模型输出上限，默认 16000。题多时调大防截断，调小更省神经元。</div>
+            </el-form-item>
+            <el-form-item label="并发数">
+              <el-input-number v-model="form.concurrency" :min="1" :max="4" :step="1" />
+              <div class="hint">
+                长卷多块同时跑的并发，默认 1（最稳）。调高更快，但免费档易触发<b>频率限制(429)</b>导致丢题——
+                <b>除非你已确认额度充足，否则保持 1</b>。
+              </div>
+            </el-form-item>
+            <el-form-item label="429 重试次数">
+              <el-input-number v-model="form.retryAttempts" :min="0" :max="6" :step="1" />
+              <div class="hint">遇到频率限制/过载时退避重试的次数，默认 3。设为 0 则不重试（出错直接失败）。</div>
+            </el-form-item>
+          </el-form>
+        </el-collapse-item>
+      </el-collapse>
     </div>
 
     <!-- ============ 智谱 GLM ============ -->
@@ -260,6 +339,15 @@ function clearKey() {
             {{ testResult.usage.promptTokens || 0 }} + {{ testResult.usage.completionTokens || 0 }} tokens
             <template v-if="testResult.usage.neurons"> · {{ testResult.usage.neurons.toFixed(2) }} 神经元</template>
           </b>
+        </div>
+
+        <div v-if="testResult.params" class="test-params">
+          <span class="tp-title">本次生效参数</span>
+          <el-tag size="small" type="info">温度 {{ testResult.params.temperature }}</el-tag>
+          <el-tag size="small" type="info">每批 {{ testResult.params.chunkQuestions }} 题</el-tag>
+          <el-tag size="small" type="info">输出 {{ testResult.params.maxTokens }} tok</el-tag>
+          <el-tag size="small" type="info">并发 {{ testResult.params.concurrency }}</el-tag>
+          <el-tag size="small" type="info">重试 {{ testResult.params.retryAttempts }} 次</el-tag>
         </div>
 
         <div class="test-q-title">识别出的题目（样例）</div>
@@ -324,6 +412,16 @@ function clearKey() {
 .prov-desc { font-size: 12px; color: var(--zg-text-dim); margin-top: 6px; padding-left: 24px; line-height: 1.6; }
 
 .hint { font-size: 12px; color: var(--zg-text-dim); margin-top: 6px; line-height: 1.7; }
+.hint b { color: var(--zg-text); }
+.hint code { background: rgba(var(--zg-primary-rgb),.12); padding: 1px 6px; border-radius: 5px; }
+
+/* 模型下拉里的标签 */
+.opt-tag { margin-left: 8px; float: right; }
+.val { margin-left: 12px; font-weight: 700; color: var(--zg-primary); }
+
+/* 测试结果里的生效参数 */
+.test-params { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.test-params .tp-title { font-size: 12px; color: var(--zg-text-dim); margin-right: 4px; }
 .hint b { color: var(--zg-text); }
 .hint code { background: rgba(var(--zg-primary-rgb),.12); padding: 1px 6px; border-radius: 5px; }
 

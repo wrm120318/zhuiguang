@@ -4773,6 +4773,12 @@ app.get('/api/ai/status', auth, async (c) => {
     modelCf: env.AI_MODEL_CF || DEFAULT_MODEL_CF,
     modelCfFallback: env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK,
     modelZhipu: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU,
+    // 【v4.13.8】高级旋钮当前生效值（供后台展示"实际会用什么参数跑"）
+    temperature: env.AI_TEMPERATURE ?? 0.1,
+    chunkQuestions: env.AI_CHUNK_QUESTIONS ?? 6,
+    maxTokens: env.AI_MAX_TOKENS ?? 16000,
+    concurrency: env.AI_CONCURRENCY ?? 1,
+    retryAttempts: env.AI_RETRY_ATTEMPTS ?? 3,
     // 脱敏后的智谱 Key，供后台确认"配没配"，绝不明文回显
     zhipuKeyMasked: maskKey(cfg.zhipuKey || env.ZHIPU_API_KEY),
   })
@@ -4944,6 +4950,14 @@ app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async
     attempts: result?.attempts || [],
     usage: result?.usage,
     elapsed,
+    // 【v4.13.8】附带本次实际生效的高级参数，方便超管对照调参
+    params: {
+      temperature: env.AI_TEMPERATURE ?? 0.1,
+      chunkQuestions: env.AI_CHUNK_QUESTIONS ?? 6,
+      maxTokens: env.AI_MAX_TOKENS ?? 16000,
+      concurrency: env.AI_CONCURRENCY ?? 1,
+      retryAttempts: env.AI_RETRY_ATTEMPTS ?? 3,
+    },
     message: ok
       ? `连接成功（${result?.provider} / ${result?.model}，耗时 ${elapsed}ms）`
       : '连接失败：请检查下方错误详情',
