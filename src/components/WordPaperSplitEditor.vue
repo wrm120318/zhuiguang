@@ -1559,10 +1559,16 @@ async function aiRecognize() {
     const warn = unfound ? `（${unfound} 题未精确匹配位置，已自动对齐）` : ''
     ElMessage.success(`AI 识别完成：${drafts.value.length} 道题${warn}`)
   } catch (e: any) {
-    // 【v4.13.5】把失败原因落进 AI 栏（含 401/网络异常/超时等），让用户看得见。
-    const msg = e?.message || String(e)
-    aiError.value = msg.includes('401') ? '登录态已失效，请重新登录后再试' : `请求异常：${msg.slice(0, 80)}`
-    ElMessage.error('AI 识别失败：' + msg + '（已保留规则识别结果）')
+    // 【v4.13.5】把失败原因落进 AI 栏（含 401/400「试卷过大」/网络异常/超时等）。
+    //   注意：http 拦截器对 4xx/5xx 已弹过 ElMessage，这里**不再重复弹**，
+    //   只把真实原因落进 AI 栏，避免"双层弹窗 + 用户不知所以"。
+    //   优先取后端返回的真实 message（如「试卷过大（上限 20 万字符）」），
+    //   否则退化为 axios 的通用错误描述。
+    const status = e?.response?.status
+    const backendMsg = e?.response?.data?.message || ''
+    if (status === 401) aiError.value = '登录态已失效，请重新登录后再试'
+    else if (backendMsg) aiError.value = backendMsg
+    else aiError.value = `请求异常：${(e?.message || String(e)).slice(0, 80)}`
   } finally {
     aiRunning.value = false
     progressText.value = ''
