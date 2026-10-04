@@ -87,6 +87,27 @@ interface DraftQuestion {
 }
 const drafts = ref<DraftQuestion[]>([])
 const activeIdx = ref(0)
+
+/**
+ * 右侧 `QuestionForm` 的强制重挂载计数（v4.13.4）。
+ *
+ * 【为什么需要】
+ *   用户反馈「AI 无法识别卷尾答案」的**最后一环**就在这里：
+ *   `QuestionForm` 只在 `onMounted` 里调 `syncFromInitial()` 读一次 `initial`。
+ *   而 `:key="activeIdx"` —— AI 识别完成时 `activeIdx` 往往正是 0（没变过），
+ *   于是 Vue **复用**同一个组件实例、**不会重新 mount**，
+ *   新算出来的 `drafts[0]`（含答案）永远灌不进去。
+ *   现象：点完 AI 识别，第 1 题答案栏是空的；**往后翻一页再翻回来就好了**
+ *   （因为 activeIdx 变了 → 触发重挂载 → 数据出现）。
+ *
+ *   这解释了为什么"数据是对的、显示是空的"——**不是没识别，是没刷新**。
+ *
+ * 【修法】任何一次"整卷结果被整体替换"（规则识别 / AI 识别 / 重排）都 `n++`，
+ *   把它拼进 key，强制 `QuestionForm` 重新挂载并重新 `syncFromInitial()`。
+ */
+const formEpoch = ref(0)
+/** 右侧表单的 key：题号 + 结果代次（任一变化都重挂载） */
+const formKey = computed(() => `${activeIdx.value}@${formEpoch.value}`)
 const saving = ref(false)
 
 // ===== 分割线拖拽 =====
@@ -460,6 +481,8 @@ async function onPick(e: Event) {
     const hints = sectionHints()
     drafts.value = chunks.value.map((c, i) => inferDraft(c.html, hints[i] || ''))
     activeIdx.value = 0
+    // 【v4.13.4】整卷结果被替换 → 强制右侧表单重挂载（见 `formEpoch` 注释）。
+    formEpoch.value++
     stage.value = 'split'
     ElMessage.success(`已识别 ${drafts.value.length} 道题，请核对分割线后进入编辑`)
     await nextTick()
@@ -1508,6 +1531,11 @@ async function aiRecognize() {
       drafts.value.push(c ? inferDraft(c.html, hints2[drafts.value.length] || '') : blankDraft())
     }
     activeIdx.value = 0
+    // 【v4.13.4】整卷结果被替换 → 强制右侧表单重挂载。
+    //   ⚠️ 这一行是「AI 无法识别卷尾答案」的**最后一环**：
+    //     以前只改 `drafts` 而不重挂载，`QuestionForm` 的 `onMounted` 不会再跑，
+    //     新答案灌不进去 → 第 1 题答案栏看起来是空的。
+    formEpoch.value++
     lastBoundarySnapshot = boundaries.value.slice()
     oldDirty.value.clear()
     refreshFingerprints()
@@ -1566,6 +1594,8 @@ function stripAllNumbers() {
     return after === before ? d : { ...d, content: after }
   })
   if (n) {
+    // 【v4.13.4】题干被就地改写 → 重挂载表单，确保富文本编辑器同步到新内容
+    formEpoch.value++
     ElMessage.success(`已去除 ${n} 道题的题号（小问号已保留）`)
     scheduleSitePreview()
   } else {
@@ -1612,6 +1642,7 @@ function removeSplit(i: number) {
  */
 function syncDrafts() {
   const hints = sectionHints()   // 【v4.13.3】重新切分后大题归属可能变了，一并刷新
+  const prevActiveDraft = drafts.value[activeIdx.value]
   const next = chunks.value.map((c, i) => {
     const old = drafts.value[i]
     if (!old) return inferDraft(c.html, hints[i] || '')
@@ -1628,6 +1659,9 @@ function syncDrafts() {
   lastBoundarySnapshot = boundaries.value.slice()
   refreshFingerprints()
   if (activeIdx.value >= next.length) activeIdx.value = Math.max(0, next.length - 1)
+  // 【v4.13.4】若当前这一题的草稿对象被替换了（换成了另一题），
+  //   必须重挂载 `QuestionForm` —— 否则它仍显示旧题的编辑态（同 formEpoch 那段注释）
+  if (next[activeIdx.value] !== prevActiveDraft) formEpoch.value++
 }
 let lastBoundarySnapshot: number[] = []
 /** 每题的内容指纹（用于判断"编辑结构是否实质变化"） */
@@ -2156,7 +2190,7 @@ onUnmounted(() => {
         <div class="zs-right-body">
           <QuestionForm
             v-if="drafts[activeIdx]"
-            :key="activeIdx"
+            :key="formKey"
             :subject-id="props.subjectId"
             :initial="drafts[activeIdx]"
             @submit="onFormSubmit"

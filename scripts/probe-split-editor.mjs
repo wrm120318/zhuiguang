@@ -548,6 +548,9 @@ console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数�
     Block: lineOf(/^interface Block /m) < 0 ? lineOf(/^type Block /m) : lineOf(/^interface Block /m),
     blocks: lineOf(/^const blocks = ref/m),
     boundaries: lineOf(/^const boundaries = ref/m),
+    activeIdx: lineOf(/^const activeIdx = ref/m),
+    formEpoch: lineOf(/^const formEpoch = ref/m),
+    formKey: lineOf(/^const formKey = computed/m),
   }
   // 所有被引用方都必须存在且位置为正
   const missing = Object.entries(pos).filter(([, v]) => v <= 0).map(([k]) => k)
@@ -566,6 +569,10 @@ console.log('\n=== 8h. ⚠️ 顶层定义顺序（TDZ 守卫 —— 纯函数�
     ['isPaperTitleOnly', 'dropSectionTitleBoundaries'],
     ['isPaperTitleOnly', 'autoSplit'],
     ['isAnswerKeyStart', 'autoSplit'],
+    ['activeIdx', 'formKey'],
+    ['formEpoch', 'formKey'],
+    ['activeIdx', 'formKey'],
+    ['formEpoch', 'formKey'],
     ['isSectionTitleOnly', 'dropSectionTitleBoundaries'],
     ['isSectionTitleOnly', 'autoSplit'],
     ['sectionTypeHint', 'sectionHints'],
@@ -813,6 +820,20 @@ console.log('\n=== 8i. 【v4.13.4】卷名不得单独成题 / 卷尾答案区�
   ok('⚠️ autoSplit 的终点已被收到答案区之前（答案区不并进最后一题）',
     simBnd[simBnd.length - 1] === answerIdx,
     `终点=${simBnd[simBnd.length - 1]}，答案区起点=${answerIdx}`)
+  // ── 8i-6. 【v4.13.4】QuestionForm 必须能被强制重挂载 ──
+  //
+  //   `QuestionForm` 只在 onMounted 里读一次 initial。
+  //   若 key 只用 activeIdx，AI 识别完成时 activeIdx 往往正是 0（没变），
+  //   Vue 复用实例 → 新答案灌不进去 → 第 1 题答案栏看起来是空的。
+  //   （用户「AI 无法识别卷尾答案」的最后一环；翻页再翻回来就好了，因为 key 变了）
+  ok('⚠️ 模板用 formKey（而非只用 activeIdx）作为 QuestionForm 的 key',
+    /:key="formKey"/.test(src), '未找到 :key="formKey"')
+  ok('⚠️ formKey 同时包含 activeIdx 与 formEpoch',
+    /const formKey = computed\(\(\) => `\$\{activeIdx\.value\}@\$\{formEpoch\.value\}`\)/.test(src),
+    'formKey 组成不含 activeIdx/formEpoch')
+  ok('⚠️ 规则识别后 formEpoch++（强制重挂载）', (src.match(/formEpoch\.value\+\+/g) || []).length >= 3,
+    `formEpoch++ 出现 ${(src.match(/formEpoch\.value\+\+/g) || []).length} 次（应 >=3：规则/AI/去序号/syncDrafts）`)
+
   ok('最后一题的题干不含「参考答案」四字',
     !/参考答案/.test(simBlocks.slice(simBnd[simBnd.length - 2], simBnd[simBnd.length - 1]).map(b => b.text).join('')))
 }
