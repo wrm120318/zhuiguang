@@ -33,6 +33,12 @@
 - `tsx` 单元验证 `sanitizeAiConfig → mergeAiConfig` 链路 17 项全过：空配置回落默认、越界夹取、非法转空串、温度保留小数（修正了一处误把 0.3/0.5 取整为 0 的 bug）、后台配置优先于 env 变量。
 - 已部署 Worker（Version `2392f521`）+ 推送前端（Pages 自动构建）。
 
+### 部署修复（v4.13.8 后续）
+- **问题**：用户反馈"前端根本看不到这些设置"。排查发现 v4.13.6~v4.13.8 共 6 次 `git push` 触发的 Pages 构建**全部 `Failure`**，线上一直跑着更早一次成功构建；本地 `npm run build` 正常（因直接用现有 `node_modules` 不跑 `npm ci`），导致问题被掩盖。
+- **根因**：`package-lock.json` 失同步，Cloudflare Pages 构建用的 `npm ci` 在 install 阶段即报 `Missing: xmlchars/tldts/tr46/punycode from lock file` 秒退，build 阶段 16 秒 `Failure`，部署被跳过。
+- **修复**：`rm -rf node_modules package-lock.json && npm install` 重新生成同步 lockfile → 本地 `npm ci` 通过 → `git add package-lock.json && git push`，Pages 自动构建恢复 `Active`（部署 `3c940ddb`）。本次也用 `wrangler pages deploy dist` 直接上传过一次本地构建（`45a7d19c`）应急上线，确认新设置已对用户提供。
+- 详见《交接文档》3.2.1 节"Pages 自动构建静默失败"坑。
+
 ---
 
 ## [v4.13.7] - 2026-10-04
