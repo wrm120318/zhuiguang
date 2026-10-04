@@ -13,6 +13,7 @@ import {
   aiParsePaper, aiAvailable, effectiveProvider,
   DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
   AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
+  htmlToStructuredText,
   type AiEnv,
 } from '../shared/ai-paper'
 import { uploadFile, downloadFile, deleteFile, extractKey, STORAGE_ENABLED, USE_LOCAL, LOCAL_UPLOAD_DIR, createPresignedUploadUrl } from './storage'
@@ -2890,7 +2891,15 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
   //   让共享层做「表格 Markdown 化 + 图片占位符化」的结构保真转换。
   const payload = rawHtml.trim() || bodyText
   if (!payload.trim()) return res.status(400).json({ ok: false, available: true, message: '试卷内容为空' })
-  if (payload.length > 200000) return res.status(400).json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' })
+  // 【v4.13.6 修正 · 按"送模型的实际文本"计上限，而非原始 HTML 长度】
+  // 旧实现直接拿原始 HTML 长度卡 20 万字符，但图片在 HTML 里是 `data:image/...;base64,...`
+  // 内联，一张扫描图就是几十~几百 KB 的 base64，10 张图轻松把长度撑过 20 万，
+  // 于是"明明正文没多少字却提示试卷过大"。图片对模型而言只值一个 `[图N]` 占位符，
+  // 转结构化文本后 base64 已被剔除 —— 用转换后的文本长度卡上限才反映真实体量。
+  const payloadLen = (() => {
+    try { return htmlToStructuredText(payload).text.length } catch { return payload.length }
+  })()
+  if (payloadLen > 200000) return res.status(400).json({ ok: false, available: true, message: '试卷过大（上限 20 万字符），请拆分后再试' })
 
   const subjectId = Number(body.subjectId)
   if (subjectId) {

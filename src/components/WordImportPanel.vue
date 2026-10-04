@@ -19,12 +19,15 @@ const preview = ref<any[]>([])
 const importing = ref(false)
 const defaults = reactive({ score: 5, difficulty: 3 })
 
-const optRe = /^\s*([A-Ha-h])[.、)）]/
+// 【v4.13.6 修正 · 选项判据覆盖全形态】与 WordPaperSplitEditor 同一套（A. A． A、 A) A） (A) （A） A: A：），
+// 旧版只认 A. A、 A) A），漏掉中文 Word 常见全角点 `A．`，导致选择题选项填不进。
+const optRe = /^\s*[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/i
 
 // HTML → 纯文本（保留块级换行，便于按行识别题型/选项/答案）
 function htmlToText(html: string): string {
   return html
-    .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+    // 【v4.13.6 补强】`<td>`/`<th>` 末尾也补换行，避免同行多列被拍平连成「A. 甲B. 乙」
+    .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody|td|th)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/ /g, ' ')

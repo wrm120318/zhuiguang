@@ -93,19 +93,29 @@ const LEAD_TRIM = /^[\s\u00a0\u3000]+/
 export function stripNumberFromText(text: string): string {
   let s = String(text ?? '')
   if (!s) return s
-  // 最多剥两轮：应对 `1. （1）` 这种「题号 + 小问」——但小问要保留，
-  // 所以第二轮只在**又出现一个纯题号**时才会生效，`（1）` 不匹配任何 PATTERN。
-  for (let round = 0; round < 2; round++) {
-    let hit = false
-    for (const re of PATTERNS) {
-      if (re.test(s)) {
-        s = s.replace(re, '').replace(LEAD_TRIM, '')
-        hit = true
-        break
-      }
+  // 【v4.13.6 关键修正 · 只剥一轮】
+  //
+  // 旧实现最多剥**两轮**，本意是应对 `1. （1）求…` 这种「题号 + 小问」。
+  // 但那是个**误判**：`（1）` 不匹配任何 PATTERN，第一轮剥掉 `1.` 之后
+  // 循环本来就会自然停住 —— 第二轮**永远只在"正文开头又长了一个题号"时**生效，
+  // 而那恰恰说明**第二个是正文，不该剥**。
+  //
+  // 🐞 实测踩中的坑（用户卷子「1. 第1题：已知集合运算…」）：
+  //   第 1 轮：③ 剥掉 `1. `        → `第1题：已知集合运算…`
+  //   第 2 轮：② 又剥掉 `第1题`     → `：已知集合运算…`   ← 正文被吃掉！
+  //   用户看到题干变成「：已知集合运算」（开头整段丢失）。
+  //
+  // 所以：**题号只可能是题干开头的那一个**，剥一次即可。
+  let hit = false
+  for (const re of PATTERNS) {
+    if (re.test(s)) {
+      s = s.replace(re, '').replace(LEAD_TRIM, '')
+      hit = true
+      break
     }
-    if (!hit) break
   }
+  // `hit` 仅供调试/将来扩展（当前无分支依赖），保留赋值避免 lint 报未使用
+  void hit
   return s
 }
 

@@ -114,12 +114,19 @@ const saving = ref(false)
 const dragging = ref<number | null>(null)
 
 // ===== 题型识别（与 WordImportPanel 同一套规则，保持行为一致）=====
-const optRe = /^\s*([A-Ha-h])[.、)）]/
+// 【v4.13.6 修正 · 选项判据覆盖全形态】
+// 旧 `optRe = /^\s*([A-Ha-h])[.、)）]/` 漏掉了中文 Word 里极常见的**全角点 `A．`**（U+FF0E）
+// 与 `A：` / `（A）`，导致这类选择题「题型判不中 + 选项填不进」—— 用户报"选择题识别不了"。
+// 现统一成 `OPT_RE`，`stripOptionsFromHtml` / `inferDraft` / `optLineRe` 三处共用，避免判据漂移。
+const OPT_RE = /^\s*[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/i
+const optRe = OPT_RE
 const JUDGE_WORDS = ['对', '错', '正确', '错误', '√', '×', 'T', 'F', 'true', 'false']
 
 function toText(html: string): string {
   return String(html)
-    .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody)>/gi, '\n')
+    // 【v4.13.6 补强】`<td>`/`<th>` 末尾也补换行 —— 否则同行多列被拍平连成
+    // 「A. 甲B. 乙」导致选项整体被误判成一条，提取出垃圾（实测踩过）。
+    .replace(/<\/(p|div|h[1-6]|li|tr|table|thead|tbody|td|th)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
@@ -127,8 +134,8 @@ function toText(html: string): string {
     .trim()
 }
 
-/** 选项行判据（A. / A． / (A) / A、） */
-const optLineRe = /^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/i
+/** 选项行判据（与 `optRe` 同一套：A. A． A、 A) A） (A) （A） A: A：） */
+const optLineRe = OPT_RE
 
 /**
  * 从题干 HTML 里剥掉「选项行 / 答案行 / 解析行」。
@@ -144,6 +151,14 @@ const optLineRe = /^\s*[(（]?\s*[A-Ha-h]\s*[.、)）．:：]/i
  * 修法：`content` 只用**剥掉选项/答案/解析后**的题干 HTML。
  *   ⚠️ 表格与图片必须保留（它们常是题干的一部分，且不可拆），
  *      所以「含 table 的元素」一律跳过不删。
+ *
+ * 【v4.13.6 补强 · 段内选项/答案/解析也剥】
+ *   旧实现只认「整块就是一个选项行」的顶层 `<p>`，遇到
+ *   `<p>1. 已知集合（　　）<br>A. 甲<br>B. 乙</p>` 这种「题干与选项同段」的排版
+ *   整块以题号开头，选项行混在中间，只剥顶层块根本剥不掉 → 选项仍残留题干里
+ *   （用户报"答案解析填充混乱"的主因之一）。
+ *   现改为：对每个块**按 `<br>` 切成行**，逐行判是否为选项/答案/解析，命中即删，
+ *   最后再清掉被掏空后留下的空块。
  * ────────────────────────────────────────────────────────────────────────────
  */
 function stripOptionsFromHtml(html: string): string {
@@ -155,17 +170,56 @@ function stripOptionsFromHtml(html: string): string {
       const tag = el.tagName.toLowerCase()
       // 表格 / 含表格的容器 → 保留（合并单元格表格是题干结构，不能删）
       if (tag === 'table' || el.querySelector('table')) return
-      const t = (el.textContent || '').replace(/[\s\u00a0\u3000]+/g, ' ').trim()
-      if (!t) return
-      // 选项行
-      if (optLineRe.test(t)) { el.remove(); return }
-      // 答案行
-      if (/^(?:答案|参考答案|解答|答)\s*[:：]?/.test(t)) { el.remove(); return }
-      // 解析行
-      if (/^(?:答案解析|解析|【解析】|【答案】)/.test(t)) el.remove()
+      stripLinesInElement(el as HTMLElement)
+    })
+    // 清理被掏空后留下的空块（<p></p> / <div></div>），避免题干里出现一串空行
+    Array.from(holder.children).forEach(el => {
+      const t = (el.textContent || '').replace(/[\s\u00a0\u3000]+/g, '')
+      const hasMedia = el.querySelector('img,table')
+      if (!t && !hasMedia) el.remove()
     })
     return holder.innerHTML
   } catch { return html }
+}
+
+/**
+ * 在单个块级元素内部，按 `<br>` 切成「行」，删除命中「选项 / 答案 / 解析」的行。
+ * 顶层块整体仍是选项行时（`<p>A. 甲</p>`）也会整块删掉，与旧行为一致。
+ */
+function stripLinesInElement(el: HTMLElement): void {
+  const segs: { nodes: Node[]; br: boolean; keep: boolean }[] = []
+  let cur: Node[] = []
+  el.childNodes.forEach(n => {
+    if (n.nodeType === 1 && (n as HTMLElement).tagName.toLowerCase() === 'br') {
+      segs.push({ nodes: cur, br: false, keep: decideStripLine(cur) })
+      segs.push({ nodes: [n], br: true, keep: true })
+      cur = []
+    } else cur.push(n)
+  })
+  segs.push({ nodes: cur, br: false, keep: decideStripLine(cur) })
+  // <br> 仅当其相邻的内容段有保留时才保留，否则会留下空行
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i].br) {
+      const prevKeep = i > 0 && segs[i - 1].keep
+      const nextKeep = i < segs.length - 1 && segs[i + 1].keep
+      segs[i].keep = !!(prevKeep || nextKeep)
+    }
+  }
+  el.innerHTML = ''
+  for (const s of segs) if (s.keep) s.nodes.forEach(n => el.appendChild(n))
+}
+
+/** 一行内容是否该从题干剥离（选项行 / 答案行 / 解析行 → 删；其余保留） */
+function decideStripLine(nodes: Node[]): boolean {
+  if (!nodes.length) return false
+  const holder = document.createElement('span')
+  nodes.forEach(n => holder.appendChild(n.cloneNode(true)))
+  const t = (holder.textContent || '').replace(/[\s\u00a0\u3000]+/g, ' ').trim()
+  if (!t) return false
+  if (optLineRe.test(t)) return false
+  if (/^(?:答案|参考答案|解答|答)\s*[:：]?/.test(t)) return false
+  if (/^(?:答案解析|解析|【解析】|【答案】)/.test(t)) return false
+  return true
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -395,13 +449,20 @@ function inferDraft(html: string, typeHint = ''): DraftQuestion {
   if (!first) first = lines[0] || ''
 
   const opts: string[] = []
-  const rest: string[] = []
+  const analysisLines: string[] = []
   let answer = ''
   for (let i = 1; i < lines.length; i++) {
     const ln = lines[i]
+    // 选项行 → 归到 options（字母前缀由 OPT_RE 一并剥掉）
     if (optRe.test(ln)) { opts.push(ln.replace(optRe, '').trim()); continue }
-    if (/答案|参考答案|解答|答[:：]/.test(ln)) { answer = ln.replace(/^.*?(答案|参考答案|解答|答)[:：]?\s*/, ''); continue }
-    rest.push(ln)
+    // 答案行：明确带「答案/参考答案/解答/答：」前缀 → 取冒号后内容
+    const ans = ln.match(/^(?:答案|参考答案|解答|答)\s*[:：]\s*(.*)$/)
+    if (ans) { if (!answer) answer = ans[1].trim(); continue }
+    // 解析行：明确带「解析/答案解析/【解析】/【答案】」前缀 → 归到 analysis
+    const ana = ln.match(/^(?:答案解析|解析|【解析】|【答案】)\s*[:：]?\s*(.*)$/)
+    if (ana) { analysisLines.push(ana[1].trim()); continue }
+    // 其余行：视为题干延续，留在 content（已由 stripOptionsFromHtml 剥离选项/答案/解析），
+    //   ⚠️ 不再像旧实现那样塞进 analysis —— 否则「（本小题 5 分）」之类杂项会污染解析栏。
   }
 
   let qtype = 'subjective'
@@ -431,8 +492,8 @@ function inferDraft(html: string, typeHint = ''): DraftQuestion {
     content: stripQuestionNumber(stripOptionsFromHtml(html)),
     options: opts,
     answer: answer.trim(),
-    // rest 是除选项/答案外的其它文字（常是「解析」「说明」），归到 analysis
-    analysis: rest.filter(Boolean).join('\n'),
+    // analysis 只来自明确的「解析/答案解析」行，避免杂项文字污染解析栏
+    analysis: analysisLines.filter(Boolean).join('\n'),
     score: 5,
     difficulty: 3,
     knowledge_point_ids: [],
@@ -1385,7 +1446,14 @@ async function aiRecognize() {
     //
     // 改传 HTML 后，后端 `htmlToStructuredText()` 会做保真转换：
     //   表格 → Markdown 表格（行列完整）、图片 → [图N] 占位符（位置保留）。
-    const html = blocks.value.map(b => b.html).join('')
+    // 【v4.13.6 修正 · 不把 base64 图片塞给 AI】
+    // 旧实现把整卷 HTML（含 mammoth 内联的 `data:image/...;base64,...`）原样发出，
+    // 一张扫描图就是几十~几百 KB 的 base64，10 张图轻松突破 20 万字符上限，
+    // 于是"明明没多少字却提示试卷过大"。AI 看不见图片像素，只需 `[图N]` 占位符；
+    // 真图在 `mergeContent` 阶段从 originalHtml（含原 base64）回填，剥离不影响最终渲染。
+    const html = blocks.value
+      .map(b => b.html.replace(/src\s*=\s*["']data:image\/[^"']*["']/gi, 'src=""'))
+      .join('')
     const text = blocks.value.map(b => b.text).filter(Boolean).join('\n')
     const r: any = await api.aiParsePaper({ text, html, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
