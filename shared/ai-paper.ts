@@ -19,10 +19,11 @@
 //   │ 通道 A：Cloudflare Workers AI（**默认主力，零配置**）                 │
 //   │   · 走 Worker 原生绑定 env.AI，**完全不需要 API Key**                 │
 //   │   · 免费额度：每天 10000 神经元（无需信用卡）                          │
-//   │   · 主力模型 @cf/zai-org/glm-4.7-flash —— 智谱 GLM，中文理解最好      │
-//   │     实测单题仅耗 3.4 神经元 → 每天可跑约 2900 道题                    │
-//   │   · 备用模型 @cf/meta/llama-3.3-70b-instruct-fp8-fast                │
-//   │     英文 prompt 下 JSON 最规范，但耗 12.9 神经元（贵 4 倍），仅兜底   │
+//   │   · 主力模型 @cf/meta/llama-4-scout-17b-16e-instruct                  │
+//   │     （**Llama 4 Scout**：Meta 最新架构、免费、131K 上下文、原生多模态）│
+//   │   · 备用模型 @cf/qwen/qwen3-30b-a3b-fp8                               │
+//   │     （**Qwen3** 新模型、免费、中文与 JSON 结构化输出最强）            │
+//   │   · 两者都位于 Workers AI 免费档，长卷切块并行也不会触发付费           │
 //   ├──────────────────────────────────────────────────────────────────────┤
 //   │ 通道 B：智谱开放平台 GLM（可选，超级管理员在后台填 Key）              │
 //   │   · 国内直连、中文强、glm-4-flash 免费                                │
@@ -103,18 +104,20 @@ export interface AiParseResult {
 // 默认模型常量（后端与前端设置页共用，避免两处写死不一致）
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL_CF = '@cf/zai-org/glm-4.7-flash'
-export const DEFAULT_MODEL_CF_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+export const DEFAULT_MODEL_CF = '@cf/meta/llama-4-scout-17b-16e-instruct'
+export const DEFAULT_MODEL_CF_FALLBACK = '@cf/qwen/qwen3-30b-a3b-fp8'
 export const DEFAULT_MODEL_ZHIPU = 'glm-4-flash'
 
-/** 候选模型清单（供管理后台下拉选择，均实测在免费额度内可用） */
+/** 候选模型清单（供管理后台下拉选择，均位于 Workers AI 免费档内） */
 export const CF_MODEL_CHOICES = [
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文最强 · 最省）' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）' },
-  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（代码/公式强）' },
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）' },
-  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B' },
-  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 上下文 256K）' },
+  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 免费 · 多模态）' },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 免费 · 中文/JSON 强）' },
+  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最省）' },
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 免费）' },
+  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强 · 免费）' },
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强 · 免费）' },
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B（免费）' },
+  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文 · 免费）' },
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -535,7 +538,11 @@ async function callCfAi(env: AiEnv, model: string, paperText: string, timeoutMs:
     messages,
     temperature: 0.1,      // 结构化抽取任务，温度越低越稳
     max_tokens: 8192,
-    chat_template_kwargs: { enable_thinking: false },
+  }
+  // 仅 GLM / Qwen3 / DeepSeek / QwQ 等「默认会吐思维链」的模型关掉 thinking，省 token；
+  // Llama-4 等无 thinking 模式的模型传这个 kwarg 可能报错，故按模型名选择性添加。
+  if (/glm|qwen|deepseek|qwq/i.test(model)) {
+    payload.chat_template_kwargs = { enable_thinking: false }
   }
 
   // ① 绑定路径（生产首选：零密钥、不经过公网）
@@ -581,6 +588,14 @@ async function callCfAi(env: AiEnv, model: string, paperText: string, timeoutMs:
 /** 读全局注入（本地后端用 process.env，Worker 用绑定；这里统一走 globalThis 以免引 process 类型） */
 function readGlobal(k: string): string | undefined {
   return (globalThis as any)[k]
+}
+
+/** 轻量 sleep（用于 429 退避） */
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+/** 命中频率限制 / 过载类错误（这类错误退避后重试常能成功） */
+function isRateLimit(e: any): boolean {
+  return /429|频率限制|rate.?limit|too many requests|overloaded|负载|capacity/i.test(String(e?.message || e))
 }
 
 /**
@@ -665,6 +680,167 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
+ * 把整卷切成适合单次模型调用的小块。
+ *
+ * 【为什么切块】
+ *   实测单次把整卷送进 GLM，输出 JSON 极长，生成时间随题量近似线性增长；
+ *   60 题左右就会超过 55s 内部超时 + 70s 前端超时，于是「点 AI 转完圈、请求异常 timeout」。
+ *   切块后每块更小，单次生成稳在超时内；多块**并行**执行，墙钟时间≈最慢一块而非各块之和。
+ *
+ * 【切块策略 —— 按"题数"而非"字符数"切（关键）】
+ *   最初按 16k 字符切，但「60 题密卷仅 6.7k 字符」这类卷仍被切成单块，
+ *   模型输出被 max_tokens 截断，只返回 8 题。所以必须在**题号边界**切成"题单元"，
+ *   再每 ~12 题一组 —— 保证每块的 JSON 输出远小于 8192 token，既不超时又完整。
+ *   短卷（≤16k 字符）直接单块，保持原行为；识别不出题号结构的卷回退字符切块。
+ */
+const Q_START_RE = /^\s*(?:[0-9]{1,3}[.、)）]|[（(][0-9]{1,3}[)）]|第\s*[0-9]{1,3}\s*题|①|②|③|④|⑤|[（(][一二三四五六七八九十]+\s*[)）])/
+
+/** 在题号边界把整卷切成"题单元"；识别不出则回退 null（调用方改用字符切块）。 */
+function splitIntoQuestionUnits(text: string): string[] | null {
+  const lines = text.split('\n')
+  const starts: number[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (Q_START_RE.test(lines[i])) starts.push(i)
+  }
+  // 题量太少 → 不可靠，回退
+  if (starts.length < 2) return null
+  const units: string[] = []
+  for (let k = 0; k < starts.length; k++) {
+    const s = starts[k]
+    const e = k + 1 < starts.length ? starts[k + 1] : lines.length
+    units.push(lines.slice(s, e).join('\n'))
+  }
+  return units
+}
+
+function splitForParse(text: string, chunkSize = 16000, maxQuestions = 12): { text: string; appendTail: string }[] {
+  // 先把卷末"参考答案"区块单独切出来：它只用于回填，不应被当成题目切块/误判为题。
+  const ansMarker = text.match(/(参考答案|答案与解析|答案解析|参考答案及解析|——\s*参考答案)/)
+  let body = text
+  let answerTail = ''
+  if (ansMarker && ansMarker.index && ansMarker.index > text.length * 0.3) {
+    body = text.slice(0, ansMarker.index)
+    answerTail = text.slice(ansMarker.index)
+  }
+  // 回填尾块：优先用答案区块，退而求其次取全文末 30%
+  const tail = answerTail.trim().length > 50
+    ? answerTail
+    : text.slice(Math.max(0, text.length - Math.min(9000, Math.floor(text.length * 0.3))))
+
+  // ① 优先按"题数"切块 —— 专门解决「题多字少」的密卷（最初超时的主因：60 题仅 6.7k 字符）。
+  //   注意：此判断必须放在"字符长度"判断之前，否则短卷会被上面的早退逻辑直接单块返回。
+  const units = splitIntoQuestionUnits(body)
+  if (units && units.length > maxQuestions) {
+    const chunks: string[] = []
+    let cur = ''
+    let q = 0
+    for (const u of units) {
+      if (cur && (q >= maxQuestions || cur.length + u.length + 1 > chunkSize)) {
+        chunks.push(cur); cur = ''; q = 0
+      }
+      cur += (cur ? '\n' : '') + u
+      q++
+    }
+    if (cur) chunks.push(cur)
+    if (chunks.length > 1) {
+      return chunks.map((c, i) => ({
+        text: c,
+        appendTail: tail && i < chunks.length - 1 ? tail : '',
+      }))
+    }
+  }
+
+  // ② 按"字符数"切块 —— 解决「字多题少」的长卷（如每题题干极长）。
+  if (text.length > chunkSize) {
+    const chunks: { text: string; appendTail: string }[] = []
+    let start = 0
+    while (start < text.length) {
+      let end = Math.min(start + chunkSize, text.length)
+      if (end < text.length) {
+        const lo = start + Math.floor(chunkSize * 0.6)
+        const seg = text.slice(lo, end)
+        const blank = seg.lastIndexOf('\n\n')
+        const qmark = seg.search(/\n\s*(?:[0-9]+[.、)）]|[（(][0-9]+[）)]|第\s*[0-9]+|①|（[一二三四五六七八九十]+）)/)
+        let cut = -1
+        if (blank > 0) cut = lo + blank + 2
+        else if (qmark >= 0) cut = lo + qmark + 1
+        if (cut > start + Math.floor(chunkSize * 0.4)) end = cut
+      }
+      const isLast = end >= text.length
+      chunks.push({ text: text.slice(start, end), appendTail: tail && !isLast ? tail : '' })
+      start = end
+    }
+    if (chunks.length > 1) return chunks
+  }
+
+  // ③ 短卷（题少字少）：单块，保持原行为
+  return [{ text, appendTail: '' }]
+}
+
+/** 去重：切块重叠边界 / 模型重复输出可能让同一题出现两次 */
+function dedupeQuestions(qs: AiQuestion[]): AiQuestion[] {
+  const seen = new Set<string>()
+  const out: AiQuestion[] = []
+  for (const q of qs) {
+    const key = `${q.qtype}|${String(q.content).replace(/\s+/g, '').slice(0, 40)}|${q.answer || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(q)
+  }
+  return out
+}
+
+/**
+ * 对「单块」跑完整双通道解析（CF 主力 → 备用，再智谱兜底）。
+ * 任何失败都不抛，返回空 questions + 失败原因，由上层决定如何合并。
+ */
+async function parseOneChunk(
+  env: AiEnv, chunkText: string, timeoutMs: number
+): Promise<{ questions: AiQuestion[]; provider: string; model: string; usage?: any; attempts: { provider: string; error?: string }[] }> {
+  const mode = (env.AI_PROVIDER || 'auto').toLowerCase()
+  const hasCf = !!(env.AI || env.AI_BASE_CF)
+  const hasZhipu = !!env.ZHIPU_API_KEY
+  let order: ('cf' | 'zhipu')[] =
+    mode === 'cf' ? ['cf'] : mode === 'zhipu' ? ['zhipu'] : ['cf', 'zhipu']
+  if (!hasCf) order = order.filter(p => p !== 'cf')
+  if (!hasZhipu) order = order.filter(p => p !== 'zhipu')
+  const attempts: { provider: string; error?: string }[] = []
+  for (const p of order) {
+    try {
+      if (p === 'cf') {
+        // 通道 A 内部再降级：主力模型 → 备用模型
+        const primary = env.AI_MODEL_CF || DEFAULT_MODEL_CF
+        const fallback = env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK
+        const models = primary === fallback ? [primary] : [primary, fallback]
+        let lastErr = ''
+        for (const m of models) {
+          // 频率限制(429)/过载：退避后重试（最多 3 次），实测一次重试常能成功
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const { raw, usage } = await callCfAi(env, m, chunkText, timeoutMs)
+              const questions = normalizeQuestions(raw)
+              if (!questions.length) { lastErr = `模型 ${m} 未解析出题目`; break }
+              return { questions, provider: 'cf', model: m, usage, attempts: [{ provider: 'cf' }] }
+            } catch (e: any) {
+              lastErr = String(e?.message || e).slice(0, 200)
+              if (isRateLimit(e) && attempt < 2) { await sleep(2000 * (attempt + 1)); continue }
+              break
+            }
+          }
+        }
+        attempts.push({ provider: 'cf', error: lastErr || '全部模型失败' })
+        continue
+      }
+      const { raw, usage } = await callZhipu(env, chunkText, timeoutMs)
+      const questions = normalizeQuestions(raw)
+      if (!questions.length) { attempts.push({ provider: 'zhipu', error: '模型返回内容无法解析出题目' }); continue }
+      return { questions, provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, usage, attempts: [{ provider: 'zhipu' }] }
+    } catch (e: any) { attempts.push({ provider: p, error: String(e?.message || e).slice(0, 200) }) }
+  }
+  return { questions: [], provider: '', model: '', attempts }
+}
+
+/**
  * 调用 AI 解析试卷。
  *
  * @param env       环境变量 / 绑定（含 env.AI 与智谱 Key）
@@ -679,7 +855,10 @@ export async function aiParsePaper(
   paperText: string,
   opts: { timeoutMs?: number; maxChars?: number } = {}
 ): Promise<AiParseResult | null> {
-  const timeoutMs = opts.timeoutMs ?? 55000
+  // 【v4.13.7】**不预设超时杀死 AI**：默认给到 10 分钟兜底（仅防真·失控挂死，
+  //   平台自身对单次推理也有上限）。正常生成几秒~一两分钟即返回。
+  //   长卷已切块并行，每块远小于整卷，单块跑完即可，绝不中途掐断让模型「转完圈没结果」。
+  const timeoutMs = opts.timeoutMs ?? 600000
   // 免费档上下文够大，但整卷动辄数万字；超长截断会造成"后半卷丢失"，
   // 所以默认上限设得较高（6 万字符），并在前端提示用户可拆分上传。
   const maxChars = opts.maxChars ?? 60000
@@ -698,74 +877,63 @@ export async function aiParsePaper(
   const text = full.length > maxChars ? full.slice(0, maxChars) : full
   if (!text.trim()) return null
 
-  const mode = (env.AI_PROVIDER || 'auto').toLowerCase()
-  const hasCf = !!(env.AI || env.AI_BASE_CF)
-  const hasZhipu = !!env.ZHIPU_API_KEY
+  // ── 切块并行解析（长卷防超时；短卷退化为单块，行为不变）──
+  const rawChunks = splitForParse(text)
+  const total = rawChunks.length
 
-  // auto：优先 CF Workers AI（零配置、免密钥），失败切智谱
-  let order: ('cf' | 'zhipu')[] =
-    mode === 'cf' ? ['cf']
-      : mode === 'zhipu' ? ['zhipu']
-        : ['cf', 'zhipu']
+  const buildChunkText = (c: { text: string; appendTail: string }, i: number): string => {
+    const segNote = total > 1
+      ? `（这是整份试卷的第 ${i + 1}/${total} 段，请只输出本段内的题目；`
+        + `若某题答案在文末「卷末参考答案」区块里，请回填到对应题目，不要把该区块当成独立题目输出。）\n`
+      : ''
+    const body = c.appendTail
+      ? `${c.text}\n\n【卷末参考答案区块（仅供回填，请勿作为独立题目输出）】\n${c.appendTail}`
+      : c.text
+    return segNote + body
+  }
 
-  // 通道不可用的直接跳过（不算失败，避免误导用户）
-  if (!hasCf) order = order.filter(p => p !== 'cf')
-  if (!hasZhipu) order = order.filter(p => p !== 'zhipu')
-  if (!order.length) return { questions: [], provider: '', model: '', attempts: [], images: structured.images }
+  let provider = '', model = ''
+  let usageAcc: AiParseResult['usage'] | undefined
+  let allAttempts: { provider: string; error?: string }[] = []
+  let merged: AiQuestion[] = []
 
-  /** 命中即返回，统一带上图片映射（即使为空，调用方也能安全展开） */
-  const done = (
-    questions: AiQuestion[], provider: string, model: string,
-    usage?: AiParseResult['usage']
-  ): AiParseResult => ({ questions, provider, model, attempts, usage, images: structured.images })
-
-  const attempts: { provider: string; error?: string }[] = []
-  for (const p of order) {
-    try {
-      if (p === 'cf') {
-        // 通道 A 内部再降级：主力模型 → 备用模型。
-        // 为什么不把备用模型放进外层 order？因为外层 order 是"通道"级降级
-        // （CF 整体挂了才切智谱），而主力/备用是**模型**级降级（换个模型再试）。
-        const primary = env.AI_MODEL_CF || DEFAULT_MODEL_CF
-        const fallback = env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK
-        const models = primary === fallback ? [primary] : [primary, fallback]
-        let lastErr = ''
-        for (const m of models) {
-          try {
-            const { raw, usage } = await callCfAi(env, m, text, timeoutMs)
-            const questions = normalizeQuestions(raw)
-            if (!questions.length) { lastErr = `模型 ${m} 未解析出题目`; continue }
-            attempts.push({ provider: 'cf' })
-            return done(questions, 'cf', m, {
-              promptTokens: usage?.prompt_tokens ?? usage?.promptTokenCount,
-              completionTokens: usage?.completion_tokens ?? usage?.candidatesTokenCount,
-              neurons: usage?.neurons,
-            })
-          } catch (e: any) {
-            lastErr = String(e?.message || e).slice(0, 200)
-          }
+  if (total === 1) {
+    // 短卷：与原逻辑一致的单次调用（保持已验证行为）
+    const r = await parseOneChunk(env, buildChunkText(rawChunks[0], 0), timeoutMs)
+    provider = r.provider; model = r.model; usageAcc = r.usage; allAttempts = r.attempts
+    merged = r.questions
+  } else {
+    // 长卷：多块解析。
+    // 【v4.13.7】Cloudflare Workers AI 免费档对并发调用有限流——
+    // 并发过高时易触发 429/过载。故用**受限并发（≤2）**压住墙钟时间
+    // （≈ ⌈N/2⌉ × 单块耗时），且每块内已对 429 做退避重试，避开限流。
+    const CONCURRENCY = 2
+    const runPool = async (items: { text: string; appendTail: string }[]) => {
+      const out: Awaited<ReturnType<typeof parseOneChunk>>[] = new Array(items.length)
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < items.length) {
+          const i = cursor++
+          const r = await parseOneChunk(env, buildChunkText(items[i], i), timeoutMs)
+          out[i] = r
         }
-        attempts.push({ provider: 'cf', error: lastErr || '全部模型失败' })
-        continue
       }
-
-      const { raw, usage } = await callZhipu(env, text, timeoutMs)
-      const questions = normalizeQuestions(raw)
-      if (!questions.length) {
-        attempts.push({ provider: 'zhipu', error: '模型返回内容无法解析出题目' })
-        continue
-      }
-      attempts.push({ provider: 'zhipu' })
-      return done(questions, 'zhipu', env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, {
-        promptTokens: usage?.prompt_tokens,
-        completionTokens: usage?.completion_tokens,
-      })
-    } catch (e: any) {
-      attempts.push({ provider: p, error: String(e?.message || e).slice(0, 200) })
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()))
+      return out
+    }
+    const results = await runPool(rawChunks)
+    for (const r of results) {
+      if (r.provider && !provider) { provider = r.provider; model = r.model; usageAcc = r.usage }
+      allAttempts.push(...r.attempts)
+      merged.push(...r.questions)
     }
   }
-  // 全部失败
-  return { questions: [], provider: '', model: '', attempts, images: structured.images }
+
+  const questions = dedupeQuestions(merged)
+  if (!questions.length) {
+    return { questions: [], provider, model, attempts: allAttempts, images: structured.images }
+  }
+  return { questions, provider, model, attempts: allAttempts, usage: usageAcc, images: structured.images }
 }
 
 /**

@@ -165,7 +165,10 @@ export const api = {
   // 【v4.13.0】AI 试卷识别（双通道：Cloudflare Workers AI 零配置 / 智谱可选）
   aiStatus: () => http.get('/api/ai/status'),
   aiParsePaper: (data: { text?: string; html?: string; subjectId?: number }) =>
-    http.post('/api/ai/parse-paper', data, { timeout: 70000 }),
+    // 【v4.13.7】**不设超时**：用户明确要求"让 AI 自己跑完，不要中途掐断"。
+    //   后端已切块并行且单块超时兜底给到 10 分钟，请求一直等到服务端返回为止。
+    //   axios 的 timeout:0 表示不限制（默认即 0）；这里显式写出以表意图。
+    http.post('/api/ai/parse-paper', data, { timeout: 0 }),
   // 【v4.13.0】AI 设置（超管在后台配置智谱 Key / 切换服务商）
   getAiConfig: () => http.get('/api/settings/ai_config'),
   saveAiConfig: (config: any) => http.put('/api/settings/ai_config', config),

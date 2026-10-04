@@ -4834,7 +4834,8 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
   }
 
   const started = Date.now()
-  const result = await aiParsePaper(env, payload, { timeoutMs: 55000, maxChars: 60000 })
+  // 【v4.13.7】timeoutMs 提到 90000（与 server 一致）；长卷后端会切块并行，实际远低于此
+  const result = await aiParsePaper(env, payload, { maxChars: 60000 })
   const elapsed = Date.now() - started
 
   if (!result || !result.questions.length) {
