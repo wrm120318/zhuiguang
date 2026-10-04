@@ -72,6 +72,28 @@ AI 明明返回了 `answer: "B"`，却落到了别的题上，第 1 题答案栏
 
   （是**整段截断**，不是只改末项）
 
+### 根因 D：数据对了却「看不见」——`QuestionForm` 首屏不刷新
+
+A/B/C 修完后，**数据链路已经完全正确**，但用户仍然报「AI 无法识别卷尾答案」。
+真正的原因是**渲染层**：
+
+- `QuestionForm` 只在 `onMounted` 里调一次 `syncFromInitial()` 读 `initial`，
+  之后**再不监听 `initial` 的变化**
+- 模板却是 `:key="activeIdx"` —— AI 识别完成时 `activeIdx` **往往正是 0**（从头就没变过），
+  于是 Vue **复用**同一个组件实例、**不触发 `onMounted`**，
+  新算出来的 `drafts[0]`（含答案）**永远灌不进去**
+
+> **现象极具迷惑性**：点完 AI 识别，第 1 题答案栏显示「字数 0」，
+> **往后翻一页再翻回来就正常了** —— 因为 `activeIdx` 变了 → 触发重挂载 → 数据出现。
+> 这才是"数据是对的、显示是空的"的真相：**不是没识别，是没刷新**。
+
+- **修法**：新增 `formEpoch` 计数器，把 key 改为 `formKey = \`${activeIdx}@${formEpoch}\``；
+  凡「整卷结果被整体替换」处均 `formEpoch.value++`：
+  - `onPick`（规则识别完成）
+  - `aiRecognize`（AI 识别完成）
+  - `stripAllNumbers`（去除序号且有改动时）
+  - `syncDrafts`（当前题草稿对象被替换时）
+
 ### 修改文件
 
 - `src/components/WordPaperSplitEditor.vue`
@@ -80,23 +102,28 @@ AI 明明返回了 `answer: "B"`，却落到了别的题上，第 1 题答案栏
   - `autoSplit()`：卷尾答案区整段截断（含"至少保住 2 项"兜底）
   - `aiRecognize()`：`keepFirst` 安全阀 + `aiQOfSeg` 显式映射 +
     答案区整段截断（放在算映射**之前**，否则映射会指向已丢掉的段）
+  - 新增 `formEpoch` / `formKey`，模板 `:key="activeIdx"` → `:key="formKey"`（根因 D）
 
 ### 验证
 
-- `scripts/probe-split-editor.mjs` 新增第 8i 节（**+34 项**，总计 **164 项**）
+- `scripts/probe-split-editor.mjs` 新增第 8i 节（**+34 项**）
   - 8i-1 `isPaperTitleOnly` 判据（5 正 4 反 + 含表格排除）
   - 8i-2 `isAnswerKeyStart` 判据（6 正 5 反 + 含表格排除）
   - 8i-3 `keepFirst` 安全阀（默认删卷名 / keepFirst 时保首块）
   - 8i-4 **段 → AI 题号映射**（复刻 `aiRecognize` 的映射逻辑，
     喂入"卷名在块 0"场景，断言 `段0→AI题1`，并加"错位一格"的反向断言）
   - 8i-5 规则路径整段截断（端到端 19 块 → 终点收到答案区之前）
-  - 8h TDZ 顺序守卫同步纳入 `isPaperTitleOnly` / `isAnswerKeyStart`
-- 全量回归 **633 项通过 / 0 失败**
+  - **8i-6 `formKey` 断言**（模板用 `:key="formKey"`、formKey 同时含
+    `activeIdx` 与 `formEpoch`、`formEpoch.value++` 出现 ≥3 处）
+  - 8h TDZ 顺序守卫同步纳入 `isPaperTitleOnly` / `isAnswerKeyStart` /
+    `formEpoch` / `formKey` / `activeIdx`
+- 全量回归 **640 项通过 / 0 失败**
 - `vue-tsc --noEmit` **0 错误**；`vite build` 通过
 - **生产构建本地预览 + 真实 docx**：
   - 切出 **5 题**（卷名不再成题，修复前 6 题）
-  - **5 题答案全部回填**：题1~4 各「字数 1」（B / C / 8 / 4）、
-    题5 为 35 字解答文字（修复前全部「字数 0」）
+  - **点完 AI 识别不翻页，第 1 题答案栏「字数 1」**（修复前为「字数 0」）
+  - 逐题 **1 / 1 / 1 / 3 / 62 字**，5 题答案全部有值
+  - 控制台零 `error`（仅 Element Plus 的 API 弃用警告）
 
 ---
 
