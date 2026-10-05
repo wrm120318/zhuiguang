@@ -13,6 +13,18 @@ import { stripQuestionNumber } from '@/utils/question-number'
 // 【v4.14.0】题干 HTML → Markdown 统一收敛（与「原卷编辑」入口共用一份实现，铁律#11）：
 //   右侧编辑器编辑区只认 Markdown，直接存 HTML 会导致「编辑框显示源码、图片不显示」。
 import { toMarkdownContent } from '@/utils/paper-content'
+// 【v4.16.0】题号/答案区/答题卡 规则抽到单一事实源（铁律#11）：
+//   与「原卷编辑」入口共用同一份 `MINOR_RE` / `MAJOR_RE` / 答题卡解析，
+//   杜绝两条路径漂移。**本次 bug 的根因就是这两处正则漏了全角点 `．`(U+FF0E)**
+//   —— 真实卷题号写作 `1．（26-27九年级上·广东佛山·阶段检测）`，
+//   导致 20 道选择题全部识别不出，被揉成一个 45 选项的巨块。
+import {
+  MINOR_RE as PS_MINOR_RE,
+  MAJOR_RE as PS_MAJOR_RE,
+  QNO_SEP,
+  isMinorHead,
+  parseAnswerCard,
+} from '@/utils/paper-split'
 
 const props = defineProps<{ subjectId: number }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -91,27 +103,93 @@ const ANSWER_SECTION_RE = /^\s*(?:[《【][^》】]{0,50}[》】]\s*)?参考答�
 
 /**
  * 从整篇块列表里分离「正文块」与「卷末答案区块」。
- * @returns { body: 正文块[]; answers: Map<题号, 答案文本>; analyses: Map<题号, 解析文本> }
+ *
+ * 【v4.16.0 重写 · 为什么旧版会失效】
+ *   旧实现只匹配**每个块的首行**。真实卷里题号识别不出 → 整卷被压成少数大块，
+ *   答案区标题「《2026年10月4日初中历史作业》参考答案」被埋在**第 235 块中部**，
+ *   该块首行是「2026年10月4日初中历史作业」→ 永远匹配不上 → body 不变、答案 0 条。
+ *   → 用户「答案解析填不回去」。
+ *
+ * 【修法】两条检测路径：
+ *   ① 【行级】遍历每一块的**每一行**找标题（不只首行）；命中后若在块中部，
+ *      就把该块在**表格/段落边界**处切成前后两半 —— 前半归正文，后半归答案区。
+ *   ② 【答题卡表格】真实卷答案以**一张 HTML 表格**给出（题号行 / 答案行），
+ *      单独解析成 `题号→答案` 映射，并把该表格从正文里剔除。
+ *
+ * @returns { body, answers, analyses, cardSize, answerCut }
  */
 function splitAnswerSection(blocks: string[]): {
   body: string[]
   answers: Map<number, string>
   analyses: Map<number, string>
+  cardSize: number
+  answerCut: number
 } {
   const answers = new Map<number, string>()
   const analyses = new Map<number, string>()
-  // ① 定位答案区块的起始块（且必须在全文 50% 之后，避免把卷首的"参考答案"字样误判）
-  let cut = -1
-  // 【v4.15.4】门槛从 50% 放宽到 35% —— 实测用户真实试卷的答案区块
-  //   出现在 41.7%（219/525 段）处，50% 会漏掉。宁可往前找，配合"标题必须独占一行"的严格判据。
-  for (let i = Math.floor(blocks.length * 0.35); i < blocks.length; i++) {
-    const line = htmlToText(blocks[i]).split('\n')[0] || ''
-    if (ANSWER_SECTION_RE.test(line.trim())) { cut = i; break }
-  }
-  if (cut < 0) return { body: blocks, answers, analyses }
+  let cardSize = 0
+  let answerCut = -1
 
-  const body = blocks.slice(0, cut)
-  const tailText = blocks.slice(cut).map(htmlToText).join('\n')
+  // ────────────────────────────────────────────────────────────────────────
+  // 第 0 步【v4.16.0 新增】答题卡表格：结构化解析 + 从正文剔除
+  //
+  // 真实卷形态（4 行 × 11 列）：
+  //   <table>
+  //     <tr><td>题号</td><td>1</td>…<td>10</td></tr>
+  //     <tr><td>答案</td><td>B</td>…<td>C</td></tr>
+  //     <tr><td>题号</td><td>11</td>…<td>20</td></tr>
+  //     <tr><td>答案</td><td>D</td>…<td>B</td></tr>
+  //   </table>
+  // 旧实现把整张表当成一个不可分割的块（102 字符揉成一团），既切不开也解析不出。
+  // ────────────────────────────────────────────────────────────────────────
+  const bodyBlocks: string[] = []
+  for (const b of blocks) {
+    const text = htmlToText(b)
+    // 判据：块里含表格 + 同时出现「题号」「答案」两个表头词 → 认定为答题卡
+    const isCard = /<table/i.test(b) && /题号/.test(text) && /答案/.test(text) && text.length < 2000
+    if (isCard) {
+      const card = parseAnswerCard(b)
+      if (card.ok) {
+        for (const [n, v] of card.map) answers.set(n, v)
+        cardSize = card.map.size
+        continue // ← 不回填 bodyBlocks，等于把答题卡从正文剔除（用户诉求）
+      }
+    }
+    bodyBlocks.push(b)
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 第 1 步【行级】定位卷末答案区标题（**扫每一行**，不只首行）
+  // ────────────────────────────────────────────────────────────────────────
+  const start = Math.floor(bodyBlocks.length * 0.3)
+  for (let bi = start; bi < bodyBlocks.length && answerCut < 0; bi++) {
+    const lines = htmlToText(bodyBlocks[bi]).split('\n')
+    for (let li = 0; li < lines.length; li++) {
+      const t = lines[li].trim()
+      if (!t) continue
+      const isTitle = ANSWER_SECTION_RE.test(t) || (t.length <= 40 && /参考答案|答案与解析|答案解析|试卷解析/.test(t))
+      if (!isTitle) continue
+      if (li === 0) {
+        answerCut = bi
+      } else {
+        // 标题在块中部 → 尝试在**块内**按行切开（按块级子标签重建）
+        const parts = sliceBlockAtLine(bodyBlocks[bi], li)
+        if (parts) {
+          bodyBlocks[bi] = parts.before
+          bodyBlocks.splice(bi + 1, 0, parts.after)
+          answerCut = bi + 1
+        } else {
+          answerCut = bi // 切不开就整块归答案区（宁可多切，不可漏答案）
+        }
+      }
+      break
+    }
+  }
+
+  if (answerCut < 0) return { body: bodyBlocks, answers, analyses, cardSize, answerCut }
+
+  const body = bodyBlocks.slice(0, answerCut)
+  const tailText = bodyBlocks.slice(answerCut).map(htmlToText).join('\n')
 
   // ② 逐行解析。一行可能含多个「题号 + 答案」（如 `6．D    7．A`）
   let curNo: number | null = null
@@ -132,28 +210,61 @@ function splitAnswerSection(blocks: string[]): {
     }
     // ③ 抓取本行所有「题号 + 答案字母」对。
     //    题号后用全角点/半角点/顿号；答案必须是 1~8 个大写字母（含多选如 "ABD"）。
-    const pairRe = /(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})(?![A-Za-z])/g
+    //    【v4.16.0】字符类统一用 QNO_SEP 拼装，覆盖全角点。
+    const pairRe = new RegExp(`(\\d{1,3})\\s*${QNO_SEP}\\s*([A-H]{1,8})(?![A-Za-z])`, 'g')
     let mm: RegExpExecArray | null
     let hit = false
     while ((mm = pairRe.exec(line))) {
       const no = Number(mm[1])
       // 只在 1~200 的合理题号范围内，避免把「1898．A」这类年份误判
       if (no >= 1 && no <= 200) {
-        answers.set(no, mm[2])
+        // 答题卡已给出的答案优先（更权威）；此处只补答题卡没覆盖的
+        if (!answers.has(no)) answers.set(no, mm[2])
         curNo = no
         hit = true
       }
     }
     if (!hit) {
       // ④ 兜底：形如 `1．B。` 或 `1.B` 但字母后跟中文标点的漏网情况
-      const single = line.match(/^(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})\s*[。，,；;]?$/)
+      const single = line.match(new RegExp(`^(\\d{1,3})\\s*${QNO_SEP}\\s*([A-H]{1,8})\\s*[。，,；;]?$`))
       if (single) {
         const no = Number(single[1])
-        if (no >= 1 && no <= 200) { answers.set(no, single[2]); curNo = no }
+        if (no >= 1 && no <= 200 && !answers.has(no)) { answers.set(no, single[2]); curNo = no }
       }
     }
   }
-  return { body, answers, analyses }
+  return { body, answers, analyses, cardSize, answerCut }
+}
+
+/**
+ * 【v4.16.0 新增】把一块 HTML 在**第 lineIndex 行**处切成前后两半。
+ *
+ * 用于「答案区标题被挤在块中部」的场景：此时不能整块丢弃（会连题干一起丢），
+ * 也不能整块保留（答案会混进正文）。
+ *
+ * 策略：按顶层块级子元素（p / div / table / h1-h6 / ol / ul）重切，逐个子元素累计行数，
+ * 找到跨越 lineIndex 的那个子元素后，把它整体归到**后半**（宁可多给答案区一点）。
+ *
+ * @returns 切好的前后两半；无法切分（块内无块级子元素）返回 null
+ */
+function sliceBlockAtLine(html: string, lineIndex: number): { before: string; after: string } | null {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const kids = Array.from(doc.body.children)
+  if (kids.length < 2) return null
+
+  let acc = 0
+  let cutAt = -1
+  for (let i = 0; i < kids.length; i++) {
+    const n = htmlToText((kids[i] as HTMLElement).outerHTML).split('\n').filter(Boolean).length
+    if (acc + n > lineIndex) { cutAt = i; break }
+    acc += n
+  }
+  if (cutAt <= 0) return null
+
+  const before = kids.slice(0, cutAt).map(k => (k as HTMLElement).outerHTML).join('')
+  const after = kids.slice(cutAt).map(k => (k as HTMLElement).outerHTML).join('')
+  if (!htmlToText(before).trim() || !htmlToText(after).trim()) return null
+  return { before, after }
 }
 
 /**
@@ -171,7 +282,8 @@ function applyAnswers(preview: any[], answers: Map<number, string>, analyses: Ma
   const unresolved: any[] = []
   for (const p of preview) {
     const head = String(p.content || '').slice(0, 30)
-    const m = head.match(/^[\s>#*]*(\d{1,3})\s*[．.、)）]/)
+    // 【v4.16.0】题号分隔符统一用 QNO_SEP（含全角点 `．`），否则真实卷匹配不上
+    const m = head.match(new RegExp(`^[\\s>#*]*(\\d{1,3})\\s*${QNO_SEP}`))
     const no = m ? Number(m[1]) : null
     if (no != null && answers.has(no)) {
       if (!p.answer) { p.answer = answers.get(no) || ''; filled++ }
@@ -232,8 +344,8 @@ function htmlToText(html: string): string {
 //   · 二级（小题）：1. / 1、 / (1) / （1）
 // 切分策略：先按一级切「大题段」，再在每个大题段内按二级切「小题」；
 // 若整份文档不含一级题号，则退化为仅按二级切（兼容纯小题的练习卷）。
-const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
-const MINOR_RE = /^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）])/
+const MAJOR_RE = PS_MAJOR_RE
+const MINOR_RE = PS_MINOR_RE
 
 /** 取节点的题号文本（取首行，避免题面正文里的序号误判） */
 function markerLine(el: Element): string {
@@ -365,8 +477,10 @@ function parseBlock(raw: string) {
   const text = htmlToText(raw)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return null
-  // 剥离题首的题号前缀（两级题号都要认：小题 1. / (1)，大题 一、/ 第Ⅰ部分）
-  let first = lines[0].replace(/^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）]|[一二三四五六七八九十百]+[、.])/, '').trim()
+  // 剥离题首的题号前缀（两级题号都要认：小题 1. / 1． / (1)，大题 一、/ 第Ⅰ部分）
+  // 【v4.16.0】补上全角点 `．`(U+FF0E) —— 这正是真实卷的题号写法，漏它会导致题干带着
+  //   「1．」前缀入库、且题号回填匹配不上。统一用 QNO_SEP 拼装，避免再次漏字符。
+  let first = lines[0].replace(new RegExp(`^\\s*(?:\\d+\\s*${QNO_SEP}|[（(]\\s*\\d+\\s*[)）]|[一二三四五六七八九十百]+[、.．。])`), '').trim()
   // 若剥完变空（整行就是"一、选择题"这种大题标题），保留原文本，避免空题干
   if (!first) first = lines[0].trim()
   const opts: string[] = []
@@ -471,24 +585,25 @@ async function onFile(e: Event) {
     })
     const { value: html } = await mammothMod.convertToHtml({ arrayBuffer: buf, convertImage })
     const allBlocks = splitHtmlToQuestions(html)
-    // 【v4.15.4】先分离卷末「参考答案」区块：它必须回填到各题，而不是自己成为一堆"答案题"。
-    const { body, answers, analyses } = splitAnswerSection(allBlocks)
+    // 【v4.15.4 / v4.16.0】先分离卷末「参考答案」区块与「答题卡表格」：
+    //   两者都必须回填到各题，而不是自己成为一堆"答案题"/一个揉成一团的巨块。
+    const { body, answers, analyses, cardSize } = splitAnswerSection(allBlocks)
     preview.value = body.map(parseBlock).filter(Boolean) as any[]
     const filled = applyAnswers(preview.value, answers, analyses)
-    if (filled) {
-      ElMessage.info(`已识别 ${preview.value.length} 道题，并从卷末参考答案回填 ${filled} 题（请核对后导入）`)
-    } else {
-      ElMessage.info(`已识别 ${preview.value.length} 道题（图片/表格已一并解析，请核对后导入）`)
-    }
+    const bits: string[] = []
+    if (cardSize) bits.push(`答题卡表格解析 ${cardSize} 题`)
+    if (filled) bits.push(`回填 ${filled} 题答案`)
+    ElMessage.info(`已识别 ${preview.value.length} 道题${bits.length ? `（${bits.join('，')}）` : '（图片/表格已一并解析）'}，请核对后导入`)
   } catch {
     // 兜底：纯文本导入（图片/表格可能丢失）
     const mammothMod: any = (await import('mammoth/mammoth.browser')).default
     const { value } = await mammothMod.extractRawText({ arrayBuffer: buf })
-    const allBlocks = value.split(/(?=^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）]))/gm).map((s: string) => s.trim()).filter(Boolean)
-    const { body, answers, analyses } = splitAnswerSection(allBlocks)
+    const allBlocks = value.split(/(?=^\s*(?:\d+[.．。、)）]|[一二三四五六七八九十百零]+[.．。、]|\(\d+\)|[（(]\d+[)）]))/gm).map((s: string) => s.trim()).filter(Boolean)
+    const { body, answers, analyses, cardSize } = splitAnswerSection(allBlocks)
     preview.value = body.map(parseBlock).filter(Boolean) as any[]
     const filled = applyAnswers(preview.value, answers, analyses)
-    ElMessage.warning(`Word 解析降级为纯文本（图片/表格可能丢失）${filled ? `，已回填 ${filled} 题答案` : ''}，请核对后导入`)
+    const extra = [cardSize ? `答题卡 ${cardSize} 题` : '', filled ? `回填 ${filled} 题答案` : ''].filter(Boolean).join('，')
+    ElMessage.warning(`Word 解析降级为纯文本（图片/表格可能丢失）${extra ? `，已处理 ${extra}` : ''}，请核对后导入`)
   }
 }
 

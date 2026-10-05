@@ -144,8 +144,19 @@ section('④ 卷末参考答案解析（复用真实试卷尾部）')
 const h2t = (h) => String(h).replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim()
 const fnAnsImport = extractFn(importSrc, 'splitAnswerSection')
 const ANSWER_SECTION_RE_SRC = importSrc.match(/const ANSWER_SECTION_RE = [^\n]+/)[0]
+// 【v4.16.0】`splitAnswerSection` 现在用 `QNO_SEP`（来自 @/utils/paper-split）
+//   拼装题号正则，探针必须把它一并注入，否则 ReferenceError。
+const QNO_SEP_SRC = `const QNO_SEP = ${JSON.stringify('[.．。、)）]')}`
+// 同时注入 paper-split 的真实 `parseAnswerCard`（答题卡表格解析是本轮新增能力）
+const paperSplitEnc = fs.readFileSync(path.join(ROOT, 'src/utils/paper-split.ts'), 'utf8')
+const parseAnswerCardSrc = (() => {
+  const s = paperSplitEnc.replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+  const start = s.indexOf('function cellText')
+  const end = s.indexOf('// ============================================================================\n// 卷末')
+  return s.slice(start, end > start ? end : undefined).replace(/\bexport\s+/g, '')
+})()
 const js2 = transformSync(
-  ANSWER_SECTION_RE_SRC + '\n' +
+  ANSWER_SECTION_RE_SRC + '\n' + QNO_SEP_SRC + '\n' + parseAnswerCardSrc + '\n' +
   fnAnsImport.replace(/htmlToText/g, '__h2t') + '\nexport {splitAnswerSection};',
   { loader: 'ts', format: 'esm' }
 ).code

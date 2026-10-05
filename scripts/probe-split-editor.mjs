@@ -18,6 +18,8 @@
 // 探针用 vite 的 ssrLoadModule 直接加载 .vue，再用正则剥出纯函数体，在
 // jsdom 风格的假 DOM 上跑 —— 不需要装 jsdom，用一个极简 shim。
 import { readFileSync } from 'node:fs'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const ROOT = '/workspace/zhuiguang'
 let pass = 0, fail = 0
@@ -171,9 +173,29 @@ function sliceConst(name) {
 }
 
 // 组装可执行沙箱
+// 【v4.16.0】编辑器现在从 `@/utils/paper-split` 引入 `MINOR_RE` / `MAJOR_RE` / `OPT_RE`，
+//   组件里只剩 `const X = PS_X` 一行别名（`sliceConst` 抽不到真正的正则字面量）。
+//   所以这里改为**注入 paper-split 的真实实现**（那正是被验证的对象，不能用替身）。
+const paperSplitSrc = fs.readFileSync(path.join(ROOT, 'src/utils/paper-split.ts'), 'utf8')
+const paperSplitJs = paperSplitSrc
+  .replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+  .replace(/\bexport\s+/g, '')
+  // 避开与下面 `const MAJOR_RE = PS_MAJOR_RE` 等同名冲突
+  // ⚠️ 先长后短，`MINOR_STRICT_RE` 必须先于 `MINOR_RE` 替换
+  .replace(/\bMINOR_STRICT_RE\b/g, 'PS_MINOR_STRICT_RE')
+  .replace(/\bconst MINOR_RE\b/g, 'const PS_MINOR_RE')
+  .replace(/\bconst MAJOR_RE\b/g, 'const PS_MAJOR_RE')
+  .replace(/\bconst OPT_RE\b/g, 'const PS_OPT_RE')
+  .replace(/\bMINOR_RE\.test\b/g, 'PS_MINOR_RE.test')
+  .replace(/\bMAJOR_RE\.test\b/g, 'PS_MAJOR_RE.test')
+  .replace(/\bOPT_RE\.test\b/g, 'PS_OPT_RE.test')
+
 const sandboxSrc = `
-${toJs(sliceConst('MAJOR_RE'))}
-${toJs(sliceConst('MINOR_RE'))}
+${paperSplitJs}
+const MAJOR_RE = PS_MAJOR_RE
+// 编辑器用**严格版**（只认「数字 + 点/顿号」，括号小问不是切点）——
+// 与组件里 import { MINOR_STRICT_RE as PS_MINOR_RE } 保持一致。
+const MINOR_RE = PS_MINOR_STRICT_RE
 ${toJs(sliceConst('SUBQ_RE'))}
 ${toJs(sliceConst('OPT_LINE_RE'))}
 const toText = (html) => String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\\s+/g, ' ').trim()
@@ -184,6 +206,7 @@ ${toJs(sliceFn('isAnswerKeyStart'))}
 ${toJs(sliceFn('isPaperTitleOnly'))}
 ${toJs(sliceFn('sectionTypeHint'))}
 ${toJs(sliceFn('dropSectionTitleBoundaries'))}
+${toJs(sliceFn('splitTableByRows'))}
 ${toJs(sliceFn('splitIntoBlocks'))}
 ${toJs(sliceFn('innerSplitByBr'))}
 ${toJs(sliceFn('splitSoftLines'))}
@@ -195,7 +218,9 @@ ${toJs(sliceFn('similarity'))}
 const MATCH_MIN = 0.34
 export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, isMediaBlock, OPT_LINE_RE, cutSources }
 `
-const mod = await import('data:text/javascript;base64,' + Buffer.from(sandboxSrc).toString('base64'))
+const mod = await import('data:text/javascript;base64,' + Buffer.from(
+  transformSync(sandboxSrc, { loader: 'ts', format: 'esm', target: 'es2022', treeShaking: false, minify: false }).code,
+).toString('base64'))
 const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries, isMediaBlock } = mod
 
 // ───────────────────────────────────────────────────────────────────────────

@@ -29,6 +29,18 @@ import { mergeContent, restoreImages } from '@shared/ai-paper'
 // 【v4.13.2】题号剥离：切完题后自动去掉题干开头的题号（小问号保留）。
 //   抽成独立模块是为了让「原卷编辑」与「快速导入」两条入口行为完全一致。
 import { stripQuestionNumber, hasLeadingNumber } from '@/utils/question-number'
+// 【v4.16.0】题号/选项/答案区 规则抽到单一事实源（铁律#11）：
+//   与「快速导入」入口共用同一份正则，杜绝两条路径漂移。
+//   ⚠️ 本次 bug 根因就是这两处正则各自漂移、且都漏了全角点 `．`(U+FF0E)
+//      —— 真实卷 `1．（26-27九年级上·广东佛山·阶段检测）`，导致识别全乱。
+import {
+  MINOR_STRICT_RE as PS_MINOR_RE,
+  MAJOR_RE as PS_MAJOR_RE,
+  OPT_RE as PS_OPT_RE,
+  ANSWER_SECTION_RE as PS_ANSWER_SECTION_RE,
+  QNO_SEP,
+  parseAnswerCard,
+} from '@/utils/paper-split'
 
 const props = defineProps<{ subjectId: number; subjectName?: string }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -140,7 +152,7 @@ let colContainer: HTMLElement | null = null
 // 旧 `optRe = /^\s*([A-Ha-h])[.、)）]/` 漏掉了中文 Word 里极常见的**全角点 `A．`**（U+FF0E）
 // 与 `A：` / `（A）`，导致这类选择题「题型判不中 + 选项填不进」—— 用户报"选择题识别不了"。
 // 现统一成 `OPT_RE`，`stripOptionsFromHtml` / `inferDraft` / `optLineRe` 三处共用，避免判据漂移。
-const OPT_RE = /^\s*[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/i
+const OPT_RE = PS_OPT_RE
 const optRe = OPT_RE
 const JUDGE_WORDS = ['对', '错', '正确', '错误', '√', '×', 'T', 'F', 'true', 'false']
 
@@ -299,7 +311,7 @@ function decideStripLine(nodes: Node[]): boolean {
 //   凡是"函数引用同文件其它顶层常量"，必须人工核对声明顺序，或用真实浏览器冒烟。
 // ══════════════════════════════════════════════════════════════════════════
 
-const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一二三四五六七八九十\d]+\s*[部分卷]|[（(][一二三四五六七八九十]+[)）]|【[一二三四五六七八九十]+】)/
+const MAJOR_RE = PS_MAJOR_RE
 
 /**
  * 二级题号（**切点**）。
@@ -320,8 +332,15 @@ const MAJOR_RE = /^\s*(?:[一二三四五六七八九十百]+[、.]|第\s*[一�
  *    顿号 `、` 不适用此判据（顿号永远不是小数点）。
  *
  * 判据与 `isSubQuestion()` 保持一致，两处不可再漂移。
+ *
+ * 【v4.16.0 修正 · 漏了全角点 `．`(U+FF0E)】
+ *   上一版虽然写了 `[.．]`，但**同时**（错误地）把 `）` 之类排除在外，
+ *   且与导入面板的 `MINOR_RE` 已经是两份不同实现 —— 早就漂移了。
+ *   现统一从 `@/utils/paper-split` 引入单一事实源（铁律#11），
+ *   杜绝"改了一处忘了另一处"。真实卷题号 `1．（26-27九年级上…）`
+ *   里的 `．` 是全角句点，旧版漏它 → 20 道选择题全部识别不出。
  */
-const MINOR_RE = /^\s*\d{1,3}\s*(?:[.．](?![0-9０-９])|[、])/
+const MINOR_RE = PS_MINOR_RE
 
 /**
  * 小问号（**绝对不是切点**）：`(1)` `（1）` `①` `②` `(一)` `（一）`。
@@ -515,27 +534,80 @@ function sectionHints(): string[] {
  * @param blocks 原卷块（HTML 字符串数组）
  * @returns body（剔除答案区块后的正文块）+ answers/analyses（题号 → 文本）
  */
-const ANSWER_SECTION_RE = /^\s*(?:[《【][^》】]{0,50}[》】]\s*)?参考答案(?:与解析|及解析|与详解)?\s*[:：]?\s*$|^\s*[《【][^》】]{2,50}[》】]\s*参考答案\s*$|^\s*【\s*参考答案\s*】\s*$/
+const ANSWER_SECTION_RE = PS_ANSWER_SECTION_RE
 
+/**
+ * 【v4.16.0 重写 · 行级检测 + 答题卡表格解析】
+ *
+ * 【旧版为何失效】只匹配每块的**首行**。真实卷里题号识别不出时整卷被压成少数大块，
+ *   答案区标题「《…》参考答案」埋在第 235 块**中部**，首行是卷名 →
+ *   永远匹配不上 → 答案 0 条、详解 0 条、回填 0 → 用户「答案解析填不回去」。
+ *
+ * 【新版】① 逐块逐行找标题，标题在块中部时按**块级子元素**切开（前正文 / 后答案）；
+ *        ② 先解析**答题卡表格**（题号行 / 答案行），并从正文里剔除。
+ *
+ * @param blocks 原卷块
+ * @returns body + answers/analyses + cardSize（答题卡题数）+ answerCut（答案区起始块，-1 表示无）
+ */
 function splitAnswerSectionBlocks<T extends { html: string; text?: string }>(blocks: T[]): {
   body: T[]
   answers: Map<number, string>
   analyses: Map<number, string>
+  cardSize: number
+  answerCut: number
 } {
   const answers = new Map<number, string>()
   const analyses = new Map<number, string>()
-  // ① 定位答案区块起始块（必须落在全文 50% 之后，避免卷首"参考答案"字样被误判）
-  let cut = -1
-  // 【v4.15.4】门槛从 50% 放宽到 35% —— 实测用户真实试卷的答案区块
-  //   出现在 41.7%（219/525 段）处，50% 会漏掉。宁可往前找，配合"标题必须独占一行"的严格判据。
-  for (let i = Math.floor(blocks.length * 0.35); i < blocks.length; i++) {
-    const line = (toText(blocks[i].html).split('\n')[0] || '').trim()
-    if (ANSWER_SECTION_RE.test(line)) { cut = i; break }
-  }
-  if (cut < 0) return { body: blocks, answers, analyses }
+  let cardSize = 0
+  let answerCut = -1
 
-  const body = blocks.slice(0, cut)
-  const tailText = blocks.slice(cut).map(b => toText(b.html)).join('\n')
+  // ── 第 0 步：答题卡表格（结构化解析 + 从正文剔除）────────────────────────
+  //   真实卷：<table> 4 行 × 11 列（题号|1..10 / 答案|B..C / 题号|11..20 / 答案|D..B）
+  //   旧实现把整张表当成一个不可分割的块（102 字符揉成一团）。
+  const bodyBlocks: T[] = []
+  for (const b of blocks) {
+    const text = toText(b.html)
+    const isCard = /<table/i.test(b.html) && /题号/.test(text) && /答案/.test(text) && text.length < 2000
+    if (isCard) {
+      const card = parseAnswerCard(b.html)
+      if (card.ok) {
+        for (const [n, v] of card.map) answers.set(n, v)
+        cardSize = card.map.size
+        continue // ← 剔除（用户诉求：「解析后剔除，答案回填到各题」）
+      }
+    }
+    bodyBlocks.push(b)
+  }
+
+  // ── 第 1 步：行级定位答案区标题 ─────────────────────────────────────────
+  const start = Math.floor(bodyBlocks.length * 0.3)
+  for (let bi = start; bi < bodyBlocks.length && answerCut < 0; bi++) {
+    const lines = toText(bodyBlocks[bi].html).split('\n')
+    for (let li = 0; li < lines.length; li++) {
+      const t = lines[li].trim()
+      if (!t) continue
+      const isTitle = ANSWER_SECTION_RE.test(t) || (t.length <= 40 && /参考答案|答案与解析|答案解析|试卷解析/.test(t))
+      if (!isTitle) continue
+      if (li === 0) {
+        answerCut = bi
+      } else {
+        const parts = spliceBlockAtLine(bodyBlocks[bi], li)
+        if (parts) {
+          bodyBlocks[bi] = parts.before
+          bodyBlocks.splice(bi + 1, 0, parts.after)
+          answerCut = bi + 1
+        } else {
+          answerCut = bi
+        }
+      }
+      break
+    }
+  }
+
+  if (answerCut < 0) return { body: bodyBlocks, answers, analyses, cardSize, answerCut }
+
+  const body = bodyBlocks.slice(0, answerCut)
+  const tailText = bodyBlocks.slice(answerCut).map(b => toText(b.html)).join('\n')
 
   // ② 逐行解析；一行可能含多个「题号 + 答案」（如 `6．D    7．A`）
   let curNo: number | null = null
@@ -554,23 +626,60 @@ function splitAnswerSectionBlocks<T extends { html: string; text?: string }>(blo
       continue
     }
     // ③ 抓本行所有「题号 + 答案字母」对（答案须为 1~8 个大写字母，含多选如 "ABD"）
-    const pairRe = /(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})(?![A-Za-z])/g
+    //    【v4.16.0】用 QNO_SEP 拼装，覆盖全角点 `．`
+    const pairRe = new RegExp(`(\\d{1,3})\\s*${QNO_SEP}\\s*([A-H]{1,8})(?![A-Za-z])`, 'g')
     let mm: RegExpExecArray | null
     let hit = false
     while ((mm = pairRe.exec(line))) {
       const no = Number(mm[1])
-      if (no >= 1 && no <= 200) { answers.set(no, mm[2]); curNo = no; hit = true }
+      // 答题卡已给出的答案优先（更权威）；此行只补答题卡未覆盖的
+      if (no >= 1 && no <= 200 && !answers.has(no)) { answers.set(no, mm[2]); curNo = no; hit = true }
+      else if (no >= 1 && no <= 200) curNo = no
     }
     if (!hit) {
       // ④ 兜底：字母后跟中文标点的漏网情况
-      const single = line.match(/^(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})\s*[。，,；;]?$/)
+      const single = line.match(new RegExp(`^(\\d{1,3})\\s*${QNO_SEP}\\s*([A-H]{1,8})\\s*[。，,；;]?$`))
       if (single) {
         const no = Number(single[1])
-        if (no >= 1 && no <= 200) { answers.set(no, single[2]); curNo = no }
+        if (no >= 1 && no <= 200 && !answers.has(no)) { answers.set(no, single[2]); curNo = no }
       }
     }
   }
-  return { body, answers, analyses }
+  return { body, answers, analyses, cardSize, answerCut }
+}
+
+/**
+ * 【v4.16.0 新增】把一块 HTML 在**第 lineIndex 行**处切成前后两半。
+ * 用于「答案区标题被挤在块中部」：既不能整块丢（会连题干一起丢），
+ * 也不能整块留（答案混进正文）。
+ *
+ * 策略：按块级子元素（p/div/table/h*）累计行数，找到跨越 lineIndex 的子元素后，
+ * 把它整体归**后半**（宁可多给答案区一点，也不能把答案留在正文里）。
+ *
+ * @returns 切好的前后两半；无法切分（块内块级子元素 < 2）返回 null
+ */
+function spliceBlockAtLine<T extends { html: string; text?: string }>(b: T, lineIndex: number): { before: T; after: T } | null {
+  if (typeof document === 'undefined') return null
+  const doc = new DOMParser().parseFromString(b.html, 'text/html')
+  const kids = Array.from(doc.body.children)
+  if (kids.length < 2) return null
+
+  let acc = 0
+  let cutAt = -1
+  for (let i = 0; i < kids.length; i++) {
+    const n = toText((kids[i] as HTMLElement).outerHTML).split('\n').filter(Boolean).length
+    if (acc + n > lineIndex) { cutAt = i; break }
+    acc += n
+  }
+  if (cutAt <= 0) return null
+
+  const beforeHtml = kids.slice(0, cutAt).map(k => (k as HTMLElement).outerHTML).join('')
+  const afterHtml = kids.slice(cutAt).map(k => (k as HTMLElement).outerHTML).join('')
+  if (!toText(beforeHtml).trim() || !toText(afterHtml).trim()) return null
+  return {
+    before: { ...b, html: beforeHtml, text: toText(beforeHtml) },
+    after: { ...b, html: afterHtml, text: toText(afterHtml) },
+  }
 }
 
 /**
@@ -583,7 +692,8 @@ function applyTailAnswers(drafts: any[], answers: Map<number, string>, analyses:
   const unresolved: any[] = []
   for (const p of drafts) {
     const head = String(p.content || '').slice(0, 30)
-    const m = head.match(/^[\s>#*]*(\d{1,3})\s*[．.、)）]/)
+    // 【v4.16.0】题号分隔符统一用 QNO_SEP（含全角点 `．`）
+    const m = head.match(new RegExp(`^[\\s>#*]*(\\d{1,3})\\s*${QNO_SEP}`))
     const no = m ? Number(m[1]) : null
     if (no != null && answers.has(no)) {
       if (!p.answer) { p.answer = answers.get(no) || ''; filled++ }
@@ -616,7 +726,10 @@ function applyTailAnswers(drafts: any[], answers: Map<number, string>, analyses:
 function inferDraft(html: string, typeHint = ''): DraftQuestion {
   const text = toText(html)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-  let first = (lines[0] || '').replace(/^\s*(?:\d+\s*[.、)）]|[（(]\s*\d+\s*[)）]|[一二三四五六七八九十百]+[、.])/, '').trim()
+  // 【v4.16.0】题号分隔符统一用 QNO_SEP（含全角点 `．` U+FF0E）——
+  //   真实卷题号是 `1．（26-27九年级上…）`，旧版漏 `．` 会导致题干带着
+  //   「1．」前缀入库、且与卷末答案的题号对不上（回填失败）。
+  let first = (lines[0] || '').replace(new RegExp(`^\\s*(?:\\d+\\s*${QNO_SEP}|[（(]\\s*\\d+\\s*[)）]|[一二三四五六七八九十百]+[、.．。])`), '').trim()
   if (!first) first = lines[0] || ''
 
   const opts: string[] = []
@@ -721,12 +834,13 @@ async function onPick(e: Event) {
     progressText.value = '正在切分原卷…'
     let rawBlocks = splitIntoBlocks(html)
 
-    // 【v4.15.4 新增 · 卷末参考答案区块】
+    // 【v4.15.4 / v4.16.0 · 卷末参考答案区块 + 答题卡表格】
     //   用户问题：「答案在试卷末尾的，应该是填入每个题中，而不是在最后分出新的题」。
-    //   卷末 `1．B` `2．C` 每行都以数字开头 → 会被 autoSplit 当成一道道新题，
-    //   试卷末尾凭空多出一堆"只有字母的题"。这里先把答案区块整体摘出来，
-    //   解析成「题号→答案」映射，再从 blocks 里删除，最后回填到各题草稿。
-    const { body: cleanBlocks, answers: tailAnswers, analyses: tailAnalyses } =
+    //   卷末 `1．B` `2．C` 每行都以数字开头 → 会被 autoSplit 当成一道道新题；
+    //   答题卡表格则被压成一个 102 字符的巨块（题号/答案揉在一起）。
+    //   这里先把**答题卡表格**结构化解析、把**答案区块**按行级切出来，
+    //   再一并从 blocks 里删除，最后回填到各题草稿。
+    const { body: cleanBlocks, answers: tailAnswers, analyses: tailAnalyses, cardSize } =
       splitAnswerSectionBlocks(rawBlocks)
     rawBlocks = cleanBlocks
     blocks.value = rawBlocks
@@ -746,7 +860,8 @@ async function onPick(e: Event) {
     formEpoch.value++
     aiError.value = ''   // 【v4.13.5】规则识别成功 → 清除上一次的 AI 失败态
     stage.value = 'split'
-    ElMessage.success(`已识别 ${drafts.value.length} 道题${filled ? `，并从卷末参考答案回填 ${filled} 题` : ''}，请核对分割线后进入编辑`)
+    const extra = [cardSize ? `答题卡表格 ${cardSize} 题` : '', filled ? `卷末答案回填 ${filled} 题` : ''].filter(Boolean).join('，')
+    ElMessage.success(`已识别 ${drafts.value.length} 道题${extra ? `（${extra}）` : ''}，请核对分割线后进入编辑`)
     await nextTick()
     await renderWordView()
     // 网站渲染视图也要有一份初始内容（用户切过去时不必等 350ms debounce）
@@ -797,8 +912,29 @@ function splitIntoBlocks(html: string): Block[] {
     }
     const el = n as HTMLElement
     const tag = el.tagName.toLowerCase()
-    // 表格/图片单独成块（不可再拆 —— 拆了就破坏结构）
-    if (tag === 'table' || el.querySelector('table')) {
+    // ══════════════════════════════════════════════════════════════════════
+    // 【v4.16.0 关键修正 · 「拖动还是不行 / 任何位置都要能放分割线」】
+    //
+    // 旧实现把**整张表格**当成一个不可分割的块 → 用户无法在表格内任意位置切。
+    // 这与用户诉求「我要在任何位置都可以放分割线」直接冲突。
+    //
+    // 修法：表格**按行下钻** —— 每个 `<tr>` 拆成独立块（用 `<table><tbody>`
+    //   包住单行，保证仍是合法表格结构、渲染不变形）。
+    //   这样：
+    //     · 答题卡表格（题号行 / 答案行）变成 4 个块，能被结构化解析
+    //     · 用户可以在任意两行之间放分割线
+    //   图片（<img>）仍不可拆 —— 拆了图就碎了，但没有"行"的概念可拆。
+    // ══════════════════════════════════════════════════════════════════════
+    if (tag === 'table' && !el.querySelector('table')) {
+      const rows = splitTableByRows(el)
+      if (rows.length > 1) {
+        rows.forEach(r => push(r.html, r.text))
+        return
+      }
+      push(el.outerHTML, toText(el.outerHTML))
+      return
+    }
+    if (el.querySelector('table')) {
       push(el.outerHTML, toText(el.outerHTML))
       return
     }
@@ -824,6 +960,50 @@ function splitIntoBlocks(html: string): Block[] {
     push(el.outerHTML, t)
   })
   return out
+}
+
+/**
+ * 【v4.16.0 新增】把表格**按行**拆成多个块（每块 = 一个单行表格）。
+ *
+ * 【为什么需要】
+ *   用户诉求：「我要在任何位置都可以放分割线」。
+ *   旧实现把整张表当成一个不可分割的块 → 表格内部完全无法切。
+ *
+ * 【为什么不干脆把 <tr> 直接拉出来】
+ *   裸 `<tr>` 脱离 `<table>` 后，浏览器会把它当普通行内内容渲染，
+ *   列宽/边框/对齐全部崩掉。所以每行都要用 `<table>` + 原表属性包回去，
+ *   保证 docx-preview 与原卷视图里**渲染完全不变**。
+ *
+ * 【保留原有结构】
+ *   · `<colgroup>` 若存在，复制到每个单行表格（否则列宽丢失）
+ *   · 原表的 class / style / border 等属性一并复制
+ *
+ * @param table 原 `<table>` 元素
+ * @returns 每行一个块；行数 ≤ 1 时返回空数组（调用方走原样保留分支）
+ */
+function splitTableByRows(table: HTMLElement): { html: string; text: string }[] {
+  const trs = Array.from(table.querySelectorAll('tr'))
+  if (trs.length <= 1) return []
+
+  // 收集原表的公共属性与 colgroup
+  const attrs = Array.from(table.attributes)
+    .filter(a => a.name !== 'class' || true)
+    .map(a => `${a.name}="${String(a.value).replace(/"/g, '&quot;')}"`)
+    .join(' ')
+  const colgroup = table.querySelector(':scope > colgroup')
+  const colHtml = colgroup ? (colgroup as HTMLElement).outerHTML : ''
+
+  // 找到 tbody（若有），用于决定行是否裹 tbody
+  const hasTbody = Array.from(table.children).some(c => c.tagName.toLowerCase() === 'tbody')
+
+  return trs
+    .map(tr => {
+      const rowHtml = (tr as HTMLElement).outerHTML
+      const inner = hasTbody ? `<tbody>${rowHtml}</tbody>` : rowHtml
+      const html = `<table ${attrs}>${colHtml}${inner}</table>`
+      return { html, text: toText(html) }
+    })
+    .filter(r => r.text || /<img/i.test(r.html))
 }
 
 /** 把元素按内部 <br> 拆成多行，每行用同标签包一份（保持字体等样式） */
@@ -1953,6 +2133,40 @@ function addSplitAt(blockIdx: number) {
   ElMessage.success('已新增分割线（拆分）')
 }
 
+/**
+ * 【v4.16.0 新增 · 直接回应「我要在任何位置都可以放分割线」】
+ *
+ * 用户在「追加分割线」模式（或按住 Alt 点击）下点原卷任意位置 →
+ * 在**点击处所在的块之前**插入一条分割线。
+ *
+ * 【为什么不能只靠拖**
+ *   拖动只能**移动已有**的线去吸附到块边界。若原卷被切成 5 题、
+ *   用户想在中间某一行的位置再切一刀，就必须先找到最近的那条线再拖过去 ——
+ *   多个「一步到位的动作」被拆成两步，且目标块在屏幕上离得远时极难对准。
+ *   现在是「点哪切哪」。
+ */
+function addSplitByPoint(clientY: number) {
+  const host = docxHost.value
+  if (!host) return
+  const hostRect = host.getBoundingClientRect()
+  // 优先用带标注的块精确命中
+  const el = document.elementFromPoint(
+    Math.max(hostRect.left + 4, Math.min(hostRect.right - 4, hostRect.left + hostRect.width / 2)),
+    clientY,
+  ) as HTMLElement | null
+  let idx: number | null = null
+  const tagged = el?.closest(`[${BLOCK_IDX_ATTR}]`) as HTMLElement | null
+  if (tagged) {
+    const v = Number(tagged.getAttribute(BLOCK_IDX_ATTR))
+    if (Number.isFinite(v)) idx = v
+  }
+  // 落在表格行 / 段内子元素上 → 回溯到最近的带标注祖先（上面已做），
+  // 仍找不到就用几何最近块兜底
+  if (idx === null) idx = nearestBlockByY(clientY)
+  if (idx === null) return
+  addSplitAt(idx)
+}
+
 /** 删除第 i 条分割线 → 与其后一题合并 */
 function removeSplit(i: number) {
   if (i <= 0 || i >= boundaries.value.length - 1) {
@@ -2075,11 +2289,24 @@ function onOverlayMouseDown(e: MouseEvent) {
     const d = Math.abs(m.top - y)
     if (d < bestD) { bestD = d; bestI = i }
   })
+  // 【v4.16.0】「点哪切哪」：
+  //   · 按住 Alt 点击 → 在点击处插入分割线
+  //   · 开了「点选切分」模式 → 单击即插入
+  //   · 否则走原来的「抓最近的线来拖」语义
+  const wantAdd = e.altKey || addMode.value
+  if (wantAdd) {
+    e.preventDefault()
+    addSplitByPoint(e.clientY)
+    return
+  }
   if (bestI < 0 || bestD > LINE_HOT_Y) return
   // 点线身 → 走「点线合并」语义（横线自己的 @click）
   if (t.closest('.zs-mark-line')) return
   onSplitMouseDown(marks.value[bestI].bi, e)
 }
+
+/** 【v4.16.0】「点选切分」模式：开启后单击原卷任意位置即在该处插入分割线 */
+const addMode = ref(false)
 
 function onSplitMouseDown(i: number, e: MouseEvent) {
   if (e.button !== 0) return
@@ -2499,7 +2726,7 @@ onUnmounted(() => {
             <!-- 【v4.9.0 补全 / v4.9.1 修可拖】叠加在原卷上的可视分割线 -->
             <!--   mousedown 由叠加层**统一代理**（onOverlayMouseDown）：按 Y 距离判定抓哪条线，
                  不再依赖"必须精确点在把手上" —— 这是「无法拖动」的最终修法。 -->
-            <div ref="overlayRef" class="zs-overlay" @mousedown="onOverlayMouseDown">
+            <div ref="overlayRef" class="zs-overlay" :class="{ 'zs-overlay-add': addMode }" @mousedown="onOverlayMouseDown">
               <div
                 v-for="m in marks"
                 :key="m.bi"
@@ -2546,7 +2773,20 @@ onUnmounted(() => {
 
         <!-- 分割线控制条（独立于两视图，永远可见） -->
         <div class="zs-splits">
-          <div class="zs-splits-title">题目分割（{{ chunks.length }} 题）</div>
+          <div class="zs-splits-title">
+            题目分割（{{ chunks.length }} 题）
+            <el-tooltip
+              placement="top"
+              content="开启后：在原卷上单击任意位置，即可在该处插入一条分割线（也可随时按住 Alt 单击，无需先开这个开关）"
+            >
+              <el-button
+                class="zs-addmode-btn"
+                size="small"
+                :type="addMode ? 'primary' : 'default'"
+                @click="addMode = !addMode"
+              >{{ addMode ? '点选切分中…单击原卷定位' : '点选切分' }}</el-button>
+            </el-tooltip>
+          </div>
           <div class="zs-split-list">
             <div v-for="(c, i) in chunks" :key="i" class="zs-split-item" :class="{ active: activeIdx === i }" @click="activeIdx = i">
               <span class="zs-split-no">{{ i + 1 }}</span>
@@ -2675,6 +2915,9 @@ onUnmounted(() => {
      mousedown 永远收不到 → 拖动完全没反应（实测已复现并确认）。
    写死 20 是为了稳赢 `article` 的 1，同时远低于全站浮层（抽屉/弹窗 ≥1000）。 */
 .zs-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
+/* 【v4.16.0】「点选切分」模式：整层可点，十字光标提示"点哪切哪"。
+   此时分割线本身仍要能抓（pointer-events:auto 的 .zs-mark-line 优先级更高）。 */
+.zs-overlay-add { pointer-events: auto; cursor: crosshair; background: rgba(245, 158, 11, 0.04); }
 .zs-mark { position: absolute; left: 0; right: 0; height: 0; display: flex; align-items: center; gap: 6px; }
 .zs-mark-badge {
   flex: 0 0 auto; transform: translateY(-50%);
@@ -2740,7 +2983,8 @@ onUnmounted(() => {
 
 /* ---- 分割线列表 ---- */
 .zs-splits { border: 1px solid rgba(0,0,0,0.09); border-radius: 12px; padding: 8px 10px; }
-.zs-splits-title { font-size: 12px; font-weight: 700; color: var(--zg-text-dim, #888); margin-bottom: 6px; }
+.zs-splits-title { font-size: 12px; font-weight: 700; color: var(--zg-text-dim, #888); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.zs-addmode-btn { margin-left: auto; }
 .zs-split-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
 .zs-split-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .zs-split-item:hover { background: rgba(var(--zg-primary-rgb), 0.06); }
