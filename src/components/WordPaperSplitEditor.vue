@@ -1528,7 +1528,7 @@ async function aiRecognize() {
       //   必须明确告诉用户"别再点了，去后台换模型或等重置"，
       //   否则用户会反复点按钮（实测就是这样把 120 次无效请求打出来的）。
       if (r?.quotaExhausted) {
-        ElMessage.error({ message: '今日 AI 额度已耗尽（账号级共享，每日北京时间 8 点重置）', duration: 6000 })
+        ElMessage.error({ message: 'Cloudflare 免费额度已用满（账号级共享，恢复通常在数小时内）。可在「管理后台 → AI 设置 → 用量与额度」查看实时剩余额度。', duration: 6000 })
       } else {
         ElMessage.warning(`AI 识别未生效：${detail}。已保留规则识别结果，你可手动微调或换更清晰的卷子重试`)
       }

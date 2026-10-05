@@ -5211,6 +5211,31 @@ app.get('/api/admin/ai-usage', auth, requirePerm('ai_settings'), async (c) => {
        GROUP BY error ORDER BY cnt DESC LIMIT 15`,
       utcDayMinus(days - 1))
 
+    // ── ⑥b 近 48 小时逐小时（v4.15.1）──
+    // 【为什么需要】用户会看到"今天消耗 0 却提示耗尽"这个反直觉现象：
+    //   额度池满了 → 当天每次调用都被拒 → 被拒不计费 → 当天消耗就是 0。
+    //   光看"按天"的柱状图，今天那根柱子是 0，看起来像"我今天根本没用"，
+    //   于是自然会质疑"你怎么说用完了"。
+    //   逐小时视图把「调用次数」和「神经元」分开画，才能看出
+    //   "有大量调用、但消耗为 0"= 全被拒，一目了然。
+    // 【JS 聚合而非 SQL】SQLite/D1 的 strftime 对本场景够用，但两后端
+    //   （D1 与 libsql）时区函数行为有细微差异，容易导致本地/线上不一致；
+    //   48 小时的数据量很小，拉回 JS 用同一份代码算，最稳且零分歧。
+    const hourlyRows = await all<any>(
+      `SELECT at, ok, neurons, quota_exhausted FROM ai_usage_log
+       WHERE at >= ? ORDER BY at ASC`,
+      new Date(Date.now() - 48 * 3600000).toISOString())
+    const hourMap = new Map<string, { calls: number; okCalls: number; neurons: number; rejected: number }>()
+    for (const r of hourlyRows) {
+      const h = String(r.at || '').slice(0, 13) + ':00Z'   // 2026-10-05T08:00Z
+      const cur = hourMap.get(h) || { calls: 0, okCalls: 0, neurons: 0, rejected: 0 }
+      cur.calls++
+      if (r.ok) cur.okCalls++
+      cur.neurons += num(r.neurons)
+      if (r.quota_exhausted) cur.rejected++
+      hourMap.set(h, cur)
+    }
+
     // ── ⑦ 明细（分页 + 可选筛选）──
     const where: string[] = ['at IS NOT NULL']
     const args: any[] = []
@@ -5236,8 +5261,10 @@ app.get('/api/admin/ai-usage', auth, requirePerm('ai_settings'), async (c) => {
         used: usedToday,
         remain: Math.max(0, CF_FREE_DAILY_NEURONS - usedToday),
         percent: Math.min(100, (usedToday / CF_FREE_DAILY_NEURONS) * 100),
-        // UTC 重置 → 换算成北京时间给用户看（用户在中国，说 UTC 他要心算）
-        resetHint: `每日 UTC 0 点重置（北京时间约 8:00）`,
+        // 【v4.15.1】不再写死"北京时间 8 点"。官方口径虽是 UTC 0 点重置，
+        //   但 2026-10-05 实测 08:26 UTC 仍稳定 429/4006（换零消耗模型也一样），
+        //   与"滚动 24 小时窗口"更吻合。既然行为不确定，就不替 CF 承诺具体时刻。
+        resetHint: `官方口径：每日 UTC 0 点（北京时间约 8:00）重置；实测偶有延迟，恢复通常在数小时内`,
         exhausted: quotaHitToday || usedToday >= CF_FREE_DAILY_NEURONS,
         day: todayUtc,
       },
@@ -5264,6 +5291,10 @@ app.get('/api/admin/ai-usage', auth, requirePerm('ai_settings'), async (c) => {
         calls: num(r.calls), neurons: num(r.neurons),
       })),
       byError: byError.map(r => ({ error: r.error, cnt: num(r.cnt), lastDay: r.last_day })),
+      // 近 48 小时逐小时：让"有调用但零消耗 = 全被拒"这件事在界面上看得见
+      byHour: Array.from(hourMap.entries()).map(([hour, v]) => ({
+        hour, calls: v.calls, okCalls: v.okCalls, neurons: v.neurons, rejected: v.rejected,
+      })),
       logs: logs.map(r => ({
         id: r.id, at: r.at, provider: r.provider, model: r.model,
         ok: !!r.ok, error: r.error || '',

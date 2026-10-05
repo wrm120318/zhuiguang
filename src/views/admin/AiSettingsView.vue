@@ -309,6 +309,37 @@ function barH(n: any): string {
   return Math.max(3, (v / maxDailyCalls.value) * 100) + '%'
 }
 
+/**
+ * 【v4.15.1】近 48 小时逐小时的横向条形图辅助。
+ *
+ * 分母同样取「窗口内单小时最大调用数」，让低用量时段的相对高低仍可见。
+ * 最小值 2% 是为了让个位数调用也能画出一条可见的线。
+ */
+const maxHourCalls = computed(() => {
+  const arr = (usage.value?.byHour || []) as any[]
+  return Math.max(1, ...arr.map(h => Number(h.calls) || 0))
+})
+function barPct(n: any, max: number): string {
+  const v = Number(n) || 0
+  if (!v) return '0%'
+  return Math.max(2, (v / (max || 1)) * 100) + '%'
+}
+
+/**
+ * 把 "2026-10-05T08:00Z" 显示成北京时间的 "10-05 16:00"。
+ *
+ * 为什么要转换：数据是 UTC 小时桶（与 CF 计费口径一致），
+ * 但用户在中国，看到 08:00Z 会误以为"早上八点"，实际是下午四点 ——
+ * 排查「什么时候开始被拒」时这个 8 小时偏差会直接把人带偏。
+ */
+function fmtHour(h: string): string {
+  if (!h) return ''
+  const d = new Date(h)
+  if (Number.isNaN(d.getTime())) return h
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:00`
+}
+
 /** 智谱配置区的锚点 id —— 额度告警里的「去配置智谱 Key」靠它滚动定位 */
 const ZHIPU_ANCHOR = 'ai-zhipu-section'
 function scrollToZhipu() {
@@ -383,7 +414,8 @@ function scrollToZhipu() {
             同一账号下所有应用、控制台测试都从这 10000 神经元里扣，用完后全站一起停摆。
           </div>
           <div class="qa-line">
-            <b>重置时间</b>：每日 UTC 0 点（北京时间约早上 8:00）。
+            <b>重置时间</b>：官方口径为每日 UTC 0 点（北京时间约早上 8:00），
+            但实测偶有延迟，恢复通常在数小时内 —— 以本页「剩余额度」实时数字为准。
           </div>
           <div v-if="!modelIsBudget" class="qa-line">
             <b>想立刻继续用</b>：可切到单价最低的 IBM Granite-4.0-H-Micro（约省 3.5 倍）；
@@ -516,6 +548,42 @@ function scrollToZhipu() {
           <el-tag size="small" type="danger">{{ e.cnt }} 次</el-tag>
           <span class="err-text">{{ e.error }}</span>
           <span class="err-day">{{ e.lastDay }}</span>
+        </div>
+      </div>
+
+      <!--
+        近 48 小时逐小时（v4.15.1）
+        【为什么必须单独做这一块】用户会看到「今天消耗 0 却提示额度耗尽」这个反直觉现象，
+        然后合理地怀疑「你怎么说用完了」：
+          · 额度池满了 → 当天每次调用都被拒 → 被拒不计费 → 当天消耗就是 0
+        只看「按天」柱状图，今天那根柱是 0，看起来像"我今天根本没用"。
+        逐小时把「调用次数」与「消耗神经元」分开画，才能一眼看出
+        「有大量调用、但消耗为 0」= 全部被拒 —— 这正是那 165 次失败的可视化。
+      -->
+      <div v-if="usage?.byHour?.length" class="mini-card" style="margin-top:12px">
+        <div class="mc-title">
+          近 48 小时逐小时
+          <span class="mc-sub">灰=调用次数　红=被拒次数　消耗为 0 但有调用 = 额度已满在拒单</span>
+        </div>
+        <div class="hour-list">
+          <div v-for="h in usage.byHour" :key="h.hour" class="hour-row">
+            <span class="hour-label">{{ fmtHour(h.hour) }}</span>
+            <span class="hour-bar-wrap">
+              <span class="hour-bar calls" :style="{ width: barPct(h.calls, maxHourCalls) }" />
+              <span
+                v-if="h.rejected"
+                class="hour-bar rejected"
+                :style="{ width: barPct(h.rejected, maxHourCalls) }"
+              />
+            </span>
+            <span class="hour-num">{{ h.calls }} 次</span>
+            <span class="hour-neurons" :class="{ zero: !h.neurons }">{{ fmtNeurons(h.neurons) }}</span>
+            <el-tag v-if="h.rejected" size="small" type="danger">拒 {{ h.rejected }}</el-tag>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px">
+          提示：若某小时「有调用但神经元为 0」，说明该小时请求全部被 Cloudflare 拒绝 ——
+          这解释了为什么「当天消耗是 0」却「一直提示额度耗尽」。
         </div>
       </div>
 
@@ -892,6 +960,22 @@ function scrollToZhipu() {
 .err-row:last-child { border-bottom: none; }
 .err-text { flex: 1; color: var(--zg-text-dim); line-height: 1.6; word-break: break-all; }
 .err-day { color: var(--zg-text-dim); font-size: 11px; white-space: nowrap; }
+
+/* ===== 【v4.15.1】近 48 小时逐小时 =====
+   用双层横条把「调用次数」与「被拒次数」分开画：
+   灰条 = 总调用，红条 = 其中被拒的部分（叠在灰条上层）。
+   这样"有调用但没有消耗"= 灰条长、几乎全红，一眼可见。 */
+.mc-sub { font-weight: 400; font-size: 11px; color: var(--zg-text-dim); margin-left: 8px; }
+.hour-list { max-height: 320px; overflow-y: auto; }
+.hour-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.hour-label { width: 74px; flex: none; color: var(--zg-text-dim); font-variant-numeric: tabular-nums; }
+.hour-bar-wrap { flex: 1; min-width: 80px; height: 14px; border-radius: 4px; background: rgba(var(--zg-primary-rgb),.06); position: relative; overflow: hidden; }
+.hour-bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; transition: width .25s; }
+.hour-bar.calls { background: rgba(var(--zg-primary-rgb),.28); }
+.hour-bar.rejected { background: #e5484d; opacity: .85; }
+.hour-num { width: 52px; flex: none; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hour-neurons { width: 66px; flex: none; text-align: right; color: var(--zg-text-dim); font-variant-numeric: tabular-nums; }
+.hour-neurons.zero { color: #e5484d; font-weight: 700; }
 
 .log-filter { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .log-table { width: 100%; }

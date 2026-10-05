@@ -220,13 +220,23 @@ for (const [name, src] of [['worker-api.ts', workerSrc], ['server/index.ts', ser
 
 // ── 响应结构逐字对齐：前端只认一套字段名，两边必须给出同一形状 ──
 const shapeKeys = ['quota', 'today', 'window', 'byDay', 'byModel', 'byScene', 'byActor',
-  'byError', 'logs', 'logTotal', 'logPage', 'logLimit', 'currentModel', 'budgetModel']
+  'byError', 'byHour', 'logs', 'logTotal', 'logPage', 'logLimit', 'currentModel', 'budgetModel']
 const missingIn = (src) => shapeKeys.filter(k => !new RegExp(`\\b${k}[:(,]`).test(src))
 const wMiss = missingIn(workerSrc), sMiss = missingIn(serverSrc)
 ok('⭐ 两后端 ai-usage 响应字段集合一致（前端只解析一套）',
   JSON.stringify(wMiss) === JSON.stringify(sMiss), `worker缺=[${wMiss}] server缺=[${sMiss}]`)
-ok('⭐ 响应字段齐备（14 项）',
+ok('⭐ 响应字段齐备（15 项，含 v4.15.1 的 byHour）',
   wMiss.length === 0 && sMiss.length === 0, `worker缺=[${wMiss}] server缺=[${sMiss}]`)
+
+// ── byHour 必须两边都按 UTC 小时桶聚合（这是"消耗 0 却耗尽"的唯一可视化证据）──
+for (const [name, src] of [['worker-api.ts', workerSrc], ['server/index.ts', serverSrc]]) {
+  ok(`⭐ ${name} 提供 byHour 逐小时聚合`,
+    /hourMap/.test(src) && /byHour: Array\.from\(hourMap\.entries\(\)\)/.test(src))
+  ok(`⭐ ${name} 小时桶按 UTC（切片 13 位 + ':00Z'）`,
+    /slice\(0, 13\) \+ ':00Z'/.test(src))
+  ok(`⭐ ${name} byHour 同时统计被拒次数（rejected）`,
+    /if \(r\.quota_exhausted\) cur\.rejected\+\+/.test(src))
+}
 
 // ── quota 子对象的语义必须两边一致，否则"剩余用量"会算错 ──
 for (const [name, src] of [['worker-api.ts', workerSrc], ['server/index.ts', serverSrc]]) {
@@ -278,8 +288,12 @@ ok('⭐ 设置页展示「用量与额度」', /用量与额度/.test(viewSrc))
 ok('⭐ 设置页展示剩余额度与进度条',
   /剩余/.test(viewSrc) && /el-progress/.test(viewSrc))
 ok('⭐ 设置页明确"账号级共享"（解释用户困惑的关键文案）', /账号级共享/.test(viewSrc))
-ok('⭐ 设置页给出重置时间（北京时间 8 点）',
-  /北京时间/.test(viewSrc))
+// 【v4.15.1】不能再写死"北京时间 8 点"：官方文档说 UTC 0 点重置，
+//   但 2026-10-05 实测 08:26 UTC 仍稳定 429/4006，行为与"滚动 24h 窗口"
+//   更吻合。承诺一个不准的时刻比不承诺更伤信任，故改为"以实时数字为准"。
+ok('⚠️ 设置页不再把重置时刻说死（改为以实时数字为准）',
+  /北京时间/.test(viewSrc) && /实测偶有延迟|以本页|为准/.test(viewSrc)
+  && !/每日 UTC 0 点（北京时间约早上 8:00）。/.test(viewSrc))
 ok('⭐ 设置页有额度耗尽告警 + 可执行补救入口',
   /今日免费额度已耗尽/.test(viewSrc) && /一键切到省额度模型/.test(viewSrc))
 ok('⭐ 设置页有使用记录表格 + 分页 + 筛选',
@@ -288,9 +302,21 @@ ok('⭐ 设置页区分"本地记账"与"CF 实测"并解释差额原因',
   /两个数字为什么可能不同/.test(viewSrc))
 ok('⭐ 失败原因 TOP 展示（能看出被拒的无效请求）', /失败原因 TOP/.test(viewSrc))
 ok('⭐ 清理历史记录入口', /清理历史记录/.test(viewSrc))
+// ── v4.15.1：逐小时视图（解释"消耗 0 却提示耗尽"的关键可视化）──
+ok('⭐ 设置页有「近 48 小时逐小时」视图',
+  /近 48 小时逐小时/.test(viewSrc) && /byHour/.test(viewSrc))
+ok('⭐ 逐小时把「调用次数」与「被拒次数」分开画',
+  /hour-bar\.calls/.test(viewSrc) && /hour-bar\.rejected/.test(viewSrc))
+ok('⭐ 逐小时写明"有调用但消耗为 0 = 全被拒"',
+  /有调用但神经元为 0|全被拒|额度已满在拒单/.test(viewSrc))
+ok('⭐ 逐小时时间转北京时间（避免 8 小时偏差误导排查）',
+  /function fmtHour/.test(viewSrc) && /p\(d\.getHours\(\)\)/.test(viewSrc))
 ok('⭐ AI 识别前端识别到额度耗尽时给出专门提示',
   /quotaExhausted/.test(readFileSync(`${ROOT}/src/components/WordPaperSplitEditor.vue`, 'utf8'))
   && /quotaExhausted/.test(readFileSync(`${ROOT}/src/components/WordImportPanel.vue`, 'utf8')))
+ok('⚠️ 前端两个提示组件也不再写死"北京时间 8 点"',
+  !/北京时间 8 点重置/.test(readFileSync(`${ROOT}/src/components/WordPaperSplitEditor.vue`, 'utf8'))
+  && !/北京时间 8 点重置/.test(readFileSync(`${ROOT}/src/components/WordImportPanel.vue`, 'utf8')))
 
 console.log('\n=== 8. 配置默认值自保（防止额度又被一天烧完）===')
 
@@ -310,7 +336,9 @@ console.log('\n=== 9. 错误提示必须给出可执行的下一步 ===')
 // 用户踩坑的本质不是"没有报错"，而是"报错之后不知道该干什么"
 const msg = aiFailureMessage([{ provider: 'cf', error: 'daily free allocation' }], true)
 ok('⭐ 额度耗尽提示含"账号级共享"（解释为什么我没用却耗尽）', /账号级/.test(msg))
-ok('⭐ 额度耗尽提示含具体重置时间', /UTC 0 点|北京时间/.test(msg))
+ok('⚠️ 额度耗尽提示不再承诺具体重置时刻（实测与官方口径不符）',
+  /恢复通常在数小时内/.test(msg) && !/北京时间 8 点/.test(msg))
+ok('⭐ 额度耗尽提示引导去后台看实时数字', /用量与额度/.test(msg))
 ok('⭐ 额度耗尽提示给出至少两条补救路径', /AI 设置/.test(msg) && /智谱/.test(msg))
 ok('⚠️ 普通频率限制仍走原提示（不误报额度耗尽）',
   /繁忙/.test(aiFailureMessage([{ provider: 'cf', error: '429 too many requests' }])))

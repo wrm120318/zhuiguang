@@ -1335,11 +1335,24 @@ export function aiFailureMessage(attempts?: { provider: string; error?: string }
   const errs = (attempts || []).map(a => a.error || '').filter(Boolean).join(' ')
   // 【v4.15.0】优先判额度耗尽：它是账户级硬故障，提示必须**给出可执行的下一步**，
   //   并明确"重置时间"，否则用户只会反复点重试（实测用户就是这样被绕进去的）。
+  //
+  // 【v4.15.1 修正 · 不要说死"北京时间 8 点"】
+  //   Cloudflare 官方文档写的是 "All limits reset daily at 00:00 UTC"，
+  //   但 2026-10-05 实测**推翻了这一点**：当天 08:26 UTC（早已过 0 点）
+  //   仍稳定返回 429/4006，连换两个当天零消耗的模型也一样。
+  //   而按「滚动 24 小时窗口」推演则与实测完全吻合（10-04 09:00Z 那批
+  //   8079 神经元要等 10-05 09:00Z 才释放）。
+  //   结论：官方口径与实际行为存在偏差，**我们不能替 Cloudflare 承诺一个
+  //   具体时刻** —— 说了却不准，比不说更伤信任（用户会拿着后台截图来质疑）。
+  //   所以改为"通常在数小时内恢复"，并引导用户去后台看真实数字。
   if (quotaExhausted || /daily free allocation|used up your daily free|upgrade to Cloudflare|10,?000 neurons|free allocation/i.test(errs)) {
-    return '今日 Cloudflare 免费额度（10000 神经元）已用完，AI 识别已暂停。此额度为**账号级**共享：'
-      + '无论谁调用都从同一池扣，用完后全站 AI 一起停摆，次日 UTC 0 点（北京时间 8 点）自动重置。'
-      + '想立刻继续用：① 在「AI 设置」把主力模型换成单价最低的 IBM Granite-4.0-H-Micro（约省 3.5 倍）；'
-      + '② 或配置智谱 GLM Key（独立额度，不受此限制）。'
+    return 'Cloudflare 免费额度（每天 10000 神经元）已用满，AI 识别已暂停。'
+      + '该额度为**账号级共享**：同一 Cloudflare 账号下所有应用、Worker、控制台测试都从这 10000 里扣，'
+      + '所以可能出现「我今天没怎么用却已耗尽」的情况。'
+      + '额度池恢复通常在数小时内（官方口径为每日 UTC 0 点重置，但实测偶有延迟）。'
+      + '想**立刻**继续用：① 在「AI 设置 → 用量与额度」查看剩余额度与消耗明细；'
+      + '② 把主力模型换成单价最低的 IBM Granite-4.0-H-Micro（约省 3.5 倍）；'
+      + '③ 或配置智谱 GLM Key（独立额度，完全不受此限制，最稳）。'
   }
   if (/429|频率限制|rate.?limit|too many requests/i.test(errs)) {
     return 'AI 服务暂时繁忙（触发频率限制），请稍候重试，或把长卷拆成几份分次识别。'
