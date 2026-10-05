@@ -144,6 +144,45 @@ const OPT_RE = /^\s*[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/i
 const optRe = OPT_RE
 const JUDGE_WORDS = ['对', '错', '正确', '错误', '√', '×', 'T', 'F', 'true', 'false']
 
+/**
+ * 【v4.15.4 新增】选项行判据（**不带行首锚点**），用于在一行内定位每个选项的起始位置。
+ * 与 `WordImportPanel.vue` 的同名函数**保持逐字一致**（两条导入入口不能有行为差）。
+ *
+ * 【为什么必须新增这个】
+ *   实测用户上传的真实 Word 试卷，选项常写在同一行、用 Tab 或空格分隔：
+ *     `A．彼特拉克	B．但丁	C．拉斐尔	D．莎士比亚`
+ *   而旧代码用的是**行首锚定**的 `optRe`（`^\s*[A-H]`）—— 一行只匹配得到开头的 `A．`，
+ *   于是 B/C/D 全部被当成题干文字，**选项只剩 1 个**。
+ *
+ * 【设计要点：必须成对出现才切分】
+ *   ⚠️ 不能简单按 `[A-H]` 扫全文 —— 题干里大量出现单个大写字母
+ *      （「A 点」「方案 B」「选项 C 正确」），会把题干切碎。
+ *   只在「字母+分隔符+内容 + 空白 + 下一个字母+分隔符」这种**严格递增序列**上切分。
+ *
+ * @returns 切分出的选项文本数组（已剥前缀）；不足 2 项时返回空数组
+ */
+function splitInlineOptions(line: string): { letter: string; text: string }[] {
+  const re = /(^|[\s\u3000\t])[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/g
+  const hits: { idx: number; letter: string; len: number }[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line))) {
+    hits.push({ idx: m.index, letter: m[2].toUpperCase(), len: m[0].length })
+    re.lastIndex = m.index + m[0].length
+  }
+  if (hits.length < 2) return []
+  for (let i = 1; i < hits.length; i++) {
+    if (hits[i].letter.charCodeAt(0) !== hits[i - 1].letter.charCodeAt(0) + 1) return []
+  }
+  const parts: { letter: string; text: string }[] = []
+  for (let i = 0; i < hits.length; i++) {
+    const start = hits[i].idx + hits[i].len
+    const end = i + 1 < hits.length ? hits[i + 1].idx : line.length
+    const text = line.slice(start, end).trim()
+    if (text) parts.push({ letter: hits[i].letter, text })
+  }
+  return parts
+}
+
 function toText(html: string): string {
   return String(html)
     // 【v4.13.6 补强】`<td>`/`<th>` 末尾也补换行 —— 否则同行多列被拍平连成
@@ -464,6 +503,116 @@ function sectionHints(): string[] {
  *                    某一大题"的题 —— 例如填空题下的题没有选项，
  *                    仅看内容会判成主观题，有了提示就能正确判为 fill。
  */
+/**
+ * 【v4.15.4 新增 · 卷末参考答案区块：分离 + 解析】
+ * 与 `WordImportPanel.vue` 的同名逻辑**保持逐字一致**（两条导入入口不能有行为差）。
+ *
+ * 【用户问题】「答案在试卷末尾的，应该是填入每个题中，而不是在最后分出新的题」
+ *
+ * 【为什么会"分出新的题"】卷末 `1．B` `2．C` 每行都以数字开头，
+ *   autoSplit 会把它们当成一道道新题 —— 试卷末尾凭空多出几十道"只有字母的题"。
+ *
+ * @param blocks 原卷块（HTML 字符串数组）
+ * @returns body（剔除答案区块后的正文块）+ answers/analyses（题号 → 文本）
+ */
+const ANSWER_SECTION_RE = /^\s*(?:[《【][^》】]{0,50}[》】]\s*)?参考答案(?:与解析|及解析|与详解)?\s*[:：]?\s*$|^\s*[《【][^》】]{2,50}[》】]\s*参考答案\s*$|^\s*【\s*参考答案\s*】\s*$/
+
+function splitAnswerSectionBlocks<T extends { html: string; text?: string }>(blocks: T[]): {
+  body: T[]
+  answers: Map<number, string>
+  analyses: Map<number, string>
+} {
+  const answers = new Map<number, string>()
+  const analyses = new Map<number, string>()
+  // ① 定位答案区块起始块（必须落在全文 50% 之后，避免卷首"参考答案"字样被误判）
+  let cut = -1
+  // 【v4.15.4】门槛从 50% 放宽到 35% —— 实测用户真实试卷的答案区块
+  //   出现在 41.7%（219/525 段）处，50% 会漏掉。宁可往前找，配合"标题必须独占一行"的严格判据。
+  for (let i = Math.floor(blocks.length * 0.35); i < blocks.length; i++) {
+    const line = (toText(blocks[i].html).split('\n')[0] || '').trim()
+    if (ANSWER_SECTION_RE.test(line)) { cut = i; break }
+  }
+  if (cut < 0) return { body: blocks, answers, analyses }
+
+  const body = blocks.slice(0, cut)
+  const tailText = blocks.slice(cut).map(b => toText(b.html)).join('\n')
+
+  // ② 逐行解析；一行可能含多个「题号 + 答案」（如 `6．D    7．A`）
+  let curNo: number | null = null
+  for (const rawLine of tailText.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) continue
+    // 解析行：【详解】/【解析】开头 → 归到当前题号
+    const anaMatch = line.match(/^(?:【详解】|【解析】|【答案】|答案解析|详解)\s*[:：]?\s*([\s\S]*)$/)
+    if (anaMatch) {
+      const inner = line.match(/(\d{1,3})\s*[．.、]/)
+      if (inner) curNo = Number(inner[1])
+      if (curNo != null) {
+        const prev = analyses.get(curNo) || ''
+        analyses.set(curNo, (prev ? prev + '\n' : '') + anaMatch[1].trim())
+      }
+      continue
+    }
+    // ③ 抓本行所有「题号 + 答案字母」对（答案须为 1~8 个大写字母，含多选如 "ABD"）
+    const pairRe = /(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})(?![A-Za-z])/g
+    let mm: RegExpExecArray | null
+    let hit = false
+    while ((mm = pairRe.exec(line))) {
+      const no = Number(mm[1])
+      if (no >= 1 && no <= 200) { answers.set(no, mm[2]); curNo = no; hit = true }
+    }
+    if (!hit) {
+      // ④ 兜底：字母后跟中文标点的漏网情况
+      const single = line.match(/^(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})\s*[。，,；;]?$/)
+      if (single) {
+        const no = Number(single[1])
+        if (no >= 1 && no <= 200) { answers.set(no, single[2]); curNo = no }
+      }
+    }
+  }
+  return { body, answers, analyses }
+}
+
+/**
+ * 【v4.15.4】把卷末解析出的答案/解析回填到各题草稿。
+ * 优先按题干里的题号精确匹配；匹配不上的按顺序对未消费的答案键回填（仅选择题）。
+ */
+function applyTailAnswers(drafts: any[], answers: Map<number, string>, analyses: Map<number, string>): number {
+  if (!answers.size || !drafts.length) return 0
+  let filled = 0
+  const unresolved: any[] = []
+  for (const p of drafts) {
+    const head = String(p.content || '').slice(0, 30)
+    const m = head.match(/^[\s>#*]*(\d{1,3})\s*[．.、)）]/)
+    const no = m ? Number(m[1]) : null
+    if (no != null && answers.has(no)) {
+      if (!p.answer) { p.answer = answers.get(no) || ''; filled++ }
+      const ana = analyses.get(no)
+      if (ana && !p.analysis) p.analysis = ana
+      continue
+    }
+    unresolved.push(p)
+  }
+  const used = new Set<number>()
+  for (const p of drafts) {
+    const a = String(p.answer || '').replace(/[^A-H]/g, '')
+    if (a) { for (const [no, ans] of answers) if (ans === a) { used.add(no); break } }
+  }
+  const freeKeys = Array.from(answers.keys()).filter(k => !used.has(k)).sort((a, b) => a - b)
+  let k = 0
+  for (const p of unresolved) {
+    if (k >= freeKeys.length) break
+    if (p.qtype !== 'single' && p.qtype !== 'multiple') continue
+    if (p.answer) continue
+    p.answer = answers.get(freeKeys[k]) || ''
+    const ana = analyses.get(freeKeys[k])
+    if (ana && !p.analysis) p.analysis = ana
+    k++
+    filled++
+  }
+  return filled
+}
+
 function inferDraft(html: string, typeHint = ''): DraftQuestion {
   const text = toText(html)
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
@@ -473,15 +622,30 @@ function inferDraft(html: string, typeHint = ''): DraftQuestion {
   const opts: string[] = []
   const analysisLines: string[] = []
   let answer = ''
+  // 【v4.15.4】续行拼接：真实试卷常见 `A．… B．…` 换行后接 `C．… D．…`
+  let lastOptLetter = ''
   for (let i = 1; i < lines.length; i++) {
     const ln = lines[i]
+    // 【v4.15.4 修正】先尝试「一行多个选项」的切分（Word 里选项常挤在同一行、Tab 分隔）。
+    //   命中即按字母展开成多项；未命中再退回原有的「行首选项」判据。
+    const inline = splitInlineOptions(ln)
+    if (inline.length >= 1 && (opts.length > 0 || inline[0].letter === 'A')) {
+      if (opts.length === 0 || inline[0].letter === String.fromCharCode(lastOptLetter.charCodeAt(0) + 1)) {
+        for (const o of inline) { opts.push(o.text); lastOptLetter = o.letter }
+        continue
+      }
+    }
     // 选项行 → 归到 options（字母前缀由 OPT_RE 一并剥掉）
-    if (optRe.test(ln)) { opts.push(ln.replace(optRe, '').trim()); continue }
+    if (optRe.test(ln)) {
+      opts.push(ln.replace(optRe, '').trim())
+      lastOptLetter = (ln.match(optRe)?.[1] || '').toUpperCase()
+      continue
+    }
     // 答案行：明确带「答案/参考答案/解答/答：」前缀 → 取冒号后内容
     const ans = ln.match(/^(?:答案|参考答案|解答|答)\s*[:：]\s*(.*)$/)
     if (ans) { if (!answer) answer = ans[1].trim(); continue }
     // 解析行：明确带「解析/答案解析/【解析】/【答案】」前缀 → 归到 analysis
-    const ana = ln.match(/^(?:答案解析|解析|【解析】|【答案】)\s*[:：]?\s*(.*)$/)
+    const ana = ln.match(/^(?:答案解析|解析|【解析】|【答案】|【详解】)\s*[:：]?\s*(.*)$/)
     if (ana) { analysisLines.push(ana[1].trim()); continue }
     // 其余行：视为题干延续，留在 content（已由 stripOptionsFromHtml 剥离选项/答案/解析），
     //   ⚠️ 不再像旧实现那样塞进 analysis —— 否则「（本小题 5 分）」之类杂项会污染解析栏。
@@ -555,7 +719,17 @@ async function onPick(e: Event) {
 
     // ② 切成「块」：以顶层块级元素为单位（这样分割线可以落在任意两段之�间）
     progressText.value = '正在切分原卷…'
-    blocks.value = splitIntoBlocks(html)
+    let rawBlocks = splitIntoBlocks(html)
+
+    // 【v4.15.4 新增 · 卷末参考答案区块】
+    //   用户问题：「答案在试卷末尾的，应该是填入每个题中，而不是在最后分出新的题」。
+    //   卷末 `1．B` `2．C` 每行都以数字开头 → 会被 autoSplit 当成一道道新题，
+    //   试卷末尾凭空多出一堆"只有字母的题"。这里先把答案区块整体摘出来，
+    //   解析成「题号→答案」映射，再从 blocks 里删除，最后回填到各题草稿。
+    const { body: cleanBlocks, answers: tailAnswers, analyses: tailAnalyses } =
+      splitAnswerSectionBlocks(rawBlocks)
+    rawBlocks = cleanBlocks
+    blocks.value = rawBlocks
 
     // ③ 自动插入分割线（用户需求：「系统自动插入分割线」）
     boundaries.value = autoSplit(blocks.value)
@@ -565,12 +739,14 @@ async function onPick(e: Event) {
     //   「二、填空题」下的题自动判为填空，不必用户逐题手改。
     const hints = sectionHints()
     drafts.value = chunks.value.map((c, i) => inferDraft(c.html, hints[i] || ''))
+    // 【v4.15.4】回填卷末答案/解析
+    const filled = applyTailAnswers(drafts.value, tailAnswers, tailAnalyses)
     activeIdx.value = 0
     // 【v4.13.4】整卷结果被替换 → 强制右侧表单重挂载（见 `formEpoch` 注释）。
     formEpoch.value++
     aiError.value = ''   // 【v4.13.5】规则识别成功 → 清除上一次的 AI 失败态
     stage.value = 'split'
-    ElMessage.success(`已识别 ${drafts.value.length} 道题，请核对分割线后进入编辑`)
+    ElMessage.success(`已识别 ${drafts.value.length} 道题${filled ? `，并从卷末参考答案回填 ${filled} 题` : ''}，请核对分割线后进入编辑`)
     await nextTick()
     await renderWordView()
     // 网站渲染视图也要有一份初始内容（用户切过去时不必等 350ms debounce）

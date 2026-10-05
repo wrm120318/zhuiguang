@@ -1064,11 +1064,24 @@ async function parseOneChunk(
   for (const p of order) {
     try {
       if (p === 'cf') {
-        // 通道 A 内部再降级：主力新模型 → 备用新模型 → 最省老模型（保证一定能跑完）
+        // 通道 A 内部再降级：主力 → 备用（两者都可由后台/环境变量配置）
+        //
+        // 【v4.15.3 关键修复 · 删掉写死的第三档】
+        //   旧代码：const cheap = '@cf/zai-org/glm-4.7-flash'
+        //           const models = new Set([primary, fallback, cheap])
+        //
+        //   这个变量名叫 cheap，实际一点都不 cheap —— glm-4.7-flash 输出价 $0.4/M，
+        //   是 granite-4.0-h-micro（$0.112/M）的 3.6 倍。更糟的是它**被写死在代码里**：
+        //   哪怕超管把主力/备用都配成了最省的 granite-micro，Set 里仍会被塞进
+        //   glm-4.7-flash 这一档，模型一旦降级就悄悄开始烧额度。
+        //   实测证据（2026-10-04 账户级账单）：
+        //     glm-4.7-flash 被调用 61 次 / 消耗 3607 神经元（占当天 1/3）——
+        //     而这些调用**并不是超管选择的**，是这行硬编码拉进来的。
+        //   修复：降级链只由可配置的 primary / fallback 构成，不再硬编码任何模型。
+        //     需要第三档时，超管在后台上改「备用模型」即可，配置即生效。
         const primary = env.AI_MODEL_CF || DEFAULT_MODEL_CF
         const fallback = env.AI_MODEL_CF_FALLBACK || DEFAULT_MODEL_CF_FALLBACK
-        const cheap = '@cf/zai-org/glm-4.7-flash'
-        const models = Array.from(new Set([primary, fallback, cheap]))
+        const models = Array.from(new Set([primary, fallback].filter(Boolean)))
         let lastErr = ''
         for (const m of models) {
           // 频率限制(429)/过载：退避后重试（次数受后台旋钮控制，默认 3 次），实测一次重试常能成功

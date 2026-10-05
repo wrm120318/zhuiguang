@@ -5455,6 +5455,79 @@ app.post('/api/admin/ai-usage/use-budget-model', auth, requirePerm('ai_settings'
   }
 })
 
+/**
+ * 【v4.15.3 诊断】真的看一次"Worker 内部到底把请求发去了哪、CF 回了什么"。
+ *
+ * 【为什么必须做这个接口】
+ *   用户反复质疑"CF 面板显示额度充足，凭什么说耗尽"。此前所有验证都是
+ *   **在沙箱里用 curl 打 REST**，从来没有验证过**线上 Worker 内部**那条路：
+ *     · env.AI 绑定是否真的存在（typeof 是什么）
+ *     · 有没有被 AI_BASE_CF 意外改道到 REST
+ *     · 绑定通道和 REST 通道对同一模型的回复是否一致
+ *   这三件事只要有一件不对，就会表现成"代码拉不到 AI"。
+ *   空口争论没有意义 —— 把 Worker 内部状态原样吐出来，一次说清。
+ *
+ * 【安全】超管鉴权 + 只回传诊断所需的字段（账号 id 打码、token 只回是否配置）。
+ *   不返回任何密钥明文。
+ */
+app.get('/api/admin/ai-diag', auth, requirePerm('ai_settings'), async (c) => {
+  const out: any = {
+    at: new Date().toISOString(),
+    // —— ① 绑定状态 ——
+    hasAiBinding: !!c.env.AI,
+    aiBindingType: typeof c.env.AI,
+    aiRunType: typeof (c.env.AI as any)?.run,
+    // —— ② 是否被 AI_BASE_CF 改道（一旦非空就会强制走 REST，绕过绑定）——
+    aiBaseCf: c.env.AI_BASE_CF ? String(c.env.AI_BASE_CF) : '(未设置)',
+    // —— ③ REST 路径所需凭证（只报有无，不回明文）——
+    restAccountId: (globalThis as any).__CF_ACCOUNT_ID
+      ? String((globalThis as any).__CF_ACCOUNT_ID).slice(0, 6) + '***(共' + String((globalThis as any).__CF_ACCOUNT_ID).length + '位)'
+      : '(未配置)',
+    restTokenConfigured: !!(globalThis as any).__CF_API_TOKEN,
+    // —— ④ 即将使用的模型 ——
+    modelPrimary: (await readAiConfig()).modelCf,
+    modelFallback: (await readAiConfig()).modelCfFallback,
+    tests: [] as any[],
+  }
+
+  const probe = async (label: string, fn: () => Promise<any>) => {
+    const t0 = Date.now()
+    try {
+      const r = await fn()
+      out.tests.push({ label, ok: true, elapsedMs: Date.now() - t0, raw: String(typeof r === 'string' ? r : JSON.stringify(r)).slice(0, 700) })
+    } catch (e: any) {
+      out.tests.push({ label, ok: false, elapsedMs: Date.now() - t0, error: String(e?.message || e).slice(0, 700) })
+    }
+  }
+
+  const payload = { messages: [{ role: 'user', content: 'hi' }], max_tokens: 4 }
+
+  // ⑤-A：绑定通道（线上生产实际走的路）
+  if (c.env.AI && typeof (c.env.AI as any).run === 'function') {
+    await probe('binding: env.AI.run()', () => (c.env.AI as any).run(out.modelPrimary, payload))
+  } else {
+    out.tests.push({ label: 'binding: env.AI.run()', ok: false, error: '绑定不存在或不可调用 —— 线上通道 A 走不了这条路' })
+  }
+
+  // ⑤-B：REST 通道（沙箱里一直用的那条）
+  const accountId = (globalThis as any).__CF_ACCOUNT_ID
+  const token = (globalThis as any).__CF_API_TOKEN
+  if (accountId && token) {
+    await probe('rest: /ai/run/ 直连', async () => {
+      const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${out.modelPrimary}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      })
+      return { status: res.status, body: (await res.text().catch(() => '')).slice(0, 500) }
+    })
+  } else {
+    out.tests.push({ label: 'rest: /ai/run/ 直连', ok: false, error: '未配置 CF_ACCOUNT_ID / CF_API_TOKEN（线上 Worker 通常不配，走绑定即可）' })
+  }
+
+  return c.json(out)
+})
+
 /** 把"今天"往前推 n 天，返回 UTC 日期串（用于 SQL 的 day >= ? 过滤） */
 function utcDayMinus(n: number): string {
   return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10)

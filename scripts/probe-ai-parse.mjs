@@ -406,8 +406,18 @@ try {
   ok('auto 模式默认顺序 CF → 智谱',
     /mode === 'cf' \? \['cf'\]/.test(shared) && /\['cf', 'zhipu'\]/.test(shared))
   ok('一个通道失败自动切换另一个（for 循环 attempts）', /for \(const p of order\)/.test(shared))
-  ok('⚠️ CF 通道内部还做「主力模型 → 备用模型」的模型级降级',
-    /const models = Array\.from\(new Set\(\[primary, fallback, cheap\]\)\)/.test(shared))
+  // 【v4.15.4 更新】旧断言检查的是 `new Set([primary, fallback, cheap])`，
+  //   而 `cheap` 那个硬编码的 glm-4.7-flash 正是要删掉的东西（实测它被偷偷调用 61 次、
+  //   烧掉 3607 神经元，占当天 1/3）。现在改为**反向断言**：降级链只能由可配置的
+  //   primary / fallback 构成，绝不允许再出现硬编码模型。
+  ok('⚠️ CF 通道内部做「主力模型 → 备用模型」降级（只由可配置项构成）',
+    /const models = Array\.from\(new Set\(\[primary, fallback\]\.filter\(Boolean\)\)\)/.test(shared))
+  // ⚠️ 必须排除**注释**：修复说明里故意保留了「旧代码是 const cheap = ...」这行，
+  //   它是文档而非代码。所以先把注释行剥掉再断言。
+  const sharedCode = shared.replace(/^\s*\/\/.*$/gm, '')
+  ok('⭐⭐ 【v4.15.4】降级链里已删除硬编码的 glm-4.7-flash（它曾偷偷烧掉 3607 神经元）',
+    !/const cheap = '@cf\/zai-org\/glm-4\.7-flash'/.test(sharedCode)
+    && !/new Set\(\[primary, fallback, cheap\]\)/.test(sharedCode))
   ok('⭐ 【v4.15.0】额度耗尽立即熔断，不再做注定失败的重试',
     /isQuotaExhausted/.test(shared) && /quotaExhausted = true; break/.test(shared))
   ok('⭐ 【v4.15.0】额度耗尽会取消所有剩余分块（熔断整个并发池）',

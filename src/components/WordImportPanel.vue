@@ -26,7 +26,188 @@ const defaults = reactive({ score: 5, difficulty: 3 })
 // 旧版只认 A. A、 A) A），漏掉中文 Word 常见全角点 `A．`，导致选择题选项填不进。
 const optRe = /^\s*[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/i
 
-// HTML → 纯文本（保留块级换行，便于按行识别题型/选项/答案）
+/**
+ * 【v4.15.4 新增】选项行判据（**不带行首锚点**），用于在一行内定位每个选项的起始位置。
+ *
+ * 【为什么必须新增这个】
+ *   实测用户上传的真实 Word 试卷，选项常写在同一行、用 Tab 或空格分隔：
+ *     `A．彼特拉克	B．但丁	C．拉斐尔	D．莎士比亚`
+ *   而旧代码用的是**行首锚定**的 `optRe`（`^\s*[A-H]`）—— 一行只匹配得到开头的 `A．`，
+ *   于是 B/C/D 全部被当成题干文字塞进 content，**选项只剩 1 个**。
+ *   这正是用户反馈「选择题识别选项以 ABCD 为识别标准，同行也应该切」的问题。
+ *
+ * 【设计要点：必须同时匹配前后两个字母才切分】
+ *   ⚠️ 不能简单地按 `[A-H]` 扫全文切分 —— 题干里大量出现单个大写字母
+ *      （如「A 点」「方案 B」「选项 C 正确」），会把它切碎。
+ *   本函数只在「**字母 + 分隔符（.．、)）:：）+ 内容 + 至少一个空白/制表符 + 下一个字母 + 分隔符**」
+ *   这种**成对出现**的结构上切分，误伤率极低。
+ *
+ * @returns 切分出的选项文本数组（已剥前缀）；不足 2 项时返回空数组表示"不是多选项行"
+ */
+function splitInlineOptions(line: string): { letter: string; text: string }[] {
+  const re = /(^|[\s\u3000\t])[（(]?\s*([A-Ha-h])\s*[.．、)）:：]/g
+  const hits: { idx: number; letter: string; len: number }[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line))) {
+    hits.push({ idx: m.index, letter: m[2].toUpperCase(), len: m[0].length })
+    re.lastIndex = m.index + m[0].length
+  }
+  if (hits.length < 2) return []
+  for (let i = 1; i < hits.length; i++) {
+    if (hits[i].letter.charCodeAt(0) !== hits[i - 1].letter.charCodeAt(0) + 1) return []
+  }
+  const parts: { letter: string; text: string }[] = []
+  for (let i = 0; i < hits.length; i++) {
+    const start = hits[i].idx + hits[i].len
+    const end = i + 1 < hits.length ? hits[i + 1].idx : line.length
+    const text = line.slice(start, end).trim()
+    if (text) parts.push({ letter: hits[i].letter, text })
+  }
+  return parts
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 【v4.15.4 新增 · 卷末参考答案区块：解析 + 回填 + 剔除】
+//
+// 【用户问题】「答案在试卷末尾的，应该是填入每个题中，而不是在最后分出新的题」
+//
+// 【为什么会"分出新的题"】
+//   按题号切块时，卷末的答案区块 `1．B` `2．C` … 恰以数字开头，命中 MINOR_RE，
+//   于是**每一行答案都被当成一道新题目**，试卷末尾凭空多出几十道"只有字母的题"。
+//
+// 【本函数的职责】三步：
+//   ① 把卷末答案区块整体切出来（从「参考答案」标题起，到文末）
+//   ② 逐行解析出「题号 → 答案」映射（支持 `1．B` / `6．D    7．A` 这类一行多题）
+//   ③ 由调用方按题号回填到对应的 preview 项
+//
+// 【支撑的真实格式】（来自用户上传的《2026年10月4日初中历史作业》）
+//   《…》参考答案
+//   1．B
+//   【详解】A.彼特拉克…错误。
+//   6．D    7．A            ← 同一行两个题的答案，必须都解析出来
+//   【详解】6．A.…错误。
+// ══════════════════════════════════════════════════════════════════════════
+const ANSWER_SECTION_RE = /^\s*(?:[《【][^》】]{0,50}[》】]\s*)?参考答案(?:与解析|及解析|与详解)?\s*[:：]?\s*$|^\s*[《【][^》】]{2,50}[》】]\s*参考答案\s*$|^\s*【\s*参考答案\s*】\s*$/
+
+/**
+ * 从整篇块列表里分离「正文块」与「卷末答案区块」。
+ * @returns { body: 正文块[]; answers: Map<题号, 答案文本>; analyses: Map<题号, 解析文本> }
+ */
+function splitAnswerSection(blocks: string[]): {
+  body: string[]
+  answers: Map<number, string>
+  analyses: Map<number, string>
+} {
+  const answers = new Map<number, string>()
+  const analyses = new Map<number, string>()
+  // ① 定位答案区块的起始块（且必须在全文 50% 之后，避免把卷首的"参考答案"字样误判）
+  let cut = -1
+  // 【v4.15.4】门槛从 50% 放宽到 35% —— 实测用户真实试卷的答案区块
+  //   出现在 41.7%（219/525 段）处，50% 会漏掉。宁可往前找，配合"标题必须独占一行"的严格判据。
+  for (let i = Math.floor(blocks.length * 0.35); i < blocks.length; i++) {
+    const line = htmlToText(blocks[i]).split('\n')[0] || ''
+    if (ANSWER_SECTION_RE.test(line.trim())) { cut = i; break }
+  }
+  if (cut < 0) return { body: blocks, answers, analyses }
+
+  const body = blocks.slice(0, cut)
+  const tailText = blocks.slice(cut).map(htmlToText).join('\n')
+
+  // ② 逐行解析。一行可能含多个「题号 + 答案」（如 `6．D    7．A`）
+  let curNo: number | null = null
+  for (const rawLine of tailText.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) continue
+    // 解析行：【详解】/【解析】开头 → 归到当前题号的解析
+    const anaMatch = line.match(/^(?:【详解】|【解析】|【答案】|答案解析|详解)\s*[:：]?\s*([\s\S]*)$/)
+    if (anaMatch) {
+      if (curNo != null) {
+        const prev = analyses.get(curNo) || ''
+        analyses.set(curNo, (prev ? prev + '\n' : '') + anaMatch[1].trim())
+      }
+      // 解析行里也可能内嵌其它题号（`【详解】6．A.…`），顺带更新 curNo
+      const inner = line.match(/(\d{1,3})\s*[．.、]/)
+      if (inner) curNo = Number(inner[1])
+      continue
+    }
+    // ③ 抓取本行所有「题号 + 答案字母」对。
+    //    题号后用全角点/半角点/顿号；答案必须是 1~8 个大写字母（含多选如 "ABD"）。
+    const pairRe = /(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})(?![A-Za-z])/g
+    let mm: RegExpExecArray | null
+    let hit = false
+    while ((mm = pairRe.exec(line))) {
+      const no = Number(mm[1])
+      // 只在 1~200 的合理题号范围内，避免把「1898．A」这类年份误判
+      if (no >= 1 && no <= 200) {
+        answers.set(no, mm[2])
+        curNo = no
+        hit = true
+      }
+    }
+    if (!hit) {
+      // ④ 兜底：形如 `1．B。` 或 `1.B` 但字母后跟中文标点的漏网情况
+      const single = line.match(/^(\d{1,3})\s*[．.、)）]\s*([A-H]{1,8})\s*[。，,；;]?$/)
+      if (single) {
+        const no = Number(single[1])
+        if (no >= 1 && no <= 200) { answers.set(no, single[2]); curNo = no }
+      }
+    }
+  }
+  return { body, answers, analyses }
+}
+
+/**
+ * 把卷末解析出的答案/解析回填到 preview 各题。
+ *
+ * 【回填依据】preview 项的 content 开头带原题号（如「1．（26-27…）」），
+ *   用 `question-number` 同源的贪心正则取出题号即可对上。
+ *   注意必须**按出现顺序**回填作为兜底：有些卷正文不带题号，
+ *   此时按"第 n 个选择题 ↔ 答案键 n"的顺序匹配。
+ */
+function applyAnswers(preview: any[], answers: Map<number, string>, analyses: Map<number, string>): number {
+  if (!answers.size) return 0
+  let filled = 0
+  // ① 优先按「题干里的题号」精确匹配
+  const unresolved: any[] = []
+  for (const p of preview) {
+    const head = String(p.content || '').slice(0, 30)
+    const m = head.match(/^[\s>#*]*(\d{1,3})\s*[．.、)）]/)
+    const no = m ? Number(m[1]) : null
+    if (no != null && answers.has(no)) {
+      if (!p.answer) { p.answer = answers.get(no) || ''; filled++ }
+      const ana = analyses.get(no)
+      if (ana && !p.analysis) p.analysis = ana
+      continue
+    }
+    unresolved.push(p)
+  }
+  // ② 剩下的按顺序对未消费的答案键回填（仅对选择题，且答案必须是纯字母）
+  const used = new Set<number>()
+  for (const p of preview) {
+    const a = String(p.answer || '').replace(/[^A-H]/g, '')
+    if (a) {
+      // 反查这个答案对应的题号
+      for (const [no, ans] of answers) if (ans === a) { used.add(no); break }
+    }
+  }
+  const freeKeys = Array.from(answers.keys()).filter(k => !used.has(k)).sort((a, b) => a - b)
+  let k = 0
+  for (const p of unresolved) {
+    if (k >= freeKeys.length) break
+    if (p.qtype !== 'single' && p.qtype !== 'multiple') continue
+    if (p.answer) continue
+    p.answer = answers.get(freeKeys[k]) || ''
+    const ana = analyses.get(freeKeys[k])
+    if (ana && !p.analysis) p.analysis = ana
+    k++
+    filled++
+  }
+  return filled
+}
+
+/**
+ * HTML → 纯文本（保留块级换行，便于按行识别题型/选项/答案）
+ */
 function htmlToText(html: string): string {
   return html
     // 【v4.13.6 补强】`<td>`/`<th>` 末尾也补换行，避免同行多列被拍平连成「A. 甲B. 乙」
@@ -191,11 +372,40 @@ function parseBlock(raw: string) {
   const opts: string[] = []
   const rest: string[] = []
   let answer = ''
+  let analysis = ''
   let hitOptions = false
+  // 【v4.15.4】记录"上一行最后一个是字母几"，用于拼接折行的续行选项
+  //   真实试卷常见排版：`A．… B．…` 换行 `C．… D．…` —— 下半行不以 A 起，
+  //   必须接到上半行之后，否则 C/D 会丢。
+  let lastOptLetter = ''
   for (let i = 1; i < lines.length; i++) {
     const ln = lines[i]
-    if (optRe.test(ln)) { hitOptions = true; opts.push(ln.replace(optRe, '').trim()); continue }
+    // 【v4.15.4 修正】先尝试「一行多个选项」的切分（Word 里选项常挤在同一行、Tab 分隔）。
+    //   命中即按字母展开成多项；未命中再退回原有的「行首选项」判据。
+    const inline = splitInlineOptions(ln)
+    if (inline.length >= 1 && (hitOptions || inline[0].letter === 'A')) {
+      // 续行判定：本行首字母 = 上一选项字母的下一个 → 直接接续展开
+      if (hitOptions && inline[0].letter !== String.fromCharCode(lastOptLetter.charCodeAt(0) + 1)) {
+        // 字母不连续（可能是新一段），退回普通处理
+      } else {
+        hitOptions = true
+        for (const o of inline) { opts.push(o.text); lastOptLetter = o.letter }
+        continue
+      }
+    }
+    if (optRe.test(ln)) {
+      hitOptions = true
+      opts.push(ln.replace(optRe, '').trim())
+      lastOptLetter = (ln.match(optRe)?.[1] || '').toUpperCase()
+      continue
+    }
     if (/答案|参考答案|解答|答[:：]/.test(ln)) { answer = ln.replace(/^.*?(答案|参考答案|解答|答)[:：]?\s*/, ''); continue }
+    // 【v4.15.4 新增】解析行单独收集 —— 旧代码把「解析」行也塞进 answer（因为正则含"解答"），
+    //   导致答案字段混入大段解析文字。现拆成两个字段。
+    if (/^(?:【?解析】?|【答案】|【详解】|答案解析)/.test(ln)) {
+      analysis = ln.replace(/^(?:【?解析】?|【答案】|【详解】|答案解析)\s*[:：]?\s*/, '').trim()
+      continue
+    }
     // 选项仅取匹配 optRe 的行；选项之后的表格/图片说明等归入 context，不污染选项
     rest.push(ln)
   }
@@ -217,7 +427,7 @@ function parseBlock(raw: string) {
     content: toMarkdownContent(stripQuestionNumber(raw)),
     options: (qtype === 'single' || qtype === 'multiple' || qtype === 'judge') ? opts : [],
     answer: answer.trim(),
-    analysis: '',
+    analysis: analysis.trim(),
     difficulty: defaults.difficulty,
     score: defaults.score,
     status: 'imported_needs_review',
@@ -260,16 +470,25 @@ async function onFile(e: Event) {
       return { src: `data:${image.contentType};base64,${b64}` }
     })
     const { value: html } = await mammothMod.convertToHtml({ arrayBuffer: buf, convertImage })
-    const blocks = splitHtmlToQuestions(html)
-    preview.value = blocks.map(parseBlock).filter(Boolean) as any[]
-    ElMessage.info(`已识别 ${preview.value.length} 道题（图片/表格已一并解析，请核对后导入）`)
+    const allBlocks = splitHtmlToQuestions(html)
+    // 【v4.15.4】先分离卷末「参考答案」区块：它必须回填到各题，而不是自己成为一堆"答案题"。
+    const { body, answers, analyses } = splitAnswerSection(allBlocks)
+    preview.value = body.map(parseBlock).filter(Boolean) as any[]
+    const filled = applyAnswers(preview.value, answers, analyses)
+    if (filled) {
+      ElMessage.info(`已识别 ${preview.value.length} 道题，并从卷末参考答案回填 ${filled} 题（请核对后导入）`)
+    } else {
+      ElMessage.info(`已识别 ${preview.value.length} 道题（图片/表格已一并解析，请核对后导入）`)
+    }
   } catch {
     // 兜底：纯文本导入（图片/表格可能丢失）
     const mammothMod: any = (await import('mammoth/mammoth.browser')).default
     const { value } = await mammothMod.extractRawText({ arrayBuffer: buf })
-    const blocks = value.split(/(?=^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）]))/gm).map((s: string) => s.trim()).filter(Boolean)
-    preview.value = blocks.map(parseBlock).filter(Boolean) as any[]
-    ElMessage.warning('Word 解析降级为纯文本（图片/表格可能丢失），请核对后导入')
+    const allBlocks = value.split(/(?=^\s*(?:\d+[.、)）]|[一二三四五六七八九十百零]+[.、]|\(\d+\)|[（(]\d+[)）]))/gm).map((s: string) => s.trim()).filter(Boolean)
+    const { body, answers, analyses } = splitAnswerSection(allBlocks)
+    preview.value = body.map(parseBlock).filter(Boolean) as any[]
+    const filled = applyAnswers(preview.value, answers, analyses)
+    ElMessage.warning(`Word 解析降级为纯文本（图片/表格可能丢失）${filled ? `，已回填 ${filled} 题答案` : ''}，请核对后导入`)
   }
 }
 

@@ -3386,6 +3386,74 @@ app.get('/api/admin/ai-quota', auth, requirePerm('ai_settings'), async (_req, re
 })
 
 /**
+ * 【v4.15.3 诊断】真的看一次"后端内部到底把请求发去了哪、CF 回了什么"。
+ *
+ * 【为什么必须做这个接口】
+ *   用户反复质疑"CF 面板显示额度充足，凭什么说耗尽"。此前所有验证都是
+ *   **在沙箱里用 curl 打 REST**，从来没有验证过**服务内部**那条路：
+ *     · 本地无 [ai] 绑定，只能走 REST → 必须确认 CF_ACCOUNT_ID/CF_API_TOKEN 真配了
+ *     · 有没有被 AI_BASE_CF 意外改道（一旦非空就强制走 REST，语义容易搞混）
+ *     · 环境变量与后台配置谁在生效
+ *   这三件事只要有一件不对，就会表现成"代码拉不到 AI"。
+ *   空口争论没有意义 —— 把内部状态原样吐出来，一次说清。
+ *
+ * 【安全】超管鉴权 + 账号 id 打码、token 只回布尔值。不返回任何密钥明文。
+ */
+app.get('/api/admin/ai-diag', auth, requirePerm('ai_settings'), async (req, res) => {
+  const out: any = {
+    at: new Date().toISOString(),
+    // —— ① 绑定状态（本地无 Worker 绑定，这里恒为 false / undefined，属正常）——
+    hasAiBinding: false,
+    aiBindingType: 'undefined',
+    aiRunType: 'undefined',
+    // —— ② 是否被 AI_BASE_CF 改道 ——
+    aiBaseCf: process.env.AI_BASE_CF ? String(process.env.AI_BASE_CF) : '(未设置)',
+    // —— ③ REST 路径所需凭证（只报有无，不回明文）——
+    restAccountId: process.env.CF_ACCOUNT_ID
+      ? String(process.env.CF_ACCOUNT_ID).slice(0, 6) + '***(共' + String(process.env.CF_ACCOUNT_ID).length + '位)'
+      : '(未配置)',
+    restTokenConfigured: !!process.env.CF_API_TOKEN,
+    // —— ④ 即将使用的模型 ——
+    modelPrimary: (await readAiConfig()).modelCf,
+    modelFallback: (await readAiConfig()).modelCfFallback,
+    tests: [] as any[],
+  }
+
+  const probe = async (label: string, fn: () => Promise<any>) => {
+    const t0 = Date.now()
+    try {
+      const r = await fn()
+      out.tests.push({ label, ok: true, elapsedMs: Date.now() - t0, raw: String(typeof r === 'string' ? r : JSON.stringify(r)).slice(0, 700) })
+    } catch (e: any) {
+      out.tests.push({ label, ok: false, elapsedMs: Date.now() - t0, error: String(e?.message || e).slice(0, 700) })
+    }
+  }
+
+  const payload = { messages: [{ role: 'user', content: 'hi' }], max_tokens: 4 }
+
+  // ⑤-A：绑定通道（本地不存在，明确报出来，避免误判为"能跑却不跑"）
+  out.tests.push({ label: 'binding: env.AI.run()', ok: false, error: '本地后端无 [ai] 绑定，通道 A 只能走 REST（与生产不同，生产走绑定）' })
+
+  // ⑤-B：REST 通道
+  const accountId = process.env.CF_ACCOUNT_ID
+  const token = process.env.CF_API_TOKEN
+  if (accountId && token) {
+    await probe('rest: /ai/run/ 直连', async () => {
+      const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${out.modelPrimary}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      })
+      return { status: r.status, body: (await r.text().catch(() => '')).slice(0, 500) }
+    })
+  } else {
+    out.tests.push({ label: 'rest: /ai/run/ 直连', ok: false, error: '未配置 CF_ACCOUNT_ID / CF_API_TOKEN' })
+  }
+
+  res.json(out)
+})
+
+/**
  * 【v4.15.0】清理历史用量日志（保留最近 N 天）。
  *
  * 为什么需要：AI 调用记录会随时间无限增长，SQLite/D1 都有容量上限。
