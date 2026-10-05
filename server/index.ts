@@ -2902,6 +2902,29 @@ function logAiUsage(rec: AiUsageRecord): void {
   } catch { /* 同上 */ }
 }
 
+/**
+ * 【v4.15.0】解析"这次 AI 调用是谁触发的"，用于使用记录的「触发者」列。
+ *
+ * 【为什么不能直接用 req.user】
+ *   JWT 里**只签了 `{ id, role }`**，没有 `real_name` / `username`。
+ *   直接写 `u.real_name || u.username` 会双双 undefined → 记账落空 →
+ *   后台使用记录只显示 `#1`，而"谁在烧额度"恰是排查账号级额度问题时最关键的一列。
+ *   所以这里回落查一次 DB。
+ *
+ * 【成本】主键查询且只在 AI 调用时发生（低频），可忽略。
+ *   查库失败时退成 `#<id>`，绝不让取名失败拖垮 AI 主流程。
+ */
+async function aiActorName(u: any): Promise<string> {
+  const direct = u?.real_name || u?.username
+  if (direct) return String(direct)
+  try {
+    const row = await get<any>('SELECT real_name, username FROM users WHERE id=?', u?.id)
+    return String(row?.real_name || row?.username || `#${u?.id ?? '?'}`)
+  } catch {
+    return `#${u?.id ?? '?'}`
+  }
+}
+
 /** 基础设施(环境变量) ⊕ 后台配置(DB)，后台优先 —— 与 Worker 版口径一致 */
 async function aiEnv(actor?: AiActor, scene?: string): Promise<AiEnv> {
   const cfg = await readAiConfig()
@@ -2964,7 +2987,7 @@ app.post('/api/ai/parse-paper', auth, async (req, res) => {
   }
 
   const env = await aiEnv(
-    { id: (req as any).user?.id, name: (req as any).user?.real_name || (req as any).user?.username },
+    { id: (req as any).user?.id, name: await aiActorName((req as any).user) },
     'paper_parse')
   if (!aiAvailable(env)) {
     return res.json({ ok: false, available: false, message: 'AI 服务不可用，已使用规则识别', questions: [] })
@@ -3034,7 +3057,7 @@ app.put('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (req,
 app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async (req, res) => {
   const u = (req as any).user
   // 【v4.15.0】测试连接也是真实计费调用 → 一并记账（scene='conn_test'）
-  const env = await aiEnv({ id: u?.id, name: u?.real_name || u?.username }, 'conn_test')
+  const env = await aiEnv({ id: u?.id, name: await aiActorName(u) }, 'conn_test')
   if (!aiAvailable(env)) {
     return res.json({ ok: false, message: 'AI 服务不可用：未绑定 Workers AI，且未配置智谱 Key' })
   }

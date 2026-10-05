@@ -143,6 +143,17 @@ for (const [name, src] of [['worker-api.ts', workerSrc], ['server/index.ts', ser
     /async function aiEnv\(actor\?: AiActor, scene\?: string\)/.test(src))
   ok(`⭐ ${name} 透出 quotaExhausted 给前端`,
     /quotaExhausted: !!result\?\.quotaExhausted/.test(src))
+  // ⚠️ JWT 只签了 { id, role }，没有 real_name/username ——
+  //   直接用 u.real_name || u.username 会双双 undefined，使用记录里
+  //   「触发者」永远是空、只能显示 #1，而"谁在烧额度"正是排查账号级
+  //   额度问题最关键的一列。必须回落查 DB（实测线上就是这么空掉的）。
+  ok(`⭐ ${name} 定义 aiActorName 回落取名（JWT 无 real_name）`,
+    /async function aiActorName\(u: any\): Promise<string> \{/.test(src)
+    && /SELECT real_name, username FROM users WHERE id=\?/.test(src))
+  ok(`⭐ ${name} 记账时用 aiActorName 而非裸 real_name||username`,
+    /name: await aiActorName\(/.test(src)
+    // 只查 aiEnv(...) 调用点，别误伤 aiActorName 内部自己的兜底逻辑
+    && !/aiEnv\(\{[^}]*name: [^,}]*\.real_name \|\| /.test(src))
   ok(`⚠️ ${name} 配置区补注入 5 个高级旋钮（v4.13.8 漏接的环境变量）`,
     /AI_TEMPERATURE: num(Env|Cfg)\(/.test(src)
     && /AI_CHUNK_QUESTIONS: num(Env|Cfg)\(/.test(src)

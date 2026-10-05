@@ -4846,6 +4846,29 @@ function logAiUsage(rec: AiUsageRecord): void {
 }
 
 /**
+ * 【v4.15.0】解析"这次 AI 调用是谁触发的"，用于使用记录的「触发者」列。
+ *
+ * 【为什么不能直接用 c.get('user')】
+ *   JWT 里**只签了 `{ id, role }`**（见 auth 签发逻辑），没有 `real_name` / `username`。
+ *   直接写 `u.real_name || u.username` 会双双 undefined → 记账落空 →
+ *   后台使用记录只显示 `#1`，而"谁在烧额度"恰是排查账号级额度问题时最关键的一列。
+ *   所以这里回落查一次 DB。
+ *
+ * 【成本】登录取名是主键查询且只在 AI 调用时发生（低频），可忽略。
+ *   查库失败时退成 `#<id>`，绝不让取名失败拖垮 AI 主流程。
+ */
+async function aiActorName(u: any): Promise<string> {
+  const direct = u?.real_name || u?.username
+  if (direct) return String(direct)
+  try {
+    const row = await get<any>('SELECT real_name, username FROM users WHERE id=?', u?.id)
+    return String(row?.real_name || row?.username || `#${u?.id ?? '?'}`)
+  } catch {
+    return `#${u?.id ?? '?'}`
+  }
+}
+
+/**
  * 组装本次请求实际生效的 AiEnv = 基础设施(env.AI 绑定 + 环境变量) ⊕ 后台配置。
  * 后台配置优先（超管在界面上改的东西必须立刻生效）。
  *
@@ -4938,7 +4961,7 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     }
   }
 
-  const env = await aiEnv({ id: c.get('user').id, name: c.get('user').real_name || c.get('user').username }, 'paper_parse')
+  const env = await aiEnv({ id: c.get('user').id, name: await aiActorName(c.get('user')) }, 'paper_parse')
   if (!aiAvailable(env)) {
     // 明确告知"没配 AI"，前端据此直接用正则、不弹错误（这是预期路径，不是故障）
     // v4.13.0：通道 A 只要 [ai] 绑定在就可用，正常情况下走不到这里
@@ -5040,7 +5063,7 @@ app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async
   const u = c.get('user') as any
   // 【v4.15.0】测试连接也是一次真实计费调用 → 一并记账（scene='conn_test'），
   //   否则超管测试几次的消耗在后台查不到，用量对不上账。
-  const env = await aiEnv({ id: u.id, name: u.real_name || u.username }, 'conn_test')
+  const env = await aiEnv({ id: u.id, name: await aiActorName(u) }, 'conn_test')
   if (!aiAvailable(env)) {
     return c.json({ ok: false, message: 'AI 服务不可用：未绑定 Workers AI，且未配置智谱 Key' })
   }
