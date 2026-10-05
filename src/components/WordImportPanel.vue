@@ -10,6 +10,9 @@ import { ElMessage } from 'element-plus'
 import { mergeContent, restoreImages } from '@shared/ai-paper'
 // 【v4.13.2】题号剥离（与「原卷编辑」入口共用同一实现，保证两条路径结果一致）
 import { stripQuestionNumber } from '@/utils/question-number'
+// 【v4.14.0】题干 HTML → Markdown 统一收敛（与「原卷编辑」入口共用一份实现，铁律#11）：
+//   右侧编辑器编辑区只认 Markdown，直接存 HTML 会导致「编辑框显示源码、图片不显示」。
+import { toMarkdownContent } from '@/utils/paper-content'
 
 const props = defineProps<{ subjectId: number }>()
 const emit = defineEmits<{ (e: 'imported'): void }>()
@@ -210,7 +213,8 @@ function parseBlock(raw: string) {
     // 【v4.13.2】剥掉题干开头的题号（「1.」「一、」），与「原卷编辑」入口行为一致
     //   （用户需求：「切完题后自动把序号去除，小题的不要去」）。
     //   小问号 `(1)` `①` 保留 —— 判据见 @/utils/question-number。
-    content: stripQuestionNumber(raw),
+    // 【v4.14.0】再统一收敛为 Markdown（图片转 `![](url)`，编辑框才显示得出图）。
+    content: toMarkdownContent(stripQuestionNumber(raw)),
     options: (qtype === 'single' || qtype === 'multiple' || qtype === 'judge') ? opts : [],
     answer: answer.trim(),
     analysis: '',
@@ -328,7 +332,11 @@ async function aiRecognize() {
       const orig = idx >= 0 ? String(preview.value[idx].content || '') : ''
       return {
         qtype: q.qtype || 'subjective',
-        content: orig ? mergeContent(orig, q.content || '', r.images || {}) : restoreImages(q.content || '', r.images || {}),
+        // 【v4.14.0】mergeContent 返回原卷 HTML / restoreImages 返回 HTML，
+        //   统一收敛为 Markdown 再交给编辑器（否则编辑框显示源码、看不到图）。
+        content: toMarkdownContent(
+          orig ? mergeContent(orig, q.content || '', r.images || {}) : restoreImages(q.content || '', r.images || {})
+        ),
         options: q.options || [],
         answer: q.answer || '',
         analysis: q.analysis || '',

@@ -19,7 +19,10 @@ import { api } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import QuestionForm from '@/components/QuestionForm.vue'
 import { renderMarkdown } from '@/utils/markdown'
-import { htmlToMarkdown } from '@/utils/html-to-md'
+// 【v4.14.0】题干 HTML → Markdown 的统一收敛（与快速导入共用一份实现，铁律#11）：
+//   右侧 QuestionForm → MarkdownEditor 的编辑区是 textarea，只认 Markdown；
+//   直接塞 HTML 会让用户看到 `<img src=...>` 源码而非图片（「右侧编辑框没图」）。
+import { toMarkdownContent } from '@/utils/paper-content'
 // 【v4.13.1】题干合并用共享实现（与后端同一份，铁律#11）：
 //   保证「原卷 HTML 为准、AI 只补元数据」，表格/图片不被 AI 的纯文本覆盖掉。
 import { mergeContent, restoreImages } from '@shared/ai-paper'
@@ -112,6 +115,25 @@ const saving = ref(false)
 
 // ===== 分割线拖拽 =====
 const dragging = ref<number | null>(null)
+/**
+ * 【v4.14.0】拖动中的分割线「实时跟随鼠标 Y」的预览位置（相对叠加层容器 px）。
+ *
+ * 【为什么需要】旧实现拖动时只把 `hoverBlockIdx` 高亮目标块、**线条本身不动**，
+ *   用户感觉「拖了线却不动 / 不跟手」。现在拖拽期间把当前这条线的 top
+ *   替换成鼠标位置，松手吸附后再由 `layoutOverlay()` 重算真实位置。
+ */
+const dragPreviewTop = ref<number | null>(null)
+
+// ===== 【v4.14.0】左右分栏宽度拖动 =====
+//   用户需求：「左右两栏之间的竖线可以拖动调整宽度」。
+//   旧布局是写死的 `1fr 1fr`（各 50%），中间没有可拖的分隔条。
+//   ⚠️ 声明必须在模板引用之前（TDZ 铁律），故与 dragging 放一起。
+const COL_KEY = 'zs-split-left-pct'
+const leftPct = ref(Number(localStorage.getItem(COL_KEY)) || 50)
+const colDragging = ref(false)
+let colStartX = 0
+let colStartPct = 50
+let colContainer: HTMLElement | null = null
 
 // ===== 题型识别（与 WordImportPanel 同一套规则，保持行为一致）=====
 // 【v4.13.6 修正 · 选项判据覆盖全形态】
@@ -489,7 +511,9 @@ function inferDraft(html: string, typeHint = ''): DraftQuestion {
     //   小题的不要去」）。判据见 `@/utils/question-number`：
     //   · 去：`1.` `1、` `一、` `（一）` `第1部分` `第Ⅰ卷`
     //   · 不去：`(1)` `①` 这类小问号（解答题里极常见，误删会永久丢信息）
-    content: stripQuestionNumber(stripOptionsFromHtml(html)),
+    // 【v4.14.0】题干 HTML → Markdown 收敛 —— 让右侧编辑框能正确显示图片
+    //   （MarkdownEditor 编辑区只认 Markdown，塞 HTML 会显示源码文本）。
+    content: toMarkdownContent(stripQuestionNumber(stripOptionsFromHtml(html))),
     options: opts,
     answer: answer.trim(),
     // analysis 只来自明确的「解析/答案解析」行，避免杂项文字污染解析栏
@@ -659,6 +683,18 @@ function innerSplitByBr(el: HTMLElement): { html: string; text: string }[] {
  *   现只认「数字 + 点/顿号」，与 `MINOR_RE` 判据统一：**括号 = 小问，不切**。
  */
 function splitSoftLines(el: HTMLElement): { html: string; text: string }[] | null {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 【v4.14.0 修正 · 「仍然丢图片」的根源之一】
+  //
+  // 本函数用 `el.textContent` 拿纯文本、再用 `escapeHtml()` **重建**段落 HTML。
+  // 这会把该段里所有 `<img>` / `<table>` / 公式 / 视频**彻底丢掉** ——
+  // 一段若同时含「插图 + 多个题号」，软换行切分后图就没了（用户反馈的「丢图片」）。
+  //
+  // 修法：**含媒体元素的段一律放弃软换行切分**，原样作为一个块（图留在题里）。
+  //   含图的段通常是一道题内嵌图，强行切分必然把图判给错的题 —— 宁可不切。
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (el.querySelector('img, table, svg, video, math'))
+    return null
   const raw = el.textContent || ''
   if (raw.length < 30) return null
   // 匹配「空白 + 题号」的位置（题号：**仅** `1.` `2、` 这类数字+点/顿号）
@@ -769,10 +805,32 @@ function dropSectionTitleBoundaries(
   return kept.length >= 2 ? kept : bnd
 }
 
+/**
+ * 媒体块判定（v4.14.0）：图片 / 表格为主、几乎无文字的块。
+ *
+ * 这类块**不能作为题目切点** —— 否则会把图判给它**后面**那道题
+ * （用户反馈的「切题后图片跑到别的题里」）。题图应归属它前面那道题。
+ */
+function isMediaBlock(b: Block): boolean {
+  const t = (b.text || '').replace(/[\s\u00a0\u3000]/g, '')
+  return /<img|<table/i.test(b.html) && t.length <= 4
+}
+
 function autoSplit(bs: Block[]): number[] {
   const cuts = new Map<number, CutSource>()
 
   bs.forEach((b, i) => {
+    // ══════════════════════════════════════════════════════════════════════════
+    // 【v4.14.0 修正 · 「图片跑到别的题里」】
+    //
+    // 媒体块（图片/表格为主、几乎没有文字）**绝不允许成为题目切点**。
+    //   · 若在图片块处切一刀，图片就被划给了**下一道题** → 用户看到
+    //     「切题后图片跑到别的题里」；
+    //   · 题图天然属于它**前面**那道题，故这里直接 return（不产生切点），
+    //     图片块随后自动并入前一道题的区间 `[b[i], b[i+1])`。
+    // ══════════════════════════════════════════════════════════════════════════
+    if (isMediaBlock(b)) return
+
     const line = (b.text.split('\n')[0] || '').trim()
     if (!line) return
 
@@ -873,7 +931,11 @@ function autoSplit(bs: Block[]): number[] {
     // 每 ~6 块切一题（一题通常 1~8 块），至少 2 题、至多 40 题
     const perQ = Math.max(1, Math.min(6, Math.ceil(total / 20)))
     list = [0]
-    for (let i = perQ; i < total; i += perQ) { list.push(i); cuts.set(i, 'fallback') }
+    for (let i = perQ; i < total; i += perQ) {
+      // 【v4.14.0】兜底均分也要避开媒体块（否则图被切给下一题）
+      if (isMediaBlock(bs[i])) continue
+      list.push(i); cuts.set(i, 'fallback')
+    }
     list.push(total)
   }
 
@@ -1584,13 +1646,17 @@ async function aiRecognize() {
         return base
       }
       const mergedContent = mergeContent(orig, aiQ.content || '', r.images || {})
+      // 【v4.14.0】mergeContent 返回的是**原卷 HTML**（含 table/img），
+      //   这里统一收敛为 Markdown 再交给右侧编辑器 —— 否则 AI 路径又会退回
+      //   「编辑框显示 HTML 源码、图片不显示」的老问题。
+      const mergedMd = toMarkdownContent(mergedContent)
       // 原卷切出来的草稿里已经带了规则识别的答案/解析（常为空或不准），
       // 优先采用 AI 的；AI 没给就保留规则结果，避免"AI 一跑反而更空"。
       const aiAnswer = String(aiQ.answer || '').trim()
       const aiAnalysis = String(aiQ.analysis || '').trim()
       return {
         qtype: aiQ.qtype || base.qtype || 'subjective',
-        content: mergedContent,
+        content: mergedMd,
         // 选项：AI 与规则各给一份，取"内容更多"的那份（AI 常更准，但偶尔会漏）
         options: (aiQ.options?.length >= (base.options?.length || 0)) ? aiQ.options : base.options,
         answer: aiAnswer || base.answer,
@@ -1796,7 +1862,9 @@ function refreshFingerprints() {
  */
 
 /** 距分割线多少 px 以内算「抓到了这条线」 */
-const LINE_HOT_Y = 12
+// 【v4.14.0】12 → 18：热区太小是「拖动过于不灵敏」的主因之一
+//   （用户几乎必须精确点在 2px 高的横线上）。放宽后「在分割线附近按下去」即可起拖。
+const LINE_HOT_Y = 18
 
 /**
  * 叠加层统一 mousedown 代理。
@@ -1845,20 +1913,25 @@ function onSplitMouseDown(i: number, e: MouseEvent) {
 }
 
 /**
- * 【v4.9.1】4px 位移阈值。
+ * 【v4.9.1 / v4.14.0】位移阈值。
  *
  * 为什么需要：mousedown 之后用户可能只是「点了一下」就松手（没打算拖）。
  * 若没有阈值，这一点会被当成「拖到当前位置」→ 分割线被移动到自己身上，
  * 用户看到的是「莫名其妙跳了一下」。
- * 加阈值后：位移 < 4px 视为点击，什么都不做。
+ * 【v4.14.0】4px → 3px：阈值越小越跟手（旧值让轻拖"没反应"，用户觉得不灵敏）。
+ * 仍保留阈值以区分「点击」与「拖动」。
  */
 let dragStartY = 0
 let dragMoved = false
 
 function onDragMove(e: MouseEvent) {
   if (dragging.value === null) return
-  if (!dragMoved && Math.abs(e.clientY - dragStartY) < 4) return
+  if (!dragMoved && Math.abs(e.clientY - dragStartY) < 3) return
   dragMoved = true
+  // 【v4.14.0】让拖动中的分割线**实时跟随鼠标**（相对叠加层容器），
+  //   解决「拖了线却不动 / 不跟手」——旧实现只高亮目标块，线本身不动。
+  const ovRect = overlayRef.value?.getBoundingClientRect()
+  if (ovRect) dragPreviewTop.value = e.clientY - ovRect.top
   // 命中原卷里带标注的块
   const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
   const host = el?.closest(`[${BLOCK_IDX_ATTR}]`) as HTMLElement | null
@@ -1894,7 +1967,9 @@ function onDragEnd(e?: MouseEvent) {
   hoverBlockIdx.value = null
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
-  // 位移不足 4px → 视为「点了一下把手」，不改变任何东西
+  // 【v4.14.0】清除拖动跟随预览（吸附后由 layoutOverlay 重算真实位置）
+  dragPreviewTop.value = null
+  // 位移不足阈值 → 视为「点了一下把手」，不改变任何东西
   if (!dragMoved) { pendingDragTarget = null; dragMoved = false; return }
   dragMoved = false
   if (i === null) { pendingDragTarget = null; return }
@@ -1941,6 +2016,36 @@ function onMarkClick(i: number) {
   // 点线身 = 删除该分割线（= 与下一题合并）；首尾不可删
   if (i <= 0 || i >= boundaries.value.length - 1) return
   removeSplit(i)
+}
+
+// ===== 【v4.14.0】左右分栏宽度拖动 =====
+function onColDown(e: MouseEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  colDragging.value = true
+  colStartX = e.clientX
+  colStartPct = leftPct.value
+  // 记下容器引用（拖动中鼠标可能在任何位置，用记录的元素比 e.target.closest 更稳）
+  colContainer = (e.currentTarget as HTMLElement)?.closest('.zs-split') as HTMLElement | null
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', onColMove)
+  window.addEventListener('mouseup', onColUp)
+}
+function onColMove(e: MouseEvent) {
+  if (!colDragging.value) return
+  const w = colContainer?.getBoundingClientRect().width || window.innerWidth
+  const deltaPct = ((e.clientX - colStartX) / w) * 100
+  // 夹在 25%~75%，避免把任一侧拖没
+  leftPct.value = Math.min(75, Math.max(25, colStartPct + deltaPct))
+}
+function onColUp() {
+  if (!colDragging.value) return
+  colDragging.value = false
+  document.body.style.userSelect = ''
+  window.removeEventListener('mousemove', onColMove)
+  window.removeEventListener('mouseup', onColUp)
+  // 仅在松手时写盘，避免每帧写 localStorage
+  try { localStorage.setItem(COL_KEY, String(Math.round(leftPct.value))) } catch { /* 隐私模式忽略 */ }
 }
 
 // ===== 网站渲染视图（实时跟随右侧编辑）=====
@@ -2017,8 +2122,8 @@ async function renderSitePreview() {
       sitePreviewHtml.value = chunks.value.map((c, i) => {
         const d = drafts.value[i]
         const body = d?.content || c.html
-        const md = /<[a-z][^>]*>/i.test(body) ? htmlToMarkdown(body) : body
-        return renderMarkdown(md || '')
+        // 【v4.14.0】统一走 toMarkdownContent（一份实现，避免判据漂移）
+        return renderMarkdown(toMarkdownContent(body) || '')
       })
     }
   } finally {
@@ -2116,6 +2221,10 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
   window.removeEventListener('resize', onResize)
+  // 【v4.14.0】分栏拖动若在拖拽中被卸载，清掉监听与全局样式
+  window.removeEventListener('mousemove', onColMove)
+  window.removeEventListener('mouseup', onColUp)
+  document.body.style.userSelect = ''
   paneObserver?.disconnect()
   paneObserver = null
   // 【v4.13.3】秒表必须在卸载时清掉，否则组件销毁后 setInterval 仍持有引用
@@ -2139,7 +2248,8 @@ onUnmounted(() => {
     </div>
 
     <!-- ② 分栏编辑 -->
-    <div v-else class="zs-split">
+    <!-- 【v4.14.0】左右宽度可拖：--zs-left-pct 控制左栏百分比，中间是可拖分隔条 -->
+    <div v-else class="zs-split" :style="{ '--zs-left-pct': leftPct + '%' }">
       <!-- 左：原卷 -->
       <div class="zs-left">
         <div class="zs-left-bar">
@@ -2212,7 +2322,7 @@ onUnmounted(() => {
                 :key="m.bi"
                 class="zs-mark"
                 :class="{ dragging: dragging === m.bi, locked: !m.draggable }"
-                :style="{ top: m.top + 'px' }"
+                :style="{ top: ((dragging === m.bi && dragPreviewTop !== null ? dragPreviewTop : m.top)) + 'px' }"
                 :data-split-index="m.bi"
               >
                 <span class="zs-mark-badge">{{ m.bi === 0 ? '开始' : (m.bi === boundaries.length - 1 ? '结束' : '第 ' + m.bi + ' 题 ▸') }}</span>
@@ -2271,6 +2381,14 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- 【v4.14.0】左右分栏拖动条：按住左右拖可调整两栏宽度（比例记忆到本地） -->
+      <div
+        class="zs-divider"
+        :class="{ active: colDragging }"
+        title="拖动调整左右两栏宽度"
+        @mousedown="onColDown"
+      ><span class="zs-divider-dots">⋮</span></div>
+
       <!-- 右：题目编辑（与「添加题目」完全同一个表单/编辑器）-->
       <div class="zs-right">
         <div class="zs-right-bar">
@@ -2323,8 +2441,26 @@ onUnmounted(() => {
 .zs-progress-sec { margin-left: 8px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 /* ---- 分栏 ---- */
-.zs-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
-@media (max-width: 1100px) { .zs-split { grid-template-columns: 1fr; } }
+/* 【v4.14.0】三列栅格：左栏（--zs-left-pct 控制百分比）+ 可拖分隔条 10px + 右栏自适应。
+   minmax 下限防止把任一侧拖没（左 ≥240px、右 ≥320px）。 */
+.zs-split {
+  display: grid;
+  grid-template-columns: minmax(240px, var(--zs-left-pct, 50%)) 10px minmax(320px, 1fr);
+  gap: 0; align-items: start;
+}
+/* 分栏拖动条 */
+.zs-divider {
+  cursor: col-resize; user-select: none; align-self: stretch; margin: 0 1px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; color: var(--zg-text-dim, #cbd5e1); transition: background .15s, color .15s;
+}
+.zs-divider:hover, .zs-divider.active { background: rgba(var(--zg-primary-rgb, 245,158,11), 0.16); color: var(--zg-primary, #f59e0b); }
+.zs-divider-dots { font-size: 16px; line-height: 1; pointer-events: none; }
+@media (max-width: 1100px) {
+  /* 移动端：单列堆叠，分隔条隐藏（拖宽无意义） */
+  .zs-split { grid-template-columns: 1fr; gap: 12px; }
+  .zs-divider { display: none; }
+}
 
 .zs-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .zs-left-bar, .zs-right-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -2363,15 +2499,15 @@ onUnmounted(() => {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   white-space: nowrap; pointer-events: none; opacity: .92;
 }
-/* 横线：2px 太细，用 ::after 上下各扩 7px 热区（视觉不变，手感大幅提升） */
+/* 横线：2px 太细，用 ::after 上下各扩 10px 热区（v4.14.0：7→10，解决"拖动不灵敏"） */
 .zs-mark-line {
   flex: 1 1 auto; position: relative; height: 2px; transform: translateY(-50%);
   background: repeating-linear-gradient(to right, var(--zg-primary, #f59e0b) 0 8px, transparent 8px 14px);
   cursor: pointer; pointer-events: auto; opacity: .75;
 }
-.zs-mark-line::after { content: ''; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }
+.zs-mark-line::after { content: ''; position: absolute; left: 0; right: 0; top: -10px; bottom: -10px; }
 .zs-mark-line:hover { opacity: 1; height: 3px; }
-/* 把手：同样用 ::after 四周扩 6px（16px 的图标在快速拖动下很难精确命中） */
+/* 把手：同样用 ::after 四周扩 9px（v4.14.0：6→9，16px 的图标在快速拖动下很难精确命中） */
 .zs-mark-grip {
   flex: 0 0 auto; position: relative; transform: translateY(-50%);
   pointer-events: auto; cursor: grab; user-select: none;
@@ -2379,10 +2515,12 @@ onUnmounted(() => {
   border-radius: 5px; padding: 0 4px; font-size: 12px; line-height: 16px;
   box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
-.zs-mark-grip::after { content: ''; position: absolute; inset: -6px; }
+.zs-mark-grip::after { content: ''; position: absolute; inset: -9px; }
 .zs-mark-grip:active { cursor: grabbing; }
 .zs-mark.locked .zs-mark-grip { cursor: not-allowed; opacity: .45; }
-.zs-mark.dragging .zs-mark-line { height: 3px; opacity: 1; background: #ef4444; }
+/* 【v4.14.0】拖动中的线置顶 + 阴影，配合"实时跟随鼠标"让拖拽更跟手、更醒目 */
+.zs-mark.dragging { z-index: 30; }
+.zs-mark.dragging .zs-mark-line { height: 3px; opacity: 1; background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.5); }
 .zs-mark.dragging .zs-mark-badge { background: #ef4444; }
 .zs-mark-btns { pointer-events: auto; transform: translateY(-50%); }
 .zs-hover-hint {

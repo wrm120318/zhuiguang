@@ -61,12 +61,14 @@ class El {
   }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null }
   querySelectorAll(sel) {
-    const want = sel.trim().toLowerCase()
+    // 【v4.14.0】支持逗号分隔的选择器（如 'img, table, svg, video, math'），
+    //   因为 splitSoftLines 的媒体守卫用了多标签选择器。
+    const wants = sel.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
     const out = []
     const walk = (n) => {
       n.childNodes.forEach(c => {
         if (c.nodeType === 3) return
-        if (c.tagName.toLowerCase() === want) out.push(c)
+        if (wants.includes(c.tagName.toLowerCase())) out.push(c)
         walk(c)
       })
     }
@@ -116,7 +118,10 @@ function parseHtmlToShim(html) {
     const el = new El(name, attrObj)
     el.nodeType = 1
     stack[stack.length - 1].childNodes.push(el)
-    if (name !== 'br' && !selfClose) stack.push(el)
+    // 【v4.14.0】void 元素（img/br/hr 等）按自闭合处理 —— 否则 <img> 会把后续兄弟
+    //   节点吞成自己的子节点（如 <img>2. 第二题</img>），导致媒体块判定失真。
+    const VOID = new Set(['br', 'img', 'hr', 'input', 'meta', 'link', 'source'])
+    if (!VOID.has(name) && !selfClose) stack.push(el)
   }
   return body
 }
@@ -182,15 +187,16 @@ ${toJs(sliceFn('dropSectionTitleBoundaries'))}
 ${toJs(sliceFn('splitIntoBlocks'))}
 ${toJs(sliceFn('innerSplitByBr'))}
 ${toJs(sliceFn('splitSoftLines'))}
+${toJs(sliceFn('isMediaBlock'))}
 ${toJs(sliceFn('autoSplit'))}
 const cutSources = { value: new Map() }
 ${toJs(sliceFn('normForMatch'))}
 ${toJs(sliceFn('similarity'))}
 const MATCH_MIN = 0.34
-export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, OPT_LINE_RE, cutSources }
+export { splitIntoBlocks, autoSplit, similarity, normForMatch, MAJOR_RE, MINOR_RE, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, dropSectionTitleBoundaries, isMediaBlock, OPT_LINE_RE, cutSources }
 `
 const mod = await import('data:text/javascript;base64,' + Buffer.from(sandboxSrc).toString('base64'))
-const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries } = mod
+const { splitIntoBlocks, autoSplit, similarity, normForMatch, SUBQ_RE, isSubQuestion, isSectionTitleOnly, isAnswerKeyStart, isPaperTitleOnly, sectionTypeHint, MAJOR_RE, MINOR_RE, dropSectionTitleBoundaries, isMediaBlock } = mod
 
 // ───────────────────────────────────────────────────────────────────────────
 console.log('=== 1. 段落内按 <br> 下钻（上一版最大的缺口：一段多题切不开）===')
@@ -434,7 +440,7 @@ ok('有秒表 busySeconds（让用户看到"进度在动"）',
   /const busySeconds = ref\(0\)/.test(src) && /setInterval\(\(\) => \{ busySeconds\.value\+\+ \}, 1000\)/.test(src))
 ok('短操作不闪烁：>1 秒才显示秒数', /busySeconds > 1/.test(src))
 ok('卸载时清理秒表（不留 setInterval 悬引）',
-  /onUnmounted[\s\S]{0,400}clearInterval\(busyTimer\)/.test(src))
+  /onUnmounted[\s\S]{0,700}clearInterval\(busyTimer\)/.test(src))
 
 console.log('\n=== 8f. 端到端：一份真实排版的卷子走完全链路 ===')// 模拟 mammoth 产出的 HTML（顶层 <p> 各自成块），覆盖三种大题：
 //   一、选择题 → 单选；二、填空题 → 填空；三、解答题 → 主观（含小问不切）
@@ -836,6 +842,40 @@ console.log('\n=== 8i. 【v4.13.4】卷名不得单独成题 / 卷尾答案区�
 
   ok('最后一题的题干不含「参考答案」四字',
     !/参考答案/.test(simBlocks.slice(simBnd[simBnd.length - 2], simBnd[simBnd.length - 1]).map(b => b.text).join('')))
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+console.log('\n=== 8j. 【v4.14.0】丢图修复 + 题干 HTML→Markdown 收敛 ===')
+{
+  // C-1 splitSoftLines 媒体守卫：含 img 的段禁止软换行切分（否则图被丢）
+  const imgPara = `<p>1. 如图 <img src="data:image/png;base64,AAAA"> 2. 见图 <img src="x.png"></p>`
+  const blk = splitIntoBlocks(imgPara)
+  // 该段含 img → splitSoftLines 应返回 null，整段作为 1 块（不切成 2 块）
+  ok('⚠️ 含 <img> 的段不被软换行切分（图片不丢）', blk.length === 1, `实际 ${blk.length} 块`)
+  ok('⚠️ 含 img 的块保留了 <img> 标签', /<img/i.test(blk[0]?.html || ''))
+
+  // C-2 isMediaBlock：图片块判定
+  ok('isMediaBlock：纯图片块 → true',
+    isMediaBlock({ html: `<p><img src="a.png"></p>`, text: '' }) === true)
+  ok('isMediaBlock：图片+长文字块 → false',
+    isMediaBlock({ html: `<p><img src="a.png">下列正确的是</p>`, text: '下列正确的是' }) === false)
+  ok('isMediaBlock：纯文字块 → false',
+    isMediaBlock({ html: `<p>1. 计算</p>`, text: '1. 计算' }) === false)
+
+  // C-2 媒体块不成切点：图片块归属前一道题
+  const paperWithImg = `<p>1. 第一题</p><p><img src="a.png"></p><p>2. 第二题</p>`
+  const bnd = autoSplit(splitIntoBlocks(paperWithImg))
+  const bset = new Set(bnd)
+  ok('⚠️ 媒体块（下标1）不出现在切点里（图归属前一题）', !bset.has(1), `边界=${JSON.stringify(bnd)}`)
+
+  // B toMarkdownContent：源码接线断言（纯函数依赖 document，这里验证三处接入 + 共享模块存在）
+  ok('⚠️ inferDraft 的 content 走 toMarkdownContent', /content: toMarkdownContent\(stripQuestionNumber/.test(src))
+  ok('⚠️ AI 路径的 content 走 toMarkdownContent', /toMarkdownContent\(mergedContent\)/.test(src))
+  ok('⚠️ renderSitePreview 降级分支走 toMarkdownContent', /renderMarkdown\(toMarkdownContent\(body\)/.test(src))
+  ok('⚠️ 共享模块 paper-content.ts 存在且导出 toMarkdownContent',
+    readFileSync(`${ROOT}/src/utils/paper-content.ts`, 'utf8').includes('export function toMarkdownContent'))
+  ok('⚠️ WordImportPanel 同步接入 toMarkdownContent',
+    readFileSync(`${ROOT}/src/components/WordImportPanel.vue`, 'utf8').includes('toMarkdownContent('))
 }
 
 console.log(`\n${'─'.repeat(52)}`)
