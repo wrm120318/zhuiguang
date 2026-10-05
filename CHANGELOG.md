@@ -5,6 +5,29 @@
 
 ---
 
+## [v4.14.0] - 2026-10-05
+
+### 主题：Word 导入原卷编辑——左右分栏可拖 + 拖动跟手 + 图片不丢
+
+> 用户原话：「word导入规则识别时 左边拖动分割线 右边不跟着动 而且仍然丢图片 拖动过于不灵敏 功能极为不完善」
+
+### 修改
+
+- **左右分栏宽度可拖**：原布局是写死的 `grid-template-columns: 1fr 1fr`（各 50%），中间无可拖分隔条。现改为三列栅格 + `--zs-left-pct` 变量控制左栏百分比，中间插入可拖的 `.zs-divider` 竖条；拖动范围夹在 25%~75%，比例记忆到 `localStorage`（`zs-split-left-pct`）；<1100px 单列降级时隐藏分隔条。
+- **丢图片修复（两处根源）**：
+  - `splitSoftLines()` 原用 `el.textContent` + `escapeHtml` **重建**段落 HTML，会把段内 `<img>`/`<table>`/公式**彻底丢掉**（一段含「插图+多题号」时图消失）。现加媒体守卫：含 `img/table/svg/video/math` 的段**放弃软换行切分**，整段保留。
+  - `autoSplit()` 新增 `isMediaBlock()` 判定，**媒体块永不成为题目切点**（题图归属它前面那道题），修复「切题后图片跑到别的题里」；L4 兜底均分同步避开媒体块。
+- **右侧编辑框不显示图修复（格式统一）**：题干原为 **HTML**，直接塞进 `QuestionForm` → `MarkdownEditor`（编辑区是 textarea）→ 用户只看到 `<img src=...>` 源码文本。现新增共享模块 `src/utils/paper-content.ts` 的 `toMarkdownContent()`（`looksLikeHtml ? htmlToMarkdown : 原样`，幂等），**统一收敛为全站标准的 Markdown**，接入 3 处：`inferDraft`、AI 识别路径（`mergeContent` 出口）、`renderSitePreview` 降级分支；并同步 `WordImportPanel.vue`（快速导入入口，铁律#11 一份实现）。图片转成 `![](url)`，data URL 与真实 URL 均保留。
+- **拖动灵敏度提升**：热区 `LINE_HOT_Y` 12→18px、`.zs-mark-line::after` 扩到 ±10px、`.zs-mark-grip::after` 扩到 9px；位移阈值 4→3px；拖动期间新增 `dragPreviewTop` 让**分割线实时跟随鼠标 Y**（旧实现线本身不动，只高亮目标块 → 「拖了线却不动/不跟手」）；`.zs-mark.dragging` 提升 `z-index` 与阴影。
+
+### 验证
+
+- `vue-tsc --noEmit && vite build` 通过（0 类型错误）。
+- `node scripts/probe-split-editor.mjs` **182 项全过 / 0 失败**，新增 8j 节覆盖：含 `<img>` 段不被软换行切分、`isMediaBlock` 判据（纯图/图文/纯文字）、媒体块不出现在切点、`toMarkdownContent` 三处接入 + 共享模块存在 + WordImportPanel 同步。同步修正探针 DOM shim：void 元素（`img/br/hr`）按自闭合解析（此前 `<img>` 会吞掉后续兄弟节点导致误判）。
+- 前端已推送（Pages 自动构建）。
+
+---
+
 ## [v4.13.8] - 2026-10-04
 
 ### 主题：超管 AI 设置——模型选择更丰富 + 高级参数自定义（免费范围内）
