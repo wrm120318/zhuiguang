@@ -321,7 +321,12 @@ async function aiRecognize() {
     if (!text.trim()) { ElMessage.warning('请先上传 Word 文件'); return }
     const r: any = await api.aiParsePaper({ text, html, subjectId: props.subjectId })
     if (!r?.ok || !r.questions?.length) {
-      ElMessage.warning(`AI 识别未生效${r?.available === false ? '（AI 服务不可用）' : ''}，已保留规则识别结果`)
+      // 【v4.15.0】额度耗尽要单独说清楚：重试无意义，需去后台换模型/等重置
+      if (r?.quotaExhausted) {
+        ElMessage.error({ message: '今日 AI 额度已耗尽（账号级共享，每日北京时间 8 点重置）。可在「管理后台 → AI 设置」切换到更省额度的模型。', duration: 7000 })
+      } else {
+        ElMessage.warning(`AI 识别未生效${r?.available === false ? '（AI 服务不可用）' : ''}，已保留规则识别结果`)
+      }
       return
     }
     // 【v4.13.1】题干以**原卷 HTML 为准**（含 table/img），AI 只补元数据；

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api'
+// 【v4.15.0】模型清单改为从共享层 import —— 单一数据源，杜绝前后端漂移（铁律#11）
+import { CF_MODEL_CHOICES, CF_FREE_DAILY_NEURONS, BUDGET_MODEL_CF } from '@shared/ai-paper'
 
 // ============================================================================
 // 【v4.13.0】AI 设置
@@ -35,27 +37,17 @@ const PROVIDERS = [
 ]
 
 /**
- * CF 候选模型（与 shared/ai-paper.ts 的 CF_MODEL_CHOICES 保持内容一致）。
- * tag：free=免费档可用 / heavy=免费但耗量偏高 / paid=官方标需付费计费（以测试连接实测为准）。
- * 两个下拉均支持「直接粘贴任意 @cf/... 模型 ID」（filterable + allow-create），
- * 所以这里没收录的模型也能用。
+ * CF 候选模型（与 shared/ai-paper.ts 的 CF_MODEL_CHOICES **内容一致**。
+ *
+ * 【v4.15.0 改为直接复用共享层常量】
+ *   以前这里手抄一份，两处必然漂移（用户就报过"下拉里的模型实际不存在"）。
+ *   现在改成 import —— 单一数据源，再也不会不一致（铁律#11）。
+ *
+ * tag：free=免费档可用 / heavy=耗量偏高 / paid=官方标需付费计费
+ * price：官方单价（USD / 百万 token），来自 CF models/search 接口实测值。
  */
-const CF_MODELS = [
-  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 最省神经元）', tag: 'free' as const },
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）', tag: 'free' as const },
-  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 多模态 · 10M 上下文）', tag: 'free' as const },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）', tag: 'heavy' as const },
-  { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', label: 'Llama-3.1-8B（最轻量 · 省神经元）', tag: 'free' as const },
-  { id: '@cf/meta/llama-3.2-11b-vision-instruct', label: 'Llama-3.2-11B-Vision（看图 · 适合含图试卷）', tag: 'free' as const },
-  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 中文/JSON 强）', tag: 'free' as const },
-  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（公式/代码强）', tag: 'heavy' as const },
-  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强）', tag: 'heavy' as const },
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）', tag: 'heavy' as const },
-  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B', tag: 'heavy' as const },
-  { id: '@cf/mistral/mistral-7b-instruct-v0.2', label: 'Mistral-7B-v0.2（轻量）', tag: 'free' as const },
-  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文）', tag: 'heavy' as const },
-  { id: '@cf/google/gemma-3-12b-it', label: 'Gemma-3-12B', tag: 'free' as const },
-]
+const CF_MODELS = CF_MODEL_CHOICES
+
 /** 计算标签样式：免费=绿 / 耗量大=橙 / 可能需付费=黄 */
 function tagType(t: string): 'success' | 'warning' | 'info' {
   if (t === 'free') return 'success'
@@ -64,6 +56,12 @@ function tagType(t: string): 'success' | 'warning' | 'info' {
 }
 function tagText(t: string): string {
   return t === 'free' ? '免费' : t === 'heavy' ? '耗量大' : '可能需付费'
+}
+
+/** 把单价格式化成紧凑文本，缺价显示占位 */
+function priceText(m: { price?: { in: number; out: number } }): string {
+  if (!m.price) return ''
+  return `$${m.price.in}/$${m.price.out}`
 }
 
 const form = ref({
@@ -95,7 +93,12 @@ const effectiveText = computed(() => {
   return e ? providerLabel[e] || e : '无可用通道'
 })
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 【v4.15.0】用量与额度独立加载：即便它失败也不应阻塞配置区展示
+  loadUsage()
+  loadCfQuota()
+})
 
 async function load() {
   loading.value = true
@@ -159,6 +162,160 @@ function clearKey() {
   form.value.zhipuKey = ''
   ElMessage.info('已清空输入框；点击「保存设置」后将移除已配置的智谱 Key')
 }
+
+// ============================================================================
+// 【v4.15.0】用量与额度
+// ============================================================================
+//
+// 【为什么必须做这块】
+//   用户原话：「我今天用都没用 AI，但是居然一直提示我用量耗尽！！！
+//              给我在超级管理员后台 AI 设置里面加上剩余用量 和 使用记录」。
+//
+//   查证（2026-10-05，直连 Cloudflare 拿到的真实数据）：
+//     · 10-03  28 次请求 /  887.0 神经元
+//     · 10-04 132 次请求 / 10633.7 神经元  ← 超额度（10000）
+//     · 10-05 120 次请求 /    0.0 神经元  ← 全部被拒（额度未回血）
+//   三个根因，缺一个都解释不了用户看到的现象：
+//     ① 额度是**账户级**共享，不是每人 1 万 —— 别人用也算在你头上
+//     ② 额度耗尽后旧代码当"频率限制"重试 → 一次识别打 9 次注定失败的请求
+//     ③ 界面上**看不到今天还剩多少** → 用户只能靠报错反推，无从判断
+//   本区块解决③，并顺带把①②的证据（失败记录、配额事件）摊开给超管看。
+// ============================================================================
+
+const usageLoading = ref(false)
+const usage = ref<any>(null)
+/** Cloudflare 账户级真实额度（直连 CF 查询，可能与本地记账有差额） */
+const cfQuota = ref<any>(null)
+const usageDays = ref(14)
+/** 明细筛选 */
+const logFilter = ref<{ ok: '' | 0 | 1; model: string; scene: string }>({ ok: '', model: '', scene: '' })
+const logPage = ref(1)
+
+/** 额度进度条颜色：<60% 绿 / <90% 橙 / ≥90% 红 */
+const quotaStatus = computed<'success' | 'warning' | 'exception'>(() => {
+  const p = usage.value?.quota?.percent ?? 0
+  if (p >= 90) return 'exception'
+  if (p >= 60) return 'warning'
+  return 'success'
+})
+
+/** 额度是否已耗尽（本地记账口径 或 CF 口径任一命中即算） */
+const quotaExhausted = computed(() =>
+  !!usage.value?.quota?.exhausted || !!cfQuota.value?.exhausted
+)
+
+/** 当前主力模型是不是已经是最省的了（不是才提示可优化） */
+const modelIsBudget = computed(() => (usage.value?.currentModel || form.value.modelCf) === BUDGET_MODEL_CF)
+
+async function loadUsage() {
+  usageLoading.value = true
+  try {
+    const params: any = { days: usageDays.value, limit: 20, page: logPage.value }
+    if (logFilter.value.ok !== '') params.ok = logFilter.value.ok
+    if (logFilter.value.model) params.model = logFilter.value.model
+    if (logFilter.value.scene) params.scene = logFilter.value.scene
+    usage.value = await api.aiUsage(params)
+  } catch {
+    ElMessage.error('读取用量数据失败')
+  } finally {
+    usageLoading.value = false
+  }
+}
+
+/** 查 Cloudflare 账户级真实消耗（失败不影响本地记账展示） */
+async function loadCfQuota() {
+  try { cfQuota.value = await api.aiQuota() } catch { cfQuota.value = null }
+}
+
+async function applyLogFilter() {
+  logPage.value = 1
+  await loadUsage()
+}
+
+async function changeLogPage(p: number) {
+  logPage.value = p
+  await loadUsage()
+}
+
+/** 一键切到最低价模型 */
+async function useBudgetModel() {
+  try {
+    await ElMessageBox.confirm(
+      `将把主力模型改为 IBM Granite-4.0-H-Micro，备用改为 GLM-4.7-Flash。\n` +
+      `两者单价约为当前常用模型的 1/3.5，可显著延长额度使用时间。\n` +
+      `（中文试卷的理解精度可能略降，额度恢复后可再切回 GLM-5.3-Flash）`,
+      '切换为省额度模型', { type: 'warning', confirmButtonText: '确认切换', cancelButtonText: '取消' },
+    )
+  } catch { return }
+  try {
+    const r: any = await api.useBudgetModel()
+    ElMessage.success(r?.message || '已切换为省额度模型')
+    await load()
+    await loadUsage()
+  } catch {
+    ElMessage.error('切换失败')
+  }
+}
+
+/** 清理历史日志（防止 D1 被无限增长的记录撑爆） */
+async function purgeLogs() {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '保留最近多少天的使用记录？更早的记录将被永久删除（不影响 AI 功能，仅清理日志）。',
+      '清理历史记录',
+      { inputValue: '30', inputPattern: /^\d+$/, inputErrorMessage: '请输入 7~365 之间的整数', type: 'warning' },
+    )
+    const keep = Math.min(365, Math.max(7, Number(value) || 30))
+    const r: any = await api.purgeAiUsage(keep)
+    ElMessage.success(`已清理 ${r?.deleted ?? 0} 条记录（保留 ${r?.keptSince} 之后的数据）`)
+    await loadUsage()
+  } catch { /* 用户取消 */ }
+}
+
+function sceneLabel(s: string): string {
+  return s === 'paper_parse' ? '试卷识别' : s === 'conn_test' ? '连接测试' : (s || '未标注')
+}
+
+/** 把 UTC 时间戳格式化成北京时间（用户在中国，直接看 UTC 要心算） */
+function fmtTime(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/** 神经元格式化：小于 1 显示两位小数，否则取整（避免 "0.00" 这种无信息量的显示） */
+function fmtNeurons(n: any): string {
+  const v = Number(n) || 0
+  return v >= 1 ? String(Math.round(v * 10) / 10) : v.toFixed(3)
+}
+
+/**
+ * 柱状图单段高度（百分比）。
+ *
+ * 分母用「窗口内单日最大调用数」而不是固定值：这样在低用量时期
+ * 柱子仍能看出相对高低，不会因为都挤在底部而失去可读性。
+ * 最小值给 3% 是为了让"有调用但极少"的日子也能看见一条细柱，
+ * 否则用户会以为那天没数据。
+ */
+const maxDailyCalls = computed(() => {
+  const arr = (usage.value?.byDay || []) as any[]
+  return Math.max(1, ...arr.map(d => (Number(d.okCalls) || 0) + (Number(d.failCalls) || 0)))
+})
+function barH(n: any): string {
+  const v = Number(n) || 0
+  if (!v) return '0%'
+  return Math.max(3, (v / maxDailyCalls.value) * 100) + '%'
+}
+
+/** 智谱配置区的锚点 id —— 额度告警里的「去配置智谱 Key」靠它滚动定位 */
+const ZHIPU_ANCHOR = 'ai-zhipu-section'
+function scrollToZhipu() {
+  const el = document.getElementById(ZHIPU_ANCHOR)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  else ElMessage.info('请向下滚动到「智谱 GLM 开放平台」区块')
+}
 </script>
 
 <template>
@@ -205,6 +362,235 @@ function clearKey() {
       </div>
     </div>
 
+    <!-- ============ 【v4.15.0】用量与额度 ============ -->
+    <div class="glass sec">
+      <div class="sec-title">
+        <ZgGlyph emoji="📊" /> 用量与额度
+        <el-button size="small" style="margin-left:auto" :loading="usageLoading" @click="() => { loadUsage(); loadCfQuota() }">
+          刷新
+        </el-button>
+      </div>
+
+      <!-- 额度耗尽告警：这是用户最需要一眼看到的东西 -->
+      <el-alert
+        v-if="quotaExhausted"
+        type="error" :closable="false" show-icon class="quota-alert"
+        title="今日免费额度已耗尽，全站 AI 识别暂时不可用"
+      >
+        <template #default>
+          <div class="qa-line">
+            Cloudflare Workers AI 的免费额度是 <b>账户级共享</b>的（不是"每人 1 万"）——
+            同一账号下所有应用、控制台测试都从这 10000 神经元里扣，用完后全站一起停摆。
+          </div>
+          <div class="qa-line">
+            <b>重置时间</b>：每日 UTC 0 点（北京时间约早上 8:00）。
+          </div>
+          <div v-if="!modelIsBudget" class="qa-line">
+            <b>想立刻继续用</b>：可切到单价最低的 IBM Granite-4.0-H-Micro（约省 3.5 倍）；
+            或配置智谱 GLM Key（独立额度，不受此限制）。
+          </div>
+          <div class="qa-actions">
+            <el-button v-if="!modelIsBudget" size="small" type="primary" @click="useBudgetModel">
+              一键切到省额度模型
+            </el-button>
+            <el-button size="small" @click="scrollToZhipu">去配置智谱 Key</el-button>
+          </div>
+        </template>
+      </el-alert>
+
+      <!-- 今日额度进度 -->
+      <div class="quota-box">
+        <div class="quota-head">
+          <span class="quota-title">今日额度（UTC {{ usage?.quota?.day || '—' }}）</span>
+          <span class="quota-num">
+            已用 <b>{{ fmtNeurons(usage?.quota?.used) }}</b> /
+            {{ usage?.quota?.limit || CF_FREE_DAILY_NEURONS }} 神经元
+            <template v-if="usage"> · 剩余 <b class="remain">{{ fmtNeurons(usage.quota.remain) }}</b></template>
+          </span>
+        </div>
+        <el-progress
+          :percentage="Number((usage?.quota?.percent || 0).toFixed(1))"
+          :status="quotaStatus" :stroke-width="14" :text-inside="true"
+        />
+        <div class="hint" style="margin-top:8px">
+          {{ usage?.quota?.resetHint }}。此额度为<b>账号级共享</b>：任意调用者都会消耗同一池，
+          因此"我没用却提示耗尽"通常是其他人/其他场景已用满。
+        </div>
+      </div>
+
+      <!-- 今日 / 窗口统计 -->
+      <div class="stat-row" style="margin-top:16px">
+        <div class="stat" :class="usage?.today?.calls ? 'ok' : ''">
+          <div class="stat-k">今日调用</div>
+          <div class="stat-v">{{ usage?.today?.calls ?? 0 }} 次</div>
+          <div class="stat-sub">
+            成功 {{ usage?.today?.okCalls ?? 0 }} / 失败 {{ usage?.today?.failCalls ?? 0 }}
+          </div>
+        </div>
+        <div class="stat" :class="modelIsBudget ? 'ok' : 'warn'">
+          <div class="stat-k">当前主力模型</div>
+          <div class="stat-v" style="font-size:13px;word-break:break-all">{{ usage?.currentModel || form.modelCf }}</div>
+          <div class="stat-sub">{{ modelIsBudget ? '已是最省模型' : '可切更省模型' }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-k">近 {{ usageDays }} 日消耗</div>
+          <div class="stat-v">{{ fmtNeurons(usage?.window?.neurons) }}</div>
+          <div class="stat-sub">共 {{ usage?.window?.calls ?? 0 }} 次调用</div>
+        </div>
+        <div class="stat" :class="cfQuota?.available ? 'ok' : 'warn'">
+          <div class="stat-k">Cloudflare 侧实测</div>
+          <div class="stat-v">
+            {{ cfQuota?.available ? fmtNeurons(cfQuota.used) + ' 神经元' : '未接入' }}
+          </div>
+          <div class="stat-sub">
+            {{ cfQuota?.available ? `今日 ${cfQuota.todayCalls ?? 0} 次调用` : '需配 CF Token' }}
+          </div>
+        </div>
+      </div>
+
+      <div v-if="cfQuota?.available" class="tip" style="margin-top:12px">
+        <ZgGlyph emoji="🔎" />
+        <b>两个数字为什么可能不同</b>：上方进度条来自平台自身记账（只统计本平台调用）；
+        「Cloudflare 侧实测」直连 CF 账户统计，<b>包含同一账号下所有应用与控制台测试</b>。
+        两者差额就是"别人用掉的额度" —— 这正是「我没用却提示耗尽」的答案。
+      </div>
+      <div v-else-if="cfQuota && !cfQuota.available" class="tip" style="margin-top:12px">
+        <ZgGlyph emoji="🔎" /> {{ cfQuota.message }}
+        建议为后端配置 <code>CF_ACCOUNT_ID</code> 与 <code>CF_API_TOKEN</code>（只读即可），
+        即可直接显示 Cloudflare 账户级的真实消耗。
+      </div>
+
+      <!-- 近 N 日趋势 -->
+      <div class="sub-title">
+        近 {{ usageDays }} 日用量趋势
+        <el-radio-group v-model="usageDays" size="small" style="margin-left:12px" @change="applyLogFilter">
+          <el-radio-button :value="7">7 天</el-radio-button>
+          <el-radio-button :value="14">14 天</el-radio-button>
+          <el-radio-button :value="30">30 天</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div v-if="usage?.byDay?.length" class="bar-chart">
+        <div v-for="d in usage.byDay" :key="d.day" class="bar-col" :title="`${d.day}：${d.calls} 次调用，${fmtNeurons(d.neurons)} 神经元`">
+          <div class="bar-stack">
+            <div class="bar-seg ok-seg" :style="{ height: barH(d.okCalls) }" />
+            <div class="bar-seg fail-seg" :style="{ height: barH(d.failCalls) }" />
+          </div>
+          <div class="bar-label">{{ d.day.slice(5) }}</div>
+          <div class="bar-val" :class="{ over: d.neurons > CF_FREE_DAILY_NEURONS }">{{ fmtNeurons(d.neurons) }}</div>
+        </div>
+      </div>
+      <div v-else class="hint">暂无数据。执行一次 AI 试卷识别后即可看到统计。</div>
+
+      <!-- 按模型 / 场景 / 用户 -->
+      <div class="grid-3">
+        <div class="mini-card">
+          <div class="mc-title">按模型（谁在烧额度）</div>
+          <div v-if="!usage?.byModel?.length" class="hint">暂无数据</div>
+          <div v-for="m in usage?.byModel || []" :key="m.model" class="mc-row">
+            <span class="mc-name" :title="m.model">{{ m.model }}</span>
+            <span class="mc-num">{{ fmtNeurons(m.neurons) }}</span>
+          </div>
+        </div>
+        <div class="mini-card">
+          <div class="mc-title">按场景</div>
+          <div v-if="!usage?.byScene?.length" class="hint">暂无数据</div>
+          <div v-for="s in usage?.byScene || []" :key="s.scene" class="mc-row">
+            <span class="mc-name">{{ sceneLabel(s.scene) }}</span>
+            <span class="mc-num">{{ s.calls }} 次 / {{ fmtNeurons(s.neurons) }}</span>
+          </div>
+        </div>
+        <div class="mini-card">
+          <div class="mc-title">按用户</div>
+          <div v-if="!usage?.byActor?.length" class="hint">暂无数据</div>
+          <div v-for="a in usage?.byActor || []" :key="a.actorId" class="mc-row">
+            <span class="mc-name">{{ a.actorName }}</span>
+            <span class="mc-num">{{ a.calls }} 次 / {{ fmtNeurons(a.neurons) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 失败原因 TOP -->
+      <div v-if="usage?.byError?.length" class="mini-card" style="margin-top:12px">
+        <div class="mc-title">失败原因 TOP（含被拒的无效请求）</div>
+        <div v-for="(e, i) in usage.byError" :key="i" class="err-row">
+          <el-tag size="small" type="danger">{{ e.cnt }} 次</el-tag>
+          <span class="err-text">{{ e.error }}</span>
+          <span class="err-day">{{ e.lastDay }}</span>
+        </div>
+      </div>
+
+      <!-- ============ 使用记录（明细） ============ -->
+      <div class="sub-title" style="margin-top:20px">
+        使用记录
+        <span class="sub-count">共 {{ usage?.logTotal ?? 0 }} 条</span>
+      </div>
+      <div class="log-filter">
+        <el-select v-model="logFilter.ok" placeholder="结果" style="width:120px" @change="applyLogFilter">
+          <el-option label="全部" value="" />
+          <el-option label="仅成功" :value="1" />
+          <el-option label="仅失败" :value="0" />
+        </el-select>
+        <el-select v-model="logFilter.scene" placeholder="场景" clearable style="width:150px" @change="applyLogFilter">
+          <el-option label="试卷识别" value="paper_parse" />
+          <el-option label="连接测试" value="conn_test" />
+        </el-select>
+        <el-select v-model="logFilter.model" placeholder="模型" clearable filterable style="width:260px" @change="applyLogFilter">
+          <el-option v-for="m in usage?.byModel || []" :key="m.model" :label="m.model" :value="m.model" />
+        </el-select>
+        <el-button @click="purgeLogs">清理历史记录</el-button>
+      </div>
+
+      <el-table :data="usage?.logs || []" size="small" class="log-table" empty-text="暂无使用记录">
+        <el-table-column label="时间" width="150">
+          <template #default="{ row }">{{ fmtTime(row.at) }}</template>
+        </el-table-column>
+        <el-table-column label="触发者" width="110">
+          <template #default="{ row }">{{ row.actorName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="场景" width="90">
+          <template #default="{ row }">{{ sceneLabel(row.scene) }}</template>
+        </el-table-column>
+        <el-table-column label="模型" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.model || '—' }}
+            <el-tag v-if="row.provider === 'zhipu'" size="small" type="info" style="margin-left:6px">智谱</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.ok ? 'success' : 'danger'" size="small">{{ row.ok ? '成功' : '失败' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="神经元" width="90" align="right">
+          <template #default="{ row }">{{ fmtNeurons(row.neurons) }}</template>
+        </el-table-column>
+        <el-table-column label="tokens" width="110" align="right">
+          <template #default="{ row }">
+            <span v-if="row.promptTokens || row.completionTokens">{{ row.promptTokens }}+{{ row.completionTokens }}</span>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="80" align="right">
+          <template #default="{ row }">{{ row.elapsedMs ? (row.elapsedMs / 1000).toFixed(1) + 's' : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="说明" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-if="row.quotaExhausted" size="small" type="danger" style="margin-right:6px">额度耗尽</el-tag>
+            <span v-if="row.error" class="err-text">{{ row.error }}</span>
+            <span v-else class="hint">—</span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div v-if="(usage?.logTotal ?? 0) > (usage?.logLimit ?? 20)" class="pager">
+        <el-pagination
+          layout="prev, pager, next" small
+          :total="usage?.logTotal ?? 0" :page-size="usage?.logLimit ?? 20"
+          :current-page="logPage" @current-change="changeLogPage"
+        />
+      </div>
+    </div>
+
     <!-- ============ 服务商优先级 ============ -->
     <div class="glass sec">
       <div class="sec-title"><ZgGlyph emoji="🔀" /> 服务商优先级</div>
@@ -232,11 +618,15 @@ function clearKey() {
             placeholder="选择或粘贴 @cf/... 模型 ID" no-match-text="按回车使用此模型">
             <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id">
               <span>{{ m.label }}</span>
+              <span v-if="priceText(m)" class="opt-price">{{ priceText(m) }}</span>
               <el-tag size="small" :type="tagType(m.tag)" effect="dark" class="opt-tag">{{ tagText(m.tag) }}</el-tag>
             </el-option>
           </el-select>
           <div class="hint">
-            默认 GLM-5.3-Flash：中文试卷理解好、最省神经元。找不到想要的模型？直接在输入框<b>粘贴 Cloudflare 控制台里的 <code>@cf/...</code> 模型 ID</b> 即可（按回车确认）。
+            默认 GLM-5.3-Flash：中文试卷理解最好。列表已按<b>官方单价从低到高排序</b>，
+            价格标签 <code>$输入/$输出</code> 单位为「USD / 百万 token」——
+            <b>额度紧张时选最上面的 IBM Granite-4.0-H-Micro</b>（约为 GLM 的 1/3.5）。<br />
+            找不到想要的模型？直接<b>粘贴 Cloudflare 控制台里的 <code>@cf/...</code> 模型 ID</b>（按回车确认）。
           </div>
         </el-form-item>
         <el-form-item label="备用模型">
@@ -244,10 +634,14 @@ function clearKey() {
             placeholder="选择或粘贴 @cf/... 模型 ID" no-match-text="按回车使用此模型">
             <el-option v-for="m in CF_MODELS" :key="m.id" :label="m.label" :value="m.id">
               <span>{{ m.label }}</span>
+              <span v-if="priceText(m)" class="opt-price">{{ priceText(m) }}</span>
               <el-tag size="small" :type="tagType(m.tag)" effect="dark" class="opt-tag">{{ tagText(m.tag) }}</el-tag>
             </el-option>
           </el-select>
-          <div class="hint">主力模型调用失败时自动改用这个，建议保留默认的 Llama-4-Scout-17B（多模态、免费）。</div>
+          <div class="hint">
+            主力模型调用失败时自动改用这个。建议选<b>同样便宜</b>的模型（如 GLM-4.7-Flash）——
+            若备用模型比主力贵，主力失败后会把额度烧得更快。
+          </div>
         </el-form-item>
       </el-form>
     </div>
@@ -288,7 +682,7 @@ function clearKey() {
     </div>
 
     <!-- ============ 智谱 GLM ============ -->
-    <div class="glass sec">
+    <div :id="ZHIPU_ANCHOR" class="glass sec">
       <div class="sec-title"><ZgGlyph emoji="🔑" /> 智谱 GLM 开放平台（可选备份）</div>
       <el-form label-width="140px" label-position="left">
         <el-form-item label="API Key">
@@ -448,11 +842,71 @@ function clearKey() {
 
 .foot { margin-top: 20px; display: flex; justify-content: flex-end; }
 
+/* ===== 【v4.15.0】用量与额度 ===== */
+.sub-title { font-size: 14px; font-weight: 800; margin: 22px 0 12px; display: flex; align-items: center; }
+.sub-count { font-size: 12px; font-weight: 400; color: var(--zg-text-dim); margin-left: 10px; }
+
+.quota-alert { margin-bottom: 16px; }
+.quota-alert .qa-line { line-height: 1.8; font-size: 13px; }
+.quota-alert .qa-line b { color: #ef4444; }
+.qa-actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.quota-box { padding: 4px 0; }
+.quota-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.quota-title { font-size: 13px; font-weight: 700; }
+.quota-num { font-size: 13px; color: var(--zg-text-dim); }
+.quota-num b { color: var(--zg-text); font-size: 15px; }
+.quota-num .remain { color: #10b981; }
+
+.stat-sub { font-size: 11px; color: var(--zg-text-dim); margin-top: 4px; line-height: 1.5; }
+
+/* 纯 CSS 柱状图（不引图表库，避免为一个统计多打 300KB 包） */
+.bar-chart {
+  display: flex; align-items: flex-end; gap: 6px;
+  height: 170px; padding: 10px 6px 0;
+  background: rgba(var(--zg-primary-rgb),.04); border-radius: 10px;
+  overflow-x: auto;
+}
+.bar-col { flex: 1 1 0; min-width: 34px; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.bar-stack {
+  flex: 1; width: 100%; max-width: 40px;
+  display: flex; flex-direction: column-reverse; justify-content: flex-start;
+  border-radius: 5px 5px 0 0; overflow: hidden;
+}
+.bar-seg { width: 100%; transition: height .25s; }
+.ok-seg { background: linear-gradient(180deg, #34d399, #10b981); }
+.fail-seg { background: linear-gradient(180deg, #f87171, #ef4444); }
+.bar-label { font-size: 10px; color: var(--zg-text-dim); margin-top: 5px; white-space: nowrap; }
+.bar-val { font-size: 10px; color: var(--zg-text-dim); }
+.bar-val.over { color: #ef4444; font-weight: 700; }
+
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+.mini-card { padding: 14px; border-radius: 12px; background: rgba(var(--zg-primary-rgb),.05); border: 1px solid rgba(var(--zg-primary-rgb),.12); }
+.mc-title { font-size: 13px; font-weight: 800; margin-bottom: 10px; }
+.mc-row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb),.12); }
+.mc-row:last-child { border-bottom: none; }
+.mc-name { color: var(--zg-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.mc-num { font-weight: 700; white-space: nowrap; }
+
+.err-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px dashed rgba(var(--zg-primary-rgb),.12); }
+.err-row:last-child { border-bottom: none; }
+.err-text { flex: 1; color: var(--zg-text-dim); line-height: 1.6; word-break: break-all; }
+.err-day { color: var(--zg-text-dim); font-size: 11px; white-space: nowrap; }
+
+.log-filter { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.log-table { width: 100%; }
+.pager { display: flex; justify-content: center; margin-top: 14px; }
+
+.opt-price { font-size: 11px; color: var(--zg-text-dim); margin-left: 8px; font-family: ui-monospace, monospace; }
+
 @media (max-width: 768px) {
   .sec { padding: 16px; }
   .head-actions { width: 100%; }
   .head-actions .el-button { flex: 1; }
   .key-row { flex-wrap: wrap; }
   .stat-row { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .quota-head { flex-direction: column; align-items: flex-start; }
+  .log-filter > * { width: 100% !important; }
 }
 </style>

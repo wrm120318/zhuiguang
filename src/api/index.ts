@@ -173,6 +173,16 @@ export const api = {
   getAiConfig: () => http.get('/api/settings/ai_config'),
   saveAiConfig: (config: any) => http.put('/api/settings/ai_config', config),
   testAiConfig: () => http.post('/api/settings/ai_config/test', {}, { timeout: 45000 }),
+  // 【v4.15.0】AI 用量与额度（超管后台「AI 设置 → 用量与额度」）
+  //   getAiUsage：平台自身记账（含失败请求，能解释"为什么我没用却在跑"）
+  aiUsage: (params?: { days?: number; limit?: number; page?: number; ok?: 0 | 1; model?: string; scene?: string; actorId?: number }) =>
+    http.get('/api/admin/ai-usage', { params }),
+  //   aiQuota：直连 Cloudflare 查**账户级**真实消耗（能对上账单，含同账号其他应用）
+  aiQuota: () => http.get('/api/admin/ai-quota', { timeout: 20000 }),
+  //   清理历史日志（保留最近 N 天，防止 D1 被撑爆）
+  purgeAiUsage: (keepDays: number) => http.post('/api/admin/ai-usage/purge', { keepDays }),
+  //   一键切到最低价模型（额度紧张时的救急按钮）
+  useBudgetModel: () => http.post('/api/admin/ai-usage/use-budget-model', {}),
   updateProfile: (data: any) => http.patch('/api/profile', data),
   changePassword: (oldPassword: string, newPassword: string) => http.post('/api/profile/password', { oldPassword, newPassword }),
   uploadAvatar: async (file: File) => {

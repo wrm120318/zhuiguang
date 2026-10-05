@@ -407,7 +407,22 @@ try {
     /mode === 'cf' \? \['cf'\]/.test(shared) && /\['cf', 'zhipu'\]/.test(shared))
   ok('一个通道失败自动切换另一个（for 循环 attempts）', /for \(const p of order\)/.test(shared))
   ok('⚠️ CF 通道内部还做「主力模型 → 备用模型」的模型级降级',
-    /const models = primary === fallback \? \[primary\] : \[primary, fallback\]/.test(shared))
+    /const models = Array\.from\(new Set\(\[primary, fallback, cheap\]\)\)/.test(shared))
+  ok('⭐ 【v4.15.0】额度耗尽立即熔断，不再做注定失败的重试',
+    /isQuotaExhausted/.test(shared) && /quotaExhausted = true; break/.test(shared))
+  ok('⭐ 【v4.15.0】额度耗尽会取消所有剩余分块（熔断整个并发池）',
+    /if \(breaker\) \{ out\[cursor\+\+\]/.test(shared))
+  ok('⭐ 【v4.15.0】isQuotaExhausted 能识别 CF 的 code 4006 与 free allocation 文案',
+    /4006/.test(shared) && /daily free allocation/.test(shared))
+  ok('⭐ 【v4.15.0】用量记账回调 AI_USAGE_SINK 已接入 parseOneChunk',
+    /AI_USAGE_SINK/.test(shared) && /function emitUsage/.test(shared))
+  ok('⭐ 【v4.15.0】记账失败也要记（ok:false 分支同样 emitUsage）',
+    /ok: false, error: rawErr,/.test(shared))
+  ok('⭐ 【v4.15.0】免费额度常量 10000 已导出（与 CF 计费口径对齐）',
+    /CF_FREE_DAILY_NEURONS = 10000/.test(shared))
+  ok('⭐ 【v4.15.0】aiFailureMessage 支持 quotaExhausted 参数并给出可执行建议',
+    /aiFailureMessage\(attempts\?[^)]*quotaExhausted\?/.test(shared)
+    && /账号级/.test(shared))
   ok('CF 通道支持绑定路径（env.AI.run，零密钥）',
     /env\.AI && typeof env\.AI\.run === 'function'/.test(shared))
   ok('CF 通道保留 REST 路径（本地开发可测）', /ai\/run\/\$\{model\}/.test(shared))
@@ -424,14 +439,27 @@ try {
     /必须严格使用下列英文键名/.test(shared))
   ok('⚠️ prompt 显式要求 options 必须是数组（模型爱给对象）',
     /options \*\*必须是字符串数组\*\*/.test(shared))
-  ok('温度压到 0.1（结构化抽取要稳）', /temperature: 0\.1/.test(shared))
+  ok('温度可后台调且默认 0.1（结构化抽取要稳）',
+    /AI_TEMPERATURE \?\? 0\.1/.test(shared))
 
-  // 模型选择：必须是实测在免费额度内可用的
-  ok('默认主力模型是 GLM-4.7-Flash（中文最强 + 最省）',
-    DEFAULT_MODEL_CF === '@cf/zai-org/glm-4.7-flash', DEFAULT_MODEL_CF)
-  ok('备用模型是 Llama-3.3-70B（JSON 最规范）',
-    /DEFAULT_MODEL_CF_FALLBACK = '@cf\/meta\/llama-3\.3-70b-instruct-fp8-fast'/.test(shared))
+  // 模型选择
+  // 【v4.15.0 断言更新】默认模型改为**全场单价最低**的 granite-4.0-h-micro。
+  //   改动原因有实测数据支撑：2026-10-04 一天烧掉 10633 神经元（超免费额度 10000），
+  //   原默认 glm-4.7-flash 单价比 granite 高约 3.5 倍。探针在此守住"默认必须是最省的"，
+  //   防止将来有人把它改回贵模型而不知不觉。
+  ok('⭐ 【v4.15.0】默认主力模型是全场最省的 IBM Granite-4.0-H-Micro',
+    DEFAULT_MODEL_CF === '@cf/ibm-granite/granite-4.0-h-micro', DEFAULT_MODEL_CF)
+  ok('⭐ 【v4.15.0】备用模型也选便宜档（避免主力失败后烧更贵的）',
+    /DEFAULT_MODEL_CF_FALLBACK = '@cf\/meta\/llama-4-scout-17b-16e-instruct'/.test(shared))
+  ok('⭐ 【v4.15.0】省额度目标模型常量已导出（供后台一键切换）',
+    /BUDGET_MODEL_CF = '@cf\/ibm-granite\/granite-4\.0-h-micro'/.test(shared))
   ok('候选模型清单已导出（供后台下拉）', /export const CF_MODEL_CHOICES/.test(shared))
+  ok('⭐ 【v4.15.0】候选清单带官方单价（按价格排序的依据）',
+    /price:\s*\{\s*in:\s*0?\.\d+,\s*out:\s*0?(\.\d+)?\s*\}/.test(shared))
+  ok('⭐ 【v4.15.0】清单按 costScore 升序排列（最省的在最前）',
+    /\.sort\(\(a, b\) => \{[\s\S]{0,200}costScore! - b\.costScore!/.test(shared))
+  ok('⭐ 【v4.15.0】用途不匹配的模型被沉底（不让"最便宜"把不可用的顶到推荐位）',
+    /NOT_FOR_PAPER/.test(shared) && /aBad - bBad/.test(shared))
 
   // wrangler.toml 配置
   const wrangler = readFileSync(`${ROOT}/wrangler.toml`, 'utf8')

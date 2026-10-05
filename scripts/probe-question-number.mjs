@@ -142,8 +142,13 @@ try {
   ok('快速导入入口引用 stripQuestionNumber', /stripQuestionNumber/.test(importPanel))
   ok('两个入口都从同一模块导入',
     /from '@\/utils\/question-number'/.test(splitEditor) && /from '@\/utils\/question-number'/.test(importPanel))
-  ok('原卷编辑入口在 inferDraft 里自动剥离',
-    /content:\s*stripQuestionNumber\(stripOptionsFromHtml/.test(splitEditor))
+  // 【v4.14.0/v4.15.0 断言更新】v4.14.0 给 content 外层包了 toMarkdownContent（HTML→Markdown
+  //   收敛，修"右侧编辑框没图"）。断言不能写死"content: stripQuestionNumber(...)" 这种
+  //   完整字面量 —— 那会随任何一层包装而假失败。改为验证**本质**：
+  //   inferDraft 的 content 计算链里确实经过了 stripQuestionNumber（自动剥离题号）。
+  ok('原卷编辑入口在 inferDraft 里自动剥离题号',
+    /content:\s*toMarkdownContent\(\s*stripQuestionNumber\(/.test(splitEditor)
+    || /content:\s*stripQuestionNumber\(/.test(splitEditor))
   ok('原卷编辑入口提供手动按钮处理函数', /function stripAllNumbers/.test(splitEditor))
   ok('手动按钮不跳过用户已编辑的题（显式操作应处理全部）',
     !/oldDirty[\s\S]{0,80}stripAllNumbers/.test(splitEditor))

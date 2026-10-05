@@ -33,7 +33,7 @@ const ok = (name, cond, extra = '') => {
 const ts = readFileSync(`${ROOT}/shared/ai-paper.ts`, 'utf8')
 const js = transformSync(ts, { loader: 'ts', format: 'esm', target: 'es2022' }).code
 const mod = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'))
-const { sanitizeAiConfig, mergeAiConfig, maskKey, DEFAULT_AI_CONFIG, AI_CONFIG_KEY } = mod
+const { sanitizeAiConfig, mergeAiConfig, maskKey, DEFAULT_AI_CONFIG, AI_CONFIG_KEY, DEFAULT_MODEL_CF, CF_MODEL_CHOICES } = mod
 
 // 用真实源码模拟后端 PUT 的 Key 处理逻辑（与 worker-api.ts / server/index.ts 同构）
 //   ⚠️ 这三行必须与后端**逐字对应**，否则探针会给出假绿灯。
@@ -107,8 +107,13 @@ ok('⚠️ 后台只改 provider → 环境变量的 modelZhipu 不被顶掉',
 
 const defaults = mergeAiConfig({}, sanitizeAiConfig({}))
 ok('两者都空 → 内置默认值兜底（provider=auto）', defaults.AI_PROVIDER === 'auto', defaults.AI_PROVIDER)
-ok('两者都空 → 内置默认值兜底（modelCf）',
-  defaults.AI_MODEL_CF === '@cf/zai-org/glm-4.7-flash', defaults.AI_MODEL_CF)
+// 【v4.15.0 断言更新】默认模型改为全场单价最低的 granite-4.0-h-micro。
+//   触发原因：实测 10-04 一天消耗 10633 神经元（超免费额度 10000），
+//   原默认 glm-4.7-flash 单价约高 3.5 倍。此处直接引常量而非硬编码字符串，
+//   这样"改了常量却忘了改探针"的情形不会发生。
+ok('两者都空 → 内置默认值兜底（modelCf 为最省模型）',
+  defaults.AI_MODEL_CF === DEFAULT_MODEL_CF && /granite-4\.0-h-micro/.test(DEFAULT_MODEL_CF),
+  defaults.AI_MODEL_CF)
 
 console.log('\n=== 4. 配置规整（脏输入不能穿透）===')
 ok('非法 provider → 回落 auto', sanitizeAiConfig({ provider: 'gpt-5' }).provider === 'auto')
@@ -187,7 +192,41 @@ ok('设置页展示四种状态（可用性/生效通道/CF/智谱）',
 ok('⚠️ 设置页说明「CF 零配置」这一关键信息（用户核心诉求）',
   /零配置/.test(view) && /不需要任何 API Key/.test(view))
 ok('设置页有服务商三选项', /自动（推荐）/.test(view) && /仅 Cloudflare/.test(view) && /仅智谱/.test(view))
-ok('设置页候选模型与后端常量一致（GLM-4.7-Flash 在列）', /@cf\/zai-org\/glm-4\.7-flash/.test(view))
+// 【v4.15.0 断言更新】模型清单改为 import 共享层常量后，设置页**源码里不再出现
+//   任何 @cf/... 字面量**（都来自 CF_MODEL_CHOICES），所以不能再用
+//   "页面上有 GLM-4.7-Flash 字符串" 这种检查 —— 改为验证"确实 import 了共享常量"。
+ok('设置页候选模型来自共享层常量（不再手抄，杜绝漂移）',
+  /from '@shared\/ai-paper'/.test(view) && /CF_MODEL_CHOICES/.test(view))
+
+// ── 【v4.15.0】用量与额度区块 ──
+ok('⭐ 设置页有「用量与额度」区块', /用量与额度/.test(view))
+ok('⭐ 设置页展示今日已用 / 上限 / 剩余',
+  /今日额度/.test(view) && /已用/.test(view) && /剩余/.test(view))
+ok('⭐ 设置页有额度进度条（el-progress）', /el-progress/.test(view))
+ok('⭐ 设置页说明额度是「账号级共享」（解释"我没用却耗尽"的关键）',
+  /账号级共享/.test(view))
+ok('⭐ 设置页给出重置时间（北京时间）',
+  /北京时间/.test(view) && /重置/.test(view))
+ok('⭐ 额度耗尽时展示告警条', /今日免费额度已耗尽/.test(view))
+ok('⭐ 提供「一键切到省额度模型」按钮', /useBudgetModel/.test(view) && /省额度模型/.test(view))
+ok('⭐ 设置页有使用记录表格', /使用记录/.test(view) && /el-table/.test(view))
+ok('⭐ 使用记录标注「额度耗尽」事件', /quotaExhausted/.test(view) && /额度耗尽/.test(view))
+ok('⭐ 用量接口已接入（aiUsage / aiQuota）',
+  /api\.aiUsage\(/.test(view) && /api\.aiQuota\(/.test(view))
+ok('⭐ 提供清理历史记录入口', /purgeLogs/.test(view) && /api\.purgeAiUsage\(/.test(view))
+ok('⭐ 失败原因也统计展示（能看出"被拒的无效请求"）', /失败原因 TOP/.test(view))
+
+// ── 【v4.15.0】模型清单改为 import 共享层常量（单一数据源，杜绝漂移）──
+ok('⭐ 设置页不再手抄模型清单，改为 import 共享层常量',
+  /import\s*\{[^}]*CF_MODEL_CHOICES[^}]*\}\s*from\s*'@shared\/ai-paper'/.test(view))
+ok('⭐ 共享层 CF_MODEL_CHOICES 为数组且数量 >= 20（实测可用模型）',
+  Array.isArray(CF_MODEL_CHOICES) && CF_MODEL_CHOICES.length >= 20, String(CF_MODEL_CHOICES?.length))
+ok('⭐ 清单按单价升序：首项是全场最省的 granite-4.0-h-micro',
+  CF_MODEL_CHOICES[0]?.id === '@cf/ibm-granite/granite-4.0-h-micro', CF_MODEL_CHOICES[0]?.id)
+ok('⭐ 每条候选都带官方单价（price.in / price.out）',
+  CF_MODEL_CHOICES.filter(m => m.price).length >= 25,
+  String(CF_MODEL_CHOICES.filter(m => m.price).length))
+ok('⭐ 设置页展示单价文本（$输入/$输出）', /priceText/.test(view) && /opt-price/.test(view))
 
 const api = readFileSync(`${ROOT}/src/api/index.ts`, 'utf8')
 ok('api 层有 getAiConfig/saveAiConfig/testAiConfig',

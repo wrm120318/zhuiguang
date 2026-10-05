@@ -70,6 +70,65 @@ export interface AiEnv {
   /** 仅用于测试：把请求指向本地 mock 服务（生产不设） */
   AI_BASE_CF?: string
   AI_BASE_ZHIPU?: string
+  /**
+   * 【v4.15.0】用量记账回调。
+   *
+   * 为什么做成回调而不是在 shared 层直接写库：
+   *   shared/ai-paper.ts 是**纯函数层**（前端也 import 它做类型与合并），
+   *   一旦在这里 import D1 / storage 就会把浏览器打包污染掉。
+   *   所以只留一个"把这次调用报出去"的钩子，由后端（worker-api.ts）注入实现。
+   */
+  AI_USAGE_SINK?: AiUsageSink
+  /** 【v4.15.0】触发者信息（谁在用 AI，用于后台按用户统计） */
+  AI_ACTOR?: AiActor
+  /** 【v4.15.0】本次调用的场景（试卷识别 / 连接测试 …） */
+  AI_SCENE?: string
+}
+
+/**
+ * 【v4.15.0】一次 AI 调用的记账回调。
+ *
+ * ⚠️ 必须**永不抛错、永不阻塞**：记账是旁路功能，它的失败绝不能影响 AI 主流程。
+ *   实现方（worker-api.ts）需自行 catch 并挂到 waitUntil 上。
+ */
+export type AiUsageSink = (rec: AiUsageRecord) => void
+
+/** 谁在用 AI（用于后台「按用户」统计） */
+export interface AiActor {
+  id?: number
+  name?: string
+}
+
+/**
+ * 【v4.15.0】一条 AI 用量记录。
+ *
+ * 设计要点：
+ *   · 记录**失败也要记** —— 用户报「我没用却提示耗尽」，靠的就是失败记录
+ *     才能看出"是被拒绝的无效请求在反复打"，成功记录是查不出这个的。
+ *   · `neurons` 以 CF 返回的 usage.neurons 为准；CF 不返回时为 0（不猜）。
+ *   · `quotaExhausted` 单独标记 —— 便于后台一眼筛出"额度耗尽"这类账户级故障。
+ */
+export interface AiUsageRecord {
+  /** 调用时刻（ISO 字符串，UTC） */
+  at?: string
+  /** cf | zhipu */
+  provider: string
+  model: string
+  ok: boolean
+  /** 失败原因（成功时为空） */
+  error?: string
+  promptTokens?: number
+  completionTokens?: number
+  neurons?: number
+  /** 耗时（毫秒） */
+  elapsedMs?: number
+  /** 场景标识：paper_parse / conn_test / other */
+  scene?: string
+  /** 触发者 */
+  actorId?: number
+  actorName?: string
+  /** 是否因「账户级免费额度耗尽」而失败（cf code 4006） */
+  quotaExhausted?: boolean
 }
 
 /**
@@ -102,6 +161,15 @@ export interface AiParseResult {
   attempts: { provider: string; error?: string }[]
   usage?: { promptTokens?: number; completionTokens?: number; neurons?: number }
   /**
+   * 【v4.15.0】是否因「Cloudflare 账户级免费额度耗尽」而失败。
+   *
+   * 单独透出这个标记的原因：这类失败与「网络抖动 / 模型报错」的**处置方式完全不同**——
+   *   后者重试有意义，前者重试一百次也是 0 成功率。
+   * 前端据此显示专门的提示（含"剩余额度 0，UTC 0 点重置"），
+   * 而不是笼统的"AI 识别失败"，避免用户反复点按钮白耗时间。
+   */
+  quotaExhausted?: boolean
+  /**
    * 【v4.13.1】图片占位符 → 原图 src 映射（键为 `图1` `图2`…）。
    *
    * 入参是 HTML 时，`<img>` 被替换成 `[图N]` 送进模型（模型不可能"看见"图片二进制）。
@@ -115,9 +183,69 @@ export interface AiParseResult {
 // 默认模型常量（后端与前端设置页共用，避免两处写死不一致）
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL_CF = '@cf/zai-org/glm-5.3-flash'
+/**
+ * 【v4.15.0 默认值调整 · 附实测依据】
+ *
+ * 旧默认 GLM-4.7-Flash（$0.0605 / $0.4 每百万 token），中文好但**额度消耗快**。
+ * 实测数据（该账号，2026-10 通过 Cloudflare GraphQL Analytics 拉取）：
+ *   · 10-03   28 次请求 /   887.0 神经元
+ *   · 10-04  132 次请求 / 10633.7 神经元  ← 一天就吃满 10000 免费额度
+ *   · 10-05  120 次请求 /     0.0 神经元  ← 额度未回血，全部被拒
+ * 用户因此报「我今天用都没用 AI 却提示用量耗尽」。
+ *
+ * 新默认 Granite-4.0-H-Micro（$0.017 / $0.112）单价约为原来的 1/3.5，
+ * 在同样的免费额度下可支撑约 3.5 倍的使用量。
+ * ⚠️ 代价：中文试卷的理解精度略低于 GLM 系列。若准确率优先，
+ *    可在后台改回 @cf/zai-org/glm-5.3-flash 并接受更快消耗额度。
+ */
+export const DEFAULT_MODEL_CF = '@cf/ibm-granite/granite-4.0-h-micro'
 export const DEFAULT_MODEL_CF_FALLBACK = '@cf/meta/llama-4-scout-17b-16e-instruct'
 export const DEFAULT_MODEL_ZHIPU = 'glm-4-flash'
+
+/**
+ * 【v4.15.0】Cloudflare Workers AI 免费档每日神经元配额（账户级，UTC 0 点重置）。
+ *
+ * ⚠️ 这是**账户级**硬上限：不是"每个用户 1 万"，而是整个账号 1 万。
+ *   超了就全账号所有 CF 模型一起停摆 —— 这正是用户「我没用却提示耗尽」的根源
+ *   （消耗是别人/别的场景打出去的，但锅由全账号一起背）。
+ */
+export const CF_FREE_DAILY_NEURONS = 10000
+
+/**
+ * 【v4.15.0】判断一个错误是否为「账户级免费额度耗尽」。
+ *
+ * 为什么必须单独识别（而不是并进 isRateLimit）：
+ *   429 里混着两类**性质完全不同**的错误：
+ *     ① 频率限制：等 2 秒重试 → 常能成功（值得退避重试）
+ *     ② 额度耗尽：是账户当天彻底没额度了，**重试一万次也不会成功**
+ *   旧实现把②当①处理，于是「主力→备用→廉价」3 个模型 × 各自重试 3 次
+ *   = 一次识别最多打出 9 次注定失败的请求。实测 2026-10-05 当天
+ *   120 次请求 / 0 神经元 —— 全是这种无效重试。
+ *
+ * 判据（CF 的真实返回，实测抓到）：
+ *   HTTP 429 + `{ errors:[{ code: 4006, message:"AiError: you have used up
+ *   your daily free allocation of 10,000 neurons..." }] }`
+ *   注意 code 4006 是**业务码**，与 HTTP 状态码 429 是两回事，故两者都认。
+ */
+export function isQuotaExhausted(e: any): boolean {
+  const msg = String(e?.message ?? e ?? '')
+  if (/daily free allocation|used up your daily free|upgrade to Cloudflare|10,?000 neurons/i.test(msg)) return true
+  // 业务码 4006：即便文案被 CF 改掉，也能靠码兜住
+  if (/\b4006\b/.test(msg)) return true
+  return false
+}
+
+/** 从一个 attempts/error 里抽出可读的失败原因（去掉 CF 的噪音前缀） */
+function cleanErr(msg: string): string {
+  return String(msg || '')
+    .replace(/^AiError:\s*/i, '')
+    .replace(/^Cloudflare Workers AI HTTP \d+:\s*/i, '')
+    .replace(/^CF Workers AI HTTP \d+:\s*/i, '')
+    .replace(/\s*\([0-9a-f]{8}-[0-9a-f-]{27,}\)\s*$/i, '')   // 去掉尾部 ray-id
+    .replace(/please upgrade to Cloudflare's Workers Paid plan if you would like to continue usage\.?\s*/i, '')
+    .trim()
+    .slice(0, 240)
+}
 
 /**
  * 候选模型清单（供管理后台下拉选择）。
@@ -125,14 +253,19 @@ export const DEFAULT_MODEL_ZHIPU = 'glm-4-flash'
  * ⚠️ 与前端 `src/views/admin/AiSettingsView.vue` 的 `CF_MODELS` 必须保持内容一致
  *    （现有约定：两处各自维护一份，改此处要同步前端）。
  *
- * tag 含义：
- *   free  —— 免费档可用（每天 10000 神经元，按神经元计费，不额外收钱）
- *   heavy —— 免费但耗量偏高（单次调用消耗更多神经元，大卷慎用）
- *   paid  —— 官方标注「需绑定付费计费方式」的前沿模型；实测部分账号免费档也能跑，
- *            但若「测试连接」报需要付费，请换回 free 标签的模型。
+ * 【v4.15.0 重写 · 改为"按真实单价排序"】
+ *   旧清单是拍脑袋标注的 free / heavy，与真实计费无对应关系 ——
+ *   用户抱怨"没用却耗尽"，一部分原因就是选了个看着"免费"实则单价比最低者高 3.5 倍的模型。
+ *   现在每条的 `price` 字段来自 **Cloudflare 官方 models/search 接口的实时返回值**
+ *   （`properties[].price`，单位 USD / 百万 token），并据此计算 `costScore` 排序。
  *
- * 全部 id 均为 Cloudflare Workers AI 已存在的免费档模型。若这里没收录你想要的，
- * 管理界面两个下拉都支持「直接粘贴任意 @cf/... 模型 ID」（组合框 allow-create）。
+ * 【选模型的实用结论】
+ *   最省：IBM Granite-4.0-H-Micro（$0.017 入 / $0.112 出）≈ 仅为 GLM-4.7-Flash 的 1/3.5
+ *   中文最好：GLM-5.3-Flash（$0.15 / $0.5）—— 试卷中文理解明显更准，多花的钱值得
+ *   → 后台默认策略：**中文试卷用 GLM-5.3-Flash，额度紧张时切 Granite 保底**。
+ *
+ * 全部 id 均来自该账号 models/search 的实际可用列表（2026-10-05 抓取）。若这里没收录
+ * 你想要的，管理界面两个下拉都支持「直接粘贴任意 @cf/... 模型 ID」（组合框 allow-create）。
  */
 export interface CfModelChoice {
   id: string
@@ -140,29 +273,100 @@ export interface CfModelChoice {
   tag: 'free' | 'heavy' | 'paid'
   /** 分组（仅前端展示用，便于按家族浏览） */
   group?: string
+  /**
+   * 【v4.15.0】官方单价（USD / 百万 token）。
+   * `in` = 输入价，`out` = 输出价。缺省表示官方未标价（LoRA 类）。
+   */
+  price?: { in: number; out: number }
+  /** 【v4.15.0】性价比评分（越低越省），仅用于排序与展示，不参与计费 */
+  costScore?: number
 }
-export const CF_MODEL_CHOICES: CfModelChoice[] = [
-  // —— 智谱 Z.ai ——
-  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash（智谱新模型 · 最省神经元）', tag: 'free', group: '智谱 Z.ai' },
-  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 最稳最省）', tag: 'free', group: '智谱 Z.ai' },
-  // —— Meta ——
-  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（Meta 最新 · 多模态 · 10M 上下文）', tag: 'free', group: 'Meta Llama' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量高）', tag: 'heavy', group: 'Meta Llama' },
-  { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', label: 'Llama-3.1-8B（最轻量 · 省神经元）', tag: 'free', group: 'Meta Llama' },
-  { id: '@cf/meta/llama-3.2-11b-vision-instruct', label: 'Llama-3.2-11B-Vision（看图 · 适合含图试卷）', tag: 'free', group: 'Meta Llama' },
-  // —— 阿里通义 ——
-  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义新模型 · 中文/JSON 强）', tag: 'free', group: '阿里通义' },
-  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（公式/代码强）', tag: 'heavy', group: '阿里通义' },
-  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强）', tag: 'heavy', group: '阿里通义' },
-  // —— DeepSeek ——
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强）', tag: 'heavy', group: 'DeepSeek' },
-  // —— Mistral ——
-  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B', tag: 'heavy', group: 'Mistral' },
-  { id: '@cf/mistral/mistral-7b-instruct-v0.2', label: 'Mistral-7B-v0.2（轻量）', tag: 'free', group: 'Mistral' },
-  // —— Google ——
-  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文）', tag: 'heavy', group: 'Google Gemma' },
-  { id: '@cf/google/gemma-3-12b-it', label: 'Gemma-3-12B', tag: 'free', group: 'Google Gemma' },
+
+/** 用「输入:输出 = 1:3」的经验权重估算综合单价，用于排序（试卷识别输出量通常大于输入） */
+function costOf(m: { price?: { in: number; out: number } }): number {
+  if (!m.price) return Number.POSITIVE_INFINITY
+  return m.price.in * 0.25 + m.price.out * 0.75
+}
+
+/**
+ * 【v4.15.0】不适合"试卷识别"这个任务的模型 —— 排序时后置。
+ *
+ * ⚠️ 这不是"模型不好"，而是**用途不匹配**：
+ *   · clef / clef-flash：Cloudflare 自研，面向嵌入式/检索类短任务，
+ *     不具备长文档结构化抽取能力。它的单价确实最低（且只按输入计费），
+ *     若仅按 costScore 排序会占据第一名，超管照单选择后会发现"识别不出题目"。
+ *   · llama-guard-3-8b：内容审核分类模型，只会输出"安全/不安全"，无法出题。
+ *   · kimi-*-code / qwen2.5-coder：代码专用，对中文试卷理解无优势且单价高。
+ *
+ * 这个名单的作用是：**不让"单价最低"把不可用的模型顶到推荐位**，
+ * 否则"按价格排序"这个便利反而会变成陷阱。
+ */
+const NOT_FOR_PAPER = new Set([
+  '@cf/cloudflare/clef',
+  '@cf/cloudflare/clef-flash',
+  '@cf/meta/llama-guard-3-8b',
+  '@cf/moonshotai/kimi-k2.7-code',
+  '@cf/qwen/qwen2.5-coder-32b-instruct',
+])
+
+const CF_MODEL_RAW: CfModelChoice[] = [
+  // —— 最省梯队（单价最低，额度紧张时首选）——
+  { id: '@cf/ibm-granite/granite-4.0-h-micro', label: 'Granite-4.0-H-Micro（IBM · 全场最省，约为 GLM 的 1/3.5）', tag: 'free', group: 'IBM Granite', price: { in: 0.017, out: 0.112 } },
+  { id: '@cf/cloudflare/clef-flash', label: 'Clef-Flash（Cloudflare 自研 · 仅按输入计费）', tag: 'free', group: 'Cloudflare', price: { in: 0.09, out: 0 } },
+  { id: '@cf/meta/llama-3.2-1b-instruct', label: 'Llama-3.2-1B（极小 · 最省但不适合长卷）', tag: 'free', group: 'Meta Llama', price: { in: 0.027, out: 0.201 } },
+  { id: '@cf/zai-org/glm-4.7-flash', label: 'GLM-4.7-Flash（智谱 · 中文强 · 性价比高）', tag: 'free', group: '智谱 Z.ai', price: { in: 0.0605, out: 0.4 } },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', label: 'Qwen3-30B-A3B（通义 · 中文/JSON 强 · 便宜）', tag: 'free', group: '阿里通义', price: { in: 0.0509, out: 0.335 } },
+  { id: '@cf/meta/llama-3.2-3b-instruct', label: 'Llama-3.2-3B（轻量）', tag: 'free', group: 'Meta Llama', price: { in: 0.0509, out: 0.335 } },
+  { id: '@cf/meta/llama-3.2-11b-vision-instruct', label: 'Llama-3.2-11B-Vision（看图 · 适合含图试卷）', tag: 'free', group: 'Meta Llama', price: { in: 0.0485, out: 0.676 } },
+  { id: '@cf/google/gemma-4-26b-a4b-it', label: 'Gemma-4-26B（Google · 256K 上下文）', tag: 'free', group: 'Google Gemma', price: { in: 0.1, out: 0.3 } },
+  // —— 中文首选梯队（试卷理解最准，价格适中）——
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM-5.3-Flash ★推荐（智谱新模型 · 中文试卷最准）', tag: 'free', group: '智谱 Z.ai', price: { in: 0.15, out: 0.5 } },
+  { id: '@cf/meta/llama-3.1-8b-instruct-fp8', label: 'Llama-3.1-8B-FP8（轻量稳定）', tag: 'free', group: 'Meta Llama', price: { in: 0.152, out: 0.287 } },
+  { id: '@cf/openai/gpt-oss-20b', label: 'GPT-OSS-20B（OpenAI 开源 · JSON 规范）', tag: 'free', group: 'OpenAI OSS', price: { in: 0.2, out: 0.3 } },
+  { id: '@cf/cloudflare/clef', label: 'Clef（Cloudflare 自研 · 结构化抽取）', tag: 'free', group: 'Cloudflare', price: { in: 0.24, out: 0 } },
+  { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama-4-Scout-17B（多模态 · 10M 上下文）', tag: 'free', group: 'Meta Llama', price: { in: 0.27, out: 0.85 } },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama-3.3-70B（JSON 最规范 · 耗量偏高）', tag: 'heavy', group: 'Meta Llama', price: { in: 0.293, out: 2.253 } },
+  { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral-Small-3.1-24B', tag: 'heavy', group: 'Mistral', price: { in: 0.351, out: 0.555 } },
+  { id: '@cf/aisingapore/gemma-sea-lion-v4-27b-it', label: 'SEA-LION-v4-27B（东南亚语 · 不适用中文卷）', tag: 'heavy', group: '其他', price: { in: 0.351, out: 0.555 } },
+  { id: '@cf/openai/gpt-oss-120b', label: 'GPT-OSS-120B（OpenAI 开源大杯 · 贵）', tag: 'heavy', group: 'OpenAI OSS', price: { in: 0.35, out: 0.75 } },
+  { id: '@cf/deepseek-ai/deepseek-v4-flash-0731', label: 'DeepSeek-V4-Flash（DeepSeek 新模型）', tag: 'heavy', group: 'DeepSeek', price: { in: 0.44, out: 1.32 } },
+  { id: '@cf/qwen/qwen3.8-27b', label: 'Qwen3.8-27B（通义 · 推理强）', tag: 'heavy', group: '阿里通义', price: { in: 0.45, out: 3.2 } },
+  { id: '@cf/meta/llama-guard-3-8b', label: 'Llama-Guard-3-8B（内容审核专用 · 非识别模型）', tag: 'heavy', group: 'Meta Llama', price: { in: 0.484, out: 0.03 } },
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek-R1-Distill-32B（推理强 · 会吐思维链，耗量大）', tag: 'heavy', group: 'DeepSeek', price: { in: 0.497, out: 4.881 } },
+  { id: '@cf/nvidia/nemotron-3-120b-a12b', label: 'Nemotron-3-120B（NVIDIA 大杯）', tag: 'heavy', group: 'NVIDIA', price: { in: 0.5, out: 1.5 } },
+  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5-Coder-32B（公式/代码强）', tag: 'heavy', group: '阿里通义', price: { in: 0.66, out: 1 } },
+  { id: '@cf/qwen/qwq-32b', label: 'QwQ-32B（推理强 · 会吐思维链，耗量大）', tag: 'heavy', group: '阿里通义', price: { in: 0.66, out: 1 } },
+  { id: '@cf/moonshotai/kimi-k2.6', label: 'Kimi-K2.6（月之暗面 · 中文强但贵）', tag: 'heavy', group: '月之暗面', price: { in: 0.95, out: 4 } },
+  { id: '@cf/moonshotai/kimi-k2.7-code', label: 'Kimi-K2.7-Code（代码专用）', tag: 'heavy', group: '月之暗面', price: { in: 0.95, out: 4 } },
+  { id: '@cf/deepseek-ai/deepseek-v4-pro-0813', label: 'DeepSeek-V4-Pro（旗舰 · 很贵）', tag: 'heavy', group: 'DeepSeek', price: { in: 1.32, out: 3.96 } },
+  { id: '@cf/zai-org/glm-5.3', label: 'GLM-5.3（智谱旗舰 · 很贵，免费额度下不建议）', tag: 'paid', group: '智谱 Z.ai', price: { in: 1.4, out: 4.4 } },
+  { id: '@cf/zai-org/glm-5.2', label: 'GLM-5.2（旧旗舰 · 很贵）', tag: 'paid', group: '智谱 Z.ai', price: { in: 1.4, out: 4.4 } },
 ]
+
+/**
+ * 排序后的对外清单：**适合试卷识别的**按省 → 贵排序，不适合的沉到底部。
+ *
+ * 为什么分两段而不是纯粹按价格排：
+ *   纯价格排序会让 clef-flash（只按输入计费，costScore 最低）占据第一名，
+ *   但它是嵌入式短任务模型，选它做试卷识别会直接"出不了题"。
+ *   把「用途不匹配」的模型沉底，既保留了"最省的在最前"的直观性，
+ *   又不会让人误选 —— 详见 NOT_FOR_PAPER 的说明。
+ */
+export const CF_MODEL_CHOICES: CfModelChoice[] = CF_MODEL_RAW
+  .map(m => ({ ...m, costScore: costOf(m) }))
+  .sort((a, b) => {
+    const aBad = NOT_FOR_PAPER.has(a.id) ? 1 : 0
+    const bBad = NOT_FOR_PAPER.has(b.id) ? 1 : 0
+    if (aBad !== bBad) return aBad - bBad
+    return (a.costScore! - b.costScore!) || a.id.localeCompare(b.id)
+  })
+
+/**
+ * 【v4.15.0】额度紧张时的「一键省额度」目标模型。
+ * 选 IBM Granite-4.0-H-Micro 的理由：它是**唯一同时满足** ① 实际存在于该账号
+ * ② 支持中文指令 ③ 单价比 GLM-4.7-Flash 低约 3.5 倍 的模型。
+ */
+export const BUDGET_MODEL_CF = '@cf/ibm-granite/granite-4.0-h-micro'
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -846,7 +1050,7 @@ function dedupeQuestions(qs: AiQuestion[]): AiQuestion[] {
  */
 async function parseOneChunk(
   env: AiEnv, chunkText: string, timeoutMs: number, retryAttempts = 3
-): Promise<{ questions: AiQuestion[]; provider: string; model: string; usage?: any; attempts: { provider: string; error?: string }[] }> {
+): Promise<{ questions: AiQuestion[]; provider: string; model: string; usage?: any; attempts: { provider: string; error?: string }[]; quotaExhausted?: boolean }> {
   const mode = (env.AI_PROVIDER || 'auto').toLowerCase()
   const hasCf = !!(env.AI || env.AI_BASE_CF)
   const hasZhipu = !!env.ZHIPU_API_KEY
@@ -855,6 +1059,8 @@ async function parseOneChunk(
   if (!hasCf) order = order.filter(p => p !== 'cf')
   if (!hasZhipu) order = order.filter(p => p !== 'zhipu')
   const attempts: { provider: string; error?: string }[] = []
+  /** 【v4.15.0】一旦命中账户级额度耗尽 → 立刻停止所有后续尝试（见下方长注释） */
+  let quotaExhausted = false
   for (const p of order) {
     try {
       if (p === 'cf') {
@@ -867,29 +1073,132 @@ async function parseOneChunk(
         for (const m of models) {
           // 频率限制(429)/过载：退避后重试（次数受后台旋钮控制，默认 3 次），实测一次重试常能成功
           for (let attempt = 0; attempt < retryAttempts; attempt++) {
+            const t0 = Date.now()
             try {
               const { raw, usage } = await callCfAi(env, m, chunkText, timeoutMs)
               const questions = normalizeQuestions(raw)
-              if (!questions.length) { lastErr = `模型 ${m} 未解析出题目`; break }
-              return { questions, provider: 'cf', model: m, usage, attempts: [{ provider: 'cf' }] }
+              if (!questions.length) {
+                lastErr = `模型 ${m} 未解析出题目`
+                // 【v4.15.0】"跑通了但没解析出题"也是一次真实消耗，必须记账，
+                //   否则后台看到的用量会小于账单，超管会困惑"为什么额度掉得比记录快"。
+                emitUsage(env, {
+                  provider: 'cf', model: m, ok: false, error: lastErr,
+                  elapsedMs: Date.now() - t0, usage,
+                })
+                break
+              }
+              emitUsage(env, {
+                provider: 'cf', model: m, ok: true,
+                elapsedMs: Date.now() - t0, usage,
+              })
+              // 【v4.15.0】携带累积 attempts（可能含前一个模型的失败），
+              //   不要只报 [{provider:'cf'}] —— 那会丢掉"主力模型挂了、靠备用才成功"这一关键信息
+              attempts.push({ provider: 'cf' })
+              return { questions, provider: 'cf', model: m, usage, attempts, quotaExhausted }
             } catch (e: any) {
-              lastErr = String(e?.message || e).slice(0, 200)
+              const rawErr = String(e?.message || e).slice(0, 300)
+              lastErr = rawErr
+              const isQuota = isQuotaExhausted(e)
+              emitUsage(env, {
+                provider: 'cf', model: m, ok: false, error: rawErr,
+                elapsedMs: Date.now() - t0, quotaExhausted: isQuota,
+              })
+              // ──────────────────────────────────────────────────────────────
+              // 【v4.15.0 关键修复 · 额度耗尽不再做无效重试】
+              //
+              // 旧行为：额度耗尽被当成普通 429 → 当前模型重试 3 次，
+              //   失败后换备用模型再 3 次，再换廉价模型 3 次 = 9 次**注定失败**的请求。
+              //   若试卷还切了 N 块，就是 9N 次。实测 2026-10-05 当天：
+              //   120 次请求 = 40 × 3 个模型，消耗 0 神经元 —— 纯浪费，
+              //   还让用户误以为"我没用却一直在跑"。
+              //
+              // 新行为：识别到是**账户级**额度耗尽时：
+              //   ① 当前 chunk 立刻跳出所有模型循环；
+              //   ② 通过返回值把 quotaExhausted 上报给 aiParsePaper，
+              //      由它取消**所有剩余分块任务**（并发池也一起停）。
+              //   理由：额度是账户级的，一个 chunk 耗尽 = 全账号耗尽，
+              //         任何后续尝试的成功率都是 0。
+              // ──────────────────────────────────────────────────────────────
+              if (isQuota) { quotaExhausted = true; break }
               if (isRateLimit(e) && attempt < retryAttempts - 1) { await sleep(2000 * (attempt + 1)); continue }
               break
             }
           }
+          if (quotaExhausted) break
         }
-        attempts.push({ provider: 'cf', error: lastErr || '全部模型失败' })
+        attempts.push({ provider: 'cf', error: cleanErr(lastErr) || '全部模型失败' })
+        // 账户级额度耗尽 → 连智谱都不用试了（但如果配了智谱，它其实**还能用**，见下）
+        if (quotaExhausted) {
+          // ⚠️ 这里**不 return**：如果用户配了智谱 Key，智谱是另一套独立额度，
+          //   完全可以继续跑。所以只跳过 CF 这一路，让 order 里的 zhipu 继续。
+          continue
+        }
         continue
       }
+      const t0 = Date.now()
       const { raw, usage } = await callZhipu(env, chunkText, timeoutMs)
       const questions = normalizeQuestions(raw)
-      if (!questions.length) { attempts.push({ provider: 'zhipu', error: '模型返回内容无法解析出题目' }); continue }
-      return { questions, provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, usage, attempts: [{ provider: 'zhipu' }] }
-    } catch (e: any) { attempts.push({ provider: p, error: String(e?.message || e).slice(0, 200) }) }
+      if (!questions.length) {
+        emitUsage(env, { provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, ok: false, error: '模型返回内容无法解析出题目', elapsedMs: Date.now() - t0, usage })
+        attempts.push({ provider: 'zhipu', error: '模型返回内容无法解析出题目' })
+        continue
+      }
+      emitUsage(env, { provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, ok: true, elapsedMs: Date.now() - t0, usage })
+      // 【v4.15.0 补全排查信息】旧实现返回 `attempts: [{ provider: 'zhipu' }]`，
+      //   把**前面 CF 的失败记录整段丢掉了**。后果是：CF 明明挂了（或者额度耗尽），
+      //   最终结果却看起来"一切正常"，超管从 attempts 里查不出真实原因
+      //   —— 这正是"查不出为什么一直在失败"的一类信息黑洞。
+      //   现在改为携带累积的 attempts（CF 的失败 + 智谱的成功）。
+      attempts.push({ provider: 'zhipu' })
+      return { questions, provider: 'zhipu', model: env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU, usage, attempts, quotaExhausted }
+    } catch (e: any) {
+      const rawErr = String(e?.message || e).slice(0, 300)
+      emitUsage(env, { provider: p, model: p === 'cf' ? (env.AI_MODEL_CF || DEFAULT_MODEL_CF) : (env.AI_MODEL_ZHIPU || DEFAULT_MODEL_ZHIPU), ok: false, error: rawErr })
+      attempts.push({ provider: p, error: cleanErr(rawErr) })
+    }
   }
-  return { questions: [], provider: '', model: '', attempts }
+  return { questions: [], provider: '', model: '', attempts, quotaExhausted }
 }
+
+/**
+ * 【v4.15.0】把一次调用报给注入的记账回调。
+ *
+ * 三重保险：没有 sink 就静默返回；sink 抛错也不向外传播；字段逐个兜底。
+ * 记账功能本身**任何情况下都不能影响 AI 主流程**。
+ */
+function emitUsage(env: AiEnv, rec: {
+  provider: string; model: string; ok: boolean; error?: string
+  elapsedMs?: number; usage?: any; quotaExhausted?: boolean
+}): void {
+  const sink = env.AI_USAGE_SINK
+  if (typeof sink !== 'function') return
+  try {
+    const u = rec.usage || {}
+    sink({
+      provider: String(rec.provider || ''),
+      model: String(rec.model || ''),
+      ok: !!rec.ok,
+      error: rec.error ? cleanErr(rec.error) : undefined,
+      promptTokens: numOrUndef(u.prompt_tokens ?? u.promptTokens),
+      completionTokens: numOrUndef(u.completion_tokens ?? u.completionTokens),
+      // CF 的 usage.neurons 是权威值；它不给就留空（不猜，免得后台数字对不上账单）
+      neurons: numOrUndef(u.neurons),
+      elapsedMs: rec.elapsedMs,
+      scene: env.AI_SCENE || 'paper_parse',
+      actorId: env.AI_ACTOR?.id,
+      actorName: env.AI_ACTOR?.name,
+      quotaExhausted: rec.quotaExhausted,
+    })
+  } catch { /* 记账失败绝不外溢 */ }
+}
+
+/** 把可能是 undefined/NaN/字符串的值转成有限数字，否则返回 undefined */
+function numOrUndef(v: any): number | undefined {
+  if (v == null || v === '') return undefined
+  const n = Number(v)
+  return Number.isFinite(n) ? n : undefined
+}
+
 
 /**
  * 调用 AI 解析试卷。
@@ -951,26 +1260,37 @@ export async function aiParsePaper(
   let usageAcc: AiParseResult['usage'] | undefined
   let allAttempts: { provider: string; error?: string }[] = []
   let merged: AiQuestion[] = []
+  /** 【v4.15.0】账户级额度耗尽标记（由任意 chunk 上报后置位） */
+  let quotaExhausted = false
 
   if (total === 1) {
     // 短卷：与原逻辑一致的单次调用（保持已验证行为）
     const r = await parseOneChunk(env, buildChunkText(rawChunks[0], 0), timeoutMs, retryAttempts)
     provider = r.provider; model = r.model; usageAcc = r.usage; allAttempts = r.attempts
     merged = r.questions
+    quotaExhausted = !!r.quotaExhausted
   } else {
     // 长卷：多块解析。
     // 【v4.13.7】Workers AI 免费档对**并发/大体量**请求会限流，导致模型返回残缺 JSON（丢题）。
     // 故默认**串行**（concurrency=1）：每块都拿到完整算力，稳出完整题目；
     // 墙钟时间 ≈ 块数 × 单块耗时（无超时限制，用户本就要求"让 AI 跑完"），宁可慢但完整。
     // 【v4.13.8】并发数开放给后台调（最高 4）；超管自行承担提速带来的 429 风险。
+    // 【v4.15.0】**额度耗尽时立即熔断整个池** —— 见下方 breaker 说明。
+    let breaker = false
     const runPool = async (items: { text: string; appendTail: string }[]) => {
       const out: Awaited<ReturnType<typeof parseOneChunk>>[] = new Array(items.length)
       let cursor = 0
       const worker = async () => {
         while (cursor < items.length) {
+          // 【v4.15.0 熔断】任一 worker 发现账户级额度耗尽 → 所有 worker 立即停手。
+          //   为什么必须熔断：额度是**账户级**的，一个 chunk 判定耗尽 = 全账号耗尽，
+          //   剩下的 chunk 跑下去成功率恒为 0，只是白烧时间与请求数
+          //   （实测 2026-10-05：额度耗尽后仍有 120 次无效请求）。
+          if (breaker) { out[cursor++] = { questions: [], provider: '', model: '', attempts: [], quotaExhausted: true }; continue }
           const i = cursor++
           const r = await parseOneChunk(env, buildChunkText(items[i], i), timeoutMs, retryAttempts)
           out[i] = r
+          if (r.quotaExhausted) breaker = true
         }
       }
       await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
@@ -981,14 +1301,15 @@ export async function aiParsePaper(
       if (r.provider && !provider) { provider = r.provider; model = r.model; usageAcc = r.usage }
       allAttempts.push(...r.attempts)
       merged.push(...r.questions)
+      if (r.quotaExhausted) quotaExhausted = true
     }
   }
 
   const questions = dedupeQuestions(merged)
   if (!questions.length) {
-    return { questions: [], provider, model, attempts: allAttempts, images: structured.images }
+    return { questions: [], provider, model, attempts: allAttempts, images: structured.images, quotaExhausted }
   }
-  return { questions, provider, model, attempts: allAttempts, usage: usageAcc, images: structured.images }
+  return { questions, provider, model, attempts: allAttempts, usage: usageAcc, images: structured.images, quotaExhausted }
 }
 
 /**
@@ -1010,10 +1331,15 @@ export function aiAvailable(env: AiEnv): boolean {
  *     → 这是账户级硬上限，所有 CF 模型都停，只能次日或升级付费。
  *   · 频率限制 / 过载 / 超时 → 稍候或拆分重试。
  */
-export function aiFailureMessage(attempts?: { provider: string; error?: string }[]): string {
+export function aiFailureMessage(attempts?: { provider: string; error?: string }[], quotaExhausted?: boolean): string {
   const errs = (attempts || []).map(a => a.error || '').filter(Boolean).join(' ')
-  if (/daily free allocation|upgrade to Cloudflare|10,?000 neurons|free allocation/i.test(errs)) {
-    return '今日免费额度（10000 神经元）已用完，AI 识别已暂停。请次日再试，或在「AI 设置」里切换到更省神经元的小模型（如 GLM-4.7-Flash）。'
+  // 【v4.15.0】优先判额度耗尽：它是账户级硬故障，提示必须**给出可执行的下一步**，
+  //   并明确"重置时间"，否则用户只会反复点重试（实测用户就是这样被绕进去的）。
+  if (quotaExhausted || /daily free allocation|used up your daily free|upgrade to Cloudflare|10,?000 neurons|free allocation/i.test(errs)) {
+    return '今日 Cloudflare 免费额度（10000 神经元）已用完，AI 识别已暂停。此额度为**账号级**共享：'
+      + '无论谁调用都从同一池扣，用完后全站 AI 一起停摆，次日 UTC 0 点（北京时间 8 点）自动重置。'
+      + '想立刻继续用：① 在「AI 设置」把主力模型换成单价最低的 IBM Granite-4.0-H-Micro（约省 3.5 倍）；'
+      + '② 或配置智谱 GLM Key（独立额度，不受此限制）。'
   }
   if (/429|频率限制|rate.?limit|too many requests/i.test(errs)) {
     return 'AI 服务暂时繁忙（触发频率限制），请稍候重试，或把长卷拆成几份分次识别。'

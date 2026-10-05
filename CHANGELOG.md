@@ -5,6 +5,76 @@
 
 ---
 
+## [v4.15.0] - 2026-10-05
+
+### 主题：AI 额度透明化——后台可看「剩余用量」与「使用记录」+ 耗尽时不再空转
+
+> 用户原话：「我今天用都没用AI 但是居然一直提示我用量耗尽！！！给我在超级管理员后台AI设置里面加上剩余用量 和 使用记录 并补充其他功能」
+
+### 背景（这不是"配置错了"，是三个真实缺陷叠加）
+
+用户说"没用却耗尽"，我先去查了 Cloudflare 侧的**账户级真实用量**（GraphQL Analytics `aiInferenceAdaptiveGroups`）：
+
+| UTC 日期 | 调用数 | 神经元消耗 | 说明 |
+|---|---|---|---|
+| 10-03 | 28 | 887.0 | 正常 |
+| 10-04 | 132 | **10633.7** | **已超 10000 免费额度** |
+| 10-05 | 120 | 0.0 | 全部被拒（HTTP 429 / code 4006） |
+
+结论是三个缺陷叠加，**跟用户「有没有用」无关**：
+
+1. **额度是账号级共享的**。免费档 10000 neurons/天绑定 Cloudflare 账号，不是绑定平台/用户。同一账号下别的应用、Worker、控制台手动测试都计入这 10000 —— 所以"我没用"和"额度没了"可以同时为真。而此前**后台任何界面都不显示剩余额度**，用户只能靠报错感知，无从判断。
+2. **额度耗尽被误判成普通限流**。CF 返回 429 + `code 4006` + `used up your daily free allocation of 10,000 neurons`，旧代码只按 HTTP 429 走"重试"分支 → 每次识别变成 `3 个模型 × 3 次重试 × N 个分块` 的注定失败请求，把失败放大十几倍、白白拖延用户等待时间。
+3. **没有熔断**。一张 30 题的卷子会切成约 5 块并行，5 块各自独立重试，互不知情。
+
+### 新增
+
+- **后台「📊 用量与额度」区块**（`AiSettingsView.vue`，位于"服务商优先级"之前）：
+  - **额度进度条**：已用 / 剩余 / 百分比，明确标注 `每日 UTC 0 点重置（北京时间约 8:00）`。今日口径取 **UTC 日期**，与 CF 计费口径严格一致（用北京时间会在每天 8 点前后错位）。
+  - **4 张统计卡**：今日调用（成功/失败拆分）、当前主力模型、近 N 日消耗、Cloudflare 侧实测。
+  - **本地记账 vs CF 实测的差额解释**：两个数字并排给出，并直白说明"CF 数字含同一账号下所有应用消耗，因此可能大于平台记账 —— 这正是「我没用却提示耗尽」的原因"。
+  - **纯 CSS 按天柱状图**：7 / 14 / 30 天可切。
+  - **三张聚合小卡**：按模型、按场景（区分"用户真在用"与"连接自测"）、按用户（额度共享，必须能看到谁在烧）。
+  - **失败原因 TOP**：直接看出"是不是被拒的无效请求"。
+  - **使用记录明细表**：分页 + 按成功/失败、模型、场景、用户筛选，展示时间（UTC→本地）、模型、神经元、耗时、触发者、场景、错误摘要。
+  - **额度耗尽告警条**：两个可执行入口 ——「一键切到省额度模型」「去配置智谱 Key」，而不是只给一句"额度用完了"。
+- **一键切省额度模型**：`POST /api/admin/ai-usage/use-budget-model`，主力切到 `@cf/ibm-granite/granite-4.0-h-micro`（约原模型单价的 1/3.5），备用同步换便宜模型避免主力失败后再烧一遍贵的。
+- **清理历史记录**：`POST /api/admin/ai-usage/purge`，保留最近 N 天（夹取 7~365 天）。AI 调用记录会随时间无限增长，一次识别最多产生十几行记录，重度使用一个月就能堆上万行，给超管一个手动清理入口好过让库悄悄撑爆。
+- **向 CF 问真实额度**：`GET /api/admin/ai-quota`，走 Cloudflare GraphQL Analytics（实测可用数据集与字段：`aiInferenceAdaptiveGroups` → `sum.totalNeurons` + `dimensions { date modelId }`）。未配 `CF_ACCOUNT_ID`/`CF_API_TOKEN` 时降级为 `available:false`，前端退化成"只显示本地记账"，不报错。
+
+### 修改
+
+- **`shared/ai-paper.ts`（纯函数层）**：
+  - 新增 `isQuotaExhausted(e)`，精确识别 CF 额度耗尽（匹配 `daily free allocation` / `used up your daily free` / `10,000 neurons` / `\b4006\b`），与普通限流区分开。
+  - `parseOneChunk` 命中额度耗尽**立即 break 不再重试**；`aiParsePaper` 增加**并行池熔断** —— 任一分块判定额度耗尽即置 `breaker`，其余排队分块直接短路返回，不再发起无谓请求。实测：30 题试卷从 `3 模型 × 3 重试 × 5 分块 = 45 次请求` 降到 **1 次请求 / 1 条审计 / 19ms**。
+  - **CF 耗尽不再连累智谱**：CF 通道耗尽时改为"继续走另一通道"而非整体 return（智谱是独立额度，不该被 CF 拖死）。
+  - 新增 `AI_USAGE_SINK` 记账钩子 + `AI_ACTOR` / `AI_SCENE` 上下文。钩子模式是为了让这个被前端 import 的纯函数层不必直接碰 DB，而由两个后端各自注入写入实现（铁律#11）。
+  - 新增 `aiFailureMessage(attempts?, quotaExhausted?)` 首个分支：说明账号级共享、给出重置时间、附两条补救路径。
+  - **默认模型改为全场最省的 `@cf/ibm-granite/granite-4.0-h-micro`**（$0.017/$0.112 per M tokens）；`CF_MODEL_CHOICES` 从 14 条手写扩到 **30 条带真实单价**，按 `costScore = in*0.25 + out*0.75` 排序，并把 `clef` / `llama-guard-3-8b` / `kimi-k2.7-code` / `qwen2.5-coder` 等**不适合试卷识别的模型**沉底。
+  - 修复一个既有回归：成功路径的 `attempts` 只记当前通道，丢弃了早先失败通道的记录（现在累加，前端才能显示"两个通道都试过了"）。
+- **`worker-api.ts` / `server/index.ts`（双后端逐字对齐）**：
+  - 新增 `ai_usage_log` 幂等迁移（15 字段 + day/model/actor 三索引），本地 `server/db.ts` 同步建同名同构表。
+  - `logAiUsage()` 旁路记账：**永不 await、永不抛错**，失败绝不影响 AI 主流程；`day` 取 UTC。
+  - 补注入 v4.13.8 遗漏的 5 个高级旋钮（`AI_TEMPERATURE` / `AI_CHUNK_QUESTIONS` / `AI_MAX_TOKENS` / `AI_CONCURRENCY` / `AI_RETRY_ATTEMPTS`）—— 这是探针抓出的**既有漂移**。
+- **`wrangler.toml`**：主力模型改为 granite-4.0-h-micro，注释澄清"账号级共享"并推荐智谱作为独立额度通道。
+- **前端提示**：`WordPaperSplitEditor.vue` / `WordImportPanel.vue` 识别到 `quotaExhausted` 时给出专门提示（含账号级共享与北京时间 8 点重置），不再混进普通失败。
+
+### 验证
+
+- 三套类型检查全绿：`vue-tsc --noEmit` = 0、`tsc -p tsconfig.json` = 0、`tsc -p tsconfig.node.json` = 0。
+- `npm run build` 通过；`AiSettingsView` chunk 23KB → 26.57KB。
+- **9 个探针全绿：739 项通过 / 0 失败**（probe-ai-parse 150、probe-ai-settings 91、probe-ai-e2e 44、probe-ai-quota 95、probe-split-editor 182、probe-question-number 53、probe-docx-layout 54、probe-docx-e2e 39、probe-role-label 31）。
+- `probe-ai-quota.mjs` 从 79 项扩到 **95 项**，其中新增的**双后端一致性断言抓到了一个真实事故**：v4.15.0 首次落地时 4 个新端点只加进了 `worker-api.ts`，`server/index.ts` 全漏 —— 而当时的探针只查 worker 侧所以全绿，本地访问直接落进 SPA 兜底返回 `index.html`（`Unexpected token '<'`）。现已补上"凡是前端会调用的端点必须在两个后端都断言存在 + 注册早于 SPA 兜底"的守卫。
+- **真实 HTTP 端到端复验通过**（本地后端 3998 端口 + JWT 超管）：
+  - `GET /api/admin/ai-usage` → 200，14 个响应字段齐备，`quota/today/window/byDay/byModel/byScene/byActor/byError/logs/logTotal/logPage/logLimit/currentModel/budgetModel`，筛选（`ok=0` / `scene=`）与分页（`page=2&limit=2` → ids `[2,1]`）均正确。
+  - `GET /api/admin/ai-quota` → 200，未配凭据时返回 `{"available":false,...}` 优雅降级。
+  - `POST /api/admin/ai-usage/purge` → 200，`{"ok":true,"deleted":0,"keptSince":"2025-10-05"}`。
+  - `POST /api/admin/ai-usage/use-budget-model` → 200，且已落库校验 `ai_config.modelCf = @cf/ibm-granite/granite-4.0-h-micro`。
+  - 未授权访问 → **401 JSON**（而非 HTML）；`ai_usage_log` 表结构 15 字段核对一致。
+- 用一个"返回真实 CF 429/4006 报文"的 mock 服务实测熔断：30 题试卷只产生 **1 次网络请求 / 1 条审计记录 / 19ms**（修复前为 45 次请求）。
+
+---
+
 ## [v4.14.0] - 2026-10-05
 
 ### 主题：Word 导入原卷编辑——左右分栏可拖 + 拖动跟手 + 图片不丢

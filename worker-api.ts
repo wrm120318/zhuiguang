@@ -21,7 +21,8 @@ import {
   DEFAULT_MODEL_CF, DEFAULT_MODEL_CF_FALLBACK, DEFAULT_MODEL_ZHIPU,
   AI_CONFIG_KEY, DEFAULT_AI_CONFIG, sanitizeAiConfig, mergeAiConfig, maskKey,
   htmlToStructuredText,
-  type AiEnv, type AiBindingLike,
+  CF_FREE_DAILY_NEURONS, isQuotaExhausted, BUDGET_MODEL_CF,
+  type AiEnv, type AiBindingLike, type AiUsageRecord, type AiActor,
 } from './shared/ai-paper'
 
 // ===== Workers 环境变量类型 =====
@@ -85,6 +86,17 @@ let CACHE_TTL_PRIVATE = '0'
 //   超管在后台改的配置存 D1，**每次请求实时合并**（见 aiEnv()），不缓存在这个变量上。
 let AI_ENV: AiEnv = {}
 let AI_BINDING: AiBindingLike | undefined
+
+/**
+ * 【v4.15.0】把 wrangler [vars] 里的值转成 number | undefined。
+ * wrangler.toml 的 [vars] 值可能是字符串（"0.1"）也可能是数字，AiEnv 要求 number，
+ * 不归一化会让后续 `?? 0.1` 拿到字符串参与算术（如 "0.12" * 100 静默变 NaN）。
+ */
+function numCfg(v: any): number | undefined {
+  if (v == null || v === '') return undefined
+  const n = Number(v)
+  return Number.isFinite(n) ? n : undefined
+}
 
 // ===== 互斥锁（self-repair 和 __zg_fix 共用） =====
 const SELF_REPAIR_LOCK = { at: 0 }
@@ -1133,6 +1145,18 @@ app.use('*', async (c, next) => {
     AI_MODEL_ZHIPU: c.env.AI_MODEL_ZHIPU,
     AI_BASE_CF: c.env.AI_BASE_CF,
     AI_BASE_ZHIPU: c.env.AI_BASE_ZHIPU,
+    // 【v4.15.0 补漏】v4.13.8 的 5 个高级旋钮此前只从 **后台配置** 读取，
+    //   环境变量这一路漏接了 —— 意味着 wrangler.toml 里配 AI_TEMPERATURE 等
+    //   完全无效（只有后台页面能改）。这不是设计意图，是遗漏。
+    //   探针「共享模块的每个 AiEnv 字段都被注入」当场抓到。
+    //   ⚠️ c.env 里的值来自 wrangler [vars]，D1 里存的数字到了 wrangler.toml
+    //     也可能是字符串，故统一 Number() 转换 —— AiEnv 里这几个字段是 number，
+    //     不转会让 `env.AI_TEMPERATURE ?? 0.1` 拿到 "0.1" 这种字符串参与算术。
+    AI_TEMPERATURE: numCfg(c.env.AI_TEMPERATURE),
+    AI_CHUNK_QUESTIONS: numCfg(c.env.AI_CHUNK_QUESTIONS),
+    AI_MAX_TOKENS: numCfg(c.env.AI_MAX_TOKENS),
+    AI_CONCURRENCY: numCfg(c.env.AI_CONCURRENCY),
+    AI_RETRY_ATTEMPTS: numCfg(c.env.AI_RETRY_ATTEMPTS),
   }
   initStorage(D1, {
     STORAGE_BACKEND, B2_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET_ID, B2_BUCKET_NAME, B2_ACCOUNT_ID,
@@ -1220,6 +1244,43 @@ app.use('*', async (c, next) => {
       await D1.prepare(`CREATE TABLE IF NOT EXISTS exams (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL, title TEXT NOT NULL, type TEXT DEFAULT 'exam', level TEXT DEFAULT '', exam_date TEXT DEFAULT '', created_by INTEGER, created_at TEXT DEFAULT (datetime('now','+8 hours')), status TEXT DEFAULT 'draft', release_password TEXT DEFAULT '', questions TEXT DEFAULT '[]', total_score INTEGER DEFAULT 0)`).run()
       await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_exams_subject ON exams(subject_id)`).run()
       await D1.prepare(`CREATE TABLE IF NOT EXISTS exam_responses (id INTEGER PRIMARY KEY AUTOINCREMENT, exam_id INTEGER NOT NULL, student_id INTEGER NOT NULL, scores TEXT DEFAULT '{}', total INTEGER DEFAULT 0, scan_url TEXT DEFAULT '', comment TEXT DEFAULT '', graded_by INTEGER, graded_at TEXT, created_at TEXT DEFAULT (datetime('now','+8 hours')), UNIQUE(exam_id, student_id))`).run()
+      // ===== 【v4.15.0】AI 用量记账（幂等自愈，与 server/db.ts 逐字对齐 · 双后端同步铁律）=====
+      //
+      // 【为什么必须把"失败"也记下来】
+      //   用户原话：「我今天用都没用 AI，但是居然一直提示我用量耗尽」。
+      //   查证：2026-10-04 消耗 10633 神经元（超免费额度 10000），
+      //        2026-10-05 当天 120 次请求 / 0 神经元 —— 全是**被拒绝的无效请求**。
+      //   如果只记成功的调用，后台看到的用量会小于真实账单，超管永远查不出
+      //   "为什么我没用却提示耗尽" —— 恰恰是失败记录在解释这件事。
+      //
+      // 【为什么 neurons 以 CF 返回值为准】
+      //   不能用本地估算（估算会随模型/题量漂移），必须用 CF 的 usage.neurons，
+      //   这样后台数字与 CF 账单才能对得上，超管才敢据此做决策。
+      //
+      // 【为什么有 quota_exhausted 列】
+      //   额度耗尽是**账户级硬故障**，与普通报错的处置方式完全不同（后者重试有意义）。
+      //   单独成列后，后台可一键筛出「额度耗尽事件」看它何时开始、影响多少请求。
+      await D1.prepare(`CREATE TABLE IF NOT EXISTS ai_usage_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        day TEXT NOT NULL,
+        provider TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        ok INTEGER DEFAULT 0,
+        error TEXT DEFAULT '',
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        neurons REAL DEFAULT 0,
+        elapsed_ms INTEGER DEFAULT 0,
+        scene TEXT DEFAULT '',
+        actor_id INTEGER,
+        actor_name TEXT DEFAULT '',
+        quota_exhausted INTEGER DEFAULT 0
+      )`).run()
+      // 按天聚合是后台最常用的查询（今日用量 / 趋势图），单列索引成本极低
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_log(day)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_usage_model ON ai_usage_log(model)`).run()
+      await D1.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_usage_actor ON ai_usage_log(actor_id)`).run()
     } catch {}
   }
   await next()
@@ -4750,12 +4811,57 @@ async function readAiConfig(): Promise<ReturnType<typeof sanitizeAiConfig>> {
 }
 
 /**
+ * 【v4.15.0】AI 用量记账：把一次调用写进 ai_usage_log。
+ *
+ * 【设计要点：这是一个「永不阻塞、永不抛错」的旁路】
+ *   记账跑在 AI 主流程的同步路径上，若它 await 落库：
+ *     · 每次 AI 调用都要多付一次 D1 写延迟（AI 本身几十秒，但冷连接可能几秒）
+ *     · D1 一旦写失败，整个 AI 识别就会跟着挂 —— 这是不可接受的耦合
+ *   所以：只做「塞进数组 + 用 waitUntil 挂后台」，调用方零等待。
+ *
+ * 【为什么要按 UTC 日归档】
+ *   因为 Cloudflare 的免费额度就是**按 UTC 日重置**的。
+ *   如果按北京时间算 day，跨过 UTC 0 点（北京 8 点）后后台显示"今日已用"
+ *   会与 CF 的"今日已用"错位，超管看到的数字就解释不了 CF 的报错。
+ *   所以 day 一律取 **UTC 日期**，与计费口径严格对齐。
+ */
+function logAiUsage(rec: AiUsageRecord): void {
+  try {
+    const now = Date.now()
+    const iso = new Date(now).toISOString()
+    const day = iso.slice(0, 10)                      // UTC 日期，与 CF 计费口径一致
+    run(
+      `INSERT INTO ai_usage_log
+       (at, day, provider, model, ok, error, prompt_tokens, completion_tokens, neurons, elapsed_ms, scene, actor_id, actor_name, quota_exhausted)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      iso, day,
+      String(rec.provider || ''), String(rec.model || ''),
+      rec.ok ? 1 : 0, String(rec.error || '').slice(0, 500),
+      Math.round(Number(rec.promptTokens) || 0), Math.round(Number(rec.completionTokens) || 0),
+      Number(rec.neurons) || 0, Math.round(Number(rec.elapsedMs) || 0),
+      String(rec.scene || ''), rec.actorId ?? null, String(rec.actorName || ''),
+      rec.quotaExhausted ? 1 : 0,
+    ).catch(() => { /* 记账失败绝不影响主流程 */ })
+  } catch { /* 同上 */ }
+}
+
+/**
  * 组装本次请求实际生效的 AiEnv = 基础设施(env.AI 绑定 + 环境变量) ⊕ 后台配置。
  * 后台配置优先（超管在界面上改的东西必须立刻生效）。
+ *
+ * 【v4.15.0】额外注入记账钩子与触发者信息：
+ *   shared/ai-paper.ts 是纯函数层（前端也 import），不能在里面碰 D1，
+ *   所以把「怎么记账」通过 AiEnv 回调注入进去 —— 保持纯函数层的可移植性。
  */
-async function aiEnv(): Promise<AiEnv> {
+async function aiEnv(actor?: AiActor, scene?: string): Promise<AiEnv> {
   const cfg = await readAiConfig()
-  return { ...mergeAiConfig(AI_ENV, cfg), AI: AI_BINDING }
+  return {
+    ...mergeAiConfig(AI_ENV, cfg),
+    AI: AI_BINDING,
+    AI_USAGE_SINK: logAiUsage,
+    AI_ACTOR: actor,
+    AI_SCENE: scene || 'paper_parse',
+  }
 }
 
 
@@ -4832,7 +4938,7 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     }
   }
 
-  const env = await aiEnv()
+  const env = await aiEnv({ id: c.get('user').id, name: c.get('user').real_name || c.get('user').username }, 'paper_parse')
   if (!aiAvailable(env)) {
     // 明确告知"没配 AI"，前端据此直接用正则、不弹错误（这是预期路径，不是故障）
     // v4.13.0：通道 A 只要 [ai] 绑定在就可用，正常情况下走不到这里
@@ -4848,9 +4954,11 @@ app.post('/api/ai/parse-paper', auth, async (c) => {
     return c.json({
       ok: false,
       available: true,
-      message: aiFailureMessage(result?.attempts),
+      message: aiFailureMessage(result?.attempts, result?.quotaExhausted),
       questions: [],
       attempts: result?.attempts || [],
+      // 【v4.15.0】透出"额度耗尽"标记，前端据此给出专门的提示与补救入口
+      quotaExhausted: !!result?.quotaExhausted,
       elapsed,
     })
   }
@@ -4929,7 +5037,10 @@ app.put('/api/settings/ai_config', auth, requirePerm('ai_settings'), async (c) =
  * 「我配的这个 Key / 这个模型，到底能不能用？」——猜不出来，必须实测。
  */
 app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async (c) => {
-  const env = await aiEnv()
+  const u = c.get('user') as any
+  // 【v4.15.0】测试连接也是一次真实计费调用 → 一并记账（scene='conn_test'），
+  //   否则超管测试几次的消耗在后台查不到，用量对不上账。
+  const env = await aiEnv({ id: u.id, name: u.real_name || u.username }, 'conn_test')
   if (!aiAvailable(env)) {
     return c.json({ ok: false, message: 'AI 服务不可用：未绑定 Workers AI，且未配置智谱 Key' })
   }
@@ -4950,6 +5061,8 @@ app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async
     attempts: result?.attempts || [],
     usage: result?.usage,
     elapsed,
+    // 【v4.15.0】测试失败时把"是不是额度耗尽"也说清楚，避免超管误以为 Key 配错了
+    quotaExhausted: !!result?.quotaExhausted,
     // 【v4.13.8】附带本次实际生效的高级参数，方便超管对照调参
     params: {
       temperature: env.AI_TEMPERATURE ?? 0.1,
@@ -4960,9 +5073,338 @@ app.post('/api/settings/ai_config/test', auth, requirePerm('ai_settings'), async
     },
     message: ok
       ? `连接成功（${result?.provider} / ${result?.model}，耗时 ${elapsed}ms）`
-      : '连接失败：请检查下方错误详情',
+      : (result?.quotaExhausted
+        ? aiFailureMessage(result?.attempts, true)
+        : '连接失败：请检查下方错误详情'),
   })
 })
+
+// ==============================================================================
+// ============ 【v4.15.0】AI 用量与额度查询（超管后台）============
+// ==============================================================================
+//
+// 【为什么必须做这个页面】
+//   用户原话：「我今天用都没用 AI，但是居然一直提示我用量耗尽！！！
+//              给我在超级管理员后台 AI 设置里面加上剩余用量 和 使用记录」。
+//
+//   查证结果（2026-10-05）：
+//     · 10-04 消耗 10633 神经元 —— 已超免费额度 10000
+//     · 10-05 当天 120 次请求 / 0 神经元 —— 全是**被拒绝的无效请求**
+//   根因有三个，缺一个用户都解释不了现象：
+//     ① 额度是**账户级**共享的（不是"每个用户 1 万"），别人用也算在你头上
+//     ② 额度耗尽后旧代码仍按"频率限制"重试 → 一次识别打 9 次注定失败的请求
+//     ③ **没有任何地方能看到"今天还剩多少"** → 用户只能靠报错反推，无从判断
+//   本接口解决第③条，让超管能自己看见、自己决策。
+//
+// 【权限】与 AI 设置一致（requirePerm('ai_settings')），不开放给普通用户 ——
+//   用量明细里含全站调用者姓名，属于管理信息。
+// ==============================================================================
+
+/** 把 D1 的聚合结果转成数字（D1 返回的 SUM/COUNT 可能是 null 或字符串） */
+const num = (v: any): number => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * AI 用量与额度总览。
+ *
+ * Query:
+ *   days   统计窗口天数（默认 14，1~90）
+ *   limit  明细条数（默认 50，1~200）
+ *   ok     明细筛选：空=全部 / 1=仅成功 / 0=仅失败
+ *   model  按模型筛选（可选）
+ *   scene  按场景筛选（可选）
+ *   actorId 按触发者筛选（可选）
+ *   page   明细分页（从 1 开始）
+ */
+app.get('/api/admin/ai-usage', auth, requirePerm('ai_settings'), async (c) => {
+  const days = Math.min(90, Math.max(1, Number(c.req.query('days')) || 14))
+  const limit = Math.min(200, Math.max(1, Number(c.req.query('limit')) || 50))
+  const page = Math.max(1, Number(c.req.query('page')) || 1)
+  const offset = (page - 1) * limit
+  const okFilter = c.req.query('ok')
+  const modelFilter = c.req.query('model')
+  const sceneFilter = c.req.query('scene')
+  const actorFilter = c.req.query('actorId')
+
+  // 今日取 **UTC 日期** —— 与 Cloudflare 免费额度的重置口径严格一致。
+  //   若用北京时间，跨过 UTC 0 点（北京 8 点）后数字会与 CF 的报错错位，
+  //   超管会觉得"明明显示还有额度怎么说耗尽了"。
+  const todayUtc = new Date().toISOString().slice(0, 10)
+
+  try {
+    // ── ① 今日汇总（后台"剩余额度"的核心数据）──
+    const today = await get<any>(
+      `SELECT COUNT(*) AS calls,
+              SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END) AS ok_calls,
+              SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS fail_calls,
+              SUM(neurons) AS neurons,
+              SUM(prompt_tokens) AS pt,
+              SUM(completion_tokens) AS ct,
+              MAX(CASE WHEN quota_exhausted=1 THEN 1 ELSE 0 END) AS quota_hit
+       FROM ai_usage_log WHERE day=?`, todayUtc)
+
+    const usedToday = num(today?.neurons)
+    const quotaHitToday = !!num(today?.quota_hit)
+
+    // ── ② 近 N 日按天趋势（画折线图）──
+    const byDayRows = await all<any>(
+      `SELECT day, COUNT(*) AS calls,
+              SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END) AS ok_calls,
+              SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS fail_calls,
+              SUM(neurons) AS neurons, SUM(elapsed_ms) AS ms
+       FROM ai_usage_log WHERE day >= ?
+       GROUP BY day ORDER BY day ASC`,
+      utcDayMinus(days - 1))
+
+    // ── ③ 按模型聚合（找出"谁在烧额度"）──
+    const byModel = await all<any>(
+      `SELECT model, provider, COUNT(*) AS calls,
+              SUM(CASE WHEN ok=1 THEN 1 ELSE 0 END) AS ok_calls,
+              SUM(neurons) AS neurons
+       FROM ai_usage_log WHERE day >= ?
+       GROUP BY model, provider ORDER BY neurons DESC LIMIT 30`,
+      utcDayMinus(days - 1))
+
+    // ── ④ 按场景聚合（区分"用户真在用"与"系统自测"）──
+    const byScene = await all<any>(
+      `SELECT scene, COUNT(*) AS calls, SUM(neurons) AS neurons
+       FROM ai_usage_log WHERE day >= ?
+       GROUP BY scene ORDER BY neurons DESC LIMIT 20`,
+      utcDayMinus(days - 1))
+
+    // ── ⑤ 按用户聚合（额度是共享的，必须能看到"谁用的"）──
+    const byActor = await all<any>(
+      `SELECT actor_id, actor_name, COUNT(*) AS calls, SUM(neurons) AS neurons
+       FROM ai_usage_log WHERE day >= ? AND actor_id IS NOT NULL
+       GROUP BY actor_id, actor_name ORDER BY neurons DESC LIMIT 30`,
+      utcDayMinus(days - 1))
+
+    // ── ⑥ 失败原因 TOP（快速定位"为什么一直在失败"）──
+    const byError = await all<any>(
+      `SELECT error, COUNT(*) AS cnt, MAX(day) AS last_day
+       FROM ai_usage_log WHERE day >= ? AND ok=0 AND error <> ''
+       GROUP BY error ORDER BY cnt DESC LIMIT 15`,
+      utcDayMinus(days - 1))
+
+    // ── ⑦ 明细（分页 + 可选筛选）──
+    const where: string[] = ['at IS NOT NULL']
+    const args: any[] = []
+    if (okFilter === '1' || okFilter === '0') { where.push('ok = ?'); args.push(Number(okFilter)) }
+    if (modelFilter) { where.push('model = ?'); args.push(String(modelFilter)) }
+    if (sceneFilter) { where.push('scene = ?'); args.push(String(sceneFilter)) }
+    if (actorFilter) { where.push('actor_id = ?'); args.push(Number(actorFilter)) }
+    const whereSql = where.join(' AND ')
+
+    const totalRow = await get<any>(`SELECT COUNT(*) AS n FROM ai_usage_log WHERE ${whereSql}`, ...args)
+    const logs = await all<any>(
+      `SELECT id, at, provider, model, ok, error, prompt_tokens, completion_tokens,
+              neurons, elapsed_ms, scene, actor_id, actor_name, quota_exhausted
+       FROM ai_usage_log WHERE ${whereSql}
+       ORDER BY id DESC LIMIT ? OFFSET ?`, ...args, limit, offset)
+
+    const windowNeurons = byDayRows.reduce((s, r) => s + num(r.neurons), 0)
+
+    return c.json({
+      // 额度口径
+      quota: {
+        limit: CF_FREE_DAILY_NEURONS,
+        used: usedToday,
+        remain: Math.max(0, CF_FREE_DAILY_NEURONS - usedToday),
+        percent: Math.min(100, (usedToday / CF_FREE_DAILY_NEURONS) * 100),
+        // UTC 重置 → 换算成北京时间给用户看（用户在中国，说 UTC 他要心算）
+        resetHint: `每日 UTC 0 点重置（北京时间约 8:00）`,
+        exhausted: quotaHitToday || usedToday >= CF_FREE_DAILY_NEURONS,
+        day: todayUtc,
+      },
+      today: {
+        calls: num(today?.calls),
+        okCalls: num(today?.ok_calls),
+        failCalls: num(today?.fail_calls),
+        neurons: usedToday,
+        promptTokens: num(today?.pt),
+        completionTokens: num(today?.ct),
+      },
+      window: { days, neurons: windowNeurons, calls: byDayRows.reduce((s, r) => s + num(r.calls), 0) },
+      byDay: byDayRows.map(r => ({
+        day: r.day, calls: num(r.calls), okCalls: num(r.ok_calls),
+        failCalls: num(r.fail_calls), neurons: num(r.neurons), avgMs: num(r.calls) ? Math.round(num(r.ms) / num(r.calls)) : 0,
+      })),
+      byModel: byModel.map(r => ({
+        model: r.model, provider: r.provider, calls: num(r.calls),
+        okCalls: num(r.ok_calls), neurons: num(r.neurons),
+      })),
+      byScene: byScene.map(r => ({ scene: r.scene || '(未标注)', calls: num(r.calls), neurons: num(r.neurons) })),
+      byActor: byActor.map(r => ({
+        actorId: r.actor_id, actorName: r.actor_name || `#${r.actor_id}`,
+        calls: num(r.calls), neurons: num(r.neurons),
+      })),
+      byError: byError.map(r => ({ error: r.error, cnt: num(r.cnt), lastDay: r.last_day })),
+      logs: logs.map(r => ({
+        id: r.id, at: r.at, provider: r.provider, model: r.model,
+        ok: !!r.ok, error: r.error || '',
+        promptTokens: num(r.prompt_tokens), completionTokens: num(r.completion_tokens),
+        neurons: num(r.neurons), elapsedMs: num(r.elapsed_ms),
+        scene: r.scene || '', actorId: r.actor_id, actorName: r.actor_name || '',
+        quotaExhausted: !!r.quota_exhausted,
+      })),
+      logTotal: num(totalRow?.n),
+      logPage: page,
+      logLimit: limit,
+      // 当前生效模型，供后台做"你现在用的是不是最省的"判断
+      currentModel: (await aiEnv()).AI_MODEL_CF || DEFAULT_MODEL_CF,
+      budgetModel: BUDGET_MODEL_CF,
+    })
+  } catch (e: any) {
+    return c.json({ message: '读取 AI 用量失败：' + String(e?.message || e).slice(0, 160) }, 500)
+  }
+})
+
+/**
+ * 【v4.15.0】向 Cloudflare 实时查询「今日还剩多少神经元」。
+ *
+ * 【为什么要单独一个端点、而不是并进后端 D1 记账】
+ *   我们自己的记账是"应用视角"，Cloudflare 的额度是"账户视角"。
+ *   两者**必然有差额**，原因是账户级共享：
+ *     · 同一个账号下别的应用/Worker 消耗的神经元，我们记不到
+ *     · 控制台手动测试、其他项目调用，同样计入这 10000
+ *   所以当用户说"我没用却耗尽"时，只信自己的账本会得出错误结论 ——
+ *   必须有一条"向 CF 问真实数字"的通路来交叉验证。
+ *
+ * 【实现方式】Cloudflare GraphQL Analytics：
+ *   aiInferenceAdaptiveGroups(accountTag) { sum { totalNeurons } dimensions { date modelId } }
+ *   经实测（2026-10-05）该数据集可用，能精确给出每天/每模型的神经元消耗。
+ *
+ * 【降级】未配置 CF_ACCOUNT_ID / CF_API_TOKEN 时返回 available:false，
+ *   前端退化为"只显示本地记账"，不会报错（本地开发即此情形）。
+ */
+app.get('/api/admin/ai-quota', auth, requirePerm('ai_settings'), async (c) => {
+  const accountId = (globalThis as any).__CF_ACCOUNT_ID as string | undefined
+  const token = (globalThis as any).__CF_API_TOKEN as string | undefined
+  if (!accountId || !token) {
+    return c.json({
+      available: false,
+      message: '未配置 CF_ACCOUNT_ID / CF_API_TOKEN，无法直连 Cloudflare 查询真实额度。当前显示的是平台自身记账数据。',
+    })
+  }
+
+  const todayUtc = new Date().toISOString().slice(0, 10)
+  const from = utcDayMinus(13)
+  const gql = `{ viewer { accounts(filter:{accountTag:"${accountId}"}) {
+      aiInferenceAdaptiveGroups(limit: 200, filter:{date_geq:"${from}"}) {
+        count
+        sum { totalNeurons }
+        dimensions { date modelId }
+      }
+    } } }`
+
+  try {
+    const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ query: gql }),
+    })
+    const j: any = await res.json().catch(() => ({}))
+    if (!res.ok || j?.errors?.length) {
+      return c.json({
+        available: false,
+        message: '查询 Cloudflare 失败：' + String(j?.errors?.[0]?.message || `HTTP ${res.status}`).slice(0, 200),
+      })
+    }
+    const rows: any[] = j?.data?.viewer?.accounts?.[0]?.aiInferenceAdaptiveGroups || []
+    const dayMap = new Map<string, { neurons: number; calls: number }>()
+    const modelMap = new Map<string, number>()
+    for (const r of rows) {
+      const d = String(r?.dimensions?.date || '')
+      const n = Number(r?.sum?.totalNeurons) || 0
+      const cnt = Number(r?.count) || 0
+      if (d) {
+        const cur = dayMap.get(d) || { neurons: 0, calls: 0 }
+        cur.neurons += n; cur.calls += cnt
+        dayMap.set(d, cur)
+      }
+      const m = String(r?.dimensions?.modelId || '')
+      if (m) modelMap.set(m, (modelMap.get(m) || 0) + n)
+    }
+    const used = dayMap.get(todayUtc)?.neurons || 0
+    return c.json({
+      available: true,
+      day: todayUtc,
+      limit: CF_FREE_DAILY_NEURONS,
+      used,
+      remain: Math.max(0, CF_FREE_DAILY_NEURONS - used),
+      percent: Math.min(100, (used / CF_FREE_DAILY_NEURONS) * 100),
+      exhausted: used >= CF_FREE_DAILY_NEURONS,
+      todayCalls: dayMap.get(todayUtc)?.calls || 0,
+      byDay: Array.from(dayMap.entries())
+        .map(([day, v]) => ({ day, neurons: v.neurons, calls: v.calls }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+      byModel: Array.from(modelMap.entries())
+        .map(([model, neurons]) => ({ model, neurons }))
+        .sort((a, b) => b.neurons - a.neurons),
+      note: '此数字直接来自 Cloudflare 账户级统计，包含同一账号下所有应用/控制台的消耗，'
+        + '因此可能大于平台自身记账 —— 这正是「我没用却提示耗尽」的原因。',
+    })
+  } catch (e: any) {
+    return c.json({ available: false, message: '查询 Cloudflare 异常：' + String(e?.message || e).slice(0, 200) })
+  }
+})
+
+/**
+ * 【v4.15.0】清理历史用量日志（保留最近 N 天）。
+ *
+ * 为什么需要：AI 调用记录会随时间无限增长，D1 免费版有 5GB 上限。
+ *   一次试卷识别最多可产生十几条记录（分块 × 重试），重度使用下
+ *   一个月就能堆出上万行。给超管一个手动清理入口，比让它悄悄撑爆库要好。
+ */
+app.post('/api/admin/ai-usage/purge', auth, requirePerm('ai_settings'), async (c) => {
+  const body = await c.req.json().catch(() => ({})) as any
+  const keepDays = Math.min(365, Math.max(7, Number(body?.keepDays) || 30))
+  const cutoff = utcDayMinus(keepDays)
+  try {
+    // 先数一遍再删：D1 的 run() 封装只回传 lastInsertRowid，拿不到 changes，
+    // 所以用「删前计数」给出可读的删除条数（比返回 undefined 有用得多）。
+    const cnt = await get<any>('SELECT COUNT(*) AS n FROM ai_usage_log WHERE day < ?', cutoff)
+    await run('DELETE FROM ai_usage_log WHERE day < ?', cutoff)
+    return c.json({ ok: true, deleted: num(cnt?.n), keptSince: cutoff })
+  } catch (e: any) {
+    return c.json({ message: '清理失败：' + String(e?.message || e).slice(0, 160) }, 500)
+  }
+})
+
+/**
+ * 【v4.15.0】把当前 CF 主力/备用模型一键切换为最低价模型。
+ *
+ * 动机：额度用完时超管最需要的是"马上能继续跑"，而不是去研究 35 个模型的单价。
+ *   给一个明确的按钮，比给一张表格更有用。
+ */
+app.post('/api/admin/ai-usage/use-budget-model', auth, requirePerm('ai_settings'), async (c) => {
+  try {
+    const prev = await readAiConfig()
+    const next = sanitizeAiConfig({
+      ...prev,
+      modelCf: BUDGET_MODEL_CF,
+      // 备用也换成便宜的，避免主力失败后立刻跳到贵模型把额度再烧一遍
+      modelCfFallback: '@cf/zai-org/glm-4.7-flash',
+    })
+    await run('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)', AI_CONFIG_KEY, JSON.stringify(next))
+    clearAllCache()
+    return c.json({
+      ok: true,
+      modelCf: next.modelCf,
+      modelCfFallback: next.modelCfFallback,
+      message: `已切换主力模型为 ${BUDGET_MODEL_CF}（约为原模型单价的 1/3.5）`,
+    })
+  } catch (e: any) {
+    return c.json({ message: '切换失败：' + String(e?.message || e).slice(0, 160) }, 500)
+  }
+})
+
+/** 把"今天"往前推 n 天，返回 UTC 日期串（用于 SQL 的 day >= ? 过滤） */
+function utcDayMinus(n: number): string {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10)
+}
 
 // 【v4 Bug9】单题训练 - 教师必须任教该学科才能加题
 app.post('/api/subjects/:id/questions', auth, requireSubjectStaff('params', 'id'), async (c) => {

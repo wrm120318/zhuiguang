@@ -1524,7 +1524,14 @@ async function aiRecognize() {
         : (r?.message || 'AI 未能从本卷识别出题目')
       // 【v4.13.5】把失败原因落进 AI 栏，避免"点了没反应"的错觉。
       aiError.value = detail
-      ElMessage.warning(`AI 识别未生效：${detail}。已保留规则识别结果，你可手动微调或换更清晰的卷子重试`)
+      // 【v4.15.0】额度耗尽单独提示：这种情况重试毫无意义，
+      //   必须明确告诉用户"别再点了，去后台换模型或等重置"，
+      //   否则用户会反复点按钮（实测就是这样把 120 次无效请求打出来的）。
+      if (r?.quotaExhausted) {
+        ElMessage.error({ message: '今日 AI 额度已耗尽（账号级共享，每日北京时间 8 点重置）', duration: 6000 })
+      } else {
+        ElMessage.warning(`AI 识别未生效：${detail}。已保留规则识别结果，你可手动微调或换更清晰的卷子重试`)
+      }
       return
     }
 

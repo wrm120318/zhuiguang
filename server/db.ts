@@ -338,6 +338,31 @@ export async function initDB() {
       UNIQUE(exam_id, student_id)
     )`) } catch {}
 
+  // ===== 【v4.15.0】AI 用量记账（与 worker-api.ts 逐字对齐 · 双后端同步铁律）=====
+  //   失败也要记：用户报「我没用却提示耗尽」，靠的正是失败记录才能看出
+  //   "是被拒绝的无效请求在反复打"（成功记录查不出这件事）。
+  try { await db.execute(`
+    CREATE TABLE IF NOT EXISTS ai_usage_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      day TEXT NOT NULL,
+      provider TEXT DEFAULT '',
+      model TEXT DEFAULT '',
+      ok INTEGER DEFAULT 0,
+      error TEXT DEFAULT '',
+      prompt_tokens INTEGER DEFAULT 0,
+      completion_tokens INTEGER DEFAULT 0,
+      neurons REAL DEFAULT 0,
+      elapsed_ms INTEGER DEFAULT 0,
+      scene TEXT DEFAULT '',
+      actor_id INTEGER,
+      actor_name TEXT DEFAULT '',
+      quota_exhausted INTEGER DEFAULT 0
+    )`) } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_log(day)') } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_ai_usage_model ON ai_usage_log(model)') } catch {}
+  try { await db.execute('CREATE INDEX IF NOT EXISTS idx_ai_usage_actor ON ai_usage_log(actor_id)') } catch {}
+
   await seed()
 }
 

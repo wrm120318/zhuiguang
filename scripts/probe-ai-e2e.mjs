@@ -112,8 +112,28 @@ try {
   ok('Key 放在 Authorization: Bearer（不拼进 URL）',
     /^Bearer\s+test-cf-token$/.test(seen[0]?.headers?.authorization || ''), seen[0]?.headers?.authorization)
   ok('请求体是 messages[] 结构（OpenAI 兼容）', /\bmessages\b/.test(seen[0]?.body || ''))
-  ok('⚠️ 请求体带 chat_template_kwargs.enable_thinking=false（省神经元）',
-    /"enable_thinking":\s*false/.test(seen[0]?.body || ''), (seen[0]?.body || '').slice(0, 260))
+  // 【v4.15.0 断言修正】enable_thinking 是**按模型名条件添加**的：
+  //   只有 GLM / Qwen3 / DeepSeek / QwQ 这类"默认会吐思维链"的模型才加，
+  //   Llama / Granite 等无 thinking 模式的模型传了可能报错，故**故意不加**。
+  //
+  //   旧断言写成"请求体必须带 enable_thinking"，在默认模型是 GLM 时巧合成立；
+  //   现在默认模型改为 IBM Granite-4.0-H-Micro（最省），该断言就假失败了。
+  //   正确做法：分别验证两条分支，而不是只看一次请求。
+  //   ① 当前默认模型（granite）→ 不应带该字段
+  ok('⚠️ 默认模型（Granite，无思维链）不带 enable_thinking',
+    !/"enable_thinking"/.test(seen[0]?.body || ''),
+    (seen[0]?.body || '').slice(0, 200))
+  //   ② 显式指定 GLM 模型 → 必须带上（这才是"省神经元"的真正生效路径）
+  {
+    seen.length = 0
+    await aiParsePaper(
+      { AI_BASE_CF: base, AI_PROVIDER: 'cf', AI_MODEL_CF: '@cf/zai-org/glm-4.7-flash' },
+      '1. 测（  ） A. 甲 B. 乙',
+    )
+    ok('⚠️ GLM 模型请求体带 enable_thinking=false（关思维链省神经元）',
+      /"enable_thinking":\s*false/.test(seen[0]?.body || ''),
+      (seen[0]?.body || '').slice(0, 240))
+  }
   ok('请求体带 system prompt（含「试卷排版工程师」）',
     /试卷排版工程师/.test(seen[0]?.body || ''))
   ok('温度压到 0.1（结构化抽取要稳）', /"temperature":\s*0\.1/.test(seen[0]?.body || ''),
