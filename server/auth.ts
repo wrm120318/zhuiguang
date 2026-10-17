@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken'
+import { signJwt, verifyJwt } from '../shared/jwt-crypto'
 import type { Request, Response, NextFunction } from 'express'
 import { get } from './db'
 
@@ -46,20 +46,27 @@ export function withPerms(u: any) {
   return rest
 }
 
-export function signToken(payload: { id: number; role: string }) {
-  return jwt.sign(payload, SECRET, { expiresIn: TOKEN_EXPIRES })
+// 【v4.17.0】signToken 改为 async（Web Crypto 的 subtle API 是 Promise 形态）。
+//   与 worker-api.ts 共用 shared/jwt-crypto：同 secret 同算法，两端 token 互通。
+//   调用方（登录路由等）均已 await；如新增同步调用点需注意。
+export async function signToken(payload: { id: number; role: string }) {
+  return signJwt(payload, SECRET, TOKEN_EXPIRES)
 }
 
-export function auth(req: Request, res: Response, next: NextFunction) {
+export async function auth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization
   if (!h) return res.status(401).json({ message: '未登录' })
   const token = h.startsWith('Bearer ') ? h.slice(7) : h
+  let payload: { id: number; role: string }
   try {
-    const payload = jwt.verify(token, SECRET) as { id: number; role: string }
-    // 【v4.0.1】同时查 subject_id，供 requireSubjectStaff 兜底
-    // 【v4.9.7】再带上 role / permissions：管理员被改权限后立即生效
-    get<{ status: string; role: string; subject_id: number | null; permissions: string | null }>(
-      'SELECT status, role, subject_id, permissions FROM users WHERE id=?', payload.id).then(u => {
+    payload = await verifyJwt<{ id: number; role: string }>(token, SECRET)
+  } catch {
+    return res.status(401).json({ message: '登录已过期，请重新登录' })
+  }
+  // 【v4.0.1】同时查 subject_id，供 requireSubjectStaff 兜底
+  // 【v4.9.7】再带上 role / permissions：管理员被改权限后立即生效
+  get<{ status: string; role: string; subject_id: number | null; permissions: string | null }>(
+    'SELECT status, role, subject_id, permissions FROM users WHERE id=?', payload.id).then(u => {
       if (u && u.status === 'disabled') {
         return res.status(401).json({ message: '账号已被禁用，请联系管理员', disabled: true })
       }
@@ -74,9 +81,6 @@ export function auth(req: Request, res: Response, next: NextFunction) {
       ;(req as any).user = { ...payload, subject_id: null, permissions: [] }
       next()
     })
-  } catch {
-    return res.status(401).json({ message: '登录已过期，请重新登录' })
-  }
 }
 
 export function requireRole(...roles: string[]) {

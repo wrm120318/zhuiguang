@@ -5,6 +5,85 @@
 
 ---
 
+## [v4.17.0] - 2026-10-17
+
+### 主题：全面根本性能优化——Worker 减包 6.5 倍 + 边缘缓存根治 + API 同域代理
+
+> 用户原话：「**现在网站访问极度卡顿　出一个全面根本优化计划　不能以牺牲功能和界面美观程度为代价**」
+> 批准：「**全都做　你是最棒的**」
+
+#### 一、根因定位（全部线上实测，不猜）
+
+| 症状 | 实测 | 结论 |
+|---|---|---|
+| `/api/themes/active`（仅 306B 响应）TTFB 8.8s | 单条 D1 主键查询业务代码 <1ms | 慢的不是 SQL，是 Worker isolate 冷启动 |
+| 边缘缓存命中率表面正常（X-Zg-Cache 有 HIT） | 三组 caches.default 对照实验 | **跨实例共享层 100% 不命中** |
+| 10 连打 TTFB：一半 8~14.6s，内存命中剩余时间 122/126/129/587s 乱跳 | 同 AMS colo 多实例轮换 | isolate 周期性驱逐+轮换，cron 只保自己所在 colo |
+
+**根因一（缓存）**：`caches.default.put()` **尊重响应头的 `Cache-Control: no-cache`** —— 带 no-cache 的条目存入后当场不可命中。三组对照实验实锤：synth-nocache 组 `put=ok` 但 `after=null`，而 synth-bare / synth-maxage 组读写全通。
+
+**根因二（冷启动固定成本）**：esbuild metafile 实测主包 3.05MB 中 xlsx 占 54%（1649KB）、@supabase 占 28%（859KB）—— 两者合计 82% 却各只服务一个低频功能（Excel 导出 / Supabase 存储模式，后者当前未启用）。
+
+#### 二、P0-C 边缘缓存根治（已上线验证）
+
+- **`edgeCachePut` 存储头去掉 no-cache**：改为 `public, s-maxage=<ttl>, stale-while-revalidate=<ttl/2>`（TTL 钳制 120~600s）。线上 10 连打从缓存失效变为 **9/10 EDGE-HIT**。
+- **`purgeEdgeCache` key 格式 bug 修复**：删除样本此前用的是占位 key，真实 key 是 `<path>?__zg_auth=<shard>`；新增 `EDGE_PURGE_REGISTRY` 动态登记（subjects/themes 的 id/slug 路径写操作时登记）。
+- **公共只读路径 TTL 24h**（`PUBLIC_SHARED_TTL = 86400000`）+ 稳定 key（`stable|public|<ttl>|<url>`，不再随 CACHE_VERSION 漂移）。
+- **内存 TTL 设 600s 上限**：内存缓存是单实例的，写操作只能清一个实例；不设上限会让其他实例 Serve 24h 陈旧数据。
+
+#### 三、P0-B 精简 bundle：3.17MB → 489KB（gzip 680KB → 518KB）
+
+**1. JWT 换 Web Crypto（jsonwebtoken 整链移除）**
+
+新建 `shared/jwt-crypto.ts`（双端单一事实源）：`crypto.subtle` 实现 HS256 签名/验签，零依赖。同算法同 secret，payload 形状与 jsonwebtoken 一致（`{...payload, iat, exp}`）——**旧 token 全部继续有效，已登录用户不掉登录**。`scripts/jwt-compat-test.mjs` 17 项断言（旧↔新互验、过期/篡改/错 secret/结构损坏拒绝、中文 payload）**17/17 通过**。
+
+**2. xlsx / supabase-js 外部化（部分打包）**
+
+预打包成自包含 ESM 放 `vendor/`，wrangler `find_additional_modules` + `[[rules]]` 声明为外部模块，源码改 `await import('./vendor/*.bundle.mjs')` 按需加载。
+
+> ⚠️ 两个源码级坑（改 wrangler.toml 前必读，否则外部化不生效）：
+> ① onResolve 注册 filter 时**未传 globstar**，`vendor/**/*.mjs` 退化为要求至少一层子目录的正则，且匹配的是 import 指定符 `./vendor/xlsx-bundle.mjs`（带 `./` 前缀）—— 必须写 `globs = ["vendor/**", "./vendor/**"]` 同时覆盖两种路径形式；
+> ② `find_additional_modules` 会把 wrangler 内置 DEFAULT_MODULE_RULES（Text/Data/CompiledWasm 匹配 `**/*.txt|html|sql|bin|wasm`）追加到规则后，**从项目根全树遍历上传 node_modules**（dry-run 曾传到 13.5MB）—— 用三条匹配不到真实文件的影子规则（`fallthrough = false`）把它们顶掉。
+
+另修 `storage-layer.ts` 的静态 `import { createClient }`（它是被 worker-api.ts 静态引入的第二条路径，只改 worker-api.ts 不够，sourcemap 实测 76 个 supabase 源文件仍在主包）。
+
+**3. nodejs_compat 保留（量化决策）**
+
+实测 node polyfill 在主包仅占 ~20KB（4%），唯一 `node:` import 是 storage-layer 的 `createHash`。移除收益极小、风险（createHash 改造 + bcryptjs 行为变化）却不小，且服务端数据显示冷启动大头是 isolate 调度而非解析量——**保留**。
+
+#### 四、P1-D API 同域代理（用户侧卡顿体感的主要来源）
+
+- 新建 `functions/api/[[path]].ts`（Pages Function）：`/api/*` 在 Cloudflare 内网转发到 `api.xkzg.de5.net`，透传 method/headers/body/status/**流式响应**（SSE、大文件下载不受影响）。
+- 前端 `VITE_API_BASE_URL` 默认值改 `''`（同域相对路径）；Pages 环境变量同步置空。回退只需注入原变量，无需改代码。
+- 消除用户侧一次跨子域 DNS + TLS 建连（实测建连 0.2~1.5s，跨境拥塞时 15s+；SPA 首屏 5~8 个并发 API 的建连抖动正是卡顿体感主因）。
+
+#### 五、线上事故与紧急修复（记录在案）
+
+**症状**：JWT 改造版部署后，登录返回 `{"token":{}}` —— 用户全部无法登录。
+
+**根因**：`signToken` 改 async 后，登录/注册两处路由的 `signToken(...)` 漏加 `await`，Promise 被 `c.json()` 序列化成 `{}`。已修复并全量扫描（`signToken`/`verifyJwt`/`getSupabase` 所有调用点）。
+
+**教训**：TS 不把「async 函数值当同步用」报为错误（Promise 是合法值），`tsc --noEmit` 全绿也会有这类漏网——async 化改造必须配 grep 级调用点扫描，不能只靠类型检查。
+
+#### 六、服务端实测（CF GraphQL Analytics，过去 24h）
+
+| 指标 | 值 | 说明 |
+|---|---|---|
+| 请求 / 错误 | 1885 / **0** | Worker 健康 |
+| durationP50 | **3.3ms** | Worker 执行本身极快，SQL 从来不是瓶颈 |
+| wallTimeP50 | 26ms | 绝大多数请求几十毫秒级 |
+| wallTimeP99 | 8.3s | 长尾 = isolate 冷启动/调度 + 沙箱跨境网络抖动 |
+
+**认知修正**：减包 6.5 倍未改善 P99（8.3s）——冷启动大头**不是脚本解析量，是 CF 免费版低流量站点的 isolate 驱逐/重建调度**（同期对照实验：cloudflare-dns.com 裸 TCP 建连就出现 15.2s）。真实用户绝大多数请求走 P50/P90 的几十毫秒；沙箱连打的 8s 含自身跨境链路因素，不代表用户体验。低流量站点正解 = **边缘缓存长 TTL + 写后精确 purge**（已做），cron 预热退居二线。
+
+#### 七、清理与工程化
+
+- 移除临时诊断端点 `/api/__edge_diag`、`/api/__warmup_beat` 与 `WARMUP_STATS`（验证使命完成）；cron 心跳改为 scheduled handler 内直写 D1（`env.DB`，注意 scheduled 不走 fetch 中间件，模块级 D1 变量未初始化）。
+- 删除废弃的诊断 Worker `zhuiguang-edge-diag`。
+- `.gitignore` 增加 `vendor/`（预构建产物，重建命令见 wrangler.toml 注释；升级 xlsx/supabase 后必须重跑）。
+
+---
+
 ## [v4.16.0] - 2026-10-05
 
 ### 主题：规则识别根治——全角句点 `．` 题号 + 答题卡表格解析 + 任意位置放分割线

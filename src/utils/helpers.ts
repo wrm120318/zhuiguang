@@ -67,8 +67,10 @@ export function zgCover(seed?: string): string {
 // 导致 API_BASE 变成 "https://api.xkzg.de5.net\n"，fileUrl 拼出的绝对地址夹带换行
 // → <img>/CSS 背景图请求落到 SPA 兜底返回 HTML → 整站图片(封面/头像/插图)裂图/白色。
 // 故对 API_BASE 与入参统一做 trim + 全局去空白，彻底防御环境变量/存储污染（根因修复）。
+// 【v4.17.0 同域代理】默认值改为 ''：fileUrl('/api/file/x') 拼出同域相对路径，
+// 由 Pages Function 代理到 API 子域（详见 functions/api/[[path]].ts 顶部说明）。
 export const API_BASE: string =
-  String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.de5.net').trim().replace(/\s+/g, '')
+  String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\s+/g, '')
 
 // 把存储返回的（可能相对的）/api/file/{id} 补全为可在任意域下直接访问的绝对地址
 export function fileUrl(url?: string | null): string {

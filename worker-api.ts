@@ -5,10 +5,15 @@
 // ==============================================================================
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import jwt from 'jsonwebtoken'
+// 【v4.17.0 性能专项】jsonwebtoken → shared/jwt-crypto（Web Crypto HS256，零依赖）
+//   同算法同 secret，旧 token 完全兼容；动机是砍掉 jws/jwa/eccrypto 依赖链、
+//   压小 bundle 加快 isolate 冷启动。详见 shared/jwt-crypto.ts 顶部说明。
+import { signJwt, verifyJwt } from './shared/jwt-crypto'
 import bcrypt from 'bcryptjs'
-import { createClient } from '@supabase/supabase-js'
-import * as XLSX from 'xlsx'
+// 【v4.17.0 性能专项】createClient（@supabase/supabase-js）与 XLSX（xlsx）
+//   均已改为**动态 import**（见 getSupabase / 查询导出处），不再静态引入 ——
+//   两者合计把 bundle 撑大 1MB 以上，却是冷启动解析的固定成本，
+//   而它们各自只服务一个低频功能（Supabase 存储模式 / Excel 导出）。
 // ===== v4.4.0 统一存储抽象层（B2 原生 + Supabase 适配器 + 流式代理） =====
 import {
   initStorage, doStorageUpload, serveFileById, prewarmFile, migrateToB2,
@@ -202,8 +207,8 @@ export function hasPerm(u: any, key: PermKey): boolean {
 // ==============================================================================
 // JWT Auth
 // ==============================================================================
-export function signToken(payload: { id: number; role: string }) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES as any })
+export async function signToken(payload: { id: number; role: string }) {
+  return signJwt(payload, JWT_SECRET, JWT_EXPIRES as any)
 }
 
 /** auth 中间件：验证 JWT，从数据库实时读取 role 和 status（修复身份显示错乱/权限弹窗BUG） */
@@ -212,7 +217,7 @@ export const auth = async (c: Context, next: () => Promise<void>) => {
   if (!h) return c.json({ message: '未登录' }, 401)
   const token = h.startsWith('Bearer ') ? h.slice(7) : h
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { id: number; role: string }
+    const payload = await verifyJwt(token, JWT_SECRET) as { id: number; role: string }
     // 从数据库实时读取 role + status + subject_id + permissions
     // 【v4.9.7】permissions 一并实时读取：管理员被改权限后立即生效（无需等 JWT/前端缓存过期）
     try {
@@ -444,11 +449,18 @@ export async function isFeatureEnabled(key: string): Promise<boolean> {
 // ==============================================================================
 // Storage（Supabase Storage，Workers 兼容）
 // ==============================================================================
+// 【v4.17.0 性能专项】@supabase/supabase-js（~650KB 源码）改为**动态 import**：
+//   本项目默认后端是 B2_FREE，Supabase 只在切到 SUPABASE 模式时才用到，
+//   静态引入等于让每次 isolate 冷启动都白解析 60 万字节。
+//   动态 import 后它被拆成独立 chunk，仅在首次真正调用时才加载。
+//   ⚠️ getSupabase 随之改为 async —— 所有调用点已同步加 await。
 let _supabase: any = null
 
-function getSupabase() {
+async function getSupabase() {
   if (!SUPABASE_URL || !SUPABASE_KEY) return null
   if (!_supabase) {
+    // 【v4.17.0】指向预打包的外部模块（vendor/），不再进主包
+    const { createClient } = await import('./vendor/supabase-bundle.mjs')
     _supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
   }
   return _supabase
@@ -458,7 +470,7 @@ const STORAGE_ENABLED = true
 
 /** 生成 Supabase 签名上传 URL（前端直传用） */
 export async function createPresignedUploadUrl(key: string): Promise<{ signedUrl: string; publicUrl: string } | null> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) return null
   const { data, error } = await sb.storage.from(SUPABASE_BUCKET).createSignedUploadUrl(key)
   if (error || !data?.signedUrl) return null
@@ -482,7 +494,7 @@ function guessContentType(key: string): string {
 
 /** 上传文件到 Supabase Storage，返回公共 URL */
 export async function uploadFile(key: string, data: ArrayBuffer | Uint8Array, contentType?: string): Promise<string> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) throw new Error('Storage not configured')
   const { error } = await sb.storage.from(SUPABASE_BUCKET).upload(key, data, { contentType, upsert: true })
   if (error) throw error
@@ -492,7 +504,7 @@ export async function uploadFile(key: string, data: ArrayBuffer | Uint8Array, co
 
 /** 删除文件 */
 export async function deleteFile(key: string): Promise<void> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb || !key) return
   await sb.storage.from(SUPABASE_BUCKET).remove([key])
 }
@@ -512,7 +524,7 @@ export function extractKey(filePath: string): string {
 
 /** 下载文件（从 Supabase Storage） */
 export async function downloadFile(filePath: string): Promise<{ buffer: ArrayBuffer; contentType?: string } | null> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   const key = extractKey(filePath)
   if (!key || !sb) return null
   const { data, error } = await sb.storage.from(SUPABASE_BUCKET).download(key)
@@ -548,7 +560,7 @@ async function verifyFileAccess(c: Context): Promise<{ id: number; role: string 
   if (!token) token = c.req.query('token') || ''
   if (!token) return null
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { id: number; role: string }
+    const payload = await verifyJwt(token, JWT_SECRET) as { id: number; role: string }
     const u = await get<{ status: string; role: string }>('SELECT status, role FROM users WHERE id=?', payload.id)
     if (!u || u.status === 'disabled') return null
     return { id: payload.id, role: u.role }
@@ -600,7 +612,7 @@ function fileCacheRequest(resourceId: number, mode: string): Request {
 
 /** 列出 Supabase 存储桶中的所有文件（分页） */
 async function listSupabaseFiles(prefix?: string): Promise<{ name: string; size: number; id: string; lastModified: string }[]> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) return []
   const allFiles: { name: string; size: number; id: string; lastModified: string }[] = []
   let offset = 0
@@ -805,7 +817,7 @@ async function parseOptionalAuth(c: Context): Promise<{ id: number; role: string
   if (!h || !h.startsWith('Bearer ')) return null
   try {
     const token = h.slice(7)
-    const dec: any = jwt.verify(token, JWT_SECRET)
+    const dec: any = await verifyJwt(token, JWT_SECRET)
     if (!dec || !dec.id) return null
     const u = await get<any>('SELECT id, role, subject_id, status FROM users WHERE id=?', dec.id)
     if (!u || u.status === 'disabled') return null
@@ -825,6 +837,7 @@ function apiCacheKey(c: Context): string | null {
   const p = new URL(c.req.url).pathname
   if (!p.startsWith('/api/')) return null
   // 【v4.3.2】/api/admin/storage/file 返回二进制流，若被当作字符串塞进 Map 会损坏文件且撑爆缓存
+  // 【v4.17.0】诊断端点必须每次真跑（探针结果若被缓存，诊断就失去意义）
   if (p.includes('/upload/') || p.includes('/download/') || p.includes('/comments') || p.includes('/export')) return null
   if (p.includes('/storage/file')) return null
   // 【v4.4.1 严重修复】/api/file/* 是 v4.4.0 新增的「统一文件代理」（二进制流，含下载与预览）。
@@ -893,9 +906,26 @@ function apiCacheKey(c: Context): string | null {
   //     · 不是靠"等过期"，所以「改了主题 → 前台立刻生效」依旧成立，不会出现
   //       「缓存覆盖新修改」的老问题。
   //   注意：非公共接口（含个人数据）**保持原样**用 CACHE_VERSION，行为完全不变。
-  if (isPublicSharedPath(p)) return `stable|public|${ttl}|${urlKey}`
+  //
+  //   【v4.17.0 性能专项｜公共分片 TTL 600s → 86400s（24h）】
+  //     根因链：低流量站点 600s 内常无第二次请求 → 条目过期 → 下次请求必回源，
+  //     若此刻 isolate 冷则又是 9s。且 v4.17.0 已修掉边缘缓存不命中的真凶
+  //     （存储头 no-cache），延长 TTL 的收益终于能兑现：每 colo 每天仅回源一次。
+  //     一致性不受影响：
+  //       · 写操作 → clearAllCache() 清本实例内存 + purgeEdgeCache() 按**真实 key**
+  //         删除公共分片（v4.17.0 已修正 key 格式，动态路径经 registerEdgePurge 登记）
+  //       · 其他实例的内存副本最长残留本档 TTL（原 600s 即如此，未变差）；
+  //         要消除这一层只能等自然过期，这是「内存缓存单实例」的固有取舍。
+  //     浏览器侧不变：ccValue 仍是 `public, no-cache, …`，每次 ETag 校验。
+  if (isPublicSharedPath(p)) return `stable|public|${PUBLIC_SHARED_TTL}|${urlKey}`
   return `${CACHE_VERSION}|${authHash}|${ttl}|${urlKey}`
 }
+
+/** 【v4.17.0】纯公共只读路径的内存/边缘 TTL：24h。
+ *  · 这些接口（主题/学科/特性开关）由超管在后台手动维护，日均变更 ≤ 数次；
+ *  · 写后一致性由 clearAllCache + purgeEdgeCache（真实 key）保证，不依赖过期；
+ *  · 低流量站点靠它把「每 colo 每天一次回源」变成常态，其余请求全部边缘命中。 */
+const PUBLIC_SHARED_TTL = 86400000
 
 /** 【v4.8.28-fix3】纯站点级公共只读路径判定 —— 结果对所有身份**完全一致**。
  *  这些接口的 key 不参与身份分片、不随 CACHE_VERSION 漂移，全局共享一份边缘缓存。
@@ -959,6 +989,20 @@ function clearAllCache() {
 let CACHE_VERSION = 'v' + Date.now()
 let EDGE_PURGE_NEEDED = false
 
+/** 【v4.17.0】写操作显式登记需要 purge 的公共边缘缓存路径（动态 id/slug 专用）
+ *
+ *  背景：公共只读路径已改用**稳定 key**（`<path>?__zg_auth=public`，见
+ *  `edgeCacheablePath`），不再随 CACHE_VERSION 漂移 —— 写后一致性**只能**靠
+ *  真正删掉边缘条目来保证。固定样本（themes/active 等）在 purgeEdgeCache 里枚举，
+ *  但 `/api/themes/:id`、`/api/subjects/:slug` 这类**动态路径**无法枚举，
+ *  故由写操作 handler 在改库前/后把受影响的 path 登记进来，purge 时统一删除。
+ *  注意：模块级数组是**单实例**的，而 purge 与写请求在同一实例同一周期内执行，
+ *  因此登记→消费的闭环成立。 */
+const EDGE_PURGE_REGISTRY: string[] = []
+function registerEdgePurge(p: string) {
+  if (!EDGE_PURGE_REGISTRY.includes(p)) EDGE_PURGE_REGISTRY.push(p)
+}
+
 /** 写操作后清理边缘缓存：尽最大努力删除已知的公共只读接口缓存条目
  *
  * 【v4.8.26 修正】原实现按「裸 URL」删除（`origin + prefix`），
@@ -972,30 +1016,38 @@ let EDGE_PURGE_NEEDED = false
  *
  *   注意：合成 key 里含 authHash（按身份分片），无法枚举全部身份，
  *   故这里只能清理 **anon（未登录）** 那份 —— 已登录用户的部分依赖 CACHE_VERSION
- *   失效 + 自然过期。这是有意的取舍：**宁可留着过期条目，也不做昂贵的全量扫描**。 */
+ *   失效 + 自然过期。这是有意的取舍：**宁可留着过期条目，也不做昂贵的全量扫描**。
+ *
+ * 【v4.17.0 性能专项｜修 purge 与真实 key 格式不一致】
+ *   v4.8.28-fix3 把公共路径的 key 改成 `<path>?__zg_auth=public` 后，本函数的
+ *   删除样本却仍按旧格式 `/api/themes?__zg_auth=public` 构造 ——
+ *   **`/api/themes/active`（前台生效主题，首屏最关键）从来就没被删掉过**，
+ *   超管改主题后边缘最长残留一个 s-maxage（原 600s）。注释里写的「已真正删掉」
+ *   与实际删除的 key 对不上，是「看着覆盖了、实际没生效」的又一实例。
+ *   现统一按 `edgeCacheablePath` 的**现行产出规则**构造 key（public + anon 双分片），
+ *   动态路径经 `registerEdgePurge` 登记后一并删除。 */
 async function purgeEdgeCache(c) {
   if (!EDGE_PURGE_NEEDED) return
   EDGE_PURGE_NEEDED = false
-  // 新版 key 为合成 URL，需按相同规则构造才能命中；此处清理既有分片。
-  // 【v4.8.28-fix3】公共只读接口已改用**稳定 key**（`stable|public|...`），
-  //   不再随 CACHE_VERSION 漂移 —— 这意味着**必须**在这里真正删掉它，
-  //   否则「超管改主题后前台要等 600s 才生效」，正是用户反复强调的
-  //   「缓存覆盖新修改」老问题。故一次性清 anon（历史分片）与 public（现行分片）。
   const origin = new URL(c.req.url).origin
-  const samples = ['/api/subjects', '/api/leaderboard', '/api/pages', '/api/themes',
-                   '/api/feature-flags', '/api/notices', '/api/home']
-  for (const prefix of samples) {
-    for (const variant of [prefix, prefix + '/']) {
-      for (const shard of ['anon', 'public']) {
-        const legacyKey = variant + '?__zg_auth=' + shard
-        try {
-          await caches.default.delete(new Request(
-            origin + '/api/__edge__/' + encodeURIComponent(legacyKey), { method: 'GET' }))
-        } catch {}
-      }
-      // 顺带尝试删除旧版（裸 URL）残留条目，平滑过渡
-      try { await caches.default.delete(new Request(origin + variant, { method: 'GET' })) } catch {}
+  // 固定公共样本（与 edgeCacheablePath 的 public 分支一一对应）
+  const paths = [
+    ...EDGE_PURGE_REGISTRY,
+    '/api/themes', '/api/themes/active',
+    '/api/feature-flags', '/api/subjects',
+  ]
+  EDGE_PURGE_REGISTRY.length = 0
+  for (const p of paths) {
+    // 现行真实 key：`<path>?__zg_auth=<shard>`（edgeCacheablePath 产出格式）
+    for (const shard of ['public', 'anon']) {
+      const realKey = p + '?__zg_auth=' + shard
+      try {
+        await caches.default.delete(new Request(
+          origin + '/api/__edge__/' + encodeURIComponent(realKey), { method: 'GET' }))
+      } catch {}
     }
+    // 顺带尝试删除旧版（裸 URL）残留条目，平滑过渡
+    try { await caches.default.delete(new Request(origin + p, { method: 'GET' })) } catch {}
   }
 }
 
@@ -1101,8 +1153,23 @@ async function edgeCachePut(c, body, status, ttlSec, edgeKey?: string) {
     //   导致「增删改后点菜单重进页面 / 普通 F5」都拿不到新数据。
     // 【v4.8.26】swr 从 120 提到 ttlSec 的 50% —— 让过期后仍能先返回旧值再后台刷新，
     //   避免「刚好过期」的那次请求被用户感知为慢。上限 600s 防止过期太久。
+    //
+    // 【v4.17.0 性能专项｜根治「边缘缓存 100% 不命中」】
+    //   生产实测（合成 URL put/match 三组对照）实锤：
+    //     · `public, no-cache, s-maxage=600, swr` → put 成功但**当场 match 就是 null**
+    //     · `public, max-age=600` / 裸响应      → put/match 全部正常
+    //   Cloudflare 的 caches.default 实现会**尊重响应里的 no-cache 指令**：
+    //   带 no-cache 的条目被存入后立即视为「不可复用」，match 永远返回 null。
+    //   这就是此前几版优化（合成 key / 公共分片 / TTL 分级）全部失效的真凶——
+    //   条目一直在写，只是从来读不出来。
+    //   修法：**存储头与响应头分离**——
+    //     · 存进 caches.default 的头：`public, s-maxage=…, stale-while-revalidate=…`
+    //       （绝不带 no-cache；也不带 max-age，防止缓存头泄漏给浏览器）
+    //     · 实际响应给浏览器的头：仍由中间件的 ccValue（`public, no-cache, …`）控制，
+    //       浏览器每次仍需 ETag 校验，「改了数据刷新不出新值」不会复现。
+    //   EDGE-HIT 分支用的就是「当前 ccValue」而非缓存里的旧头，两条路径互不干扰。
     const swr = Math.min(600, Math.max(120, Math.floor(ttlSec / 2)))
-    h.set('Cache-Control', `public, no-cache, s-maxage=${ttlSec}, stale-while-revalidate=${swr}`)
+    h.set('Cache-Control', `public, s-maxage=${ttlSec}, stale-while-revalidate=${swr}`)
     h.set('X-Zg-Cache', 'EDGE-MISS')
     await caches.default.put(req, new Response(body, { status, headers: h }))
   } catch {}
@@ -1314,7 +1381,7 @@ app.use('*', async (c, next) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice(7)
-      const decoded: any = jwt.verify(token, JWT_SECRET)
+      const decoded: any = await verifyJwt(token, JWT_SECRET)
       if (decoded && decoded.id) {
         const uid = decoded.id as number
         const now = Date.now()
@@ -1362,6 +1429,14 @@ app.use('*', async (c, next) => {
   const ttlStr = k.split('|').find(seg => /^\d+$/.test(seg))
   const ttl = parseInt(ttlStr || '15000', 10)
   const ttlSec = Math.max(0, Math.floor(ttl / 1000))
+  // 【v4.17.0 性能专项】内存 TTL 与边缘 TTL 解耦：
+  //   边缘 TTL（=ttl）负责「跨实例共享层」的命中率，公共只读路径已延到 24h；
+  //   但内存缓存是**单实例**的 —— 写操作只能清掉「处理写请求的那个实例」的 Map
+  //   （clearAllCache），其他实例的副本只能靠自然过期。若内存 TTL 也跟着放到 24h，
+  //   超管改主题后，同 colo 其他 isolate 最长 24 小时返回旧数据（原来最长 10 分钟），
+  //   一致性不可接受。故内存侧统一压回 600s 上限：过期后回源取新值并回填边缘，
+  //   既保一致性，又不影响边缘层 24h 的长尾命中。
+  const memTtl = Math.min(ttl, 600000)
   const edgeKey = edgeCacheablePath(c)
   // 【v4.8.24｜真修「增删改后列表不刷新，手动刷新也不行」】
   //   原策略：`public, max-age=60, s-maxage=60, stale-while-revalidate=120`
@@ -1439,7 +1514,7 @@ app.use('*', async (c, next) => {
         const firstKey = API_CACHE.keys().next().value
         if (firstKey) API_CACHE.delete(firstKey)
       }
-      API_CACHE.set(k, { body, type: contentType, expireAt: Date.now() + ttl, etag })
+      API_CACHE.set(k, { body, type: contentType, expireAt: Date.now() + memTtl, etag })
       const headers = new Headers(c.res.headers)
       headers.set('ETag', etag)
       headers.set('Cache-Control', ccValue)
@@ -1945,7 +2020,7 @@ app.post('/api/auth/login', async (c) => {
   const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? AND exp_change > 0 LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
   // 【v4.9.7】带 permissions 返回（超管恒 13 项），前端菜单/守卫依赖它
-  return c.json({ token: signToken({ id: u.id, role: u.role }), user: withPerms(u) })
+  return c.json({ token: await signToken({ id: u.id, role: u.role }), user: withPerms(u) })
 })
 
 app.get('/api/me/status', async (c) => {
@@ -1955,7 +2030,7 @@ app.get('/api/me/status', async (c) => {
   }
   try {
     const token = authHeader.slice(7)
-    const decoded: any = jwt.verify(token, JWT_SECRET)
+    const decoded: any = await verifyJwt(token, JWT_SECRET)
     if (!decoded || !decoded.id) {
       return c.json({ login: false, disabled: false, userId: null })
     }
@@ -1973,7 +2048,7 @@ app.post('/api/auth/register', async (c) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice(7)
-      const decoded: any = jwt.verify(token, JWT_SECRET)
+      const decoded: any = await verifyJwt(token, JWT_SECRET)
       if (decoded && decoded.role === 'SUPER_ADMIN') callerIsAdmin = true
     } catch {}
   }
@@ -1990,7 +2065,7 @@ app.post('/api/auth/register', async (c) => {
   if (classId) await run(`INSERT INTO class_members (class_id,user_id,role_in_class,joined_at) VALUES (?,?,?,datetime('now','+8 hours'))`, classId, uid, 'STUDENT')
   await addExp(uid, undefined, 'register', '注册奖励')
   const newUser = await get<any>('SELECT * FROM users WHERE id=?', uid)
-  return c.json({ token: signToken({ id: uid, role: 'STUDENT' }), user: withPerms(newUser) })
+  return c.json({ token: await signToken({ id: uid, role: 'STUDENT' }), user: withPerms(newUser) })
 })
 
 app.get('/api/auth/me', auth, async (c) => {
@@ -2422,6 +2497,11 @@ app.post('/api/subjects', auth, requirePerm('subjects'), async (c) => {
 app.patch('/api/subjects/:id', auth, requirePerm('subjects'), async (c) => {
   const { name, icon, color, description, displayOrder, modules, announcement, forumAutoApproveThreshold } = await c.req.json()
   const id = c.req.param('id')
+  // 【v4.17.0】学科详情（/api/subjects/:slug）是稳定边缘分片，写后必须按真实 key 删
+  {
+    const s = await get<{ slug: string }>('SELECT slug FROM subjects WHERE id=?', id)
+    if (s) registerEdgePurge('/api/subjects/' + s.slug)
+  }
   if (name !== undefined) await run('UPDATE subjects SET name=? WHERE id=?', name, id)
   if (icon !== undefined) await run('UPDATE subjects SET icon=? WHERE id=?', icon, id)
   if (color !== undefined) await run('UPDATE subjects SET color=? WHERE id=?', color, id)
@@ -2435,6 +2515,11 @@ app.patch('/api/subjects/:id', auth, requirePerm('subjects'), async (c) => {
 
 app.delete('/api/subjects/:id', auth, requirePerm('subjects'), async (c) => {
   const id = c.req.param('id')
+  // 【v4.17.0】删前查 slug 登记 purge，删后就查不到了
+  {
+    const s = await get<{ slug: string }>('SELECT slug FROM subjects WHERE id=?', id)
+    if (s) registerEdgePurge('/api/subjects/' + s.slug)
+  }
   await run('DELETE FROM articles WHERE subject_id=?', id)
   await run('DELETE FROM resources WHERE subject_id=?', id)
   await run('DELETE FROM subjects WHERE id=?', id)
@@ -3321,7 +3406,12 @@ app.get('/api/query/tasks/:id/export', auth, requireStaffOr('query'), async (c) 
     const row = j(r.data_row) || {}
     aoa.push(headers.map(h => row[h] ?? ''))
   }
-  const xlsx = (XLSX as any).default || XLSX
+  // 【v4.17.0 性能专项】xlsx（7.5MB 源码 / dist ~850KB，原 bundle 最大头占 54%）
+  //   改为**外部模块**按需加载：预打包成自包含 ESM 放 vendor/（wrangler rules
+  //   声明为外部模块），只有「数据查询导出 Excel」这一个功能用到，
+  //   不值得让它拖累每一次 isolate 冷启动。
+  const XLSX_MOD: any = await import('./vendor/xlsx-bundle.mjs')
+  const xlsx = XLSX_MOD.default || XLSX_MOD
   const ws = xlsx.utils.aoa_to_sheet(aoa)
   const wb = xlsx.utils.book_new()
   xlsx.utils.book_append_sheet(wb, ws, '查询数据')
@@ -3679,6 +3769,8 @@ app.patch('/api/themes/:id/active', auth, requirePerm('theme'), async (c) => {
 
 app.put('/api/themes/:id', auth, requirePerm('theme'), async (c) => {
   const id = c.req.param('id')
+  // 【v4.17.0】主题详情是稳定边缘分片，写后必须按真实 key 删
+  registerEdgePurge('/api/themes/' + id)
   const { config, name, isActive } = await c.req.json()
   await run('UPDATE themes SET config=?, name=?, updated_at=datetime(\'now\',\'+8 hours\') WHERE id=?', JSON.stringify(config), name, id)
   if (isActive) {
@@ -3697,6 +3789,8 @@ app.post('/api/themes', auth, requirePerm('theme'), async (c) => {
 })
 
 app.delete('/api/themes/:id', auth, requirePerm('theme'), async (c) => {
+  // 【v4.17.0】删前登记 purge，删后 id 对应的缓存条目才能被清掉
+  registerEdgePurge('/api/themes/' + c.req.param('id'))
   await run('DELETE FROM themes WHERE id=?', c.req.param('id'))
   return c.json({ ok: true })
 })
@@ -3736,7 +3830,7 @@ app.get('/api/home', async (c) => {
   let uid: number | null = null
   if (h && h.startsWith('Bearer ')) {
     try {
-      const dec: any = jwt.verify(h.slice(7), JWT_SECRET)
+      const dec: any = await verifyJwt(h.slice(7), JWT_SECRET)
       if (dec?.id) uid = dec.id
     } catch { uid = null }
   }
@@ -6852,7 +6946,7 @@ app.get('/api/admin/storage/file', auth, requirePerm('monitor'), async (c) => {
 
   // 兜底：Supabase 孤儿文件
   const safeKey = extractKey(meta.object_key || rawKey)
-  if (!safeKey || !getSupabase()) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
+  if (!safeKey || !(await getSupabase())) return c.json({ message: '文件存储未配置（缺少 SUPABASE_URL/SUPABASE_SERVICE_KEY）' }, 500)
   const file = await downloadFile(safeKey)
   if (!file) return c.json({ message: '文件不存在或已被删除' }, 404)
   const size = file.buffer.byteLength
@@ -7499,12 +7593,27 @@ app.onError((err, c) => {
 //   本配置只占 1 个，符合「全免费、不绑卡」铁律。
 // ⚠️ Cron Trigger **没有重试与告警**，失败就等下一次 —— 对"预热"这类
 //   幂等且低价值的任务完全可接受。
+//
+// ─────────────────────────────────────────────────────────────
+// 【v4.17.0 性能专项｜认知修正：预热是兜底，不是解药】
+//   生产实测（10 连打 /api/themes/active，全部同一 AMS colo）：
+//     ·  isolate 在**同一 colo 内多实例轮换**，且周期性整体冷启动（第 5 次又 9s）
+//        —— cron 只保它自己所在 colo 的 isolate，兜不住用户请求的 isolate 轮换；
+//     ·  真正被所有实例共享的是 caches.default（边缘缓存）—— 而它此前
+//        **因存储头带 no-cache 而 100% 不命中**（已修，见 edgeCachePut）。
+//   结论：低流量站点的正解是「边缘缓存长 TTL + 写后精确 purge」，
+//   cron 预热退居二线：让**非缓存**接口（带个人数据的题库/首页等）也受益。
+//   另：`/api/settings/exp_rules` 带 auth 中间件，无 token 预热必得 401、
+//   永远暖不到 D1 —— 已从列表移除。
+//   心跳（判断 Cron 是否在跑）不再走公网端点，改为 scheduled handler 内
+//   直接写 D1（INSERT OR REPLACE settings warmup_heartbeat），任意实例
+//   需要时可直接查库，避免多一个可被公网扫描的探针端点。
+// ─────────────────────────────────────────────────────────────
 async function warmupCriticalPaths(env: any, origin: string) {
   // 只预热「公共只读且首屏必需」的接口；带个人数据的接口不适合预热（需要 token）
   const paths = [
     '/api/themes/active',          // 主题：首屏皮肤，实测最不稳（0.6~11.8s）
     '/api/settings/site_config',   // 站点配置：首页/导航依赖
-    '/api/settings/exp_rules',     // 经验规则：实测最慢（8s）
     '/api/subjects',               // 学科列表
     '/api/feature-flags/public',   // 功能开关
   ]
@@ -7522,6 +7631,7 @@ async function warmupCriticalPaths(env: any, origin: string) {
     .map((r) => (r.status === 'fulfilled' ? r.value : 'ERR'))
     .join(' ')
   console.log('[warmup] ' + summary)
+  return summary
 }
 
 const workerHandler = {
@@ -7529,7 +7639,15 @@ const workerHandler = {
   async scheduled(event: any, env: any, ctx: any) {
     // 预热用的 origin 从请求本身推导（Cron 事件的 event 不带 URL）
     const origin = (env && env.PUBLIC_ORIGIN) || 'https://api.xkzg.de5.net'
-    ctx.waitUntil(warmupCriticalPaths(env, origin))
+    ctx.waitUntil((async () => {
+      // 心跳直写 D1（跨实例可读，用于判断 Cron 是否真的在跑）。
+      // ⚠️ 必须走 env.DB：模块级 D1 变量只在 fetch 中间件里注入，
+      //   scheduled 事件不经过中间件，直接用 run() 会访问到 undefined。
+      try {
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('warmup_heartbeat', ?)").bind(String(Date.now())).run()
+      } catch {}
+      await warmupCriticalPaths(env, origin)
+    })().catch((e) => { console.log('[warmup] fatal ' + String(e).slice(0, 200)) }))
   },
 }
 

@@ -93,3 +93,8 @@ dist/
 .screenshots/
 .uploads/
 .cf_token
+
+
+# ===== 预打包外部模块（v4.17.0 减包专项）=====
+# xlsx / supabase-js 预打包产物（esbuild --bundle），重建命令见 wrangler.toml 注释
+vendor/

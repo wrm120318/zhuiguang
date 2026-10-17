@@ -9,7 +9,7 @@
 | 项目中文名 | 追光 · 学科共享平台 |
 | 项目英文名 | zhuiguang |
 | 用户访问域名 | https://xkzg.de5.net |
-| 后端 API 域名 | https://api.xkzg.de5.net |
+| 后端 API 域名 | https://api.xkzg.de5.net（v4.17.0 起前端默认同域 `xkzg.de5.net/api/*`，由 Pages Function 内网代理，回退见 CHANGELOG） |
 | GitHub 仓库 | https://github.com/wrm120318/zhuiguang |
 | 项目类型 | 中学校园师生学科学习共享站 |
 | 服务人群 | 中学教师（6-10 人）+ 学生（50-60 人，峰值并发约 65） |
@@ -238,6 +238,9 @@ npx wrangler deploy
 2. 构建命令：`npm run build`
 3. 输出目录：`dist`
 4. 绑定自定义域名 `xkzg.de5.net`
+5. `functions/` 目录（同域 API 代理）由 Pages 自动构建，**无需额外配置**；
+   环境变量 `VITE_API_BASE_URL` 保持留空/不设（默认同域相对路径，
+   见 `functions/api/[[path]].ts` 顶部注释）
 
 > Git push 到 main 分支后 Pages 会自动构建，无需手动操作。
 
@@ -279,6 +282,9 @@ zhuiguang/
 │   ├── migrate-to-d1.sh          # SQLite → D1 数据迁移
 │   └── backup-sqlite.sh          # SQLite 备份
 ├── public/                       # 静态资源（_headers、_redirects）
+├── functions/                    # Pages Functions（/api/* 同域代理，v4.17.0）
+├── vendor/                       # 预打包外部模块（xlsx/supabase，不入库，见 wrangler.toml 注释）
+├── shared/jwt-crypto.ts          # JWT 双端单一事实源（Web Crypto HS256）
 ├── dist/                         # 前端构建产物（部署到 Cloudflare Pages）
 ├── index.html                    # HTML 入口
 ├── vite.config.ts                # Vite 配置（代理、自动导入）

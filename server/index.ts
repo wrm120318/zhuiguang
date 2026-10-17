@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url'
 import fs from 'fs'
 import { initDB, all, get, run } from './db'
 import { signToken, auth, requireRole, requirePerm, requireStaff, requireStaffOr, requireSubjectStaff, hasPerm, parsePerms, withPerms, PERM_KEYS } from './auth'
+// 【v4.17.0】JWT 验签改用 shared/jwt-crypto（与 Worker 同源，铁律#11）
+import { verifyJwt } from '../shared/jwt-crypto'
 import { addExp, addNotice, userClassIds, teachingSubjects, linkKnowledge, getExpRules, getFeatureFlags, refreshExpRules, refreshFeatureFlags, isFeatureEnabled, syncUserExp, syncUserExpBatch } from './helpers'
 // ===== v4.12.0 AI 试卷识别（与 Worker 共用同一份实现，铁律#11 三处一致）=====
 import {
@@ -303,8 +305,7 @@ app.use(async (req, res, next) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice(7)
-      const jwt = await import('jsonwebtoken')
-      const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-dev')
+      const decoded: any = await verifyJwt(token, process.env.JWT_SECRET || 'zhuiguang-secret-dev')
       if (decoded && decoded.id) {
         const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
         // 异步更新，不阻塞请求
@@ -413,7 +414,7 @@ app.post('/api/auth/login', async (req, res) => {
   const today = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD
   const todayLogin = await get('SELECT id FROM exp_logs WHERE user_id=? AND action_type=? AND substr(created_at,1,10)=? LIMIT 1', u.id, 'login', today)
   if (!todayLogin) await addExp(u.id, undefined, 'login', '每日首次登录')
-  res.json({ token: signToken({ id: u.id, role: u.role }), user: pub(u) })
+  res.json({ token: await signToken({ id: u.id, role: u.role }), user: pub(u) })
 })
 
 // Bug4: 轻量接口，检查用户是否登录+是否禁用，供前端轮询/路由切换用
@@ -424,8 +425,7 @@ app.get('/api/me/status', async (req, res) => {
   }
   try {
     const token = authHeader.slice(7)
-    const jwt = await import('jsonwebtoken')
-    const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+    const decoded: any = await verifyJwt(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
     if (!decoded || !decoded.id) {
       return res.json({ login: false, disabled: false, userId: null })
     }
@@ -444,8 +444,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
       const token = authHeader.slice(7)
-      const jwt = await import('jsonwebtoken')
-      const decoded: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+      const decoded: any = await verifyJwt(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
       if (decoded && decoded.role === 'SUPER_ADMIN') callerIsAdmin = true
     } catch {}
   }
@@ -462,7 +461,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (classId) await run('INSERT INTO class_members (class_id,user_id,role_in_class) VALUES (?,?,?)', classId, uid, 'STUDENT')
   await addExp(uid, undefined, 'register', '注册奖励')
   const newUser = await get<any>('SELECT * FROM users WHERE id=?', uid)
-  res.json({ token: signToken({ id: uid, role: 'STUDENT' }), user: pub(newUser) })
+  res.json({ token: await signToken({ id: uid, role: 'STUDENT' }), user: pub(newUser) })
 })
 
 app.get('/api/auth/me', auth, async (req, res) => {
@@ -854,8 +853,7 @@ async function parseOptionalAuth(req: any): Promise<{ id: number; role: string; 
   if (!h || !h.startsWith('Bearer ')) return null
   try {
     const token = h.slice(7)
-    const jwt = await import('jsonwebtoken')
-    const dec: any = (jwt.default || jwt).verify(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
+    const dec: any = await verifyJwt(token, process.env.JWT_SECRET || 'zhuiguang-secret-2026')
     if (!dec || !dec.id) return null
     const u = await get<any>('SELECT id, role, subject_id, status FROM users WHERE id=?', dec.id)
     if (!u || u.status === 'disabled') return null

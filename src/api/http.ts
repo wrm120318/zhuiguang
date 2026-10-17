@@ -12,7 +12,14 @@ import router from '@/router'
 // ==============================================================================
 // 【v4.4.9 防御】VITE_API_BASE_URL 尾部若混入换行/空白，会导致 baseURL 含控制字符；
 // 浏览器 fetch 虽会部分规范化，但统一 trim+去空白最稳妥，且与 helpers.ts 的 API_BASE 保持一致。
-const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? 'https://api.xkzg.de5.net').trim().replace(/\s+/g, '')
+// 【v4.17.0 同域代理】默认值由 'https://api.xkzg.de5.net' 改为 ''（同域相对路径）：
+//   请求改为打到 xkzg.de5.net/api/*，由 Pages Function（functions/api/[[path]].ts）
+//   在 Cloudflare 内网转发到 api.xkzg.de5.net。
+//   收益：用户侧消除一次跨子域 DNS + TLS 建连（实测建连 0.2~1.5s，拥塞时 15s+，
+//   SPA 首屏 5~8 个并发 API 的建连抖动正是「网站卡顿」体感的主要来源）。
+//   回退方式：Pages 环境变量注入 VITE_API_BASE_URL=https://api.xkzg.de5.net 即可，
+//   无需改代码重新发版（Functions 代理留着也不用，请求会直连 API 子域）。
+const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\s+/g, '')
 const http = axios.create({
   baseURL: PROD_API_BASE,
   timeout: 30000,

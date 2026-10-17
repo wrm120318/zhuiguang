@@ -12,7 +12,11 @@
 //   * 禁止原地覆盖：更新文件生成全新 fileId；旧文件保留或删除。
 // ==============================================================================
 import { createHash } from 'node:crypto'
-import { createClient } from '@supabase/supabase-js'
+// 【v4.17.0 性能专项】createClient（@supabase/supabase-js）静态 import 已移除：
+//   本文件被 worker-api.ts 静态引入，静态 import 会让 supabase-js（~650KB 源码）
+//   全量进 Worker 主包 —— 而默认后端是 B2_FREE，Supabase 只在切到 SUPABASE
+//   模式时才用到。改为下方 getSupabase() 内动态 import 预打包外部模块
+//   （vendor/supabase-bundle.mjs），仅功能真正被调用时才加载执行。
 
 // ---------- 配置与 D1 绑定（由 worker-api 中间件注入） ----------
 interface StorageCfg {
@@ -305,9 +309,12 @@ export async function runBucketCensus(force = false): Promise<any> {
 // ==============================================================================
 // Supabase 适配器（迁移期孤儿回退 / legacy file_path 兼容）
 // ==============================================================================
-function getSupabase() {
+// 【v4.17.0】getSupabase 改为 async + 动态 import vendor 外部模块（原因见文件头）
+async function getSupabase() {
   if (!CFG.SUPABASE_URL || !CFG.SUPABASE_KEY) return null
   if (!SUPABASE) {
+    // 指向预打包的外部模块（vendor/），不再进主包
+    const { createClient } = await import('./vendor/supabase-bundle.mjs')
     SUPABASE = createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY)
   }
   return SUPABASE
@@ -315,19 +322,19 @@ function getSupabase() {
 function supaBucket() { return CFG.SUPABASE_BUCKET || 'zhuiguang-files' }
 
 async function supaUpload(key: string, body: ArrayBuffer | Uint8Array, contentType?: string): Promise<string> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) throw new Error('Supabase 未配置')
   const { error } = await sb.storage.from(supaBucket()).upload(key, body, { contentType: contentType || 'application/octet-stream', upsert: true })
   if (error) throw error
   return key
 }
 async function supaDelete(key: string): Promise<void> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb || !key) return
   await sb.storage.from(supaBucket()).remove([key])
 }
 async function supaDownloadStream(key: string): Promise<Response> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) throw new Error('Supabase 未配置')
   const { data, error } = await sb.storage.from(supaBucket()).download(key)
   if (error || !data) throw new Error('Supabase 下载失败')
@@ -675,7 +682,7 @@ export interface MigrateResult {
 
 /** 递归列举 Supabase 桶内全部文件（Storage list 不递归，目录的 id 为 null） */
 async function supaListAll(prefix = ''): Promise<Array<{ name: string; size: number; mime: string }>> {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) throw new Error('Supabase 未配置')
   const bucket = supaBucket()
   const out: Array<{ name: string; size: number; mime: string }> = []
@@ -773,7 +780,7 @@ async function rewriteRefs(sourceKey: string, newUrl: string): Promise<number> {
 
 export async function migrateToB2(opts: { limit?: number; only?: string; dryRun?: boolean } = {}): Promise<MigrateResult> {
   const res: MigrateResult = { total: 0, done: 0, failed: 0, skipped: 0, errors: [], refsUpdated: 0, bytesMoved: 0, items: [] }
-  const supa = getSupabase()
+  const supa = await getSupabase()
   if (!supa) { res.errors.push('Supabase 未配置，无法迁移'); return res }
 
   let files: Array<{ name: string; size: number; mime: string }>
