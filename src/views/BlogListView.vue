@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { mdExcerpt } from '@/utils/markdown'

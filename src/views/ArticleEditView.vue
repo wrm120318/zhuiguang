@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 import { zgCover, bingCover, BING_COVERS, fileUrl } from '@/utils/helpers'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import { useAutoSave } from '@/composables/useAutoSave'

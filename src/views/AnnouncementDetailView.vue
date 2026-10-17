@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { renderMarkdown as md } from '@/utils/markdown'
 
 const route = useRoute()

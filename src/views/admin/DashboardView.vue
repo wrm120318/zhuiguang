@@ -3,7 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { useRouter } from 'vue-router'
-import { ElMessageBox, ElMessage } from 'element-plus'
+
 import { useThemeStore } from '@/store/theme'
 import { useDataStore } from '@/store/data'
 

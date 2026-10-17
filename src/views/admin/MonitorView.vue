@@ -3,7 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, reactive } 
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
 import { api } from '@/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { useThemeStore } from '@/store/theme'
 
 const loading = ref(false)

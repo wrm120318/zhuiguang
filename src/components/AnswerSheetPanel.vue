@@ -23,7 +23,7 @@
 // 是完整产品的量级）。这里做的是「参数化生成标准答题卡」，
 // 覆盖教师日常印卡需求，且所有参数可调、可复用。
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+
 import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{

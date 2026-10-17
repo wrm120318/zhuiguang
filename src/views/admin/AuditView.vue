@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { renderMarkdown as md } from '@/utils/markdown'
 import { useUserStore } from '@/store/user'
 import ZgGlyph from '@/components/ZgGlyph.vue'

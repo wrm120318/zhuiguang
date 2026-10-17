@@ -229,9 +229,8 @@ import ZgGlyph from '@/components/ZgGlyph.vue'
 import AnswerSheetPanel from '@/components/AnswerSheetPanel.vue'
 import GradingWorkbench from '@/components/GradingWorkbench.vue'
 import StudentReport from '@/components/StudentReport.vue'
-import { ElMessage } from 'element-plus'
-import { UploadFile } from 'element-plus'
 
+import type { UploadFile } from 'element-plus'
 const route = useRoute()
 const user = useUserStore()
 const slug = route.params.slug as string

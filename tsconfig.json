@@ -16,6 +16,6 @@
     "paths": { "@/*": ["src/*"], "@shared/*": ["shared/*"] },
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "shared/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "shared/**/*.ts", "auto-imports.d.ts", "components.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

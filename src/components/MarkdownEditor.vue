@@ -8,7 +8,7 @@
 // - 选区保留：插入后光标在插入点
 
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+
 import { renderExtendedMarkdown, sanitizeHtml } from '@/utils/marked-extensions'
 import { ensureKatexCss } from '@/utils/markdown'
 import { api } from '@/api'

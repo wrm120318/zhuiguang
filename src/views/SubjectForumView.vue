@@ -182,7 +182,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import ZgGlyph from '@/components/ZgGlyph.vue'

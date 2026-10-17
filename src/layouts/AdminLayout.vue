@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import type { PermKey } from '@/constants/permissions'

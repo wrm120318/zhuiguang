@@ -6,7 +6,7 @@ import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/api'
-import { ElMessageBox } from 'element-plus'
+
 import NavBar from '@/components/NavBar.vue'
 import MobileTabBar from '@/components/MobileTabBar.vue'
 import LogoMark from '@/components/LogoMark.vue'

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useSettingsStore, type FlagKey } from '@/store/settings'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 const settings = useSettingsStore()
 const local = ref<Record<string, boolean>>({})

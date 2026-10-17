@@ -4,7 +4,6 @@ import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api'
 import { useBasketStore } from '@/stores/basket'
 import { renderMarkdown } from '@/utils/markdown'
-import { ElMessage } from 'element-plus'
 
 const props = defineProps<{ subjectId: number; questions: any[] }>()
 const basket = useBasketStore()

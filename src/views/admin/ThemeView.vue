@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { reactive, watch, onMounted, computed } from 'vue'
 import { useThemeStore } from '@/store/theme'
-import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
 const d = reactive<any>({ primary: '#f59e0b', primary2: '#fb923c', accent: '#fbbf24', bgFrom: '#FFFBEB', bgVia: '#FEF3C7', bgTo: '#FDE68A', blur: 16, radius: 18, designMode: 'classic', inkgoldTone: 'light', bright: 'soft', name: '我的主题', isActive: false, id: null })

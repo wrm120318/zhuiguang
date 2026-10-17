@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 
 const route = useRoute()

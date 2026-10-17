@@ -5,7 +5,7 @@ import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import { formatSize, fileIcon, fileUrl } from '@/utils/helpers'
-import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
+import type { UploadFile } from 'element-plus'
 import { renderMarkdown as md } from '@/utils/markdown'
 // 【v4.10.2】角色显示统一来源
 import { roleName } from '@/constants/permissions'

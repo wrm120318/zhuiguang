@@ -2,7 +2,6 @@
 import { ref, onMounted } from 'vue'
 import { api } from '@/api'
 import { useDataStore } from '@/store/data'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 const data = useDataStore()
 const classes = ref<any[]>([])

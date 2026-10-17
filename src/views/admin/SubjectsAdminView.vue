@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import ZgStepper from '@/components/ZgStepper.vue'
 import { useDataStore } from '@/store/data'
 

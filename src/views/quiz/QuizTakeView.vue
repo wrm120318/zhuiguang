@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 import { renderMarkdown as renderMd } from '@/utils/markdown'
 import { attachmentUrl } from '@/utils/helpers'
 

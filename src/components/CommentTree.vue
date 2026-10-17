@@ -12,7 +12,6 @@
  *   emptyText: string                   没评论时的占位文案
  */
 import { ref, computed, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
 
 interface Comment {
   id: number

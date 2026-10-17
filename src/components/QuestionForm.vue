@@ -5,7 +5,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
-import { ElMessage } from 'element-plus'
 
 const props = defineProps<{
   subjectId: number

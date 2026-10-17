@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 import { useThemeStore } from '@/store/theme'
 import { useSettingsStore } from '@/store/settings'
 

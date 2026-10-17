@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useDataStore } from '@/store/data'
 import { useUserStore } from '@/store/user'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { renderMarkdown as md } from '@/utils/markdown'
 import { fileUrl } from '@/utils/helpers'
 import CommentTree from '@/components/CommentTree.vue'

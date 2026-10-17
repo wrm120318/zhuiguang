@@ -4,7 +4,7 @@
 // 导入后题目标记为「待校对」，教师在富文本里微调。
 import { ref, reactive, computed } from 'vue'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 // 【v4.13.1】与后端共用同一份合并逻辑（铁律#11）：
 //   题干以原卷 HTML 为准，表格/图片不被 AI 的纯文本覆盖；[图N] 占位符换回 <img>。
 import { mergeContent, restoreImages } from '@shared/ai-paper'

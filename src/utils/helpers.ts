@@ -138,7 +138,6 @@ export function signFileLinks(html: string): string {
   )
 }
 
-
 // 经验值获得粒子特效
 export function burstParticles(x: number, y: number, color = '#a5b4fc') {
   const colors = ['#a5b4fc', '#67e8f9', '#fda4af', '#fcd34d']

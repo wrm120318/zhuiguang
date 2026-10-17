@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { api } from '@/api'
 // 【v4.15.0】模型清单改为从共享层 import —— 单一数据源，杜绝前后端漂移（铁律#11）
 import { CF_MODEL_CHOICES, CF_FREE_DAILY_NEURONS, BUDGET_MODEL_CF } from '@shared/ai-paper'

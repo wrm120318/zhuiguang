@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
-import { ElMessage } from 'element-plus'
+
 import ZgGlyph from '@/components/ZgGlyph.vue'
 
 const route = useRoute()

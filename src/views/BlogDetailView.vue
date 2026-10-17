@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { renderMarkdown } from '@/utils/markdown'
 import { fileUrl } from '@/utils/helpers'
 import CommentTree from '@/components/CommentTree.vue'

@@ -3,15 +3,118 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import path from 'path'
 import { writeFileSync, existsSync } from 'fs'
+
+// ---------------------------------------------------------------------------
+// 【v4.17.2 首屏减重 · element-plus 按需引入（自定义 resolver）】
+// 现象：国内网络访问站点数分钟全白（标题栏已有标题=HTML 已到，JS/CSS 卡住）。
+//       实测首屏需下载 element-plus chunk 1.09MB + CSS 732KB + vue-vendor 113KB，
+//       20~50KB/s 链路下正好数分钟 —— 首屏体积是根本瓶颈。
+// 根因：官方 ElementPlusResolver 对所有组件返回 from: 'element-plus/es'（barrel）。
+//       es/index.mjs 顶层 import 了全部 124 个组件（含 ElTour/ElSplitter/ElWatermark
+//       等本项目从未使用的组件），Rollup 无法剔除 —— 实测 chunk 内 17 个冷门组件
+//       全部在场，tree-shaking 完全失效。
+// 修法：自定义 resolver，组件/API/指令一律指向 element-plus/es/components/<name>/
+//       index.mjs 独立入口（exports map 的 ./es/* 规则放行该子路径），
+//       每个组件只打包自己 + 依赖的 hooks，CSS sideEffects 与官方行为保持一致。
+// 覆盖用法（构建前全仓扫描确认）：
+//       ① 模板组件 47 种（el-button/el-table/el-dialog/...）
+//       ② 脚本 API：ElMessage(427 处) / ElMessageBox(54) / ElNotification(2)
+//       ③ 指令 v-loading(48 处)
+//       ④ ElIconXxx → @element-plus/icons-vue（保留官方行为）
+// ---------------------------------------------------------------------------
+const EP_CDN_BASE = 'element-plus/es/components'
+
+const kebabCase = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+
+// v-loading 等指令：模板 v-xxx → 插件剥掉 v 前缀后以 PascalCase 调用
+const EP_DIRECTIVES: Record<string, { importName: string; dir: string }> = {
+  Loading: { importName: 'vLoading', dir: 'loading' },
+  Popover: { importName: 'ElPopoverDirective', dir: 'popover' },
+  InfiniteScroll: { importName: 'ElInfiniteScroll', dir: 'infinite-scroll' },
+}
+
+// 子组件没有独立 index.mjs（只有 style/ 目录），从父组件目录出口导出：
+// ElFormItem←form、ElTableColumn←table、ElTabPane←tabs、ElOption←select、
+// ElDropdownItem/Menu←dropdown、ElAside/Footer/Header/Main←container 等。
+// 键为 kebab-case 子组件名，值为父组件目录名。
+const EP_SUB_COMPONENTS: Record<string, string> = {
+  'anchor-link': 'anchor',
+  aside: 'container',
+  'avatar-group': 'avatar',
+  'breadcrumb-item': 'breadcrumb',
+  'button-group': 'button',
+  'carousel-item': 'carousel',
+  'checkbox-button': 'checkbox',
+  'checkbox-group': 'checkbox',
+  'collapse-item': 'collapse',
+  'descriptions-item': 'descriptions',
+  'dropdown-item': 'dropdown',
+  'dropdown-menu': 'dropdown',
+  footer: 'container',
+  'form-item': 'form',
+  header: 'container',
+  main: 'container',
+  'menu-item': 'menu',
+  'menu-item-group': 'menu',
+  option: 'select',
+  'option-group': 'select',
+  'radio-button': 'radio',
+  'radio-group': 'radio',
+  'skeleton-item': 'skeleton',
+  'splitter-panel': 'splitter',
+  step: 'steps',
+  'sub-menu': 'menu',
+  'table-column': 'table',
+  'tab-pane': 'tabs',
+  'timeline-item': 'timeline',
+  'tour-step': 'tour',
+}
+
+const ElementPlusOnDemand = [
+  {
+    type: 'component',
+    resolve: (name: string) => {
+      if (!name.match(/^El[A-Z]/)) return
+      // ElIconXxx → 图标库命名导出（与官方一致）
+      if (name.match(/^ElIcon.+/)) {
+        return { name: name.replace(/^ElIcon/, ''), from: '@element-plus/icons-vue' }
+      }
+      const partial = kebabCase(name.slice(2))
+      const dir = EP_SUB_COMPONENTS[partial] || partial
+      return {
+        name,
+        from: `${EP_CDN_BASE}/${dir}/index.mjs`,
+        sideEffects: [
+          `${EP_CDN_BASE}/base/style/css`,
+          `${EP_CDN_BASE}/${partial}/style/css`,
+        ],
+      }
+    },
+  },
+  {
+    type: 'directive',
+    resolve: (name: string) => {
+      const d = EP_DIRECTIVES[name]
+      if (!d) return
+      return {
+        name: d.importName,
+        from: `${EP_CDN_BASE}/${d.dir}/index.mjs`,
+        sideEffects: [
+          `${EP_CDN_BASE}/base/style/css`,
+          `${EP_CDN_BASE}/${d.dir}/style/css`,
+        ],
+      }
+    },
+  },
+]
 
 export default defineConfig({
   plugins: [
     vue(),
-    AutoImport({ resolvers: [ElementPlusResolver()] }),
-    Components({ resolvers: [ElementPlusResolver()] })
+    AutoImport({ resolvers: ElementPlusOnDemand }),
+    Components({ resolvers: ElementPlusOnDemand })
   ],
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src'), '@shared': path.resolve(__dirname, 'shared') }

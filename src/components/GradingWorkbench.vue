@@ -22,7 +22,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api'
 import { renderMarkdown } from '@/utils/markdown'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps<{
   exam: any

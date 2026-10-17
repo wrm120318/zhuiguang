@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+// v4.17.2 图标按需引入：显式映射替代 `import * as` 全量 barrel（动态属性访问导致摇树失效）
+import { EP_ICONS } from '@/utils/ep-icons'
 import { useThemeStore } from '@/store/theme'
 
 // 墨金模式下把常见 emoji 自动映射为对应的金色 SVG 图标；经典模式保持原 emoji（与现状一致）。
@@ -107,7 +108,7 @@ const iconName = computed(() => {
   const key = norm(props.emoji)
   return EMOJI_MAP[key] || EMOJI_MAP[props.emoji] || ''
 })
-const iconComp = computed(() => (iconName.value ? (ElementPlusIconsVue as Record<string, any>)[iconName.value] : null))
+const iconComp = computed(() => (iconName.value ? EP_ICONS[iconName.value] : null))
 </script>
 
 <template>

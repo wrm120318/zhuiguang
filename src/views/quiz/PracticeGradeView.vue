@@ -5,7 +5,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { renderMarkdown } from '@/utils/markdown'
-import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()

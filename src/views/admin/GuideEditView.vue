@@ -4,7 +4,7 @@
 
 import { ref, onMounted } from 'vue'
 import { api } from '@/api'
-import { ElMessage } from 'element-plus'
+
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 
 const form = ref({ title: '', content: '' })

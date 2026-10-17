@@ -3,7 +3,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useDataStore } from '@/store/data'
-import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const data = useDataStore()

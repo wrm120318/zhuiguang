@@ -4,7 +4,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import LogoMark from '@/components/LogoMark.vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()

@@ -1,6 +1,6 @@
 import http from './http'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+
 import { fileUrl } from '@/utils/helpers'
 
 // ===== 客户端图片压缩（Canvas API） =====

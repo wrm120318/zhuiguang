@@ -29,7 +29,6 @@ import {
   // 选项排版类型
   type OptionLayout,
 } from '@/utils/docx-kit'
-import { ElMessage } from 'element-plus'
 
 const props = defineProps<{ subjectName: string; items: any[] }>()
 const emit = defineEmits<{ (e: 'done'): void }>()

@@ -6,7 +6,7 @@
 
 import { ref, onMounted, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { useUserStore } from '@/store/user'
 import { api } from '@/api'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'

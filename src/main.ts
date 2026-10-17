@@ -5,7 +5,8 @@ import App from './App.vue'
 import { useThemeStore } from './store/theme'
 import './styles/main.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+// v4.17.2 图标按需引入：显式命名导入替代 `import * as` 全量 barrel（320KB → ~90 个图标）
+import { EP_ICONS } from '@/utils/ep-icons'
 import { zgCover } from '@/utils/helpers'
 
 // v2.1.1 - 修复自定义域名白屏问题
@@ -39,29 +40,10 @@ document.addEventListener(
   true
 )
 
-// 全局注册本项目用到的图标组件（@element-plus/icons-vue 已随 element-plus 安装）
+// 全局注册本项目用到的图标组件（EP_ICONS 见 @/utils/ep-icons，按需引入）
 // 经典模式也启用 SVG 图标（决策 A：图标全局替换），仅替换原先的 emoji，不改变布局/配色
-const ZG_ICONS = [
-  'Search', 'ChatDotRound', 'Setting', 'Bell', 'Menu', 'Close', 'User', 'Trophy', 'Star',
-  'SwitchButton', 'HomeFilled', 'Reading', 'Notebook', 'EditPen', 'Promotion', 'Edit',
-  'ZoomIn', 'Key', 'DataLine', 'UserFilled', 'School', 'CircleCheck', 'TrendCharts',
-  'Tickets', 'Grid', 'Brush', 'Monitor', 'ArrowLeft', 'Tools', 'Loading',
-  // 【v4.5.2 修复】智能题库/题库导出等页面图标全部无法显示：
-  //   图标以 <el-button icon="Xxx" /> 字符串形式使用，必须全局注册才能解析；
-  //   ZgGlyph（emoji→SVG）内部映射引用的名称同样需注册，否则墨金模式下图标空白。
-  'Aim', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Basketball', 'Bottom',
-  'Box', 'Calendar', 'Camera', 'CaretBottom', 'CaretTop', 'Cellphone',
-  'ChatLineRound', 'Check', 'CircleClose', 'CirclePlus', 'Clock', 'Cloudy',
-  'Coin', 'Collection', 'Compass', 'Connection', 'Cpu', 'Delete',
-  'Document', 'Download', 'Files', 'Film', 'Flag', 'Folder',
-  'FolderOpened', 'GoldMedal', 'Lightning', 'Link', 'LocationFilled', 'Lock',
-  'MagicStick', 'Medal', 'Memo', 'OfficeBuilding', 'Operation', 'Paperclip',
-  'Picture', 'Plus', 'Pointer', 'Postcard', 'Present', 'PriceTag',
-  'Printer', 'Refresh', 'Switch', 'Timer', 'Top', 'Upload',
-  'VideoCamera', 'View', 'Warning',
-]
-for (const name of ZG_ICONS) {
-  app.component(name, (ElementPlusIconsVue as Record<string, any>)[name])
+for (const name of Object.keys(EP_ICONS)) {
+  app.component(name, EP_ICONS[name])
 }
 
 // 全局注册 ZgGlyph：emoji → 金色 SVG 双渲染（墨金模式显示 SVG，经典模式显示原 emoji）

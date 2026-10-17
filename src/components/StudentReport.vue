@@ -19,7 +19,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { api } from '@/api'
 import { renderMarkdown } from '@/utils/markdown'
-import { ElMessage } from 'element-plus'
+
 import * as echarts from 'echarts/core'
 import { RadarChart, LineChart } from 'echarts/charts'
 import {

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useSettingsStore } from '@/store/settings'
-import { ElMessage } from 'element-plus'
 
 const settings = useSettingsStore()
 const local = ref<Record<string, number>>({})

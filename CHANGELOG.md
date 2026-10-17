@@ -200,6 +200,96 @@
 
 ---
 
+## [v4.17.2] - 2026-10-17
+
+### 主题：element-plus 按需引入根治首屏白屏——组件 chunk 1.09MB → 637KB（-41%）
+
+> 用户原话：「**还是不行 访问域名之后 十分钟了还没加载出来任何界面 加载的非常慢**」
+> 关键线索：「**我就是用电脑 访问网站 好几分钟才能出来网站页面 这期间一直是全白（标题栏展示了网站标题）**」
+
+#### 一、根因定位
+
+**症状拆解**：标题栏有标题 = HTML 已到达浏览器；全白数分钟 = JS/CSS 卡住。
+服务端 24h 监控（1885 请求 0 错误、wallTimeP50=26ms）与无头浏览器实测
+（登录页 5.3s / 后台 7.4s 完整渲染）均正常 → **瓶颈在客户端下载体积 × 国内 ISP 对 CF 的限速**。
+
+**首屏资源实测（修复前）**：
+
+| 资源 | 原始大小 | gzip |
+|---|---|---|
+| element-plus chunk | **1,088.45 KB** | 341.46 KB |
+| CSS（单文件） | 732 KB | ~110 KB |
+| vue-vendor | 113 KB | 44 KB |
+| 主入口 + axios | 143 KB | 51 KB |
+| **合计** | **≈2.07 MB** | **≈540 KB** |
+
+20~50KB/s 的国内链路下载 540KB gzip 正好需要数分钟 —— 与用户「好几分钟全白」完全吻合。
+
+**根因一（组件 barrel 摇树失败）**：官方 `ElementPlusResolver` 对所有组件返回
+`from: 'element-plus/es'`（barrel）。`es/index.mjs` 顶层 import 全部 124 个组件，
+Rollup 无法剔除 —— 在产物 chunk 中实测 **ElTour / ElSplitter / ElWatermark /
+ElSegmented / ElMention / ElTreeV2 / ElTableV2 / ElCalendar / ElCascader 等
+17 个本项目从未使用的组件全部在场**。
+
+**根因二（图标 barrel 动态访问）**：`main.ts` 与 `ZgGlyph.vue` 使用
+`import * as ElementPlusIconsVue` 全量引入 280+ 图标（320KB），且 ZgGlyph 通过
+`ElementPlusIconsVue[iconName]` 动态属性访问 —— Rollup 无法静态分析，摇树 100% 失效。
+
+#### 二、修复
+
+**1. 自定义 ElementPlus resolver（vite.config.ts）**
+
+组件 / API / 指令一律指向 `element-plus/es/components/<name>/index.mjs` 独立入口
+（exports map 的 `./es/*` 规则放行该子路径），CSS sideEffects 与官方行为逐条对齐：
+
+- 47 个模板组件 → 各自独立入口（`ElButton`→`button/index.mjs`）
+- **子组件映射表**：`ElFormItem`←`form`、`ElTableColumn`←`table`、`ElTabPane`←`tabs`、
+  `ElOption`←`select`、`ElAside/Footer/Header/Main`←`container` 等 29 个
+  （element-plus 的子组件没有独立 index.mjs，从父组件目录出口导出）
+- `ElMessage`(427 处) / `ElMessageBox`(54) / `ElNotification`(2) → 各自 API 入口
+- `v-loading`(48 处) 指令 → `vLoading` 命名导出
+- `ElIconXxx` → `@element-plus/icons-vue`（保留官方行为）
+
+**2. 图标按需引入（src/utils/ep-icons.ts）**
+
+构建前脚本自动核算三种用法（全局注册表 / 模板 `icon="Xxx"` 属性 / ZgGlyph
+emoji 映射）的并集 = **91 个图标**，全部改为显式命名导入（可摇树），
+`EP_ICONS` 映射表供 main.ts 全局注册与 ZgGlyph 动态查询共用。
+
+**3. tsconfig 修复**：`auto-imports.d.ts` / `components.d.ts` 加入 include
+（此前根目录生成的类型声明不在编译范围，删除 barrel import 后 tsc 报
+`Cannot find name 'ElMessage'`）。
+
+#### 三、验证
+
+| 项 | 结果 |
+|---|---|
+| `tsc --noEmit` | ✅ 全绿 |
+| 生产构建 | ✅ element-plus **637.37 KB（gzip 201.72 KB，-41%）** |
+| 无头浏览器冒烟（dev server） | **17 / 17 通过** |
+| ↳ 41 组件静态渲染 + 5 组件交互挂载（dialog/dropdown/option/popconfirm） | ✅ |
+| ↳ ElMessage / ElMessageBox 确认回调 / ElNotification | ✅ |
+| ↳ v-loading 遮罩 + spinner | ✅ |
+| ↳ ZgGlyph 经典 emoji + 墨金 SVG 映射（❤🧪 等自绘 SVG） | ✅ |
+| ↳ 控制台无错误 | ✅ |
+| 生产构建登录页（本地 serve dist） | ✅ 标题/表单/ElMessage 错误提示正常 |
+
+冒烟后已删除临时测试页与路由；构建前重新核算冷门组件在 chunk 中**全部归零**。
+
+#### 四、首屏资源对比
+
+| 资源 | 修复前 | 修复后 |
+|---|---|---|
+| element-plus chunk | 1,088.45 KB | **637.37 KB（-41%）** |
+| 首屏合计（raw / gzip） | ≈2.07 MB / ≈540 KB | **≈1.64 MB / ≈410 KB** |
+| 未使用组件（17 种） | 全量打包 | **0** |
+
+**遗留**：CSS 744KB（项目自有设计系统 main.css 编译后 ~400KB + el 组件规则 ~327KB，
+gzip 114KB）；echarts 1MB / xlsx 429KB 等均为路由懒加载，不占首屏。
+如需继续减重可考虑设计系统 CSS 按路由拆分（改动面大，未做）。
+
+---
+
 ## [v4.15.4] - 2026-10-05
 
 ### 主题：规则识别修正——同行多选项切分 + 卷末参考答案回填

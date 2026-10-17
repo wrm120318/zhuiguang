@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { renderMarkdown } from '@/utils/markdown'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import ZgGlyph from '@/components/ZgGlyph.vue'
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
 
