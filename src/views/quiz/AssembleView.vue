@@ -425,7 +425,7 @@ onMounted(async () => {
                   <span class="muted">难度 {{ it.difficulty }}</span>
                   <span class="muted">知识点：{{ (kpList.find(k=>k.id===it.kpId)?.name) || '—' }}</span>
                   <span class="score">分值
-                    <el-input-number v-model="it.score" :min="1" :max="50" size="small" controls-position="right" @change="setScore(it.key, $event)" />
+                    <el-input-number v-model="it.score" :min="1" :max="50" size="small" controls-position="right" @change="setScore(it.key, $event ?? 0)" />
                   </span>
                 </div>
               </div>

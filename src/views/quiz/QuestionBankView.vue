@@ -599,7 +599,7 @@ async function smartAssemble() {
             <el-button size="small" text :disabled="idx===basket.items(subject.id).length-1" @click="basket.reorder(idx, idx+1, subject.id)" icon="Bottom" />
           </div>
           <div class="bi-content"><span class="bi-idx">{{ idx+1 }}.</span> <span class="zg-rich" v-html="renderMarkdown(it.content)" /></div>
-          <el-input-number v-model="it.basketScore" :min="1" :max="100" size="small" @change="(v:number)=>basket.setScore(it.id, v, subject.id)" />
+          <el-input-number v-model="it.basketScore" :min="1" :max="100" size="small" @change="(v: number | undefined) => basket.setScore(it.id, v ?? 0, subject.id)" />
           <el-button size="small" text type="danger" @click="basket.remove(it.id, subject.id)" icon="Delete" />
         </div>
         <div v-if="!basket.items(subject.id).length" class="empty">试题篮为空，去题目列表点「入篮」</div>

@@ -1267,7 +1267,7 @@ onBeforeUnmount(() => {
             <el-tag v-else size="small" type="danger">孤立文件</el-tag>
           </div>
           <div class="preview-footer-actions">
-            <el-button @click="handleClosePreview">{{ previewFromDelete ? '取消' : '关闭' }}</el-button>
+            <el-button @click="() => handleClosePreview()">{{ previewFromDelete ? '取消' : '关闭' }}</el-button>
             <!-- 【v4.3.2】不管从哪个入口进来，都能顺手把文件下载到本地 -->
             <el-button
               v-if="previewFile"

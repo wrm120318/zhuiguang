@@ -212,7 +212,7 @@ const moduleDefs = [
                   <div class="mc-title">{{ m.label }}</div>
                   <div class="mc-desc">{{ m.desc }}</div>
                 </div>
-                <el-switch :model-value="editForm.modules?.[m.key]" @change="(v:boolean) => { editForm.modules[m.key] = v }" @click.stop />
+                <el-switch :model-value="editForm.modules?.[m.key]" @change="(v: boolean | string | number) => { editForm.modules[m.key] = v === true }" @click.stop />
                 <!-- 【v4.1.3】论坛子配置：免审阈值直接内嵌在论坛模块卡里（v-if 显示，关联"模块显隐"） -->
                 <div v-if="m.key === 'forum'" class="mc-sub" @click.stop>
                   <el-input-number

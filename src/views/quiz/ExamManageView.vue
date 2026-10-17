@@ -249,7 +249,7 @@ const qtypeColor = (v: string) => {
   return map[v] || '#94a3b8'
 }
 const typeLabel = (v: string) => ({ exam: '正式考试', quiz: '随堂测验', homework: '分层作业' }[v] || v)
-const typeTag = (v: string) => ({ exam: '', quiz: 'success', homework: 'warning' }[v] || 'info')
+const typeTag = (v: string) => (({ exam: '', quiz: 'success', homework: 'warning' } as const)[v as 'exam' | 'quiz' | 'homework'] || 'info')
 const statusLabel = (v: string) => ({ draft: '草稿', grading: '阅卷中', published: '已发布' }[v] || v)
 const letter = (i: number) => String.fromCharCode(65 + i)
 const shorten = (s: string) => (s && s.length > 60 ? s.slice(0, 60) + '…' : (s || ''))
