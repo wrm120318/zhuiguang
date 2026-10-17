@@ -288,6 +288,31 @@ emoji 映射）的并集 = **91 个图标**，全部改为显式命名导入（�
 gzip 114KB）；echarts 1MB / xlsx 429KB 等均为路由懒加载，不占首屏。
 如需继续减重可考虑设计系统 CSS 按路由拆分（改动面大，未做）。
 
+#### 五、构建修复（61a1001，紧随 fef4648）
+
+**故障**：fef4648 推送后 CF Pages 自动构建失败，线上 5 分钟未更新。
+
+**根因**：`npm run build = vue-tsc --noEmit && vite build`，vue-tsc 先跑。
+删除 63 个文件的 barrel import 后，`ElMessage` 等依赖 `auto-imports.d.ts` 的
+全局声明——但该文件在 .gitignore 里，且恰由 vite build 生成（晚于 vue-tsc）
+→ Pages 环境 `npm ci` 后缺文件 → `vue-tsc` 报 `Cannot find name 'ElMessage'`
+（本地工作区有缓存文件所以从未暴露）。
+
+**修复**：`auto-imports.d.ts` / `components.d.ts` 提交进仓库（.gitignore 注释），
+并修复因此暴露的 5 处 .vue 严格类型错误（MonitorView @click 箭头包裹 /
+SubjectsAdminView ElSwitch change 参数归一化 / AssembleView `$event ?? 0` /
+ExamManageView typeTag as const 收窄 / QuestionBankView change 参数
+`number | undefined`）——功能零变更。
+
+**线上验证（2026-10-17 21:57）**：`element-plus-Dn6ZUDLB.js` hash 与本地构建
+**完全一致**；登录页 HTTP 200、表单正常、错误登录触发 ElMessage「用户不存在」
+（真实 API 链路）、无页面错误。首屏真实传输量（gzip）：
+
+| 资源 | 修复前 | 修复后 |
+|---|---|---|
+| element-plus | 341 KB | **195 KB（-43%）** |
+| 首屏总计 | ≈540 KB | **405 KB（-25%）** |
+
 ---
 
 ## [v4.15.4] - 2026-10-05
