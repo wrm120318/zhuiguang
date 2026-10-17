@@ -4,5 +4,18 @@
 /_redirects
   Cache-Control: public, max-age=0, must-revalidate
 
+# 【v4.17.1 白屏应急】HTML 加 60s 边缘缓存（s-maxage）
+# 背景：用户报告「访问域名十分钟一直转圈/全白」。诊断确认站点功能全部正常
+#   （登录页/首页/后台沙箱实测 5~8s 完整渲染），瓶颈在用户网络路径到 CF 边缘的
+#   文档回源：HTML 此前是 must-revalidate（每次都要回源验证），用户侧文档请求
+#   偶发 6s+ 甚至挂起 → 标签页一直转圈、Vue 从未开始执行 = 全白。
+# 改法：max-age=0（浏览器依旧每次验证，永远拿新版本，零 staleness 风险）
+#   + s-maxage=60（CF 边缘缓存 60s，重复访问/同节点多用户文档秒出）
+#   + stale-while-revalidate=300（边缘过期后先返回旧文档同时后台刷新，
+#     回源再慢用户也秒开）。旧 HTML 引用的旧 chunk 仍在 Pages 上（hash 机制），
+#     最长 60s+300s 的窗口内旧文档完全可用，功能零牺牲。
+/
+  Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=300
+
 /index.html
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=300

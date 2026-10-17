@@ -22,7 +22,10 @@ import router from '@/router'
 const PROD_API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\s+/g, '')
 const http = axios.create({
   baseURL: PROD_API_BASE,
-  timeout: 30000,
+  // 【v4.17.1 白屏应急】30s → 10s：API 长尾（Worker 冷启动 8~9s）下，
+  //   30s 超时会让用户对着转圈干等；10s 足够覆盖 99% 正常响应，
+  //   超时后各页面有自己的骨架/兜底层，快速失败比长时间挂起体验好得多。
+  timeout: 10000,
   // 云端跨域带Cookie(如果后端加了鉴权Cookie也能用)
   withCredentials: !!PROD_API_BASE,
 })
