@@ -12,7 +12,7 @@ const loading = ref(true)
 const DEFAULT_RULES: Record<string, number> = {
   login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10, blog: 5,
   forum_post: 5,
-  comment: 1, like: 1, favorite: 0, practice_pass: 5,
+  comment: 1, like: 1, favorite: 0, practice_pass: 5, exam_attend: 10,
   announcement_read: 1, message_reply: 0,
   // 以下删除/取消类规则不在设置页显示，删除内容时直接删除相关经验值记录
   // article_delete / resource_delete / blog_delete / query_delete /
@@ -33,6 +33,7 @@ const RULE_META: { key: string; label: string; icon: string; desc: string }[] = 
   { key: 'like', label: '收到点赞', icon: '❤️', desc: '内容收到他人点赞' },
   { key: 'favorite', label: '被收藏', icon: '⭐', desc: '内容被他人收藏' },
   { key: 'practice_pass', label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
+  { key: 'exam_attend', label: '参加考试', icon: '📋', desc: '参加考试（教师录入成绩）获得经验' },
   { key: 'announcement_read', label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   { key: 'message_reply', label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
   // 删除/取消类不再展示：删除内容时直接删除相关经验值记录，无需配置

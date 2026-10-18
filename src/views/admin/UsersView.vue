@@ -280,6 +280,7 @@ const EXP_LOG_ACTIONS = [
   { value: 'like', label: '收到点赞' },
   { value: 'favorite', label: '被收藏' },
   { value: 'practice_pass', label: '单题训练' },
+  { value: 'exam_attend', label: '参加考试' },
   { value: 'announcement_read', label: '阅读公告' },
   { value: 'message_reply', label: '回复站内信' },
   { value: 'article_delete', label: '删除美文' },

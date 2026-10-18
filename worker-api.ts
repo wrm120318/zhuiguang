@@ -331,7 +331,7 @@ let expRulesCache: Record<string, number> | null = null
 const DEFAULT_EXP_RULES: Record<string, number> = {
   login: 5, register: 5, article: 15, resource: 15, query: 2, quiz_pass: 10,
   blog: 5, announcement_read: 1, message_reply: 0,
-  comment: 1, like: 1, favorite: 0, practice_pass: 5,
+  comment: 1, like: 1, favorite: 0, practice_pass: 5, exam_attend: 10,
   article_delete: -15, resource_delete: -15, blog_delete: -5, query_delete: -2,
   comment_delete: -1, like_cancel: -1, favorite_cancel: 0,
   quiz_fail: 0, practice_fail: 0, admin_adjust: 0,
@@ -4525,6 +4525,8 @@ app.patch('/api/exams/:id', auth, requireStaff, async (c) => {
 
 app.delete('/api/exams/:id', auth, requireStaff, async (c) => {
   const id = Number(c.req.param('id'))
+  // 注意：与 quiz_pass/practice_pass 保持一致——删除考试不回收「参加考试」经验
+  // （现有模式中只有内容类条目 article/resource/blog/query 删除时才回收）
   await run('DELETE FROM exam_responses WHERE exam_id=?', id)
   await run('DELETE FROM exams WHERE id=?', id)
   return c.json({ ok: true })
@@ -4544,6 +4546,14 @@ app.post('/api/exams/:id/responses', auth, requireStaff, async (c) => {
   } else {
     await run('INSERT INTO exam_responses (exam_id,student_id,scores,total,scan_url,comment,graded_by,graded_at) VALUES (?,?,?,?,?,?,?,datetime(\'now\',\'+8 hours\'))',
       id, Number(b.student_id), JSON.stringify(scores), total, b.scan_url || '', b.comment || '', u.id)
+    // 【v4.18.0】参加考试发经验：与 quiz_pass/practice_pass 同一模式（addExp +
+    //    exp_rules 可配置），仅在**首次录入**时发放 —— 修订成绩（UPDATE）不重复发，
+    //   防止教师每改一次成绩学生就重复获得经验。
+    try {
+      const exam = await get<any>('SELECT title, subject_id FROM exams WHERE id=?', id)
+      await addExp(Number(b.student_id), undefined, 'exam_attend',
+        `参加考试《${exam?.title || '考试#' + id}》（得分 ${total}）`, exam?.subject_id ?? null)
+    } catch { /* 经验发放失败不影响成绩录入主流程 */ }
   }
   return c.json({ ok: true, total })
 })

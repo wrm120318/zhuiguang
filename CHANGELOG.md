@@ -5,6 +5,46 @@
 
 ---
 
+## [v4.18.0] - 2026-10-18
+
+### 主题：新增「参加考试」经验值条目——与 quiz_pass/practice_pass 完全同一业务模式
+
+> 用户原话：「**加一个参加考试的经验值增加条目 和现在其他经验条目的业务逻辑一样**」
+
+#### 一、实现（单一模式，零特殊分支）
+
+| 维度 | 与现有条目的一致性 |
+|---|---|
+| 默认分值 | `DEFAULT_EXP_RULES.exam_attend = 10`（与 quiz_pass 同档） |
+| 发放入口 | 教师录入成绩 `POST /api/exams/:id/responses` 的 **INSERT 分支**调 `addExp(studentId, undefined, 'exam_attend', ...)` —— `change=undefined` 即从 `exp_rules` 读数，**超管可在后台改分值** |
+| 派生缓存 | `addExp` 内部写 `exp_logs` 后调 `syncUserExp` 全量重算 `users.exp/level`（v4.11.0 单一真源，无增量漂移） |
+| 重复发放防护 | 仅在**首次录入**时发放；修订成绩走 UPDATE 分支，**不重复发**（防教师每改一次成绩学生就白捡一份经验） |
+| 删除行为 | 删考试**不回收**经验（与 quiz/practice 删除一致——现有模式中只有内容类条目 article/resource/blog/query 删除时才回收） |
+| 失败隔离 | 经验发放包在 try/catch 中，失败不影响成绩录入主流程 |
+
+发放描述示例：`参加考试《期中考试》（得分 17）`，并关联学科 `subject_id`（经验日志可按学科统计）。
+
+#### 二、前端 4 处注册（学生/教师/管理端全链路可见）
+
+- **管理后台 → 经验规则**（`ExpRulesView.vue`）：RULE_META 新增 `📋 参加考试`，默认值 10，可直接改
+- **经验说明页**（`ExpDocView.vue`）：RULE_DESC 新增「参加考试，成绩录入后获得经验」
+- **管理后台 → 经验日志**（`ExpLogsView.vue`）：筛选下拉新增「参加考试」
+- **管理后台 → 用户管理**（`UsersView.vue`）：手动调整经验时的动作类型下拉新增「参加考试」
+
+#### 三、验证
+
+- **运行时探针** `scripts/probe-exam-exp.mjs`（in-memory D1 + 真实 worker fetch handler，生产表结构）**45/45 通过**，覆盖：
+  - 默认规则 `exam_attend === 10`，与 quiz_pass/practice_pass 同为正向条目
+  - 教师建考试 → 首次录入 → `exp_logs` 落 1 条 `exam_attend=10`、`users.exp` 同步 10、`level` 按 `exp/60+1` 计算
+  - 修订成绩 → 日志仍 1 条、`users.exp` 不变、总分已更新
+  - 另一名学生录入 → 独立发放、互不影响
+  - `PUT /api/settings/exp_rules` 改 `exam_attend=100` → 新录入发 100、`users.exp=110`、`level=2`（**可配置性实证**）
+  - 删除考试 → 经验不回收、`exam_responses` 级联清理
+  - 静态检查：后端默认值 + UPDATE 分支无发放路径 + 前端 4 文件均含 `exam_attend` 与「参加考试」文案
+- **生产部署**：Worker version `0aef94b8-0ec3-4c6b-9888-e24e09b41181`（公共接口 200 验证存活）
+
+---
+
 ## [v4.17.0] - 2026-10-17
 
 ### 主题：全面根本性能优化——Worker 减包 6.5 倍 + 边缘缓存根治 + API 同域代理

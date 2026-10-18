@@ -31,6 +31,7 @@ const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> =
   like: { label: '收到点赞', icon: '❤️', desc: '你的内容收到他人点赞' },
   favorite: { label: '被收藏', icon: '⭐', desc: '你的内容被他人收藏' },
   practice_pass: { label: '单题训练', icon: '🎯', desc: '完成单题训练并获得通过' },
+  exam_attend: { label: '参加考试', icon: '📋', desc: '参加考试，成绩录入后获得经验' },
   quiz_fail: { label: '自测未通过', icon: '❌', desc: '题库自测未通过' },
   practice_fail: { label: '训练未通过', icon: '❌', desc: '单题训练未通过' },
   admin_adjust: { label: '管理员调整', icon: '⚙️', desc: '管理员手动调整经验' },
