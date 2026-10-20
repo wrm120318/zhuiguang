@@ -33,7 +33,7 @@ const RULE_META: { key: string; label: string; icon: string; desc: string }[] = 
   { key: 'like', label: '收到点赞', icon: '❤️', desc: '内容收到他人点赞' },
   { key: 'favorite', label: '被收藏', icon: '⭐', desc: '内容被他人收藏' },
   { key: 'practice_pass', label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
-  { key: 'exam_attend', label: '参加考试', icon: '📋', desc: '参加考试（教师录入成绩）获得经验' },
+  { key: 'exam_attend', label: '参加考试', icon: '📋', desc: '在线参加考试，学生提交答卷后获得经验' },
   { key: 'announcement_read', label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   { key: 'message_reply', label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
   // 删除/取消类不再展示：删除内容时直接删除相关经验值记录，无需配置

@@ -8,6 +8,23 @@ import { expProgress } from '@/utils/helpers'
 // 【v4.10.2】角色显示统一来源
 import { roleFullName } from '@/constants/permissions'
 
+// 【v4.18.1】经验行为类型中文映射：与后台 ExpLogsView/UsersView 的筛选表保持一致。
+//   修复前此处裸输出 log.action_type（login/article/quiz_pass… 全显示英文键名），
+//   新条目 exam_attend 也随之显示英文。未收录的键回退为原始值（兜底不崩）。
+const EXP_ACTION_LABELS: Record<string, string> = {
+  'login': '每日登录', 'register': '注册奖励',
+  'article': '发布美文', 'resource': '上传资料', 'query': '完成查询',
+  'quiz_pass': '题库自测', 'exam_attend': '参加考试', 'practice_pass': '单题训练',
+  'blog': '发布博客', 'forum_post': '发布论坛帖',
+  'announcement_read': '阅读公告', 'message_reply': '回复站内信',
+  'comment': '收到评论', 'like': '收到点赞', 'favorite': '被收藏',
+  'quiz_fail': '自测未通过', 'practice_fail': '训练未通过', 'admin_adjust': '管理员调整',
+  'article_delete': '删除美文', 'resource_delete': '删除资料', 'blog_delete': '删除博客',
+  'query_delete': '删除查询', 'comment_delete': '删除评论',
+  'like_cancel': '取消点赞', 'favorite_cancel': '取消收藏',
+}
+function expActionLabel(t: string) { return EXP_ACTION_LABELS[t] || t }
+
 const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
@@ -204,7 +221,7 @@ const expLeftToNext = computed(() => {
           <div class="ei-icon" :class="{ pos: log.exp_change > 0, neg: log.exp_change < 0 }">{{ log.exp_change > 0 ? '+' : '' }}{{ log.exp_change }}</div>
           <div class="ei-body">
             <div class="ei-desc">{{ log.description }}</div>
-            <div class="ei-meta">{{ log.action_type }} · {{ log.created_at?.slice(0, 16) }}</div>
+            <div class="ei-meta">{{ expActionLabel(log.action_type) }} · {{ log.created_at?.slice(0, 16) }}</div>
           </div>
         </div>
         <el-empty v-if="!expLogs.length" description="暂无经验记录" />

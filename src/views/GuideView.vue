@@ -52,6 +52,7 @@ const RULE_DESC: Record<string, { label: string; icon: string; desc: string }> =
   like: { label: '收到点赞', icon: '❤️', desc: '你的内容收到他人点赞' },
   favorite: { label: '被收藏', icon: '⭐', desc: '你的内容被他人收藏' },
   practice_pass: { label: '单题训练', icon: '🎯', desc: '单题训练通过获得经验' },
+  exam_attend: { label: '参加考试', icon: '📋', desc: '在线参加考试，提交答卷后获得经验' },
   announcement_read: { label: '阅读公告', icon: '📢', desc: '阅读网站公告' },
   message_reply: { label: '回复站内信', icon: '✉️', desc: '回复他人站内信' },
   quiz_fail: { label: '自测未通过', icon: '❌', desc: '题库自测未通过' },

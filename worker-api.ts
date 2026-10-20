@@ -349,7 +349,7 @@ export async function getExpRules(): Promise<Record<string, number>> {
     for (const k of excludeKeys) { delete merged[k] }
     // 自动修复：如果任何关键正向规则（login/register/article/resource/quiz_pass）
     // 在数据库中被设为0但默认值不为0，说明是前端BUG导致的错误数据，自动重置为默认规则
-    const positiveKeys = ['login', 'register', 'article', 'resource', 'quiz_pass']
+    const positiveKeys = ['login', 'register', 'article', 'resource', 'quiz_pass', 'exam_attend']
     const needsFix = positiveKeys.some(k => saved && k in saved && saved[k] === 0 && DEFAULT_EXP_RULES[k] !== 0)
     if (needsFix) {
       await run("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", 'exp_rules', JSON.stringify(DEFAULT_EXP_RULES))
@@ -4164,6 +4164,11 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
     )
     subId = Number(r.lastInsertRowid)
   }
+  // 【v4.18.1】参加考试发经验：学生在线参加考试（提交答卷）即发放，与 quiz_pass
+  //   同一模式（addExp + exp_rules 可配置）。不分 graded/pending —— 「参加」不看
+  //   批改状态，含主观题等待批改的学生同样因参加而得分。
+  //   防重复由上方「你已提交过该题库」的 400 拦截天然保证（每场考试每学生仅提交一次）。
+  await addExp(uid, undefined, 'exam_attend', `参加线上考试《${quiz.title}》`, quiz.subject_id)
   if (status === 'pending' && quiz.creator_id) {
     const stu = await get<any>('SELECT real_name FROM users WHERE id=?', uid)
     const stuName = stu?.real_name || `用户${uid}`
@@ -4525,8 +4530,6 @@ app.patch('/api/exams/:id', auth, requireStaff, async (c) => {
 
 app.delete('/api/exams/:id', auth, requireStaff, async (c) => {
   const id = Number(c.req.param('id'))
-  // 注意：与 quiz_pass/practice_pass 保持一致——删除考试不回收「参加考试」经验
-  // （现有模式中只有内容类条目 article/resource/blog/query 删除时才回收）
   await run('DELETE FROM exam_responses WHERE exam_id=?', id)
   await run('DELETE FROM exams WHERE id=?', id)
   return c.json({ ok: true })
@@ -4546,14 +4549,6 @@ app.post('/api/exams/:id/responses', auth, requireStaff, async (c) => {
   } else {
     await run('INSERT INTO exam_responses (exam_id,student_id,scores,total,scan_url,comment,graded_by,graded_at) VALUES (?,?,?,?,?,?,?,datetime(\'now\',\'+8 hours\'))',
       id, Number(b.student_id), JSON.stringify(scores), total, b.scan_url || '', b.comment || '', u.id)
-    // 【v4.18.0】参加考试发经验：与 quiz_pass/practice_pass 同一模式（addExp +
-    //    exp_rules 可配置），仅在**首次录入**时发放 —— 修订成绩（UPDATE）不重复发，
-    //   防止教师每改一次成绩学生就重复获得经验。
-    try {
-      const exam = await get<any>('SELECT title, subject_id FROM exams WHERE id=?', id)
-      await addExp(Number(b.student_id), undefined, 'exam_attend',
-        `参加考试《${exam?.title || '考试#' + id}》（得分 ${total}）`, exam?.subject_id ?? null)
-    } catch { /* 经验发放失败不影响成绩录入主流程 */ }
   }
   return c.json({ ok: true, total })
 })
