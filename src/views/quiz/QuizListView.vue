@@ -35,6 +35,20 @@ onMounted(() => { load(); loadPending() })
 
 function statusLabel(s: string) { return s === 'published' ? '进行中' : s === 'closed' ? '已关闭' : '草稿' }
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
+/**
+ * 【v4.18.3】学生视角的截止判定（与后端 parseDeadlineBJ 同语义：按北京时间，
+ * 仅日期视为当天 23:59，容忍全角冒号等历史脏数据）。已过截止的考试在列表里
+ * 直接标「已截止」并禁用进入，不再让学生点进去才看到"不能作答"。
+ */
+function isExpired(q: any): boolean {
+  if (user.isStaff) return false
+  const t = String(q?.valid_until ?? '').trim()
+  if (!t) return false
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT:-]+(\d{1,2})[：:](\d{1,2}))?/)
+  if (!m) return false
+  const dl = Date.UTC(+m[1], +m[2] - 1, +m[3], m[4] !== undefined ? +m[4] : 23, m[5] !== undefined ? +m[5] : 59) - 8 * 3600 * 1000
+  return Date.now() > dl
+}
 
 const studentList = computed(() => list.value.filter(q => q.status !== 'draft'))
 const teacherExams = computed(() => list.value)
@@ -133,9 +147,10 @@ async function submitGrade() {
     <!-- 学生视图：题库列表 -->
     <template v-else>
       <div v-loading="loading" class="grid">
-        <div v-for="q in studentList" :key="q.id" class="q-card glass zg-card">
+        <div v-for="q in studentList" :key="q.id" class="q-card glass zg-card" :class="{ 'q-expired': isExpired(q) }">
           <div class="qc-head">
             <el-tag size="small" :type="q.status === 'published' ? 'success' : q.status === 'closed' ? 'info' : 'warning'">{{ statusLabel(q.status) }}</el-tag>
+            <el-tag v-if="isExpired(q)" size="small" type="danger">已截止</el-tag>
             <span class="qc-time">{{ q.created_at?.slice(0, 16) }}</span>
           </div>
           <div class="qc-title">{{ q.title }}</div>
@@ -146,7 +161,7 @@ async function submitGrade() {
             <span v-if="q.valid_until"><ZgGlyph emoji="📅" /> 截止 {{ q.valid_until }}</span>
           </div>
           <div class="qc-actions">
-            <el-button type="primary" size="small" round @click="router.push(`/quiz/${q.id}`)">开始作答</el-button>
+            <el-button type="primary" size="small" round :disabled="isExpired(q)" @click="router.push(`/quiz/${q.id}`)">开始作答</el-button>
             <el-button size="small" round @click="router.push(`/quiz/${q.id}/report`)">查看报告</el-button>
           </div>
         </div>
@@ -195,6 +210,8 @@ async function submitGrade() {
 .pp-max { font-size: 12px; color: var(--zg-text-dim); margin-top: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .q-card { padding: 20px; }
+.q-card.q-expired { opacity: .62; }
+.q-card.q-expired .qc-title { text-decoration: line-through; }
 .qc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; color: var(--zg-text-dim); }
 .qc-title { font-size: 17px; font-weight: 700; }
 .qc-desc { color: var(--zg-text-dim); font-size: 13px; margin: 8px 0 12px; line-height: 1.6; min-height: 40px; }

@@ -90,7 +90,8 @@ async function runBatchUpdate() {
     const r: any = await api.batchUpdateQuestions(payload)
     ElMessage.success(`已更新 ${r?.updated ?? selected.value.length} 道题${r?.denied?.length ? `，${r.denied.length} 道权限不足已跳过` : ''}`)
     clearSelection()
-    await loadQuestions()
+    // 【v4.18.3】fresh=true：批量改题后立即看到新题型/新标注（服务端有 120s 列表缓存）
+    await loadQuestions(true)
   } catch (e: any) {
     ElMessage.error('批量更新失败：' + (e?.response?.data?.message || e?.message || e))
   } finally { batchBusy.value = false }
@@ -106,7 +107,7 @@ async function runBatchDelete() {
     const r: any = await api.batchDeleteQuestions(selected.value)
     ElMessage.success(`已删除 ${r?.deleted ?? 0} 道题${r?.denied?.length ? `，${r.denied.length} 道无权限已跳过` : ''}`)
     clearSelection()
-    await loadQuestions()
+    await loadQuestions(true)
   } catch (e: any) {
     ElMessage.error('批量删除失败：' + (e?.response?.data?.message || e?.message || e))
   } finally { batchBusy.value = false }
@@ -125,7 +126,7 @@ async function runAutoTag() {
     const r2: any = await api.batchUpdateQuestions({ ids: selected.value, add_knowledge_point_ids: Array.from(all) })
     ElMessage.success(`已按题面自动标注 ${all.size} 个知识点（覆盖 ${r2?.updated ?? selected.value.length} 题），请在题目里核对`)
     clearSelection()
-    await loadQuestions()
+    await loadQuestions(true)
   } catch (e: any) {
     ElMessage.error('自动标注失败：' + (e?.response?.data?.message || e?.message || e))
   } finally { batchBusy.value = false }
@@ -232,8 +233,11 @@ async function loadSubject() {
     ElMessage.error(e?.response?.data?.message || '学科加载失败')
   }
 }
-async function loadKp() { if (subject.value) kpList.value = (await api.knowledgePoints(subject.value.id)) as any }
-async function loadQuestions() {
+// 【v4.18.3】loadKp / loadQuestions 支持 fresh：写操作（增删改知识点/题目）后
+//   必须带 fresh=true 重新拉取 —— 服务端对这两个接口有 120s 边缘/内存缓存，
+//   普通重拉会拿到旧列表，表现为「添加知识点后左侧栏目不刷新，还是旧的」。
+async function loadKp(fresh = false) { if (subject.value) kpList.value = (await api.knowledgePoints(subject.value.id, fresh)) as any }
+async function loadQuestions(fresh = false) {
   if (!subject.value) return
   loading.value = true
   try {
@@ -241,8 +245,13 @@ async function loadQuestions() {
     for (const k of ['keyword', 'qtype', 'difficulty', 'textbook_version', 'region', 'chapter', 'year', 'source', 'knowledge_point_id']) {
       if ((filters as any)[k]) params[k] = (filters as any)[k]
     }
-    questions.value = (await api.subjectQuestions(subject.value.id, params)) as any
+    questions.value = (await api.subjectQuestions(subject.value.id, params, fresh)) as any
   } finally { loading.value = false }
+}
+/** 【v4.18.3】重拉后同步展开态：一级节点有子级就展开（含新建/刚挂上子级的空节点），
+ *    否则新添加的二级知识点会藏在折叠的一级下面，左侧树看着"没刷新"。 */
+function syncKpExpansion() {
+  kpTree.value.forEach(n => { if (n.children.length) expandedKp[n.id] = true })
 }
 
 onMounted(async () => {
@@ -251,7 +260,7 @@ onMounted(async () => {
   if (!subject.value) return
   await Promise.all([loadKp(), loadQuestions()])
   // 默认展开一级知识点
-  kpTree.value.forEach(n => { if (n.children.length) expandedKp[n.id] = true })
+  syncKpExpansion()
 })
 
 function kpNames(ids: any[]): string {
@@ -314,7 +323,7 @@ const rootKpOptions = computed(() => kpList.value.filter((k: any) => !k.parent_i
 async function createKp() {
   if (!kpForm.name.trim() || !subject.value) return
   try {
-    await api.createKnowledgePoint(subject.value.id, {
+    const r: any = await api.createKnowledgePoint(subject.value.id, {
       name: kpForm.name.trim(),
       parent_id: kpForm.parent_id || null,
       sort: kpForm.sort || 0,
@@ -322,9 +331,17 @@ async function createKp() {
     kpForm.name = ''
     kpForm.parent_id = ''
     kpForm.sort = 0
-    await loadKp()
+    // 【v4.18.3】fresh=true：绕过服务端 120s 缓存，左侧知识点树立即出现新节点
+    await loadKp(true)
+    syncKpExpansion()
+    // 新建二级知识点时，确保其一级父节点处于展开态（此前折叠时空节点不显示，酷似"没刷新"）。
+    // 注意：不自动切筛选到新节点 —— 新知识点还没有题，切过去列表会空，反像"页面坏了"。
+    if (r?.id) {
+      const created = kpList.value.find((k: any) => Number(k.id) === Number(r.id))
+      if (created?.parent_id) expandedKp[Number(created.parent_id)] = true
+    }
     // 新建后重新拉题目，保证父节点计数立即反映子节点的题（v4.8.25）
-    await loadQuestions()
+    await loadQuestions(true)
     ElMessage.success('知识点已添加')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '添加失败')
@@ -333,8 +350,9 @@ async function createKp() {
 async function deleteKp(id: number) {
   try {
     await api.deleteKnowledgePoint(id)
-    await loadKp()
-    await loadQuestions()
+    await loadKp(true)
+    syncKpExpansion()
+    await loadQuestions(true)
     ElMessage.success('已删除')
   } catch (e: any) {
     // 【v4.8.25】后端在「存在子知识点」时会返回 400，这里原样透出提示
@@ -359,8 +377,12 @@ async function saveEditKp(k: any) {
       parent_id: kpEditForm.parent_id || null,
     })
     kpEditingId.value = null
-    await loadKp()
-    await loadQuestions()
+    await loadKp(true)
+    syncKpExpansion()
+    // 若把节点移到了另一个一级下，展开新父节点，保证左侧树立刻能看到
+    const moved = kpList.value.find((x: any) => Number(x.id) === Number(k.id))
+    if (moved?.parent_id) expandedKp[Number(moved.parent_id)] = true
+    await loadQuestions(true)
     ElMessage.success('已保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '保存失败')
@@ -466,22 +488,22 @@ async function smartAssemble() {
              参差、高度 44/48 混杂，是「模块大小极不统一」的直接根因。
              宽度改由 CSS 网格接管，桌面/移动共用一套等宽规则。 -->
         <div class="filters glass">
-          <el-input v-model="filters.keyword" placeholder="关键词" clearable @keyup.enter="loadQuestions" />
-          <el-select v-model="filters.qtype" placeholder="题型" clearable @change="loadQuestions">
+          <el-input v-model="filters.keyword" placeholder="关键词" clearable @keyup.enter="loadQuestions()" />
+          <el-select v-model="filters.qtype" placeholder="题型" clearable @change="loadQuestions()">
             <el-option v-for="(l, v) in qtypeLabels" :key="v" :label="l" :value="v" />
           </el-select>
-          <el-select v-model="filters.difficulty" placeholder="难度" clearable @change="loadQuestions">
+          <el-select v-model="filters.difficulty" placeholder="难度" clearable @change="loadQuestions()">
             <el-option v-for="d in [1,2,3,4,5]" :key="d" :label="`${d}星`" :value="d" />
           </el-select>
-          <el-input v-model="filters.textbook_version" placeholder="教材版本" clearable @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.region" placeholder="地区" clearable @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.chapter" placeholder="章节" clearable @keyup.enter="loadQuestions" />
-          <el-input v-model="filters.year" placeholder="年份" clearable @keyup.enter="loadQuestions" />
-          <el-select v-model="filters.source" placeholder="题源" clearable @change="loadQuestions">
+          <el-input v-model="filters.textbook_version" placeholder="教材版本" clearable @keyup.enter="loadQuestions()" />
+          <el-input v-model="filters.region" placeholder="地区" clearable @keyup.enter="loadQuestions()" />
+          <el-input v-model="filters.chapter" placeholder="章节" clearable @keyup.enter="loadQuestions()" />
+          <el-input v-model="filters.year" placeholder="年份" clearable @keyup.enter="loadQuestions()" />
+          <el-select v-model="filters.source" placeholder="题源" clearable @change="loadQuestions()">
             <el-option label="真题" value="真题" /><el-option label="模拟" value="模拟" />
             <el-option label="同步" value="同步" /><el-option label="专题" value="专题" /><el-option label="原创" value="原创" />
           </el-select>
-          <el-button type="primary" @click="loadQuestions" icon="Search">筛选</el-button>
+          <el-button type="primary" @click="loadQuestions()" icon="Search">筛选</el-button>
           <el-button text @click="showAnswer = !showAnswer" :icon="showAnswer ? 'View' : 'Hide'">{{ showAnswer ? '隐藏答案' : '显示答案' }}</el-button>
         </div>
 

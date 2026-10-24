@@ -48,7 +48,21 @@ function escapeHtml(s: string): string {
 const katexBlock: TokenizerAndRendererExtension = {
   name: 'katexBlock',
   level: 'block',
-  start(src) { return src.indexOf('$$') },
+  // 【v4.18.3】只在「行首（允许前导空白）」处报告 $$ 候选。
+  //
+  // 【为什么改】旧实现 `src.indexOf('$$')` 会把**行中**出现的 $$ 也报为候选。
+  //   行中的 $$ 恰恰是「相邻行内公式」的收尾 $ + 开头 $ 拼成的：
+  //     `小灯泡$\boldsymbol{L_1}$$\boldsymbol{\underline{\quad\quad}}$`
+  //                    ↑↑ 这两个 $ 并不是块级公式
+  //   marked v18 的块级 lexer 拿到候选后会**在候选处切断段落**，
+  //   前一个公式当场被打碎成裸源码（实测输出 `小灯泡$\boldsymbol{L_1}<br>$<katex>`，
+  //   还莫名多出一个 <br>）—— 这就是「$\boldsymbol{\underline{\quad\quad}}$
+  //   的 markdown 格式还是没有被渲染」的真正根因（v4.18.2 修的是调用点，
+  //   这个渲染链深处的坑一直存在）。
+  //   块级公式按定义就写在独立行，行首判定既不失真又杜绝误切。
+  start(src) {
+    return /^[ \t]*\$\$/.test(src) ? src.indexOf('$$') : -1
+  },
   tokenizer(src) {
     const match = /^\$\$([\s\S]+?)\$\$(?:\n|$)/.exec(src)
     if (!match) return undefined

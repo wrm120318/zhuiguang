@@ -11,6 +11,23 @@ const user = useUserStore()
 const data = useDataStore()
 
 const isEdit = computed(() => !!route.params.id)
+/**
+ * 【v4.18.3】截止时间输入由自由文本改为 el-date-picker（value-format=YYYY-MM-DD HH:mm）。
+ * 存量数据可能是 `2026-08-30`（仅日期）、历史手填的 `2026-10-25-19：00`（全角冒号）
+ * 或其它脏格式，这里归一化：
+ *  · 仅日期 → 补 ` 23:59`（当天截止的直觉语义）
+ *  · 可解析出日期+时间 → 规范成 `YYYY-MM-DD HH:mm`
+ *  · 完全无法解析 → **原样保留**（picker 显示占位符，但保存时不会悄悄抹掉存量数据）
+ */
+function normalizeUntil(v: any): string {
+  const t = String(v ?? '').trim()
+  if (!t) return ''
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT:-]+(\d{1,2})[：:](\d{1,2}))?/)
+  if (!m) return t
+  const p = (n: any) => String(n).padStart(2, '0')
+  const date = `${m[1]}-${p(m[2])}-${p(m[3])}`
+  return m[4] !== undefined ? `${date} ${p(m[4])}:${p(m[5])}` : `${date} 23:59`
+}
 const form = ref({
   title: '',
   description: '',
@@ -64,7 +81,7 @@ onMounted(async () => {
     form.value = {
       title: r.title, description: r.description || '',
       subjectId: r.subject_id, classId: r.class_id,
-      duration: r.duration || 0, validUntil: r.valid_until || '',
+      duration: r.duration || 0, validUntil: normalizeUntil(r.valid_until),
       status: r.status,
     }
     questions.value = (r.questions || []).map((q: any) => ({
@@ -178,13 +195,21 @@ async function submit() {
         <el-input-number v-model="form.duration" :min="0" :step="5" placeholder="作答时长(分钟)" />
       </div>
       <div class="ep-row">
-        <el-input v-model="form.validUntil" placeholder="截止时间，如 2026-08-30 23:59" />
+        <el-date-picker
+          v-model="form.validUntil"
+          type="datetime"
+          value-format="YYYY-MM-DD HH:mm"
+          placeholder="截止时间（留空＝不限）"
+          :disabled-date="(d: Date) => d.getTime() < Date.now() - 86400000"
+          style="flex:1"
+        />
         <el-select v-model="form.status" style="width:160px">
           <el-option label="进行中" value="published" />
           <el-option label="草稿" value="draft" />
           <el-option label="已关闭" value="closed" />
         </el-select>
       </div>
+      <p class="ep-hint">设置截止时间后，过期将自动禁止学生进入与提交（教师端不受影响）。</p>
 
       <div class="q-section">
         <div class="qs-head">
@@ -287,6 +312,7 @@ async function submit() {
 .editor { padding: 28px; }
 .ep-title { font-size: 22px; font-weight: 800; margin-bottom: 16px; }
 .ep-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.ep-hint { font-size: 12px; color: var(--zg-text-dim); margin: -4px 0 14px; }
 .q-section { margin-top: 20px; }
 .qs-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .qs-title { font-weight: 700; font-size: 16px; }

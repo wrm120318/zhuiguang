@@ -5,6 +5,89 @@
 
 ---
 
+## [v4.18.3] - 2026-10-24
+
+### 主题：线上考试功能全面完善（P0/P1/P2 全量）+ 公式渲染根因收尾 + 智能题库「添加知识点不刷新」根因修复
+
+> 用户原话：「**全部修复　而且$\boldsymbol{\underline{\quad\quad}}$ 的markdown格式还是没有被渲染
+> 还有 智能题库我添加知识点后　左边的知识点栏目不刷新　还是旧的**；
+> **题库这个主要指的是线上考试功能（要把各项功能加以完善　增加一些合理科学的功能　人性化体验　适配各种终端）
+> 不是那个线下的考试管理 和阅卷（当然有问题的话 也改）**」
+
+#### 一、智能题库「添加知识点后左侧栏目不刷新」——根因修复
+
+**根因（边缘缓存 auth 分片缺陷）**：`edgeCacheablePath` 对 `/knowledge-points`、`/questions`
+这类**带 auth 的业务接口**按身份分片缓存（key = `<path>?__zg_auth=<authHash>`，ttl 120s），
+而 `purgeEdgeCache` 历来只删 public/anon 两个分片 —— **写作者自己那一份边缘条目从未被失效**。
+生产实测复现路径：进题库页（GET 回源→写入教师自己的分片）→ 添加知识点 → POST 成功 →
+`clearAllCache()` 只递增了当时那个实例的 CACHE_VERSION（内存层失效），**边缘条目 key 不含版本号，原样还在** →
+随后 `loadKp()` GET 命中旧条目 → 左侧树 + 管理列表还是旧的（最长 120s）。
+
+**三重修复**：
+| 层 | 文件 | 修法 |
+|---|---|---|
+| 后端 | `worker-api.ts` | `purgeEdgeCache` 把**当前写请求自己的 authHash 分片**一并删除（写请求与随后 GET 同一浏览器、同一 Authorization → authHash 相同 → 正是那一份）；KP 的 POST/PATCH/DELETE 与题目各写操作均 `registerEdgePurge` 登记本学科 knowledge-points + questions 两条路径 |
+| 前端 | `src/api/index.ts` + `QuestionBankView.vue` | 写后重拉统一走 `fresh=true` → 追加 `_t=Date.now()`，urlKey 含完整 search → 内存/边缘双 Miss，从根上不读旧值 |
+| 交互 | `QuestionBankView.vue` | 重拉后 `syncKpExpansion()` 展开所有有子级的一级节点——修复「新二级节点藏在折叠的一级下，酷似没刷新」；新建后自动展开新节点的父级 |
+
+**顺带修掉一个性能 bug**：`purgeEdgeCache` 原被 `await` 在写请求响应路径上，且内部 6 路径 × 4 key
+共 24 次 `caches.default.delete` **串行**执行——实测单个删除知识点请求响应被拖慢 **2s+**。
+现改为**并行删除 + `waitUntil` 后台执行**（一致性主要由 CACHE_VERSION + 前端 `_t` 保证，
+purge 是第二道保险，没有理由让用户等待），删除接口响应降到 ~1s 内。
+
+#### 二、线上考试功能全面完善（对齐「人性化体验 + 适配各种终端」）
+
+##### P0 四项（`quiz/QuizTakeView.vue` 重写）
+
+| 功能 | 实现 |
+|---|---|
+| **倒计时自动交卷** | 开始时间持久化（localstorage `K_START`，刷新不重置）；每秒 tick；≤300s 红色脉冲告警；归零自动调 `doSubmit(true)`；自动交卷失败时横幅提示手动提交 |
+| **断点保存** | `watch([answers, flagged, switchLogs])` 防抖 500ms 写 `K_DRAFT`；意外刷新/关闭后重进 toast 提示「已恢复 HH:MM 的作答进度」 |
+| **提交确认** | `ElMessageBox.confirm` 动态展示「共 N 题 · 未答 X · 存疑 Y」，防误触白交 |
+| **答题卡导航** | dialog 内 8 列网格（移动端 6 列）：已答/未答/存疑三态着色；点击 `scrollIntoView` + 1.8s 高亮闪烁动画定位 |
+
+##### P1：`valid_until`（截止时间）前后端强制 + 教师端日期选择器
+
+- 后端（`worker-api.ts`）：GET `/api/quizzes/:id` 与 POST submit 均拦截过期（`{expired:true}` 403），教师/超管豁免；
+  新增 `parseDeadlineBJ` 按**北京时间**解析（Worker 内 Date 为 UTC），容错全角冒号等脏数据
+  （生产 quiz 7 实测 `2026-10-25-19：00` 全角冒号正确解析）
+- 教师端（`QuizEditView.vue`）：`el-date-picker type="datetime"` 替代手输；`disabled-date` 禁选过去；
+  存量脏数据宽松归一化（仅日期→补 23:59，不可解析保留原值不抹除）
+- 学生端（`QuizListView.vue`）：已截止考试卡片「已截止」标签 + 禁用「开始作答」+ 删除线样式
+
+##### P2 四项 + 多端适配
+
+- **存疑标记**：`toggleFlag` + 题卡橙色边框 + 答题卡橙色态，提交确认里单独计数
+- **离开提醒**：`beforeunload` + `onBeforeRouteLeave` 双保险（草稿已保存语义），防误失作答
+- **主观题 Markdown 工具条**：加粗/列表/公式（`$x^2+y^2=z^2$`快捷插入）/代码，降低公式输入门槛
+- **切屏记录**：`visibilitychange` 记 hide/show 及时长，随答卷落库 `switch_logs`；
+  教师端「成绩与答卷」页展示切屏次数（≥5 次红色高亮）——为监考留存依据
+- **多端适配**：倒计时条 sticky（桌面 top:64px / 移动 56px）、答题卡移动 6 列、
+  生产 playwright 实测 393px 视口零溢出
+
+#### 三、公式渲染根因收尾（v4.18.2 的后续）
+
+- `src/utils/marked-extensions.ts`：`katexBlock.start` 修正——块级公式（`$$...$$`）在
+  marked 0.18 的 token 流里起始位置判定错误，导致含 `\boldsymbol{\underline{...}}`
+  等嵌套命令的公式整块不渲染
+- 生产实测（`scripts/probe-prod-exam.mjs`）：考试页 **26 个 KaTeX 节点、0 处 `$` 源码残留**
+  （v4.18.2 时用户报障的原句式现已完整渲染）；倒计时/答题卡/存疑/工具条/草稿 key 逐项通过；
+  移动 393px 零溢出
+
+#### 四、验证
+
+- 新增正式探针 `scripts/probe-exam-online.mjs`（本地内存态）：**24/24 通过**
+  —— A 截止强制（含全角冒号脏数据）/ B switch_logs 落库与教师端可读 /
+  C 边缘 purge 覆盖写者 auth 分片 / D 知识点 CRUD 回归
+- 新增生产探针 `scripts/probe-prod-exam.mjs`：**13/13 通过**（见上）
+- 新增生产探针 `scripts/probe-prod-kp-refresh.mjs`：**6/6 通过**——
+  按用户原障路径「管理知识点→添加→左侧栏立即出现新节点」生产实测 ✓，删除后同步移除 ✓，
+  写后重拉带 `_t` 绕过参数 ✓；测试节点清理后生产数据零残留
+- `npm run build`：vue-tsc 类型检查 + vite build 通过
+- 部署：worker（Version `ea4dbd8c`）+ 前端 Pages 均已上线
+
+---
+
 ## [v4.18.2] - 2026-10-20
 
 ### 主题：公式（LaTeX/KaTeX）Markdown 渲染批量修复 + 左下角消息弹窗出屏修复

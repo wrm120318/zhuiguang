@@ -405,7 +405,8 @@ export const api = {
   quizMyReport: (id: number) => http.get(`/api/quizzes/${id}/my_report`),
   quizReport: (id: number) => http.get(`/api/quizzes/${id}/report`),
   // 学科题目池（单题训练）
-  subjectQuestions: (subjectId: number, params?: any) => http.get(`/api/subjects/${subjectId}/questions`, { params }),
+  subjectQuestions: (subjectId: number, params?: any, fresh?: boolean) =>
+    http.get(`/api/subjects/${subjectId}/questions`, { params: fresh ? { ...params, _t: Date.now() } : params }),
   subjectQuestion: (id: number) => http.get(`/api/subject-questions/${id}`),
   addSubjectQuestion: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/questions`, data),
   deleteSubjectQuestion: (id: number) => http.delete(`/api/subject-questions/${id}`),
@@ -427,7 +428,11 @@ export const api = {
   suggestKp: (qid: number) => http.post(`/api/subject-questions/${qid}/suggest-kp`, {}),
   suggestKpBatch: (subjectId: number, ids: number[]) => http.post(`/api/subjects/${subjectId}/suggest-kp-batch`, { ids }),
   // ===== 【v4.5.0】知识点 =====
-  knowledgePoints: (subjectId: number) => http.get(`/api/subjects/${subjectId}/knowledge-points`),
+  // 【v4.18.3】fresh=true 时追加 `_t` 时间戳参数绕过服务端 120s 边缘/内存缓存。
+  //   用于**写操作后立即重新拉取**（增删改知识点/题目）—— 否则教师添加知识点后
+  //   左侧栏目最长 120s 还是旧的（边缘缓存按 auth 分片，purge 只覆盖公共分片时漏删）。
+  knowledgePoints: (subjectId: number, fresh?: boolean) =>
+    http.get(`/api/subjects/${subjectId}/knowledge-points`, { params: fresh ? { _t: Date.now() } : undefined }),
   createKnowledgePoint: (subjectId: number, data: any) => http.post(`/api/subjects/${subjectId}/knowledge-points`, data),
   updateKnowledgePoint: (id: number, data: any) => http.patch(`/api/knowledge-points/${id}`, data),
   deleteKnowledgePoint: (id: number) => http.delete(`/api/knowledge-points/${id}`),

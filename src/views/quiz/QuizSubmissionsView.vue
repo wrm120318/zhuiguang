@@ -67,6 +67,12 @@ async function submitGrades() {
 }
 
 function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multiple' ? '多选' : t === 'judge' ? '判断' : '主观' }
+/** 【v4.18.3】该生答卷的切屏次数（hide 事件数；旧答卷无此字段时为 0） */
+function switchCount(s: any): number {
+  const logs = s?.answers?.switch_logs
+  if (!Array.isArray(logs)) return 0
+  return logs.filter((l: any) => l && l.type === 'hide').length
+}
 </script>
 
 <template>
@@ -101,6 +107,10 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
             <span class="sc-max"> / {{ s.max_score }}</span>
           </div>
           <div class="sc-time">提交：{{ s.submitted_at?.slice(0, 16) }}</div>
+          <!-- 【v4.18.3】切屏次数（线上考试监督）：离开页面/切后台的次数 -->
+          <div v-if="switchCount(s)" class="sc-switch" :class="{ hot: switchCount(s) >= 5 }">
+            <ZgGlyph emoji="🔄" /> 切屏 {{ switchCount(s) }} 次
+          </div>
           <el-button type="primary" size="small" round class="sc-btn">{{ s.status === 'graded' ? '查看作答' : '去批改' }}</el-button>
         </div>
         <el-empty v-if="!currentList.length" :description="filterTab === 'pending' ? '暂无待批改学生' : '暂无已批改学生'" />
@@ -180,6 +190,9 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
 .sc-cur { font-size: 24px; font-weight: 800; color: var(--zg-primary); }
 .sc-max { color: var(--zg-text-dim); }
 .sc-time { font-size: 12px; color: var(--zg-text-dim); margin-bottom: 12px; }
+/* 【v4.18.3】切屏次数提示 */
+.sc-switch { font-size: 12px; color: #b45309; background: rgba(245,158,11,.12); border-radius: 6px; padding: 3px 8px; margin-bottom: 12px; display: inline-block; }
+.sc-switch.hot { color: #b91c1c; background: rgba(239,68,68,.12); font-weight: 700; }
 .sc-btn { width: 100%; }
 .lvl2 { margin-top: 16px; }
 .lvl2-head { padding: 14px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

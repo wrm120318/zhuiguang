@@ -28,6 +28,18 @@ ok('renderExtendedMarkdown(sanitize=true) 同样完整', ext.renderExtendedMarkd
 const mixed = `题干：求 $x^2+1$ 的值\n\n${String.raw`$$\int_0^1 x\,dx = \frac{1}{2}$$`}`
 const mixedRendered = md.renderMarkdown(mixed)
 ok('行内+块级公式混合渲染', (mixedRendered.match(/class="katex"/g) || []).length >= 2)
+// 【v4.18.3 回归】相邻行内公式：前公式收尾 $ 与后公式开头 $ 拼成 $$，
+//   marked v18 块级 start 的 mid-line $$ 误报曾把段落切碎导致前公式裸奔
+const adjacent = String.raw`故障是小灯泡$\boldsymbol{L_1}$$\boldsymbol{\underline{\quad\quad}}$（选填`
+const adjHtml = md.renderMarkdown(adjacent)
+ok('相邻公式全部渲染（用户报障原样）', (adjHtml.match(/class="katex"/g) || []).length === 2)
+ok('相邻公式无 $ 源码残留', !adjHtml.replace(/<[^>]+>/g, '').includes('$'))
+const adj3 = String.raw`图中$\alpha$与$\beta$之和为$\gamma$，则$\boldsymbol{L_1}$$\boldsymbol{\underline{\quad\quad}}$成立`
+const adj3Html = md.renderMarkdown(adj3)
+ok('多公式混排（含相邻）无残留', !adj3Html.replace(/<[^>]+>/g, '').match(/\$[^$\n]*\\[a-z]/))
+// 块级公式回归：行首 $$ 仍正常
+const blockOk = md.renderMarkdown(`前文\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n后文`)
+ok('块级公式（独立行）回归', blockOk.includes('zg-katex-block'))
 
 console.log('== ② mdExcerpt 公式降级 ==')
 const ex1 = md.mdExcerpt(formula, 120)

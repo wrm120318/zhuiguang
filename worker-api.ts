@@ -1037,18 +1037,37 @@ async function purgeEdgeCache(c) {
     '/api/feature-flags', '/api/subjects',
   ]
   EDGE_PURGE_REGISTRY.length = 0
+  // 【v4.18.3 修复「添加知识点后左侧栏目不刷新，还是旧的」】
+  //   根因：edgeCacheablePath 对题库/知识点这类**带 auth 的业务接口**按身份分片
+  //   （key = `<path>?__zg_auth=<authHash>`，ttl 120s），而 purgeEdgeCache 历来
+  //   只删 public/anon 两个分片 —— 已登录教师自己那一份**从未被删过**。
+  //   后果（生产实测复现路径）：
+  //     ① 进题库页 → loadKp() GET  Miss→回源→写入边缘（教师自己的分片）
+  //     ② 「管理知识点」→ 添加 → POST 成功 → clearAllCache() 只递增了**当时那个
+  //        实例**的 CACHE_VERSION（内存层失效），边缘条目 key 不含版本号 → 原样还在
+  //     ③ createKp 随后 loadKp() GET → **边缘命中旧条目** → 左侧知识点树 + 管理
+  //        列表还是旧的（最长 120s），用户感知就是「添加了不刷新」
+  //   修法：purge 时把**当前写请求自己的 authHash 分片**一并删掉 —— 写请求与随后的
+  //   GET 来自同一浏览器、同一个 Authorization 头 → authHash 相同 → 正是那一份。
+  //   （其他身份的分片仍依赖 CACHE_VERSION + 自然过期，这是既有设计取舍，不变。）
+  const auth = (c.req.header('authorization') || '').slice(0, 200)
+  let authHash = 'anon'
+  try { authHash = btoa(auth).slice(0, 24) } catch {}
+  // 【v4.18.3 性能】删除操作**并行化**：原写法把 6 条路径 × 4 个 key
+  //   （public/anon/authHash/旧版裸 URL）共 24 次 caches.default.delete
+  //   **串行** awaited，实测单个写请求（如删除知识点）响应被拖慢 2s+。
+  const jobs: Promise<unknown>[] = []
   for (const p of paths) {
     // 现行真实 key：`<path>?__zg_auth=<shard>`（edgeCacheablePath 产出格式）
-    for (const shard of ['public', 'anon']) {
+    for (const shard of ['public', 'anon', authHash]) {
       const realKey = p + '?__zg_auth=' + shard
-      try {
-        await caches.default.delete(new Request(
-          origin + '/api/__edge__/' + encodeURIComponent(realKey), { method: 'GET' }))
-      } catch {}
+      jobs.push(caches.default.delete(new Request(
+        origin + '/api/__edge__/' + encodeURIComponent(realKey), { method: 'GET' })).catch(() => {}))
     }
     // 顺带尝试删除旧版（裸 URL）残留条目，平滑过渡
-    try { await caches.default.delete(new Request(origin + p, { method: 'GET' })) } catch {}
+    jobs.push(caches.default.delete(new Request(origin + p, { method: 'GET' })).catch(() => {}))
   }
+  await Promise.all(jobs)
 }
 
 // ===== v4.4.30 边缘缓存（Cloudflare Cache API / caches.default）=====
@@ -1415,7 +1434,15 @@ app.use('*', async (c, next) => {
     //   放在之前清是无效的 —— 那时写还没落库，清完立刻又会被回源填充旧值。
     if (c.req.method !== 'GET' && c.req.method !== 'OPTIONS' && c.req.method !== 'HEAD') {
       if (c.res.status >= 200 && c.res.status < 300) {
-        try { await purgeEdgeCache(c) } catch {}
+        // 【v4.18.3 性能】purge 移到**后台**（waitUntil）执行，不再阻塞写请求响应：
+        //   原实现 `await purgeEdgeCache(c)` 即便删除已并行化，仍要让用户干等
+        //   数十次 Cache API 子请求。purge 本质是「尽力而为的第二道保险」
+        //   （写后一致性主要由 CACHE_VERSION 递增 + 前端 _t 绕过保证），
+        //   没有理由让用户等它 —— waitUntil 在响应后仍有数十秒执行窗口，
+        //   用户下一次导航/reload 前必然已清除完毕。
+        //   降级：极端情况下无 executionCtx 时仍同步 await，保证不丢清除。
+        const purgeJob = purgeEdgeCache(c).catch(() => {})
+        try { c.executionCtx?.waitUntil?.(purgeJob) } catch { await purgeJob }
       }
     }
     return
@@ -3979,6 +4006,26 @@ app.put('/api/settings/site_config', auth, requirePerm('site_config'), async (c)
 // ==============================================================================
 // ============ 题库自测 ============
 // ==============================================================================
+/**
+ * 【v4.18.3】解析题库截止时间（valid_until）→ epoch ms；非法/空 → null。
+ *  · 兼容存量数据：`2026-08-30`（仅日期，视为当天 23:59）、`2026-08-30 23:59`，
+ *    以及历史手填脏数据（全角冒号 `2026-10-25-19：00`、`T` 分隔等）；
+ *  · 按**北京时间（UTC+8，无夏令时）**解释 —— 教师填写的就是北京时间，
+ *    而 Worker 内 Date 为 UTC，直接 new Date('2026-08-30 23:59') 会因实现差异漂移。
+ */
+const BJ_OFFSET_MS = 8 * 3600 * 1000
+function parseDeadlineBJ(s: any): number | null {
+  const t = String(s ?? '').trim()
+  if (!t) return null
+  const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT:-]+(\d{1,2})[：:](\d{1,2}))?/)
+  if (!m) return null
+  const y = +m[1], mo = +m[2], d = +m[3]
+  const hh = m[4] !== undefined ? +m[4] : 23
+  const mi = m[5] !== undefined ? +m[5] : 59
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59) return null
+  return Date.UTC(y, mo - 1, d, hh, mi) - BJ_OFFSET_MS
+}
+
 app.get('/api/quizzes', auth, async (c) => {
   const uid = c.get('user').id
   const role = c.get('user').role
@@ -4020,6 +4067,13 @@ app.get('/api/quizzes/:id', auth, async (c) => {
   const pwd = cfg?.password
   const u = c.get('user')
   const canManage = await canManageSubject(u, q.subject_id, u.id)
+  // 【v4.18.3】截止时间强制：过期后**学生不能进入作答**（教师/超管保留预览/批改权限）。
+  //   此前 valid_until 只是列表页的一个展示字段，后端从不校验 —— 学生随时能进、
+  //   随时能交，"截止时间"形同虚设。语义：留空 = 不限；按**北京时间**解释。
+  const dl = parseDeadlineBJ(q.valid_until)
+  if (dl && Date.now() > dl && !canManage) {
+    return c.json({ message: '该考试已过截止时间，不能进入作答', expired: true, valid_until: q.valid_until }, 403)
+  }
   if (pwd && !canManage) {
     const input = String(c.req.query('pwd') || '')
     if (input !== pwd) {
@@ -4127,6 +4181,12 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
   const id = c.req.param('id')
   const quiz = await get<any>('SELECT * FROM quizzes WHERE id=?', id)
   if (!quiz) return c.json({ message: '题库不存在' }, 404)
+  // 【v4.18.3】截止时间强制（与 GET 详情同一语义）：过期后学生不能提交，
+  //   防止"页面开着一直不交、截止后补交"。教师/超管保留批改所需权限。
+  const dl = parseDeadlineBJ(quiz.valid_until)
+  if (dl && Date.now() > dl && !(await canManageSubject(c.get('user'), quiz.subject_id, uid))) {
+    return c.json({ message: '该考试已过截止时间，不能提交', expired: true }, 403)
+  }
   const exist = await get<any>('SELECT id FROM quiz_submissions WHERE quiz_id=? AND user_id=?', id, uid)
   if (exist) return c.json({ message: '你已提交过该题库' }, 400)
   const questions = await all<any>('SELECT * FROM quiz_questions WHERE quiz_id=?', id)
@@ -4149,18 +4209,20 @@ app.post('/api/quizzes/:id/submit', auth, async (c) => {
     }
   }
   const status = hasSubjective ? 'pending' : 'graded'
+  // 【v4.18.3】切屏记录随答卷提交（线上考试防作弊监督用）：学生端 visibilitychange 事件序列
+  const switchLogs = Array.isArray(body.switch_logs) ? body.switch_logs.slice(0, 200) : []
   let subId: number
   if (status === 'graded') {
     const r = await run(
       `INSERT INTO quiz_submissions (quiz_id,user_id,answers,total_score,max_score,status,submitted_at,graded_at,graded_by) VALUES (?,?,?,?,?,?,datetime('now','+8 hours'),datetime('now','+8 hours'),?)`,
-      id, uid, JSON.stringify({ answers, graded }), totalScore, maxScore, status, uid
+      id, uid, JSON.stringify({ answers, graded, switch_logs: switchLogs }), totalScore, maxScore, status, uid
     )
     subId = Number(r.lastInsertRowid)
     await addExp(uid, undefined, 'quiz_pass', `完成题库自测：${quiz.title}（得分 ${totalScore}/${maxScore}）`, quiz.subject_id)
   } else {
     const r = await run(
       `INSERT INTO quiz_submissions (quiz_id,user_id,answers,total_score,max_score,status,submitted_at) VALUES (?,?,?,?,?,?,?)`,
-      id, uid, JSON.stringify({ answers, graded }), totalScore, maxScore, status, datetimeNow()
+      id, uid, JSON.stringify({ answers, graded, switch_logs: switchLogs }), totalScore, maxScore, status, datetimeNow()
     )
     subId = Number(r.lastInsertRowid)
   }
@@ -5646,6 +5708,9 @@ app.post('/api/subjects/:id/questions', auth, requireSubjectStaff('params', 'id'
   )
   const qid = Number(r.lastInsertRowid)
   await linkKnowledge(qid, b.knowledge_point_ids)
+  // 【v4.18.3】新题入库后失效题目列表边缘缓存（含写者 auth 分片），
+  //   保证返回题库页立刻看到新题（此前最长 120s 旧列表）
+  registerEdgePurge(`/api/subjects/${sid}/questions`)
   return c.json({ id: qid })
 })
 
@@ -5664,6 +5729,8 @@ app.delete('/api/subject-questions/:id', auth, requireStaff, async (c) => {
   }
   await run('DELETE FROM practice_submissions WHERE question_id=?', id)
   await run('DELETE FROM subject_questions WHERE id=?', id)
+  // 【v4.18.3】删题后失效题目列表边缘缓存（含写者 auth 分片）
+  registerEdgePurge(`/api/subjects/${q.subject_id}/questions`)
   return c.json({ ok: true })
 })
 
@@ -5693,6 +5760,9 @@ app.patch('/api/subject-questions/:id', auth, async (c) => {
     b.textbook_version ?? null, b.region ?? null, b.chapter ?? null, b.year ?? null, b.source ?? null, b.status ?? null, b.sort ?? null, id)
   if (b.knowledge_point_ids !== undefined) await linkKnowledge(id, b.knowledge_point_ids)
   clearAllCache()
+  // 【v4.18.3】改题后失效题目列表边缘缓存（含写者 auth 分片），
+  //   保证编辑保存后返回列表立刻看到新内容
+  registerEdgePurge(`/api/subjects/${q.subject_id}/questions`)
   return c.json({ ok: true })
 })
 
@@ -5762,6 +5832,11 @@ app.post('/api/subject-questions/batch-update', auth, async (c) => {
   }
 
   clearAllCache()
+  // 【v4.18.3】批量改题（含批量追加知识点）后失效涉及的题目列表边缘缓存，
+  //   保证「批量更新」返回后列表立即反映新题型/新标注（此前最长 120s 旧列表）
+  for (const sid of new Set(rows.map((r: any) => Number(r.subject_id)))) {
+    registerEdgePurge(`/api/subjects/${sid}/questions`)
+  }
   return c.json({ ok: true, updated: allowed.length, denied })
 })
 
@@ -5790,6 +5865,10 @@ app.post('/api/subject-questions/batch-delete', auth, async (c) => {
   await run(`DELETE FROM practice_submissions WHERE question_id IN (${ph2})`, ...allowed)
   await run(`DELETE FROM subject_questions WHERE id IN (${ph2})`, ...allowed)
   clearAllCache()
+  // 【v4.18.3】批量删题后失效涉及的题目列表边缘缓存（含写者 auth 分片）
+  for (const sid of new Set(rows.map((r: any) => Number(r.subject_id)))) {
+    registerEdgePurge(`/api/subjects/${sid}/questions`)
+  }
   return c.json({ ok: true, deleted: allowed.length, denied })
 })
 
@@ -5906,6 +5985,10 @@ app.post('/api/subjects/:id/knowledge-points', auth, async (c) => {
   const r = await run(`INSERT INTO knowledge_points (subject_id,parent_id,name,description,sort,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))`,
     sid, b.parent_id ? Number(b.parent_id) : null, b.name.trim().slice(0, 80), b.description || '', b.sort || 0)
   clearAllCache()
+  // 【v4.18.3】登记本学科的知识点/题目列表边缘条目（含写者自己的 auth 分片，
+  //   见 purgeEdgeCache）—— 修复「添加知识点后左侧栏目不刷新，还是旧的」
+  registerEdgePurge(`/api/subjects/${sid}/knowledge-points`)
+  registerEdgePurge(`/api/subjects/${sid}/questions`)
   return c.json({ id: Number(r.lastInsertRowid) })
 })
 
@@ -5940,6 +6023,9 @@ app.patch('/api/knowledge-points/:id', auth, async (c) => {
   await run('UPDATE knowledge_points SET name=COALESCE(?,name), description=COALESCE(?,description), parent_id=COALESCE(?,parent_id), sort=COALESCE(?,sort) WHERE id=?',
     newName, b.description ?? null, b.parent_id !== undefined ? (b.parent_id ? Number(b.parent_id) : null) : null, b.sort ?? null, id)
   clearAllCache()
+  // 【v4.18.3】同上：改名/改层级后立即失效本学科知识点 + 题目列表的边缘缓存
+  registerEdgePurge(`/api/subjects/${kp.subject_id}/knowledge-points`)
+  registerEdgePurge(`/api/subjects/${kp.subject_id}/questions`)
   return c.json({ ok: true })
 })
 
@@ -5959,6 +6045,9 @@ app.delete('/api/knowledge-points/:id', auth, async (c) => {
   await run('DELETE FROM question_knowledge WHERE knowledge_point_id=?', id)
   await run('DELETE FROM knowledge_points WHERE id=?', id)
   clearAllCache()
+  // 【v4.18.3】同上：删除后立即失效本学科知识点 + 题目列表的边缘缓存
+  registerEdgePurge(`/api/subjects/${kp.subject_id}/knowledge-points`)
+  registerEdgePurge(`/api/subjects/${kp.subject_id}/questions`)
   return c.json({ ok: true })
 })
 
