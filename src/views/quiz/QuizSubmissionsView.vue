@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api'
 
-import { renderMarkdown as renderMd } from '@/utils/markdown'
+import { renderMarkdown as renderMd, wrapBareLatex } from '@/utils/markdown'
 
 const router = useRouter()
 const route = useRoute()
@@ -138,7 +138,7 @@ function switchCount(s: any): number {
             教师看不到 B、C 对应什么内容（公式题尤其抓瞎），这里补全 -->
         <div v-if="q.options?.length" class="q-opts">
           <div v-for="(o, oi) in q.options" :key="oi" class="q-opt">
-            <b>{{ 'ABCDEFGH'[oi] }}.</b> <span class="markdown-body zg-rich" v-html="renderMd(o)"></span>
+            <b>{{ 'ABCDEFGH'[oi] }}.</b> <span class="markdown-body zg-rich" v-html="renderMd(wrapBareLatex(o))"></span>
           </div>
         </div>
 

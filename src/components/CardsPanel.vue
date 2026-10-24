@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api'
 import { useBasketStore } from '@/stores/basket'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, wrapBareLatex } from '@/utils/markdown'
 
 const props = defineProps<{ subjectId: number; questions: any[] }>()
 const basket = useBasketStore()
@@ -57,7 +57,7 @@ const qtName = (t: any) => QT[t] || t
           <div class="card-head"><b>{{ i + 1 }}.</b> <span class="ct">{{ qtName(q.qtype) }}</span> <span class="cs">{{ q.basketScore || q.score || 5 }}分</span></div>
           <div class="card-q zg-rich" v-html="renderMarkdown(q.content)" />
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
-            <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
+            <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" /></div>
           </div>
           <div class="card-ans"><b>答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
           <div v-if="q.analysis" class="card-ana"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>
@@ -73,7 +73,7 @@ const qtName = (t: any) => QT[t] || t
           <div class="card-head"><b>错题 {{ i + 1 }}.</b> <span class="ct">{{ qtName(q.qtype) }}</span> <span class="cs">{{ q.subject_name }}</span></div>
           <div class="card-q zg-rich" v-html="renderMarkdown(q.content)" />
           <div v-if="['single','multiple','judge'].includes(q.qtype)" class="card-opts">
-            <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(o)" /></div>
+            <div v-for="(o, oi) in (q.options||[])" :key="oi"><b>{{ optLetter(oi) }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" /></div>
           </div>
           <div class="card-ans"><b>正确答案：</b><span v-html="renderMarkdown(q.answer || '（未填写）')" /></div>
           <div v-if="q.analysis" class="card-ana"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>

@@ -18,7 +18,7 @@
 //   · api.myExams / examResponses → 班级排名（前端算，避免后端改造）
 import { ref, computed, watch, nextTick } from 'vue'
 import { api } from '@/api'
-import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt, wrapBareLatex } from '@/utils/markdown'
 
 import * as echarts from 'echarts/core'
 import { RadarChart, LineChart } from 'echarts/charts'
@@ -303,7 +303,7 @@ function toggle(id: number) { expanded.value[id] = !expanded.value[id] }
                 <div v-if="q.options?.length" class="rq-block">
                   <b>选项：</b>
                   <div v-for="(o, oi) in q.options" :key="oi" class="rq-opt">
-                    <span class="rq-let">{{ 'ABCDEFGH'[oi] }}.</span> <span v-html="renderMarkdown(o)" />
+                    <span class="rq-let">{{ 'ABCDEFGH'[oi] }}.</span> <span v-html="renderMarkdown(wrapBareLatex(o))" />
                   </div>
                 </div>
                 <div class="rq-block"><b>参考答案：</b><span v-html="renderMarkdown(q.answer || '（略）')" /></div>

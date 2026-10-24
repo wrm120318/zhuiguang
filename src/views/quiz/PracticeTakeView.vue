@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 
-import { renderMarkdown as md } from '@/utils/markdown'
+import { renderMarkdown as md, wrapBareLatex } from '@/utils/markdown'
 import { attachmentUrl } from '@/utils/helpers'
 
 const router = useRouter()
@@ -173,13 +173,13 @@ async function deleteSubmission() {
       <div v-if="q.qtype === 'single' || q.qtype === 'judge'" class="opts">
         <div v-for="(opt, idx) in q.options" :key="idx" class="opt" :class="{ on: answer === letter(idx) }" @click="answer = letter(idx)">
           <span class="opt-letter">{{ letter(idx) }}</span>
-          <span v-html="md(opt)"></span>
+          <span v-html="md(wrapBareLatex(opt))"></span>
         </div>
       </div>
       <div v-else-if="q.qtype === 'multiple'" class="opts">
         <div v-for="(opt, idx) in q.options" :key="idx" class="opt" :class="{ on: multiAns.includes(letter(idx)) }" @click="toggleMulti(letter(idx))">
           <span class="opt-letter">{{ letter(idx) }}</span>
-          <span v-html="md(opt)"></span>
+          <span v-html="md(wrapBareLatex(opt))"></span>
         </div>
       </div>
       <!-- 主观题作答 -->

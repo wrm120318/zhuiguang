@@ -4,7 +4,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
-import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt, wrapBareLatex } from '@/utils/markdown'
 
 import ZgGlyph from '@/components/ZgGlyph.vue'
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
@@ -461,7 +461,7 @@ onMounted(async () => {
         <div class="slide-meta">第 {{ slideIdx + 1 }} / {{ slideTotal }} 题 · {{ QLABEL[paper[slideIdx].qtype] }} · {{ paper[slideIdx].score }} 分</div>
         <div class="slide-body" v-html="renderMarkdown(paper[slideIdx].content)" />
         <div v-if="paper[slideIdx].options?.length" class="slide-opts">
-          <div v-for="(o, oi) in paper[slideIdx].options" :key="oi" class="so"><b>{{ String.fromCharCode(65 + oi) }}.</b> <span v-html="renderMarkdown(o)"></span></div>
+          <div v-for="(o, oi) in paper[slideIdx].options" :key="oi" class="so"><b>{{ String.fromCharCode(65 + oi) }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))"></span></div>
         </div>
       </div>
       <template #footer>

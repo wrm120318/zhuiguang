@@ -5,6 +5,86 @@
 
 ---
 
+## [v4.18.4] - 2026-10-24
+
+### 主题：四项报障一次性收尾（资料下载变空 htm / 知识点无限层级 / 题库选项不渲染 / 图片尺寸垃圾格式）+ 存量题目修复
+
+> 用户原话：「**md格式的资料文件 上传上去之后再下载就成了 htm 里面啥也没有；
+> 题库的实质点结构要支持无限层 无限级 而不是像现在一样只支持两级；
+> 智能题库里面选择题选项没有渲染；
+> 图片传完之后 图片后面会多出一个数字*数字的无用格式，把题库里涉及到的已有题目都修复一下**」
+
+#### 一、资料下载变成「空 htm」——`/file/*` 同域代理缺失（Pages SPA fallback 陷阱）
+
+**根因**：v4.17.0 前端 baseURL 改为同域相对路径后，`functions/api/[[path]].ts` 只覆盖
+`/api/*`。而资料下载走 `/file/r/:id`、图片/头像走 `/file/raw/*`——这些路径**不在** `/api/`
+前缀下，同域请求直接落入 CF Pages 的 SPA fallback：Pages 对无 Function 匹配的非 `/api/*`
+路径返回 `index.html`（text/html）→ 前端 fetch+blob 存盘时 Chrome 按 blob 类型补 `.htm`
+扩展名 → 用户下载到的是「空白 SPA 壳」。实测修复前 `xkzg.de5.net/file/r/1` 返回
+8107 字节 text/html。
+
+**修复**：新增 `functions/file/[[path]].ts`，与 api 代理完全同构——`/file/*` 原样透传
+`https://api.xkzg.de5.net`（pathname+search 不动，`?token=` 鉴权与 Range 头全保留，
+`redirect: 'manual'`，异常返回 502 JSON）。Pages 按目录前缀匹配路由，`/api/*` 与
+`/file/*` 互不干扰。大文件流式下载、Content-Disposition 均不受影响。
+
+#### 二、知识点结构支持无限层级（去掉两级封顶）
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 后端筛选 | `worker-api.ts` | 题目列表 `knowledge_point_id` 筛选从「self OR direct child」改为 **`WITH RECURSIVE` 递归 CTE** 取「本节点 + 全部后代」，三级及以下的题不再漏 |
+| 后端校验 | `worker-api.ts` | `validateKpParent` 去掉两级封顶；新增**防环校验**——编辑时沿 `parent_id` 链上溯，途经自身即拒绝（`不能把知识点移动到它自己的下级（会形成循环）`） |
+| 后端语义 | `worker-api.ts` | PATCH 移除「有子节点不能再设为下级」限制（该限制本是为 2 级封顶防第 3 级；无限层级下深树移动是正常操作，唯一硬约束是防环） |
+| 前端 | `QuestionBankView.vue` | 左侧树 `kpCount` 改为全链上溯（parentOf Map + while + seen 防环）；`syncKpExpansion` 递归展开；添加/编辑表单的选择器从两级分组改为**扁平全节点**（按深度排序、NBSP 缩进 + 「（N级）」标签）；编辑态父级选项排除自身+全部子孙（collect 递归） |
+| 前端 | `QuestionForm.vue` | 两级分组选择器 → 扁平全节点；`onKpChange` 全链联动：勾选任意节点自动补上每一级祖先，取消任意节点递归移除全部子孙 |
+
+#### 三、智能题库选择题选项不渲染——裸 LaTeX 无 `$` 定界符
+
+**根因**：Word/AI 导入与早期手录的选项是**裸 LaTeX**（如 ` \angle BAD=\angle CAE`、
+`\dfrac{AB}{BC}=\dfrac{AD}{DE}`），没有 `$...$` 定界符；marked/KaTeX 只渲染带 `$` 的公式，
+于是选项原样显示 LaTeX 源码。生产 math 题库 #71 四选项实锤。
+
+**修复**：`src/utils/markdown.ts` 新增 `wrapBareLatex()`——渲染前做「数学味」嗅探：
+整段**不含中文、不含 `$`**、且含 LaTeX 命令或数学符号时，按行内公式 `$…$` 包裹。
+含中文/已含 `$`/纯文字（「正确」「以上都不对」）一律原样返回，不会把文本硬塞进 KaTeX。
+批量接入 **12 个文件的 14 处渲染点**：QuestionBankView（列表+详情）、QuizTakeView、
+QuizReportView、PracticeTakeView（2 处）、PracticeGradeView、StudentReport、
+AiSettingsView、QuizSubmissionsView、AssembleView、WrongBookView、CardsPanel（2 处）、
+ExamManageView。
+
+**上线后实测发现的第二根因（trim 补丁）**：选项数据普遍带**前导空格**（`" \\angle BAD=..."`），
+而 `marked-extensions.ts` 的 `katexInline` 判定 `if (/^\s|\s$/.test(inner)) return undefined`
+（内容首尾是空白就不认公式，防 `"$ 100 $"` 误判）——包裹后 inner 首字符仍是空格 → 整段判为
+非公式 → 源码继续裸奔（实测 4 个选项只渲染了唯一没有前导空格的那个，1/4）。
+`wrapBareLatex` 出口改 `$${t.trim()}$`，复测 4/4 全部 KaTeX 渲染。
+
+#### 四、图片后多出「数字*数字」垃圾格式——尺寸写在了 markdown 括号外
+
+**根因**：MarkdownEditor 插入图片时把 ` =396x232` 写在 `)` 外面
+（`![alt](url) =396x232`），而 `imageSized` marked 扩展只消费**括号内**的 ` =WxH`
+（`![alt](url =WxH)`）——尺寸既没生效，又泄漏为纯文本。
+
+**修复**：
+- 插入路径（`MarkdownEditor.vue`）：尺寸移入括号内 `![alt](${url}${imgSizeAttrs(r)})`，与拖拽回写格式一致
+- **存量题目修复**（用户原话「把题库里涉及到的已有题目都修复一下」）：全库扫描 21 个内容列
+  （题库/组卷快照/试卷/博客/公告/练习提交等），命中 5 处（subject_questions id 67/68/71/72 的
+  answer/analysis/content + quiz_questions id 13 的组卷快照 answer），用 `replace()` 精确修复
+  `) =WxH` → ` =WxH)`，复扫 **0 残留**。工具留存 `scripts/fix-img-size-*.sql`、
+  `scripts/scan-img-size-leak.py`、`scripts/dump-img-size-hits.py`
+
+#### 五、生产验证（`scripts/probe-prod-v4184.mjs`，30/31 通过）
+
+| 报障 | 验证 | 结果 |
+|---|---|---|
+| 下载变空 htm | 同域 `/file/r/25?token=` 返回 200 + `text/x-markdown` + 835 字节 md 正文 + attachment 文件名；前端 fetch→blob 链路 blob.type=markdown（Chrome 存盘补 `.md` 不再补 `.htm`） | ✅ |
+| 无限层级 | 三级创建 201；列表父子链正确；防环①②（祖父→孙子、父→子均 400 拒绝）；带儿子的节点深层移动到独立三级链下 200；递归聚合筛选按一级命中挂在三级下的题；叶子优先删除 | ✅ 12/12 |
+| 选项渲染 | math 题库 4/4 选项 KaTeX 渲染、详情抽屉 4/4、裸源码 0 | ✅ |
+| 尺寸残留 | 列表页 + 详情抽屉均无 `) =数字x数字` 泄漏 | ✅ |
+
+遗留说明（非本次范围）：math 题目 #21 引用了第三方免费图床 `free.boltp.com` 的外链图片，
+该图床已删图（301→404.png），建议后续替换为站内 B2 图片或删除该引用。
+
+
 ## [v4.18.3] - 2026-10-24
 
 ### 主题：线上考试功能全面完善（P0/P1/P2 全量）+ 公式渲染根因收尾 + 智能题库「添加知识点不刷新」根因修复

@@ -36,7 +36,6 @@ declare module 'vue' {
     ElInputNumber: typeof import('element-plus/es/components/input-number/index.mjs')['ElInputNumber']
     ElLink: typeof import('element-plus/es/components/link/index.mjs')['ElLink']
     ElOption: typeof import('element-plus/es/components/select/index.mjs')['ElOption']
-    ElOptionGroup: typeof import('element-plus/es/components/select/index.mjs')['ElOptionGroup']
     ElPagination: typeof import('element-plus/es/components/pagination/index.mjs')['ElPagination']
     ElPopconfirm: typeof import('element-plus/es/components/popconfirm/index.mjs')['ElPopconfirm']
     ElPopover: typeof import('element-plus/es/components/popover/index.mjs')['ElPopover']

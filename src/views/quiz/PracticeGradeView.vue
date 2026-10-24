@@ -4,7 +4,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, wrapBareLatex } from '@/utils/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,7 +70,7 @@ const qtypeLabels: Record<string, string> = { single: '单选题', multiple: '�
           <div class="card glass">
             <div class="q-content zg-rich" v-html="renderMarkdown(question.content)" />
             <div v-if="['single','multiple','judge'].includes(question.qtype)" class="q-opts">
-              <div v-for="(o, i) in (question.options||[])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" /></div>
+              <div v-for="(o, i) in (question.options||[])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" /></div>
             </div>
           </div>
           <h4>学生答案</h4>

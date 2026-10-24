@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { useBasketStore } from '@/stores/basket'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, wrapBareLatex } from '@/utils/markdown'
 
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
 import WordImportPanel from '@/components/WordImportPanel.vue'
@@ -186,25 +186,30 @@ function flatten(nodes: any[], depth = 0, out: any[] = []): any[] {
 }
 const flatKps = computed(() => flatten(kpTree.value))
 /**
- * 【v4.8.25 对齐组卷网】知识点题数统计：**父节点要含子节点**
+ * 【v4.8.25 对齐组卷网】知识点题数统计：**父节点要含子孙节点**
  *
- * 原实现只对 `q.knowledge_points` 里直接出现的 id 计数 → 由于出题时打的是**二级**知识点，
- * 一级节点永远显示 0，用户看到「父节点是个空壳」。
- * 组卷网的语义是「一级题数 = 其下所有二级之和」，故这里做一次**向上汇总**：
- * 先把每道题计入它直接挂的节点，再把每个子节点的计数累加到父节点。
+ * 原实现只对 `q.knowledge_points` 里直接出现的 id 计数 → 由于出题时打的是具体节点，
+ * 上层节点永远显示 0，用户看到「父节点是个空壳」。
+ * 组卷网的语义是「父节点题数 = 其下所有子孙之和」，故这里做一次**向上汇总**。
+ * 【v4.18.4】层级放开为无限级：汇总从「只上一层」改为**沿 parent_id 链一路上溯**，
+ *   每一级祖先都累加（与后端筛选的 WITH RECURSIVE kp_tree 聚合语义严格一致）。
  */
 const kpCount = computed(() => {
   const direct: Record<number, number> = {}
   questions.value.forEach(q => (q.knowledge_points || []).forEach((k: any) => {
     direct[k.id] = (direct[k.id] || 0) + 1
   }))
-  // 向上汇总：子 → 父（本项目 2 级封顶，一层即可）
   const total: Record<number, number> = { ...direct }
-  kpList.value.forEach(k => {
-    if (k.parent_id && direct[k.id]) {
-      total[k.parent_id] = (total[k.parent_id] || 0) + direct[k.id]
+  const parentOf = new Map<number, number | null>(kpList.value.map((k: any) => [k.id, k.parent_id || null]))
+  for (const [id, cnt] of Object.entries(direct)) {
+    let p = parentOf.get(Number(id)) ?? null
+    const seen = new Set<number>([Number(id)])   // 防环（极端脏数据）
+    while (p && !seen.has(p)) {
+      seen.add(p)
+      total[p] = (total[p] || 0) + cnt
+      p = parentOf.get(p) ?? null
     }
-  })
+  }
   return total
 })
 function toggleKp(id: number) { expandedKp[id] = !expandedKp[id] }
@@ -248,10 +253,14 @@ async function loadQuestions(fresh = false) {
     questions.value = (await api.subjectQuestions(subject.value.id, params, fresh)) as any
   } finally { loading.value = false }
 }
-/** 【v4.18.3】重拉后同步展开态：一级节点有子级就展开（含新建/刚挂上子级的空节点），
- *    否则新添加的二级知识点会藏在折叠的一级下面，左侧树看着"没刷新"。 */
+/** 【v4.18.3】重拉后同步展开态：**所有有子级的节点都展开**（含新建/刚挂上子级的空节点），
+ *    否则新添加的下级知识点会藏在折叠的上级下面，左侧树看着"没刷新"。
+ *    【v4.18.4】无限层级：从「只展开一级」改为**递归展开每一层**。 */
 function syncKpExpansion() {
-  kpTree.value.forEach(n => { if (n.children.length) expandedKp[n.id] = true })
+  const walk = (nodes: any[]) => nodes.forEach(n => {
+    if (n.children?.length) { expandedKp[n.id] = true; walk(n.children) }
+  })
+  walk(kpTree.value)
 }
 
 onMounted(async () => {
@@ -316,10 +325,43 @@ async function submitFeedback() {
   try { await api.questionFeedback(detail.value.id, feedbackText.value.trim()); ElMessage.success('纠错已提交，感谢反馈'); showFeedback.value = false; feedbackText.value = '' } catch (e: any) { ElMessage.error(e?.response?.data?.message || '提交失败') }
 }
 
-// ===== 知识点管理（v4.8.25 对齐组卷网：两级封顶 + 同级重名拦截 + 编辑/改层级）=====
+// ===== 知识点管理（v4.18.4：无限层级 + 同级重名拦截 + 编辑/改层级）=====
 const kpForm = reactive({ name: '', parent_id: '' as any, sort: 0 })
-/** 只有「一级节点」才能当上级（二级不能再挂子级） */
-const rootKpOptions = computed(() => kpList.value.filter((k: any) => !k.parent_id))
+const CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+const kpLevelName = (d: number) => (CN_NUM[d] ?? String(d + 1)) + '级'
+/** 每个节点的深度（顶级=0），由 kpTree 递归求得 */
+const kpDepthOf = computed(() => {
+  const m = new Map<number, number>()
+  const walk = (nodes: any[], d: number) => nodes.forEach(n => { m.set(n.id, d); if (n.children?.length) walk(n.children, d + 1) })
+  walk(kpTree.value, 0)
+  return m
+})
+/** 某节点的层级中文标签（顶级=一级） */
+function kpLevelLabel(k: any): string {
+  return kpLevelName(kpDepthOf.value.get(k.id) ?? 0)
+}
+/**
+ * 【v4.18.4】上级选择器候选：**全部节点**（无限层级，旧实现只列一级）。
+ * 标签带「N级」后缀 + 缩进（NBSP，el-select 不会 trim 掉），深层关系一眼可辨。
+ */
+const allKpOptions = computed(() => {
+  const depth = kpDepthOf.value
+  return kpList.value
+    .slice()
+    .sort((a: any, b: any) => (depth.get(a.id) ?? 0) - (depth.get(b.id) ?? 0) || a.id - b.id)
+    .map((k: any) => {
+      const d = depth.get(k.id) ?? 0
+      return { id: k.id, name: k.name, depth: d, label: '\u00A0\u00A0'.repeat(d) + `${k.name}（${kpLevelName(d)}）` }
+    })
+})
+/** 编辑某节点时可选的上级：排除**它自己与它的全部子孙**（挂了会成环，后端同样会拒） */
+function kpParentOptionsFor(k: any) {
+  if (!k) return allKpOptions.value
+  const banned = new Set<number>()
+  const collect = (id: number) => { banned.add(id); kpList.value.forEach((x: any) => { if (x.parent_id === id) collect(x.id) }) }
+  collect(k.id)
+  return allKpOptions.value.filter(o => !banned.has(o.id))
+}
 async function createKp() {
   if (!kpForm.name.trim() || !subject.value) return
   try {
@@ -334,7 +376,7 @@ async function createKp() {
     // 【v4.18.3】fresh=true：绕过服务端 120s 缓存，左侧知识点树立即出现新节点
     await loadKp(true)
     syncKpExpansion()
-    // 新建二级知识点时，确保其一级父节点处于展开态（此前折叠时空节点不显示，酷似"没刷新"）。
+    // 新建下级知识点时，确保其父节点处于展开态（此前折叠时新节点不显示，酷似"没刷新"）。
     // 注意：不自动切筛选到新节点 —— 新知识点还没有题，切过去列表会空，反像"页面坏了"。
     if (r?.id) {
       const created = kpList.value.find((k: any) => Number(k.id) === Number(r.id))
@@ -388,11 +430,6 @@ async function saveEditKp(k: any) {
     ElMessage.error(e?.response?.data?.message || '保存失败')
   }
 }
-/** 是否为「一级且有子级」（用于禁用「设为其它节点的下级」这类非法操作） */
-function isRootWithChildren(k: any) {
-  return !k.parent_id && kpList.value.some((x: any) => x.parent_id === k.id)
-}
-
 // ===== 智能组卷（按条件自动抽题）=====
 const showSmart = ref(false)
 const smart = reactive({
@@ -507,17 +544,17 @@ async function smartAssemble() {
           <el-button text @click="showAnswer = !showAnswer" :icon="showAnswer ? 'View' : 'Hide'">{{ showAnswer ? '隐藏答案' : '显示答案' }}</el-button>
         </div>
 
-        <!-- 知识点管理（v4.8.25：两级封顶，对齐组卷网） -->
+        <!-- 知识点管理（v4.18.4：无限层级） -->
         <div v-if="showKpManager" class="kp-manager glass">
           <div class="kp-hint">
-            知识点为**两级结构**：一级＝章/模块（如「力学」），二级＝具体知识点（如「牛顿第二定律」）。
-            出题时打二级标签，点一级即可查出其下全部题目。
+            知识点支持**无限层级**：一级＝章/模块（如「力学」），二级＝节（如「牛顿第二定律」），还可继续向下细分。
+            出题时给具体节点打标签，点任意上级即可查出其下**全部子孙节点**的题目。
           </div>
           <div class="kp-add">
             <el-input v-model="kpForm.name" placeholder="知识点名称" style="width:190px" @keyup.enter="createKp" />
-            <el-select v-model="kpForm.parent_id" placeholder="上级（留空＝一级）" clearable filterable style="width:190px">
-              <!-- 【v4.8.25】只能选一级节点作上级 —— 二级不能再挂子级（2 级封顶） -->
-              <el-option v-for="k in rootKpOptions" :key="k.id" :label="`${k.name}（一级）`" :value="k.id" />
+            <el-select v-model="kpForm.parent_id" placeholder="上级（留空＝顶级）" clearable filterable style="width:220px">
+              <!-- 【v4.18.4】无限层级：任意节点都可作上级（标签带层级与缩进） -->
+              <el-option v-for="k in allKpOptions" :key="k.id" :label="k.label" :value="k.id" />
             </el-select>
             <el-input-number v-model="kpForm.sort" :min="0" :max="999" size="default" style="width:110px" />
             <el-button type="primary" @click="createKp" icon="Plus">添加</el-button>
@@ -532,14 +569,14 @@ async function smartAssemble() {
                   size="small"
                   clearable
                   filterable
-                  placeholder="一级"
-                  style="width:150px"
-                  :disabled="isRootWithChildren(k)"
+                  placeholder="顶级"
+                  style="width:170px"
                 >
+                  <!-- 【v4.18.4】可移到任意节点下（排除自身与子孙，防环）；后端同样校验 -->
                   <el-option
-                    v-for="p in rootKpOptions.filter((x:any) => x.id !== k.id)"
+                    v-for="p in kpParentOptionsFor(k)"
                     :key="p.id"
-                    :label="`${p.name}（一级）`"
+                    :label="p.label"
                     :value="p.id"
                   />
                 </el-select>
@@ -549,8 +586,7 @@ async function smartAssemble() {
               <!-- 展示态 -->
               <template v-else>
                 <span class="kp-item-name">
-                  <el-tag v-if="!k.parent_id" size="small" effect="plain" type="info">一级</el-tag>
-                  <el-tag v-else size="small" effect="plain" type="warning">二级</el-tag>
+                  <el-tag size="small" effect="plain" :type="k.parent_id ? 'warning' : 'info'">{{ kpLevelLabel(k) }}</el-tag>
                   {{ k.name }}
                 </span>
                 <el-button size="small" text @click="startEditKp(k)" icon="Edit" title="编辑 / 调整上级" />
@@ -589,7 +625,7 @@ async function smartAssemble() {
             <div class="q-content zg-rich" v-html="renderMarkdown(q.content)" />
             <div v-if="['single','multiple','judge'].includes(q.qtype)" class="q-options">
               <div v-for="(o, i) in (q.options || [])" :key="i" class="q-opt">
-                <b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" />
+                <b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" />
               </div>
             </div>
             <div v-if="q.knowledge_points?.length" class="q-kp">
@@ -811,7 +847,7 @@ async function smartAssemble() {
              是用户反馈「点开预览跟不在预览状态显示不一样」的根因）。 -->
         <div class="d-content q-content zg-rich" v-html="renderMarkdown(detail.content)" />
         <div v-if="['single','multiple','judge'].includes(detail.qtype)" class="q-options">
-          <div v-for="(o, i) in (detail.options || [])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(o)" /></div>
+          <div v-for="(o, i) in (detail.options || [])" :key="i" class="q-opt"><b>{{ 'ABCDEFGH'[i] }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" /></div>
         </div>
         <div class="q-answer">
           <div class="qa-row"><b>答案：</b><span v-html="renderMarkdown(detail.answer || '（未填写）')" /></div>

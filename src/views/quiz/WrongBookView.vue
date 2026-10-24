@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
-import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt, wrapBareLatex } from '@/utils/markdown'
 
 import ZgGlyph from '@/components/ZgGlyph.vue'
 
@@ -80,7 +80,7 @@ onMounted(load)
           </div>
           <div v-if="expanded[q.id]" class="wq-detail">
             <div class="row"><b>题目：</b><span class="zg-rich" v-html="renderMarkdown(q.content || '—')" /></div>
-            <div class="row" v-if="q.options?.length"><b>选项：</b><span v-for="(o, oi) in q.options" :key="oi" class="wq-opt"><b>{{ 'ABCDEFGH'[oi] }}.</b> <span v-html="renderMarkdown(o)" /></span></div>
+            <div class="row" v-if="q.options?.length"><b>选项：</b><span v-for="(o, oi) in q.options" :key="oi" class="wq-opt"><b>{{ 'ABCDEFGH'[oi] }}.</b> <span v-html="renderMarkdown(wrapBareLatex(o))" /></span></div>
             <div class="row"><b>参考答案：</b><span v-html="renderMarkdown(q.answer || '—')" /></div>
             <div class="row" v-if="q.analysis"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>
             <el-button type="primary" size="small" :icon="'Refresh'" @click="repractice(q.id)">重练此题</el-button>

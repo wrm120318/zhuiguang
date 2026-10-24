@@ -568,7 +568,14 @@ async function uploadFile(file: File, type: 'image' | 'file') {
     const r: any = type === 'image' ? await api.uploadImage(file) : await api.uploadFile(file)
     const url = r.url
     if (type === 'image') {
-      insertAtCursor(`\n![${file.name}](${url})${imgSizeAttrs(r)}\n\n`)
+      // 【v4.18.4 修复「图片后面多出一个 =396x232 的无用格式」】
+      //   旧写法把 imgSizeAttrs 拼在**右括号外面**：`![alt](url) =396x232`。
+      //   而 imageSized 扩展只消费**括号内**的 ` =WxH`（见 marked-extensions.ts），
+      //   于是尺寸完全不生效，` =396x232` 还作为纯文本泄漏到题干/正文里
+      //   （用户原话：「图片传完之后 图片后面会多出一个数字*数字的无用格式」）。
+      //   现改为拼在括号内：`![alt](url =396x232)`，与 applyImageSize 拖拽回写
+      //   的产物格式严格一致。
+      insertAtCursor(`\n![${file.name}](${url}${imgSizeAttrs(r)})\n\n`)
       ElMessage.success('图片已上传并插入')
     } else {
       // 【v4.9.2 修复「上传统附件后点击提示『请先登录后下载』」】

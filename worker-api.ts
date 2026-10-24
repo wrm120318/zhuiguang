@@ -4401,17 +4401,23 @@ app.get('/api/subjects/:id/questions', auth, async (c) => {
   //     `WHERE knowledge_point_id = ?`
   //   → 点「力学」（一级）时，一道挂在「牛顿第二定律」（其子节点）上的题都查不出来，
   //     侧栏却显示父节点可点，用户体验就是「点了没反应 / 知识点是空的」。
-  //   组卷网的语义是**一级节点 = 其下所有二级节点的聚合**，故改为「本节点 OR 其直接子节点」。
-  //   本项目知识点层级为 2 级封顶（见下方 POST/PATCH 的层级校验），
-  //   因此一层 `parent_id = ?` 即可覆盖，无需递归 CTE（D1/SQLite 也更好优化）。
+  //   组卷网的语义是**父节点 = 其下所有子孙节点的聚合**，故改为递归聚合。
+  //   【v4.18.4】层级从 2 级封顶放开为**无限层级**（用户要求），
+  //     一层 `parent_id = ?` 只能覆盖直接子级，深处（三级及以下）的题会漏，
+  //     故改用 `WITH RECURSIVE` 递归 CTE 取「本节点 + 全部后代」。
+  //     D1/SQLite 原生支持；知识点树规模有限（百级），递归成本可忽略。
   if (q.knowledge_point_id) {
     const kpId = Number(q.knowledge_point_id)
     where.push(`sq.id IN (
+      WITH RECURSIVE kp_tree AS (
+        SELECT id FROM knowledge_points WHERE id = ?
+        UNION ALL
+        SELECT kp.id FROM knowledge_points kp JOIN kp_tree t ON kp.parent_id = t.id
+      )
       SELECT qk.question_id FROM question_knowledge qk
-      JOIN knowledge_points kp ON kp.id = qk.knowledge_point_id
-      WHERE qk.knowledge_point_id = ? OR kp.parent_id = ?
+      WHERE qk.knowledge_point_id IN (SELECT id FROM kp_tree)
     )`)
-    args.push(kpId, kpId)
+    args.push(kpId)
   }
   if (q.qtype) { where.push('sq.qtype=?'); args.push(q.qtype) }
   if (q.difficulty) { where.push('sq.difficulty=?'); args.push(Number(q.difficulty)) }
@@ -5939,15 +5945,16 @@ app.post('/api/subjects/:subjectId/suggest-kp-batch', auth, requireStaff, async 
 
 // ==============================================================================
 // ============ 【v4.5.0】知识点（层级树）============
-// 【v4.8.25 对齐组卷网】本项目知识点层级**固定 2 级封顶**：
-//   · 一级 = 章 / 模块（如「力学」），作聚合标签，不再挂子级
-//   · 二级 = 具体知识点（如「牛顿第二定律」），出题时真正打标的层级
-//   组卷网交互语义：**点一级 = 查其下所有二级的题**（聚合查询，见上方筛选 SQL）。
-//   之所以硬性限制 2 级：「点父节点聚合子节点」若允许无限层级就需要递归 CTE，
-//   D1 上性能与可维护性都变差，而教学场景（章 → 节）2 级已足够。
+// 【v4.18.4】层级从 2 级封顶放开为**无限层级**（用户明确要求：
+//   「题库的知识点结构要支持无限层 无限级 而不是像现在一样只支持两级」）。
+//   · 一级 = 章 / 模块，二级 = 节，三级及以下 = 更细的子目……深度不限
+//   · 组卷网交互语义不变：**点父节点 = 查其下所有子孙的题**（递归聚合，
+//     见上方筛选 SQL 的 WITH RECURSIVE kp_tree）
+//   · 唯一硬约束：**不能成环**（不能把自己/自己的子孙设为上级），
+//     由 validateKpParent 沿 parent_id 上溯检测
 // ==============================================================================
 
-/** 【v4.8.25】校验知识点层级：父节点必须存在、属于同一学科、且自身不能再有父级 */
+/** 【v4.18.4】校验知识点上级：必须存在、属于同一学科，且不能是自己或自己的子孙（防环） */
 async function validateKpParent(subjectId: number, parentId: any, selfId?: number): Promise<string | null> {
   if (parentId === null || parentId === undefined || parentId === '') return null
   const pid = Number(parentId)
@@ -5956,7 +5963,19 @@ async function validateKpParent(subjectId: number, parentId: any, selfId?: numbe
   const parent = await get<any>('SELECT id, subject_id, parent_id FROM knowledge_points WHERE id=?', pid)
   if (!parent) return '上级知识点不存在'
   if (Number(parent.subject_id) !== Number(subjectId)) return '上级知识点不属于本学科'
-  if (parent.parent_id) return '知识点最多支持两级（当前选择的上级本身已是子级）'
+  // 无限层级下的唯一硬约束：沿 parent_id 链上溯，若途经自己 → 会把整棵子树
+  // 挂到自己的后代下面，形成环（父节点查询/递归聚合都会死循环）。
+  if (selfId) {
+    let cur: number | null = pid
+    const seen = new Set<number>()
+    while (cur) {
+      if (seen.has(cur)) break                    // 脏数据已成环：中止上溯，放行（不误伤）
+      seen.add(cur)
+      if (cur === Number(selfId)) return '不能把知识点移动到它自己的下级（会形成循环）'
+      const row = await get<any>('SELECT parent_id FROM knowledge_points WHERE id=?', cur)
+      cur = row?.parent_id ? Number(row.parent_id) : null
+    }
+  }
   return null
 }
 
@@ -5974,7 +5993,7 @@ app.post('/api/subjects/:id/knowledge-points', auth, async (c) => {
   }
   const b = await c.req.json()
   if (!b.name?.trim()) return c.json({ message: '知识点名称不能为空' }, 400)
-  // 【v4.8.25】层级校验：最多两级
+  // 【v4.18.4】层级校验：无限层级，仅校验上级存在/同学科（新建无自身，无环风险）
   const bad = await validateKpParent(sid, b.parent_id)
   if (bad) return c.json({ message: bad }, 400)
   // 【v4.8.25】同级重名拦截（组卷网同样不允许，否则筛选时无法区分）
@@ -6001,15 +6020,12 @@ app.patch('/api/knowledge-points/:id', auth, async (c) => {
     return c.json({ message: '只有超管和本学科教师可以编辑知识点' }, 403)
   }
   const b = await c.req.json()
-  // 【v4.8.25】层级校验（编辑时排除自身）
+  // 【v4.18.4】层级校验（编辑时排除自身 + 防环：不能挂到自己的子孙下）
+  //   【移除 v4.8.25 的二级限制】原「已有子知识点不能再设为下级」是为 2 级封顶
+  //   防第 3 级；无限层级下深树移动是正常操作，唯一硬约束是防环（validateKpParent 已管）
   if (b.parent_id !== undefined) {
     const bad = await validateKpParent(kp.subject_id, b.parent_id, id)
     if (bad) return c.json({ message: bad }, 400)
-    // 若要把「已有子节点的一级」降为二级，会形成第 3 级 → 拒绝
-    if (b.parent_id) {
-      const child = await get<any>('SELECT id FROM knowledge_points WHERE parent_id=? LIMIT 1', id)
-      if (child) return c.json({ message: '该知识点下已有子知识点，不能再设为其它知识点的下级' }, 400)
-    }
   }
   const newName = b.name?.trim() || null
   // 【v4.8.25】同级重名拦截

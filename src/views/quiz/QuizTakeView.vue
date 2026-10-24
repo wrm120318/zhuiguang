@@ -12,7 +12,7 @@ import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 
-import { renderMarkdown as renderMd } from '@/utils/markdown'
+import { renderMarkdown as renderMd, wrapBareLatex } from '@/utils/markdown'
 import { attachmentUrl } from '@/utils/helpers'
 
 const router = useRouter()
@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
             class="q-opt" :class="{ on: answers[q.id] === String.fromCharCode(65 + idx) }"
             @click="setAnswer(q.id, String.fromCharCode(65 + idx))">
             <span class="qo-letter">{{ String.fromCharCode(65 + idx) }}</span>
-            <span v-html="renderMd(opt)"></span>
+            <span v-html="renderMd(wrapBareLatex(opt))"></span>
           </div>
         </div>
       </template>
@@ -436,7 +436,7 @@ onBeforeUnmount(() => {
             class="q-opt" :class="{ on: (answers[q.id] || '').split(',').includes(String.fromCharCode(65 + idx)) }"
             @click="toggleMulti(q.id, String.fromCharCode(65 + idx))">
             <span class="qo-letter">{{ String.fromCharCode(65 + idx) }}</span>
-            <span v-html="renderMd(opt)"></span>
+            <span v-html="renderMd(wrapBareLatex(opt))"></span>
           </div>
         </div>
       </template>
