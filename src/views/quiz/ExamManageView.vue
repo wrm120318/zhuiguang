@@ -130,7 +130,7 @@
           <div class="d-q-head"><b>{{ i + 1 }}.</b> <span class="qtype-dot" :style="{ background: qtypeColor(q.qtype) }">{{ qtypeLabel(q.qtype) }}</span> <span class="d-score">{{ q.score }}分</span></div>
           <div class="d-q-body" v-html="renderMarkdown(q.content)" />
           <div v-if="q.options && q.options.length" class="d-opts">
-            <div v-for="(o, oi) in q.options" :key="oi" class="d-opt"><b>{{ letter(oi) }}.</b> {{ o }}</div>
+            <div v-for="(o, oi) in q.options" :key="oi" class="d-opt"><b>{{ letter(oi) }}.</b> <span v-html="renderMarkdown(o)"></span></div>
           </div>
         </div>
       </div>

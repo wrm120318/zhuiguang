@@ -56,10 +56,22 @@ export function renderMarkdownPreserveSpaces(src: string): string {
     .replace(/javascript:/gi, '')
 }
 
-/** 截取 markdown 纯文本摘要 */
+/**
+ * 截取 markdown 纯文本摘要。
+ * 【v4.18.2】公式/图片整体替换为占位符（（公式）（图）），避免：
+ *   ① 摘要里泄漏 `$\boldsymbol{...}$` LaTeX 源码；
+ *   ② 先 slice 再渲染把公式从中间截断（KaTeX 渲染失败裸奔）——
+ *      本函数只产纯文本，从根上没有「截断半个公式」的问题。
+ */
 export function mdExcerpt(src: string, len = 120): string {
   if (!src) return ''
-  const text = (src as string).replace(/<[^>]+>/g, '').replace(/[#*`>\-!\[\]()]/g, '').replace(/\s+/g, ' ').trim()
+  const text = (src as string)
+    .replace(/<[^>]+>/g, '')                     // HTML 标签
+    .replace(/\$\$[\s\S]*?\$\$/g, '（公式）')      // 块级公式
+    .replace(/\$[^$\n]*\$/g, '（公式）')           // 行内公式
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '（图）')     // 图片
+    .replace(/[#*`>\-!\[\]()]/g, '')
+    .replace(/\s+/g, ' ').trim()
   return text.length > len ? text.slice(0, len) + '…' : text
 }
 

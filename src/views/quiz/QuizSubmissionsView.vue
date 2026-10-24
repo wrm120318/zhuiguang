@@ -124,6 +124,14 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
         </div>
         <div class="q-content markdown-body zg-rich" v-html="renderMd(q.content)"></div>
 
+        <!-- 【v4.18.2】客观题选项：以前只显示「学生答案 B / 正确答案 C」，
+            教师看不到 B、C 对应什么内容（公式题尤其抓瞎），这里补全 -->
+        <div v-if="q.options?.length" class="q-opts">
+          <div v-for="(o, oi) in q.options" :key="oi" class="q-opt">
+            <b>{{ 'ABCDEFGH'[oi] }}.</b> <span class="markdown-body zg-rich" v-html="renderMd(o)"></span>
+          </div>
+        </div>
+
         <template v-if="q.qtype !== 'subjective'">
           <div class="q-line">学生答案：<b>{{ activeSub.answers?.answers?.[q.id] || '未作答' }}</b></div>
           <div class="q-line">正确答案：<span class="markdown-body zg-rich" v-html="renderMd(q.answer)"></span></div>
@@ -186,6 +194,10 @@ function qTypeLabel(t: string) { return t === 'single' ? '单选' : t === 'multi
 .q-score { margin-left: auto; color: var(--zg-accent); font-size: 13px; }
 .q-content { font-size: 15px; line-height: 1.8; margin-bottom: 10px; }
 .q-content :deep(img) { max-width: 100%; border-radius: 10px; }
+/* 【v4.18.2】客观题选项区 */
+.q-opts { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; }
+.q-opt { font-size: 14px; line-height: 1.6; }
+.q-opt b { margin-right: 2px; }
 .q-line { font-size: 13px; color: var(--zg-text-dim); margin: 6px 0; }
 .q-answer, .q-ref { padding: 12px; background: rgba(var(--zg-primary-rgb),.06); border-radius: 8px; font-size: 14px; line-height: 1.7; }
 .q-ref { background: rgba(16,185,129,.06); }

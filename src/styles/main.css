@@ -479,7 +479,15 @@ html.zg-inkgold.zg-inkgold-dark .el-textarea__inner:focus-visible { outline: non
 .el-switch.is-checked .el-switch__core { background-color: var(--zg-primary) !important; border-color: var(--zg-primary) !important; }
 .el-color-picker__trigger { border-color: rgba(245,158,11,0.3) !important; }
 .el-form-item__label { color: var(--zg-text) !important; font-size: var(--zg-fs-sm) !important; }
-.el-message { top: auto !important; bottom: 24px !important; left: 24px !important; background: rgba(255,251,235,0.82) !important; backdrop-filter: blur(16px) saturate(180%) !important; -webkit-backdrop-filter: blur(16px) saturate(180%) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.14) !important; z-index: 99999 !important; animation: zgMsgIn 0.35s cubic-bezier(0.2,0.8,0.2,1) !important; max-width: 360px !important; }
+/* 【v4.18.2】左下角 ElMessage 出屏修复：
+   EP 默认 .el-message 是 top 居中定位，自带 transform: translateX(-50%)（配合 left:50% 居中）。
+   本项目覆盖 left:24px 把它移到左下角，但 translateX(-50%) 未清除 —— 元素被再向左平移
+   半个自身宽度（实测 left=-33px，整条提示约 1/3 在屏幕外）。zgMsgIn 动画播放期间
+   transform 被动画覆盖所以看似正常，0.35s 动画一结束就左偏出屏（用户报「弹窗左半部分
+   弹出屏幕边缘」的正是它）。补 transform: none !important 根治。
+   注意：不能写 translateX(0) 到 @keyframes 的 to —— animation 结束后会回到普通声明，
+   所以必须显式覆盖 transform 本身。 */
+.el-message { top: auto !important; bottom: 24px !important; left: 24px !important; transform: none !important; background: rgba(255,251,235,0.82) !important; backdrop-filter: blur(16px) saturate(180%) !important; -webkit-backdrop-filter: blur(16px) saturate(180%) !important; color: var(--zg-text) !important; border: 1px solid rgba(245,158,11,0.2) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.14) !important; z-index: 99999 !important; animation: zgMsgIn 0.35s cubic-bezier(0.2,0.8,0.2,1) !important; max-width: 360px !important; }
 .el-message--error { border-color: #f87171 !important; }
 .el-message--success { border-color: #34d399 !important; }
 .el-message-fade-leave-active { transition: all 0.3s ease !important; }

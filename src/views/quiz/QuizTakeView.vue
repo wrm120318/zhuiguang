@@ -199,7 +199,7 @@ async function submit() {
             class="q-opt" :class="{ on: answers[q.id] === String.fromCharCode(65 + idx) }"
             @click="setAnswer(q.id, String.fromCharCode(65 + idx))">
             <span class="qo-letter">{{ String.fromCharCode(65 + idx) }}</span>
-            <span>{{ opt }}</span>
+            <span v-html="renderMd(opt)"></span>
           </div>
         </div>
       </template>
@@ -210,7 +210,7 @@ async function submit() {
             class="q-opt" :class="{ on: (answers[q.id] || '').split(',').includes(String.fromCharCode(65 + idx)) }"
             @click="toggleMulti(q.id, String.fromCharCode(65 + idx))">
             <span class="qo-letter">{{ String.fromCharCode(65 + idx) }}</span>
-            <span>{{ opt }}</span>
+            <span v-html="renderMd(opt)"></span>
           </div>
         </div>
       </template>

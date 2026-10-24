@@ -4,7 +4,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
 
 import ZgGlyph from '@/components/ZgGlyph.vue'
 import DocxExportPanel from '@/components/DocxExportPanel.vue'
@@ -369,7 +369,7 @@ onMounted(async () => {
           <div class="pool">
             <div v-for="q in filteredPool" :key="q.id" class="pool-item" @click="addManual(q)">
               <span class="tag" :class="q.qtype">{{ QLABEL[q.qtype] || q.qtype }}</span>
-              <span class="txt" v-html="renderMarkdown(String(q.content).slice(0, 60))" />
+              <span class="txt">{{ mdExcerpt(String(q.content), 60) }}</span>
               <span class="add">＋</span>
             </div>
             <p v-if="!filteredPool.length" class="muted center">无匹配题目</p>
@@ -461,7 +461,7 @@ onMounted(async () => {
         <div class="slide-meta">第 {{ slideIdx + 1 }} / {{ slideTotal }} 题 · {{ QLABEL[paper[slideIdx].qtype] }} · {{ paper[slideIdx].score }} 分</div>
         <div class="slide-body" v-html="renderMarkdown(paper[slideIdx].content)" />
         <div v-if="paper[slideIdx].options?.length" class="slide-opts">
-          <div v-for="(o, oi) in paper[slideIdx].options" :key="oi" class="so"><b>{{ String.fromCharCode(65 + oi) }}.</b> {{ o }}</div>
+          <div v-for="(o, oi) in paper[slideIdx].options" :key="oi" class="so"><b>{{ String.fromCharCode(65 + oi) }}.</b> <span v-html="renderMarkdown(o)"></span></div>
         </div>
       </div>
       <template #footer>

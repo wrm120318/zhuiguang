@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { api } from '@/api'
 // 【v4.15.0】模型清单改为从共享层 import —— 单一数据源，杜绝前后端漂移（铁律#11）
 import { CF_MODEL_CHOICES, CF_FREE_DAILY_NEURONS, BUDGET_MODEL_CF } from '@shared/ai-paper'
+import { renderMarkdown } from '@/utils/markdown'
 
 // ============================================================================
 // 【v4.13.0】AI 设置
@@ -818,12 +819,12 @@ function scrollToZhipu() {
             <el-tag size="small">{{ q.qtype }}</el-tag>
             <span class="tq-score">{{ q.score }} 分</span>
           </div>
-          <div class="tq-content">{{ q.content }}</div>
+          <div class="tq-content zg-rich" v-html="renderMarkdown(q.content)"></div>
           <div v-if="q.options?.length" class="tq-opts">
-            <div v-for="(o, j) in q.options" :key="j">{{ String.fromCharCode(65 + j) }}. {{ o }}</div>
+            <div v-for="(o, j) in q.options" :key="j" class="zg-rich"><b>{{ String.fromCharCode(65 + j) }}.</b> <span v-html="renderMarkdown(o)"></span></div>
           </div>
-          <div v-if="q.answer" class="tq-line"><b>答案</b>：{{ q.answer }}</div>
-          <div v-if="q.analysis" class="tq-line"><b>解析</b>：{{ q.analysis }}</div>
+          <div v-if="q.answer" class="tq-line zg-rich"><b>答案</b>：<span v-html="renderMarkdown(q.answer)"></span></div>
+          <div v-if="q.analysis" class="tq-line zg-rich"><b>解析</b>：<span v-html="renderMarkdown(q.analysis)"></span></div>
         </div>
       </div>
 

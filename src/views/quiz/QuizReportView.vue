@@ -231,7 +231,7 @@ const maxRangeCount = computed(() => Math.max(1, ...tRanges.value.map((r: any) =
                 'mine-wrong': (sub?.answers?.answers?.[q.id] || '').split(',').includes(letter(idx)) && !q.answer.split(',').includes(letter(idx))
               }">
               <span class="qo-letter">{{ letter(idx) }}</span>
-              <span>{{ opt }}</span>
+              <span v-html="renderMd(opt)"></span>
               <span class="qo-tag" v-if="q.answer.split(',').includes(letter(idx))"><ZgGlyph emoji="✓" /> 正确</span>
               <span class="qo-tag wrong" v-if="(sub?.answers?.answers?.[q.id] || '').split(',').includes(letter(idx)) && !q.answer.split(',').includes(letter(idx))">你的选择</span>
             </div>

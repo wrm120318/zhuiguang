@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
+import { mdExcerpt } from '@/utils/markdown'
 
 import ZgGlyph from '@/components/ZgGlyph.vue'
 
@@ -177,7 +178,7 @@ onMounted(async () => {
         <el-table :data="data.topWrong || []" stripe size="small" empty-text="暂无错题数据">
           <el-table-column label="序号" type="index" width="56" />
           <el-table-column label="题干" min-width="280">
-            <template #default="{ row }"><span v-html="row.content?.slice(0, 80)" /></template>
+            <template #default="{ row }"><span :title="row.content">{{ mdExcerpt(row.content, 80) }}</span></template>
           </el-table-column>
           <el-table-column label="题型" width="80"><template #default="{ row }">{{ ({single:'单选',multiple:'多选',judge:'判断',fill:'填空',subjective:'主观'} as any)[row.qtype] || row.qtype }}</template></el-table-column>
           <el-table-column label="知识点" prop="kpName" width="120" />

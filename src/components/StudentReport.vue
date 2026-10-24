@@ -18,7 +18,7 @@
 //   · api.myExams / examResponses → 班级排名（前端算，避免后端改造）
 import { ref, computed, watch, nextTick } from 'vue'
 import { api } from '@/api'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
 
 import * as echarts from 'echarts/core'
 import { RadarChart, LineChart } from 'echarts/charts'
@@ -292,7 +292,7 @@ function toggle(id: number) { expanded.value[id] = !expanded.value[id] }
               <div class="rq-row" @click="toggle(q.id)">
                 <span class="rq-idx">{{ q.idx }}</span>
                 <span class="rq-type">{{ qtypeLabel(q.qtype) }}</span>
-                <span class="rq-text">{{ String(q.content || '').replace(/[#*`>]/g, '').slice(0, 48) }}</span>
+                <span class="rq-text">{{ mdExcerpt(String(q.content || ''), 48) }}</span>
                 <span class="rq-score">
                   <b>{{ q.got === null ? '—' : q.got }}</b> / {{ q.full }}
                 </span>

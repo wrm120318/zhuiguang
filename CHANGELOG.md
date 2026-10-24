@@ -5,6 +5,64 @@
 
 ---
 
+## [v4.18.2] - 2026-10-20
+
+### 主题：公式（LaTeX/KaTeX）Markdown 渲染批量修复 + 左下角消息弹窗出屏修复
+
+> 用户原话：「**1.$\boldsymbol{\underline{\quad\quad}}$ 的markdown格式没有被渲染**
+> **2.弹窗 的左半部分 弹出了屏幕边缘 导致内容完全有部分看不到**」
+> 「**弹窗指的是 左下角的消息**」
+
+#### 一、公式不渲染：批量修复（排查全站，不放过一处）
+
+**根因**：`renderMarkdown` 渲染链本身完好（实测 `$\boldsymbol{\underline{\quad\quad}}$ 等用例全部产出完整 katex 结构），
+真正缺口是**调用点**——题干/选项用 `{{ }}` 裸插值（完全不过 Markdown），
+以及多处「先 `.slice()` 截断再渲染」会把公式从中间切开导致 KaTeX 渲染失败。
+
+| # | 界面 | 文件 | 修复前 | 修复后 |
+|---|---|---|---|---|
+| 1 | 学生参加考试（单选/判断） | `quiz/QuizTakeView.vue` | 选项 `{{ opt }}` 裸插值 | `v-html="renderMd(opt)"` |
+| 2 | 学生参加考试（多选） | 同上 | 同上 | 同上 |
+| 3 | 单题训练（单选/判断） | `quiz/PracticeTakeView.vue` | 选项 `{{ opt }}` 裸插值 | `v-html="md(opt)"` |
+| 4 | 单题训练（多选） | 同上 | 同上 | 同上 |
+| 5 | 考试报告（学生端） | `quiz/QuizReportView.vue` | 选项 `{{ opt }}` 裸插值 | `v-html="renderMd(opt)"` |
+| 6 | 考试详情抽屉 | `quiz/ExamManageView.vue` | 选项 `{{ o }}` 裸插值 | `v-html="renderMarkdown(o)"` |
+| 7 | 组卷幻灯播放 | `quiz/AssembleView.vue` | 选项 `{{ o }}` 裸插值 | `v-html="renderMarkdown(o)"` |
+| 8 | 学情分析·高频错题表 | `quiz/AnalyticsView.vue` | `v-html="content.slice(0,80)"`（不渲染且截断 HTML） | `mdExcerpt(content, 80)` 纯文本 + title 悬浮全文 |
+| 9 | AI 识别题目预览 | `admin/AiSettingsView.vue` | 题干/选项/答案/解析 4 处裸插值 | 全部 `renderMarkdown` + zg-rich |
+| 10 | 题库点选列表 | `quiz/AssembleView.vue` | `renderMarkdown(content.slice(0,60))` 截断公式 | `mdExcerpt(content, 60)` |
+| 11 | 错题本折叠行 | `quiz/WrongBookView.vue` | `renderMarkdown(content.slice(0,90))` 截断公式 | `mdExcerpt(content, 90)` |
+| 12 | 错题本展开区 | 同上 | **展开也看不到完整题干**（永远截断 90 字）、无选项 | 补完整题干 + 选项渲染 |
+| 13 | 学生学情报告·逐题行 | `components/StudentReport.vue` | 内联 replace+slice（不清 `$`） | `mdExcerpt(content, 48)` |
+| 14 | 阅卷工作台·打分板 | `components/GradingWorkbench.vue` | 仅 60 字截断纯文本，**教师批阅时看不到完整题面与公式** | 补完整题干渲染块 |
+| 15 | 学生答卷查看 | `quiz/QuizSubmissionsView.vue` | **缺选项渲染**：只有「学生答案 B / 正确答案 C」，看不到 B、C 的内容 | 补客观题选项完整渲染 |
+| 16 | 学科论坛卡片摘要 | `views/SubjectForumView.vue` | stripMd 不清公式，泄漏 `$...$` 源码 | 公式降级为（公式） |
+| 17 | 公告列表卡摘要 | `views/AnnouncementsView.vue` | excerpt 只去 HTML 标签，泄漏 Markdown 源码 | 改用 `mdExcerpt` |
+
+**共用增强**：`utils/markdown.ts` 的 `mdExcerpt` 升级——公式整体降级为「（公式）」、图片降级「（图）」，
+从根上消除「截断半个公式」与「摘要泄漏 LaTeX 源码」两类问题（博客列表卡同步受益）。
+
+#### 二、左下角消息弹窗出屏修复
+
+**根因**：Element Plus 的 `.el-message` 默认 top 居中定位并带 `transform: translateX(-50%)`；
+本项目在 `main.css` 覆盖 `left:24px; bottom:24px` 把它移到左下角，但**没有清除 transform**——
+入场动画（`zgMsgIn` 0.35s）期间 transform 被动画覆盖所以看着正常，动画结束后元素左移半个身位出屏
+（实测 `left:-33px`，左半部分完全看不见）。
+
+**修复**：`.el-message` 规则补 `transform: none !important`。
+
+#### 三、验证
+
+- `npm run build`：vue-tsc 类型检查 + vite build 通过
+- 新增正式探针 `scripts/probe-md-render.mjs`：**27/27 通过**
+  - 渲染链：行内/块级/混合公式均产出完整 katex 结构、无 `$` 源码残留
+  - mdExcerpt：公式降级、截断边界不破损、图片/HTML/MD 符号清除、空值安全
+  - 静态扫描：全站「选项裸插值」「renderMarkdown(...slice...)」「v-html 切 content」三类危险模式**清零**
+  - 11 个修复文件的 import 完整性断言
+- 清理临时探针 `_tmp-probe-ui.mjs` / `_tmp-test-katex.mjs`
+
+---
+
 ## [v4.18.1] - 2026-10-20
 
 ### 主题：「参加考试」业务纠正（线上考试而非网阅录入）+ 经验类型英文显示批量修复

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
-import { renderMarkdown } from '@/utils/markdown'
+import { renderMarkdown, mdExcerpt } from '@/utils/markdown'
 
 import ZgGlyph from '@/components/ZgGlyph.vue'
 
@@ -75,10 +75,12 @@ onMounted(load)
         <div v-for="q in g.items" :key="q.id" class="wq">
           <div class="wq-top" @click="toggle(q.id)">
             <span class="qtag">{{ ({single:'单选',multiple:'多选',judge:'判断',fill:'填空',subjective:'主观'} as any)[q.qtype] || q.qtype }}</span>
-            <span class="qcontent" v-html="renderMarkdown(String(q.content).slice(0, 90))" />
+            <span class="qcontent">{{ mdExcerpt(String(q.content), 90) }}</span>
             <el-button text size="small">{{ expanded[q.id] ? '收起' : '展开' }}</el-button>
           </div>
           <div v-if="expanded[q.id]" class="wq-detail">
+            <div class="row"><b>题目：</b><span class="zg-rich" v-html="renderMarkdown(q.content || '—')" /></div>
+            <div class="row" v-if="q.options?.length"><b>选项：</b><span v-for="(o, oi) in q.options" :key="oi" class="wq-opt"><b>{{ 'ABCDEFGH'[oi] }}.</b> <span v-html="renderMarkdown(o)" /></span></div>
             <div class="row"><b>参考答案：</b><span v-html="renderMarkdown(q.answer || '—')" /></div>
             <div class="row" v-if="q.analysis"><b>解析：</b><span v-html="renderMarkdown(q.analysis)" /></div>
             <el-button type="primary" size="small" :icon="'Refresh'" @click="repractice(q.id)">重练此题</el-button>
@@ -105,6 +107,7 @@ onMounted(load)
 .qcontent.zg-rich { white-space: nowrap !important; }
 .wq-detail { margin-top: 8px; padding: 10px; background: rgba(var(--zg-primary-rgb), .06); border-radius: 10px; font-size: 14px; line-height: 1.7; }
 .wq-detail .row { margin-bottom: 6px; }
+.wq-detail .wq-opt { display: inline-block; margin-right: 14px; }
 /* 【v4.8.25】同上：保留块级，换行不再被内联化吃掉 */
 .wq-detail :deep(p) { margin: 0; }
 </style>

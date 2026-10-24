@@ -257,6 +257,9 @@ function shorten(s: string, n = 60) {
               <span class="gq-text">{{ shorten(q.content) }}</span>
               <span class="gq-max">/ {{ q.score }}</span>
             </div>
+            <!-- 【v4.18.2】完整题干（含公式渲染）：导航行只有 60 字截断纯文本，
+                教师批阅主观题时看不到完整题面与 LaTeX 公式，这里补全 -->
+            <div class="gq-full zg-rich" v-html="renderMarkdown(q.content || '')" />
             <div class="gq-chips">
               <button
                 v-for="v in scoreChips(q)" :key="v"
@@ -352,6 +355,9 @@ html.zg-inkgold-dark .gr-q { background: rgba(255, 255, 255, .05); }
 .gq-type { flex: none; font-size: 11px; padding: 0 5px; border-radius: 999px; background: rgba(var(--zg-primary-rgb, 245 158 11), .16); color: var(--zg-primary, #f59e0b); }
 .gq-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--zg-text-dim, #8a7a5e); }
 .gq-max { flex: none; color: var(--zg-text-dim, #8a7a5e); }
+/* 【v4.18.2】完整题干块：字号贴近导航行、公式可换行渲染 */
+.gq-full { font-size: 12.5px; line-height: 1.55; margin: -2px 0 8px; word-break: break-word; }
+.gq-full :deep(.katex) { font-size: 1em; }
 .gq-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip {
   min-width: 34px; height: 30px; padding: 0 8px; border-radius: 8px; cursor: pointer;

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useDataStore } from '@/store/data'
 import { api } from '@/api'
+import { mdExcerpt } from '@/utils/markdown'
 
 const router = useRouter()
 const user = useUserStore()
@@ -30,10 +31,9 @@ function scopeLabel(a: any) {
 }
 function scopeType(a: any) { return a.scope === 'site' ? 'success' : 'warning' }
 function canPost() { return user.isSuperAdmin || user.isTeacher }
-function excerpt(html: string) {
-  const text = (html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-  return text.length > 120 ? text.slice(0, 120) + '…' : text
-}
+// 【v4.18.2】公告正文是 Markdown（MarkdownEditor 录入），列表卡摘要统一走
+//   mdExcerpt：去标签/公式降级为（公式）/图片降级为（图），不再泄漏 md 源码
+function excerpt(md: string) { return mdExcerpt(md, 120) }
 
 // 需求2：超管切换置顶
 async function togglePin(a: any, e: Event) {

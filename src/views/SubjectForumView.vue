@@ -345,6 +345,8 @@ function stripMd(s: string) {
   if (!s) return ''
   return s
     .replace(/<[^>]*>/g, '')
+    .replace(/\$\$[\s\S]*?\$\$/g, '（公式）')
+    .replace(/\$[^$\n]*\$/g, '（公式）')
     .replace(/[#*_`>\-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
